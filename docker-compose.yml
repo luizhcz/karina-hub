@@ -67,6 +67,11 @@ services:
       OpenAI__ApiKey: ${OPENAI_API_KEY}
       OpenAI__DefaultModel: ${OPENAI_DEFAULT_MODEL:-gpt-4o}
 
+      # Document Intelligence
+      DocumentIntelligence__Endpoint: ${DOCUMENT_INTELLIGENCE_ENDPOINT:-https://efs-ai-hub-resource.cognitiveservices.azure.com}
+      DocumentIntelligence__ApiKey: ${DOCUMENT_INTELLIGENCE_API_KEY:-}
+      DocumentIntelligence__UseManagedIdentity: "false"
+
       # OpenTelemetry (desabilitado por padrão no compose — sem collector)
       OpenTelemetry__OtlpEndpoint: ""
 

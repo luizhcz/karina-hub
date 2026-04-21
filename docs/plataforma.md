@@ -566,7 +566,9 @@ src/EfsAiHub.Host.Api/Controllers/SystemController.cs
 
 ## 11. Document Intelligence
 
-### Modelos
+Integração com o [Azure AI Document Intelligence](https://learn.microsoft.com/azure/ai-services/document-intelligence/) para extração estruturada de texto, tabelas e metadados de documentos PDF.
+
+### Modelos de domínio
 
 ```
 src/EfsAiHub.Core.Agents/DocumentIntelligence/
@@ -574,24 +576,40 @@ src/EfsAiHub.Core.Agents/DocumentIntelligence/
 
 | Classe | Propósito |
 |--------|-----------|
-| `ExtractionJob` | Job de extração (status tracking) |
+| `ExtractionJob` | Job de extração com status tracking (created → running → succeeded/failed/cached) |
 | `ExtractionRequest` | Input: DocumentSource, Model, Features, CacheEnabled |
-| `ExtractionEvent` | Evento de auditoria por etapa |
-| `ExtractionCacheEntry` | Dedup por SHA-256 do conteúdo |
-| `DocumentSource` | URL com SAS token ou bytes base64 |
+| `ExtractionEvent` | Evento de auditoria por etapa (source_validated, file_validated, cache_hit/miss, gate_*, di_*, completed, failed) |
+| `ExtractionCacheEntry` | Dedup por SHA-256 do conteúdo + modelo + features |
+| `DocumentSource` | Suporta dois modos: `blobUrl` (URL HTTP/HTTPS) ou `bytes` (base64 inline) |
+
+### Interface do serviço
+
+```
+src/EfsAiHub.Core.Agents/DocumentIntelligence/IDocumentIntelligenceService.cs
+```
+
+| Método | Descrição |
+|--------|-----------|
+| `AnalyzeAsync(Uri, model, features, ct)` | Envia documento por URL — Azure DI faz download do documento |
+| `AnalyzeBytesAsync(byte[], model, features, ct)` | Envia documento como bytes — upload direto via `Base64Source` do SDK |
+
+Ambos retornam `DiAnalyzeResult` contendo:
+- `Content` — texto extraído em plain text (usado como input para agentes downstream)
+- `RawJson` — resposta completa do Azure DI (armazenada comprimida no Redis)
+- `PageCount`, `HasTables`, `HasHandwriting`, `PrimaryLanguage`, `DurationMs`
 
 ### Error Codes
 
 ```csharp
-public enum ExtractionErrorCode
+public static class ExtractionErrorCode
 {
-    PAGE_LIMIT_EXCEEDED,
-    UNREADABLE_PDF,
-    SOURCE_UNAVAILABLE,
-    AZURE_DI_FAILURE,
-    TIMEOUT,
-    GATE_TIMEOUT,
-    CANCELLED
+    FILE_SIZE_EXCEEDED,   // Arquivo excede MaxFileSizeBytes
+    UNREADABLE_PDF,       // PDF corrompido, magic bytes ausentes, ou base64 inválido
+    SOURCE_UNAVAILABLE,   // URL inacessível, bytes vazios, ou tipo de source não suportado
+    AZURE_DI_FAILURE,     // Erro do Azure DI (500, 401, 403, 429)
+    TIMEOUT,              // Timeout de polling do Azure DI
+    GATE_TIMEOUT,         // Timeout aguardando semaphore gate
+    CANCELLED             // Cancelado pelo workflow
 }
 ```
 
@@ -601,13 +619,33 @@ public enum ExtractionErrorCode
 src/EfsAiHub.Platform.Runtime/Functions/DocumentIntelligenceFunctions.cs
 ```
 
-Registrado como code executor no `ICodeExecutorRegistry`:
-- **Semaphore gate** para rate limiting (1 requisição concorrente)
-- **Page counting** via IronPdf antes de enviar ao Azure DI
-- **SHA-256 hashing** para dedup de documentos idênticos
-- **Redis caching** com compressão gzip (TTL configurável, default 7 dias)
-- **Estimativa de custo** por modelo
-- **Auditoria** de cada etapa via ExtractionEvent
+Registrado como `document_intelligence` no `ICodeExecutorRegistry`. Fluxo de execução:
+
+1. **Resolve source** → download (blobUrl) ou decode base64 (bytes)
+2. **Validação local** — verifica magic bytes `%PDF` e tamanho máximo (`MaxFileSizeBytes`, padrão 50 MB)
+3. **SHA-256 hash** — calcula hash do conteúdo para cache
+4. **Cache check** — busca no PostgreSQL (ExtractionCacheEntry) + Redis (content armazenado)
+5. **Semaphore gate** — controla concorrência (1 requisição por vez, configurable via `GateWaitTimeoutSeconds`)
+6. **Azure DI call** — `AnalyzeAsync` (URL) ou `AnalyzeBytesAsync` (bytes direto) com timeout configurável
+7. **Redis storage** — armazena resultado gzipado (`:full`), content plain text (`:content`), e metadados (`:meta`)
+8. **Cache upsert** — persiste entrada no PostgreSQL para futuras consultas
+9. **Cost tracking** — estima custo por modelo × páginas e integra com `ExecutionBudget`
+
+Características:
+- **Dois modos de envio**: URL (Azure DI faz download) ou bytes (upload direto via `Base64Source`)
+- **Cache em 3 camadas**: Redis `:full` (gzip), `:content` (plain text), `:meta` (JSON metadados)
+- **Autenticação dual**: API Key ou Managed Identity (configurável via `UseManagedIdentity`)
+- **Content no output**: o texto extraído é incluído no output do executor para ser consumido por agentes downstream
+
+### Estimativa de custo
+
+| Modelo | Custo/página |
+|--------|-------------|
+| `prebuilt-read` | US$ 0,0015 |
+| `prebuilt-layout` | US$ 0,01 |
+| `prebuilt-invoice` | US$ 0,01 |
+| `prebuilt-receipt` | US$ 0,01 |
+| Outros | US$ 0,01 |
 
 ### Configuração
 
@@ -618,11 +656,23 @@ src/EfsAiHub.Platform.Runtime/Options/DocumentIntelligenceOptions.cs
 | Propriedade | Default | Descrição |
 |-------------|---------|-----------|
 | `Endpoint` | — | Azure DI endpoint |
-| `UseManagedIdentity` | false | Usar Managed Identity |
-| `MaxPages` | 100 | Limite de páginas por documento |
+| `UseManagedIdentity` | true | Usar Managed Identity (false = API Key) |
+| `ApiKey` | null | Chave de API (obrigatória se `UseManagedIdentity=false`) |
+| `DefaultModel` | `prebuilt-layout` | Modelo padrão do Azure DI |
+| `MaxFileSizeBytes` | 50 MB | Tamanho máximo do arquivo PDF em bytes |
 | `PollingTimeoutSeconds` | 180 | Timeout de polling Azure DI |
 | `GateWaitTimeoutSeconds` | 600 | Timeout do semaphore gate |
 | `CacheTtlDays` | 7 | TTL do cache Redis |
+
+### Configuração Docker (docker-compose.yml)
+
+Para rodar localmente em Docker, o backend precisa das seguintes variáveis de ambiente (sem Managed Identity):
+
+```yaml
+DocumentIntelligence__Endpoint: ${DOCUMENT_INTELLIGENCE_ENDPOINT}
+DocumentIntelligence__ApiKey: ${DOCUMENT_INTELLIGENCE_API_KEY}
+DocumentIntelligence__UseManagedIdentity: "false"
+```
 
 ---
 
@@ -1012,7 +1062,7 @@ Configurado via `OpenTelemetry:OtlpEndpoint` — suporta Jaeger, Tempo, etc.
 | `CircuitBreakerOptions` | `LlmCircuitBreaker` | FailureThreshold (5), OpenDurationSeconds (30), HalfOpenTimeoutSeconds (10) |
 | `ChatRateLimitOptions` | `ChatRateLimit` | MaxMessages (10), WindowSeconds (60), per-conversation limits |
 | `ChatRoutingOptions` | `ChatRouting` | DefaultWorkflows (map userType → workflowId) |
-| `DocumentIntelligenceOptions` | `DocumentIntelligence` | Endpoint, MaxPages, timeouts, CacheTtlDays |
+| `DocumentIntelligenceOptions` | `DocumentIntelligence` | Endpoint, ApiKey, UseManagedIdentity, MaxFileSizeBytes, timeouts, CacheTtlDays |
 | `AdminOptions` | `Admin` | AccountIds (lista de admins) |
 | `ObservabilityOptions` | `OpenTelemetry` | ServiceName, OtlpEndpoint, EnableSensitiveData |
 | `OpenAIOptions` | `OpenAI` | ApiKey, OrgId |

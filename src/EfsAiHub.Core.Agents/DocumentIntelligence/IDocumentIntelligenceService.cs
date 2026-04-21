@@ -6,6 +6,7 @@ namespace EfsAiHub.Core.Agents.DocumentIntelligence;
 public interface IDocumentIntelligenceService
 {
     Task<DiAnalyzeResult> AnalyzeAsync(Uri sourceUri, string model, string[]? features, CancellationToken ct);
+    Task<DiAnalyzeResult> AnalyzeBytesAsync(byte[] content, string model, string[]? features, CancellationToken ct);
 }
 
 /// <summary>
@@ -14,6 +15,7 @@ public interface IDocumentIntelligenceService
 public record DiAnalyzeResult(
     string OperationId,
     string RawJson,
+    string Content,
     int PageCount,
     bool HasTables,
     bool HasHandwriting,

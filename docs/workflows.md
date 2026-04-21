@@ -31,6 +31,7 @@
 23. [API REST](#23-api-rest)
 24. [Persistência](#24-persistência)
 25. [Como Criar um Workflow](#25-como-criar-um-workflow)
+26. [Workflows Cadastrados](#26-workflows-cadastrados)
 
 ---
 
@@ -1447,6 +1448,70 @@ Eventos SSE em tempo real: `workflow_started → node_started → token → ... 
 - [ ] Enrichment rules para compliance (se aplicável)
 - [ ] Checkpoint mode adequado (Postgres para HITL cross-pod)
 - [ ] Concurrency limit se necessário (`maxConcurrentExecutions`)
+
+---
+
+## 26. Workflows Cadastrados
+
+### `classificacao-fato-relevante`
+
+| Campo | Valor |
+|-------|-------|
+| **Name** | Classificação de Fato Relevante |
+| **Mode** | Graph |
+| **Description** | Recebe PDF de fato relevante, extrai texto via Document Intelligence e classifica com score, categoria e resumo |
+| **InputMode** | Standalone |
+| **Account** | 011982329 |
+| **HITL** | disabled |
+| **Timeout** | 300s |
+
+**Agents:**
+
+| AgentId | Papel |
+|---------|-------|
+| `classificador-fato-relevante` | Classificador |
+
+**Executors:**
+
+| NodeId | Tipo |
+|--------|------|
+| `pdf-extract` | document_intelligence |
+
+**Edges:**
+
+| From | To | Tipo |
+|------|----|------|
+| `pdf-extract` | `classificador-fato-relevante` | Direct |
+
+**OutputNodes:** `[classificador-fato-relevante]`
+
+```json
+POST /api/workflows
+{
+  "id": "classificacao-fato-relevante",
+  "name": "Classificação de Fato Relevante",
+  "orchestrationMode": "Graph",
+  "agents": [
+    { "agentId": "classificador-fato-relevante" }
+  ],
+  "executors": [
+    { "nodeId": "pdf-extract", "type": "document_intelligence" }
+  ],
+  "edges": [
+    {
+      "from": "pdf-extract",
+      "to": "classificador-fato-relevante",
+      "edgeType": "Direct"
+    }
+  ],
+  "outputNodes": ["classificador-fato-relevante"],
+  "configuration": {
+    "inputMode": "Standalone",
+    "enableHumanInTheLoop": false,
+    "timeoutSeconds": 300
+  }
+}
+```
 
 ---
 

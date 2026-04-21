@@ -14,5 +14,5 @@ public class OpenAIOptions
     /// Modelo padrão para o provider OpenAI.
     /// Usado quando AgentDefinition.Model.DeploymentName está vazio.
     /// </summary>
-    public string DefaultModel { get; init; } = "gpt-4o";
+    public string DefaultModel { get; init; } = "gpt-5.4-mini";
 }

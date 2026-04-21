@@ -28,6 +28,7 @@
 20. [Knowledge Sources (RAG)](#20-knowledge-sources-rag)
 21. [Categorias de Erro](#21-categorias-de-erro)
 22. [Como Criar um Agente](#22-como-criar-um-agente)
+23. [Agentes Cadastrados](#23-agentes-cadastrados)
 
 ---
 
@@ -1385,6 +1386,63 @@ curl -X POST /api/agents/meu-agente/sandbox \
 | Tools function | Name obrigatório, nomes únicos |
 | Tools MCP | ServerLabel + ServerUrl + AllowedTools, URL HTTPS + health check |
 | StructuredOutput | Schema obrigatório para `json_schema` |
+
+---
+
+## 23. Agentes Cadastrados
+
+### `classificador-fato-relevante`
+
+| Campo | Valor |
+|-------|-------|
+| **Name** | Classificador de Fato Relevante |
+| **Model** | gpt-5.4-mini (OpenAI) |
+| **Temperature** | 0.1 |
+| **MaxTokens** | 2000 |
+| **StructuredOutput** | `json_schema` — schema `FatoRelevanteClassification` |
+| **Tools** | nenhuma |
+| **Middlewares** | nenhum |
+| **Domain** | capital-markets |
+| **Category** | document-analysis |
+
+**Schema `FatoRelevanteClassification`:**
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `score` | number (0–10) | Score de relevância |
+| `categoria` | enum | `Aquisicao`, `Alienacao`, `Dividendos`, `Reorganizacao`, `Endividamento`, `Governanca`, `Regulatorio`, `Operacional`, `Juridico`, `Outro` |
+| `resumo` | string | Resumo do fato relevante |
+
+```json
+PUT /api/agents/classificador-fato-relevante
+{
+  "id": "classificador-fato-relevante",
+  "name": "Classificador de Fato Relevante",
+  "model": { "deploymentName": "gpt-5.4-mini", "temperature": 0.1, "maxTokens": 2000 },
+  "provider": { "type": "OpenAI" },
+  "instructions": "Classifique o fato relevante extraído do PDF...",
+  "tools": [],
+  "middlewares": [],
+  "structuredOutput": {
+    "type": "json_schema",
+    "schemaName": "FatoRelevanteClassification",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "score": { "type": "number", "minimum": 0, "maximum": 10 },
+        "categoria": {
+          "type": "string",
+          "enum": ["Aquisicao", "Alienacao", "Dividendos", "Reorganizacao", "Endividamento", "Governanca", "Regulatorio", "Operacional", "Juridico", "Outro"]
+        },
+        "resumo": { "type": "string" }
+      },
+      "required": ["score", "categoria", "resumo"]
+    }
+  },
+  "domain": "capital-markets",
+  "category": "document-analysis"
+}
+```
 
 ---
 

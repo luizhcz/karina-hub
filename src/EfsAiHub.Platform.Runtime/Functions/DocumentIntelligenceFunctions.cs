@@ -10,8 +10,6 @@ using EfsAiHub.Core.Abstractions.Hashing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
-using IronPdf;
-
 namespace EfsAiHub.Platform.Runtime.Functions;
 
 /// <summary>
@@ -72,7 +70,7 @@ public class DocumentIntelligenceFunctions
         {
             // 1. Resolve source → bytes
             byte[] pdfBytes;
-            Uri sourceUri;
+            Uri? sourceUri = null;
             if (string.Equals(request.Source.Type, "blobUrl", StringComparison.OrdinalIgnoreCase))
             {
                 if (string.IsNullOrWhiteSpace(request.Source.Url))
@@ -106,7 +104,6 @@ public class DocumentIntelligenceFunctions
                 }
 
                 job.SourceType = "bytes";
-                sourceUri = new Uri("data:application/pdf;base64,placeholder");
             }
             else
             {
@@ -124,28 +121,22 @@ public class DocumentIntelligenceFunctions
 
             await _repo.InsertEventAsync(new ExtractionEvent(jobId, "source_validated", JsonSerializer.Serialize(new { sha256, sourceType = job.SourceType })), ct);
 
-            // 3. Count pages (IronPdf — local, barato)
-            int pageCount;
-            try
+            // 3. Validate file size (leve, sem dependências externas)
+            if (pdfBytes.Length > _options.MaxFileSizeBytes)
             {
-                using var pdfDoc = new PdfDocument(pdfBytes);
-                pageCount = pdfDoc.PageCount;
-            }
-            catch (Exception ex)
-            {
-                return BuildErrorOutput(job, ExtractionErrorCode.UnreadablePdf, $"PDF corrompido ou protegido: {ex.Message}");
+                return BuildErrorOutput(job, ExtractionErrorCode.FileSizeExceeded,
+                    $"Arquivo possui {pdfBytes.Length / (1024 * 1024.0):F1} MB. Limite máximo é {_options.MaxFileSizeBytes / (1024 * 1024.0):F0} MB.",
+                    new { actualSizeBytes = pdfBytes.Length, maxAllowedBytes = _options.MaxFileSizeBytes });
             }
 
-            job.PageCount = pageCount;
-            await _repo.InsertEventAsync(new ExtractionEvent(jobId, "page_count_validated",
-                JsonSerializer.Serialize(new { pageCount, limit = _options.MaxPages, passed = pageCount <= _options.MaxPages })), ct);
-
-            if (pageCount > _options.MaxPages)
+            // Validate PDF magic bytes
+            if (pdfBytes.Length < 5 || pdfBytes[0] != 0x25 || pdfBytes[1] != 0x50 || pdfBytes[2] != 0x44 || pdfBytes[3] != 0x46)
             {
-                return BuildErrorOutput(job, ExtractionErrorCode.PageLimitExceeded,
-                    $"Documento possui {pageCount} páginas. Limite máximo é {_options.MaxPages}.",
-                    new { actualPageCount = pageCount, maxAllowedPages = _options.MaxPages });
+                return BuildErrorOutput(job, ExtractionErrorCode.UnreadablePdf, "Arquivo não é um PDF válido (magic bytes ausentes).");
             }
+
+            await _repo.InsertEventAsync(new ExtractionEvent(jobId, "file_validated",
+                JsonSerializer.Serialize(new { sizeBytes = pdfBytes.Length, maxSizeBytes = _options.MaxFileSizeBytes })), ct);
 
             // 4. Cache check
             if (request.CacheEnabled)
@@ -156,15 +147,18 @@ public class DocumentIntelligenceFunctions
                     var redisKey = cached.ResultRef + ":full";
                     if (await _redis.ExistsAsync(redisKey))
                     {
+                        var cachedContent = await _redis.GetStringAsync(cached.ResultRef + ":content");
+
                         job.Status = "cached";
                         job.ResultRef = cached.ResultRef;
+                        job.PageCount = cached.PageCount;
                         job.CostUsd = 0m;
                         job.FinishedAt = DateTime.UtcNow;
                         await _repo.InsertJobAsync(job, ct);
                         await _repo.InsertEventAsync(new ExtractionEvent(jobId, "cache_hit", JsonSerializer.Serialize(new { resultRef = cached.ResultRef })), ct);
 
                         _logger.LogInformation("[DocIntel] Cache HIT para hash '{Hash}', model '{Model}'.", sha256[..12], request.Model);
-                        return BuildSuccessOutput(job, fromCache: true);
+                        return BuildSuccessOutput(job, fromCache: true, content: cachedContent);
                     }
                 }
                 await _repo.InsertEventAsync(new ExtractionEvent(jobId, "cache_miss"), ct);
@@ -195,7 +189,9 @@ public class DocumentIntelligenceFunctions
 
                 await _repo.InsertEventAsync(new ExtractionEvent(jobId, "di_submitted"), ct);
 
-                var result = await _diService.AnalyzeAsync(sourceUri, request.Model, request.Features, timeoutCts.Token);
+                var result = sourceUri is not null
+                    ? await _diService.AnalyzeAsync(sourceUri, request.Model, request.Features, timeoutCts.Token)
+                    : await _diService.AnalyzeBytesAsync(pdfBytes, request.Model, request.Features, timeoutCts.Token);
 
                 job.OperationId = result.OperationId;
                 await _repo.InsertEventAsync(new ExtractionEvent(jobId, "di_succeeded",
@@ -208,6 +204,7 @@ public class DocumentIntelligenceFunctions
                 var ttl = TimeSpan.FromDays(_options.CacheTtlDays);
 
                 await _redis.Database.StringSetAsync(fullKey, gzipped, ttl);
+                await _redis.SetStringAsync(resultRef + ":content", result.Content, ttl);
                 await _redis.SetStringAsync(resultRef + ":meta", JsonSerializer.Serialize(new
                 {
                     pageCount = result.PageCount,
@@ -219,11 +216,12 @@ public class DocumentIntelligenceFunctions
                 await _repo.InsertEventAsync(new ExtractionEvent(jobId, "pages_stored", JsonSerializer.Serialize(new { resultRef })), ct);
 
                 // 8. Upsert cache
+                job.PageCount = result.PageCount;
                 await _repo.UpsertCacheAsync(new ExtractionCacheEntry(
-                    sha256, request.Model, featuresHash, resultRef, pageCount, DateTime.UtcNow.Add(ttl)), ct);
+                    sha256, request.Model, featuresHash, resultRef, result.PageCount, DateTime.UtcNow.Add(ttl)), ct);
 
                 // 9. Cost + budget integration
-                var costUsd = EstimateCost(request.Model, pageCount);
+                var costUsd = EstimateCost(request.Model, result.PageCount);
                 ctx?.Budget.AddCost(costUsd);
 
                 job.CostUsd = costUsd;
@@ -237,9 +235,9 @@ public class DocumentIntelligenceFunctions
                     JsonSerializer.Serialize(new { costUsd, durationMs = job.DurationMs })), ct);
 
                 _logger.LogInformation("[DocIntel] Job '{JobId}' concluído: {Pages} páginas, custo ${Cost}, {DurationMs}ms.",
-                    jobId, pageCount, costUsd, job.DurationMs);
+                    jobId, result.PageCount, costUsd, job.DurationMs);
 
-                return BuildSuccessOutput(job, fromCache: false);
+                return BuildSuccessOutput(job, fromCache: false, content: result.Content);
             }
             finally
             {
@@ -278,7 +276,7 @@ public class DocumentIntelligenceFunctions
 
     // ── Helpers ─────────────────────────────────────────────────────────────
 
-    private string BuildSuccessOutput(ExtractionJob job, bool fromCache)
+    private string BuildSuccessOutput(ExtractionJob job, bool fromCache, string? content = null)
     {
         return JsonSerializer.Serialize(new
         {
@@ -289,6 +287,7 @@ public class DocumentIntelligenceFunctions
             cached = fromCache,
             costUsd = job.CostUsd,
             model = job.Model,
+            content,
             pageAccess = new
             {
                 fullKey = $"{job.ResultRef}:full",

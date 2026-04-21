@@ -24,7 +24,6 @@ public class DocumentIntelligenceFunctionsTests
     {
         Endpoint = "https://test.cognitiveservices.azure.com",
         DefaultModel = "prebuilt-layout",
-        MaxPages = 100,
         PollingTimeoutSeconds = 30,
         GateWaitTimeoutSeconds = 10,
         CacheTtlDays = 7,
@@ -111,15 +110,20 @@ public class DocumentIntelligenceFunctionsTests
 
     private void SetupDiServiceSuccess(int pages = 1)
     {
+        var diResult = new DiAnalyzeResult(
+            OperationId: "op-123",
+            RawJson: "{\"pages\":[]}",
+            Content: "Texto extraído do PDF de teste.",
+            PageCount: pages,
+            HasTables: false,
+            HasHandwriting: false,
+            PrimaryLanguage: "pt",
+            DurationMs: 500);
+
         _diService.AnalyzeAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<CancellationToken>())
-            .Returns(new DiAnalyzeResult(
-                OperationId: "op-123",
-                RawJson: "{\"pages\":[]}",
-                PageCount: pages,
-                HasTables: false,
-                HasHandwriting: false,
-                PrimaryLanguage: "pt",
-                DurationMs: 500));
+            .Returns(diResult);
+        _diService.AnalyzeBytesAsync(Arg.Any<byte[]>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<CancellationToken>())
+            .Returns(diResult);
     }
 
     [Fact]
@@ -139,7 +143,7 @@ public class DocumentIntelligenceFunctionsTests
         doc.RootElement.GetProperty("cached").GetBoolean().Should().BeFalse();
         doc.RootElement.GetProperty("pageCount").GetInt32().Should().Be(1);
 
-        await _diService.Received(1).AnalyzeAsync(Arg.Any<Uri>(), "prebuilt-layout", null, Arg.Any<CancellationToken>());
+        await _diService.Received(1).AnalyzeBytesAsync(Arg.Any<byte[]>(), "prebuilt-layout", null, Arg.Any<CancellationToken>());
         await _repo.Received(1).InsertJobAsync(Arg.Any<ExtractionJob>(), Arg.Any<CancellationToken>());
         await _repo.Received(1).UpdateJobAsync(Arg.Any<ExtractionJob>(), Arg.Any<CancellationToken>());
     }
@@ -160,21 +164,22 @@ public class DocumentIntelligenceFunctionsTests
         doc.RootElement.GetProperty("cached").GetBoolean().Should().BeTrue();
 
         await _diService.DidNotReceive().AnalyzeAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<CancellationToken>());
+        await _diService.DidNotReceive().AnalyzeBytesAsync(Arg.Any<byte[]>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Execute_ExceedsPageLimit_ReturnsError()
+    public async Task Execute_ExceedsFileSize_ReturnsError()
     {
         SetupExecutionContext();
-        var zeroPageOptions = new DocumentIntelligenceOptions
+        var tinyLimitOptions = new DocumentIntelligenceOptions
         {
             Endpoint = "https://test.cognitiveservices.azure.com",
-            MaxPages = 0, // any page count will exceed
+            MaxFileSizeBytes = 10, // any valid PDF will exceed
         };
         _redis.Database.Returns(_redisDb);
         _redis.BuildKey(Arg.Any<string>()).Returns(ci => "prefix:" + ci.Arg<string>());
         var opts = Substitute.For<IOptions<DocumentIntelligenceOptions>>();
-        opts.Value.Returns(zeroPageOptions);
+        opts.Value.Returns(tinyLimitOptions);
 
         var sut = new DocumentIntelligenceFunctions(
             _repo, _diService, _redis, opts,
@@ -184,7 +189,7 @@ public class DocumentIntelligenceFunctionsTests
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("status").GetString().Should().Be("failed");
-        doc.RootElement.GetProperty("errorCode").GetString().Should().Be("PAGE_LIMIT_EXCEEDED");
+        doc.RootElement.GetProperty("errorCode").GetString().Should().Be("FILE_SIZE_EXCEEDED");
     }
 
     [Fact]
@@ -206,7 +211,7 @@ public class DocumentIntelligenceFunctionsTests
     {
         SetupExecutionContext();
         _redis.ExistsAsync(Arg.Any<string>()).Returns(false);
-        _diService.AnalyzeAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<CancellationToken>())
+        _diService.AnalyzeBytesAsync(Arg.Any<byte[]>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<CancellationToken>())
             .Returns<DiAnalyzeResult>(_ => throw new RequestFailedException(500, "Internal Server Error"));
 
         var sut = Build();

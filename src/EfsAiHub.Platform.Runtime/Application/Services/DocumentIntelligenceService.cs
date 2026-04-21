@@ -42,13 +42,30 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
         string[]? features,
         CancellationToken ct)
     {
+        var options = new AnalyzeDocumentOptions(model, sourceUri);
+        return await AnalyzeCoreAsync(options, ct);
+    }
+
+    public async Task<DiAnalyzeResult> AnalyzeBytesAsync(
+        byte[] content,
+        string model,
+        string[]? features,
+        CancellationToken ct)
+    {
+        var options = new AnalyzeDocumentOptions(model, BinaryData.FromBytes(content));
+        return await AnalyzeCoreAsync(options, ct);
+    }
+
+    private async Task<DiAnalyzeResult> AnalyzeCoreAsync(
+        AnalyzeDocumentOptions options,
+        CancellationToken ct)
+    {
         var sw = Stopwatch.StartNew();
 
         var operation = await _client.AnalyzeDocumentAsync(
             WaitUntil.Completed,
-            model,
-            sourceUri,
-            ct);
+            options,
+            cancellationToken: ct);
 
         var result = operation.Value;
         var rawJson = JsonSerializer.Serialize(result);
@@ -66,6 +83,7 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
         return new DiAnalyzeResult(
             OperationId: operation.Id ?? Guid.NewGuid().ToString(),
             RawJson: rawJson,
+            Content: result.Content ?? "",
             PageCount: pageCount,
             HasTables: hasTables,
             HasHandwriting: hasHandwriting,

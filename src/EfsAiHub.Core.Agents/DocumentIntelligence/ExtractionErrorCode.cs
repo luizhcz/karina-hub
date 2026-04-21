@@ -5,7 +5,7 @@ namespace EfsAiHub.Core.Agents.DocumentIntelligence;
 /// </summary>
 public static class ExtractionErrorCode
 {
-    public const string PageLimitExceeded = "PAGE_LIMIT_EXCEEDED";
+    public const string FileSizeExceeded  = "FILE_SIZE_EXCEEDED";
     public const string UnreadablePdf     = "UNREADABLE_PDF";
     public const string SourceUnavailable = "SOURCE_UNAVAILABLE";
     public const string AzureDiFailure    = "AZURE_DI_FAILURE";
