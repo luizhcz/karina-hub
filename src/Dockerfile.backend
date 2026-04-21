@@ -1,0 +1,39 @@
+# ── Stage 1: restore + build ─────────────────────────────────────────────────
+FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS builder
+
+WORKDIR /src
+
+# Copiar todos os .csproj primeiro para cache de camada (restore só re-executa se mudar deps)
+COPY EfsAiHub.Core.Abstractions/EfsAiHub.Core.Abstractions.csproj         EfsAiHub.Core.Abstractions/
+COPY EfsAiHub.Core.Agents/EfsAiHub.Core.Agents.csproj                     EfsAiHub.Core.Agents/
+COPY EfsAiHub.Core.Orchestration/EfsAiHub.Core.Orchestration.csproj       EfsAiHub.Core.Orchestration/
+COPY EfsAiHub.Host.Api/EfsAiHub.Host.Api.csproj                           EfsAiHub.Host.Api/
+COPY EfsAiHub.Host.Worker/EfsAiHub.Host.Worker.csproj                     EfsAiHub.Host.Worker/
+COPY EfsAiHub.Infra.LlmProviders/EfsAiHub.Infra.LlmProviders.csproj       EfsAiHub.Infra.LlmProviders/
+COPY EfsAiHub.Infra.Messaging/EfsAiHub.Infra.Messaging.csproj             EfsAiHub.Infra.Messaging/
+COPY EfsAiHub.Infra.Observability/EfsAiHub.Infra.Observability.csproj     EfsAiHub.Infra.Observability/
+COPY EfsAiHub.Infra.Persistence/EfsAiHub.Infra.Persistence.csproj         EfsAiHub.Infra.Persistence/
+COPY EfsAiHub.Platform.Guards/EfsAiHub.Platform.Guards.csproj             EfsAiHub.Platform.Guards/
+COPY EfsAiHub.Platform.Runtime/EfsAiHub.Platform.Runtime.csproj           EfsAiHub.Platform.Runtime/
+
+RUN dotnet restore EfsAiHub.Host.Api/EfsAiHub.Host.Api.csproj
+
+# Copiar todo o fonte e publicar
+COPY . .
+RUN dotnet publish EfsAiHub.Host.Api/EfsAiHub.Host.Api.csproj \
+    -c Release -o /out --no-restore
+
+# ── Stage 2: runtime ─────────────────────────────────────────────────────────
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS runner
+
+WORKDIR /app
+COPY --from=builder /out .
+
+# Usuário não-root
+RUN adduser -D appuser
+USER appuser
+
+EXPOSE 5189
+ENV ASPNETCORE_URLS=http://+:5189
+
+ENTRYPOINT ["dotnet", "EfsAiHub.Host.Api.dll"]

@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>EfsAiHub.Platform.Runtime</RootNamespace>
+    <NoWarn>$(NoWarn);MAAIW001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.AI.DocumentIntelligence" Version="1.0.0" />
+    <PackageReference Include="IronPdf" Version="2026.4.1" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.5.0" />
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.1.0" />
+    <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.1.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.6" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.6" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.6" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.6" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.6" />
+    <PackageReference Include="StackExchange.Redis" Version="2.12.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EfsAiHub.Core.Abstractions\EfsAiHub.Core.Abstractions.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Core.Agents\EfsAiHub.Core.Agents.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Core.Orchestration\EfsAiHub.Core.Orchestration.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Platform.Guards\EfsAiHub.Platform.Guards.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Infra.Observability\EfsAiHub.Infra.Observability.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Infra.Persistence\EfsAiHub.Infra.Persistence.csproj" />
+  </ItemGroup>
+
+</Project>

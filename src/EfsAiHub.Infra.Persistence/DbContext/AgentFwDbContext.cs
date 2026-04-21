@@ -1,0 +1,644 @@
+using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Conversations;
+using EfsAiHub.Core.Abstractions.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+
+namespace EfsAiHub.Infra.Persistence.Postgres;
+
+// ── Classes row wrapper (entidades EF internas) ───────────────────────────────
+
+internal class WorkflowDefinitionRow
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Data { get; set; } = "{}";
+    public string ProjectId { get; set; } = "default";
+    public string Visibility { get; set; } = "project";
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+internal class AgentDefinitionRow
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Data { get; set; } = "{}";
+    public string ProjectId { get; set; } = "default";
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+internal class ProjectRow
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string TenantId { get; set; } = "default";
+    public string? Description { get; set; }
+    public string Settings { get; set; } = "{}";
+    public string? LlmConfig { get; set; }
+    public string? Budget { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+internal class AgentPromptVersionRow
+{
+    public int RowId { get; set; }
+    public string AgentId { get; set; } = "";
+    public string VersionId { get; set; } = "";
+    public string Content { get; set; } = "";
+    public bool IsActive { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+// Fase 1 — Snapshot imutável atômico (prompt + model + tools + middlewares + schema).
+internal class AgentVersionRow
+{
+    public string AgentVersionId { get; set; } = "";
+    public string AgentDefinitionId { get; set; } = "";
+    public int Revision { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public string? CreatedBy { get; set; }
+    public string? ChangeReason { get; set; }
+    public string Status { get; set; } = "Published";
+    public string ContentHash { get; set; } = "";
+    public string Snapshot { get; set; } = "{}"; // JSONB — record completo serializado
+}
+
+internal class WorkflowVersionRow
+{
+    public string WorkflowVersionId { get; set; } = "";
+    public string WorkflowDefinitionId { get; set; } = "";
+    public int Revision { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public string? CreatedBy { get; set; }
+    public string? ChangeReason { get; set; }
+    public string Status { get; set; } = "Published";
+    public string ContentHash { get; set; } = "";
+    public string Snapshot { get; set; } = "{}"; // JSONB — WorkflowDefinition serializada
+}
+
+// Fase 3 — Skill (estado mutável) + SkillVersion (append-only imutável).
+internal class SkillRow
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Data { get; set; } = "{}"; // JSONB
+    public string ContentHash { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public string ProjectId { get; set; } = "default";
+}
+
+internal class SkillVersionRow
+{
+    public string SkillVersionId { get; set; } = "";
+    public string SkillId { get; set; } = "";
+    public int Revision { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public string? CreatedBy { get; set; }
+    public string? ChangeReason { get; set; }
+    public string ContentHash { get; set; } = "";
+    public string Snapshot { get; set; } = "{}"; // JSONB
+}
+
+// Fase 5 — Background Responses (execução assíncrona de agentes).
+internal class BackgroundResponseJobRow
+{
+    public string JobId { get; set; } = "";
+    public string AgentId { get; set; } = "";
+    public string? AgentVersionId { get; set; }
+    public string? SessionId { get; set; }
+    public string Input { get; set; } = "";
+    public string Status { get; set; } = "Queued";
+    public string? Output { get; set; }
+    public string? LastError { get; set; }
+    public int Attempt { get; set; }
+    public string? CallbackTarget { get; set; } // JSONB serializado
+    public string? IdempotencyKey { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? StartedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
+}
+
+internal class WorkflowExecutionRow
+{
+    public string ExecutionId { get; set; } = "";
+    public string WorkflowId { get; set; } = "";
+    public string ProjectId { get; set; } = "default";
+    public string Status { get; set; } = "";
+    public string Data { get; set; } = "{}";
+    public DateTime StartedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
+}
+
+internal class NodeExecutionRow
+{
+    public int RowId { get; set; }
+    public string ExecutionId { get; set; } = "";
+    public string NodeId { get; set; } = "";
+    public string Data { get; set; } = "{}";
+}
+
+internal class AtivoRow
+{
+    public string Ticker { get; set; } = "";
+    public string Nome { get; set; } = "";
+    public string? Setor { get; set; }
+    public string? Descricao { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+internal class LlmTokenUsageRow
+{
+    public long Id { get; set; }
+    public string AgentId { get; set; } = "";
+    public string ModelId { get; set; } = "";
+    public string? ExecutionId { get; set; }
+    public string? WorkflowId { get; set; }
+    public int InputTokens { get; set; }
+    public int OutputTokens { get; set; }
+    public int TotalTokens { get; set; }
+    public double DurationMs { get; set; }
+    public string? PromptVersionId { get; set; }
+    public string? AgentVersionId { get; set; }
+    public string? OutputContent { get; set; }
+    public int RetryCount { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+internal class ModelPricingRow
+{
+    public int Id { get; set; }
+    public string ModelId { get; set; } = "";
+    public string Provider { get; set; } = "";
+    public decimal PricePerInputToken { get; set; }
+    public decimal PricePerOutputToken { get; set; }
+    public string Currency { get; set; } = "USD";
+    public DateTime EffectiveFrom { get; set; }
+    public DateTime? EffectiveTo { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+internal class ToolInvocationRow
+{
+    public long Id { get; set; }
+    public string ExecutionId { get; set; } = "";
+    public string AgentId { get; set; } = "";
+    public string ToolName { get; set; } = "";
+    public string? Arguments { get; set; }
+    public string? Result { get; set; }
+    public double DurationMs { get; set; }
+    public bool Success { get; set; } = true;
+    public string? ErrorMessage { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+internal class WorkflowCheckpointRow
+{
+    public string ExecutionId { get; set; } = "";
+    public byte[] Data { get; set; } = [];
+    public DateTime UpdatedAt { get; set; }
+}
+
+internal class HumanInteractionRow
+{
+    public string InteractionId { get; set; } = "";
+    public string ExecutionId { get; set; } = "";
+    public string WorkflowId { get; set; } = "";
+    public string Prompt { get; set; } = "";
+    public string? Context { get; set; }
+    public string InteractionType { get; set; } = "Approval";
+    public string? Options { get; set; }
+    public string Status { get; set; } = "Pending";
+    public string? Resolution { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ResolvedAt { get; set; }
+}
+
+internal class AgentSessionRow
+{
+    public string SessionId { get; set; } = "";
+    public string AgentId { get; set; } = "";
+    public string SerializedState { get; set; } = "{}";
+    public int TurnCount { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime LastAccessedAt { get; set; }
+    public DateTime ExpiresAt { get; set; }
+}
+
+internal class WorkflowEventAuditRow
+{
+    public long Id { get; set; }
+    public string ExecutionId { get; set; } = "";
+    public string EventType { get; set; } = "";
+    public string Payload { get; set; } = "";
+    public DateTime Timestamp { get; set; }
+}
+
+// ── DbContext ─────────────────────────────────────────────────────────────────
+
+public class AgentFwDbContext : DbContext
+{
+    private readonly IProjectContextAccessor? _projectAccessor;
+
+    public AgentFwDbContext(
+        DbContextOptions<AgentFwDbContext> options,
+        IProjectContextAccessor? projectAccessor = null)
+        : base(options)
+    {
+        _projectAccessor = projectAccessor;
+    }
+
+    /// <summary>ProjectId do scope atual. Usado pelo HasQueryFilter.</summary>
+    private string CurrentProjectId => _projectAccessor?.Current.ProjectId ?? "default";
+
+    public DbSet<ConversationSession> Conversations => Set<ConversationSession>();
+    public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+
+    internal DbSet<ProjectRow> Projects => Set<ProjectRow>();
+    internal DbSet<WorkflowDefinitionRow> WorkflowDefinitions => Set<WorkflowDefinitionRow>();
+    internal DbSet<AgentDefinitionRow> AgentDefinitions => Set<AgentDefinitionRow>();
+    internal DbSet<AgentPromptVersionRow> AgentPromptVersions => Set<AgentPromptVersionRow>();
+    internal DbSet<AgentVersionRow> AgentVersions => Set<AgentVersionRow>();
+    internal DbSet<WorkflowVersionRow> WorkflowVersions => Set<WorkflowVersionRow>();
+    internal DbSet<SkillRow> Skills => Set<SkillRow>();
+    internal DbSet<SkillVersionRow> SkillVersions => Set<SkillVersionRow>();
+    internal DbSet<WorkflowExecutionRow> WorkflowExecutions => Set<WorkflowExecutionRow>();
+    internal DbSet<NodeExecutionRow> NodeExecutions => Set<NodeExecutionRow>();
+    internal DbSet<AtivoRow> Ativos => Set<AtivoRow>();
+    internal DbSet<LlmTokenUsageRow> LlmTokenUsages => Set<LlmTokenUsageRow>();
+    internal DbSet<ToolInvocationRow> ToolInvocations => Set<ToolInvocationRow>();
+    internal DbSet<ModelPricingRow> ModelPricings => Set<ModelPricingRow>();
+    internal DbSet<WorkflowCheckpointRow> WorkflowCheckpoints => Set<WorkflowCheckpointRow>();
+    internal DbSet<HumanInteractionRow> HumanInteractions => Set<HumanInteractionRow>();
+    internal DbSet<AgentSessionRow> AgentSessions => Set<AgentSessionRow>();
+    internal DbSet<WorkflowEventAuditRow> WorkflowEventAudits => Set<WorkflowEventAuditRow>();
+    internal DbSet<BackgroundResponseJobRow> BackgroundResponseJobs => Set<BackgroundResponseJobRow>();
+
+    private static JsonDocument ParseJsonDocument(string json)
+        => JsonDocument.Parse(json, new JsonDocumentOptions());
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.HasDefaultSchema("aihub");
+
+        // ── ConversationSession ──────────────────────────────────────────────
+        modelBuilder.Entity<ConversationSession>(b =>
+        {
+            b.ToTable("conversations");
+            b.HasKey(e => e.ConversationId);
+            b.Property(e => e.ConversationId).HasMaxLength(64);
+            b.Property(e => e.UserId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.WorkflowId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Title).HasMaxLength(512);
+            b.Property(e => e.ActiveExecutionId).HasMaxLength(64);
+            b.Property(e => e.LastActiveAgentId).HasMaxLength(256);
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.LastMessageAt).IsRequired();
+
+            b.Property(e => e.Metadata)
+                .HasColumnType("jsonb")
+                .HasConversion(
+                    v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                    v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, (JsonSerializerOptions?)null) ?? new Dictionary<string, string>());
+
+            b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
+            b.HasIndex(e => e.UserId);
+            b.HasIndex(e => e.LastMessageAt);
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+        });
+
+        // ── ChatMessage ──────────────────────────────────────────────────────
+        modelBuilder.Entity<ChatMessage>(b =>
+        {
+            b.ToTable("chat_messages");
+            b.HasKey(e => e.MessageId);
+            b.Property(e => e.MessageId).HasMaxLength(64);
+            b.Property(e => e.ConversationId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Role).HasMaxLength(32).IsRequired();
+            b.Property(e => e.Content).IsRequired();
+            b.Property(e => e.ExecutionId).HasMaxLength(64);
+            b.Property(e => e.CreatedAt).IsRequired();
+
+            b.Property(e => e.StructuredOutput)
+                .HasColumnType("jsonb")
+                .HasConversion(new ValueConverter<JsonDocument?, string?>(
+                    v => v == null ? null : v.RootElement.GetRawText(),
+                    v => v == null ? null : ParseJsonDocument(v)));
+
+            b.HasIndex(e => e.ConversationId);
+            b.HasIndex(e => new { e.ConversationId, e.CreatedAt });
+        });
+
+        // ── ProjectRow ─────────────────────────────────────────────────────────
+        // Colunas em lowercase para compatibilidade com PgProjectRepository (raw SQL).
+        modelBuilder.Entity<ProjectRow>(b =>
+        {
+            b.ToTable("projects");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasColumnName("id").HasMaxLength(128);
+            b.Property(e => e.Name).HasColumnName("name").HasMaxLength(256).IsRequired();
+            b.Property(e => e.TenantId).HasColumnName("tenant_id").HasMaxLength(128).IsRequired();
+            b.Property(e => e.Description).HasColumnName("description").HasMaxLength(1024);
+            b.Property(e => e.Settings).HasColumnName("settings").HasColumnType("jsonb").IsRequired();
+            b.Property(e => e.LlmConfig).HasColumnName("llm_config").HasColumnType("jsonb");
+            b.Property(e => e.Budget).HasColumnName("budget").HasColumnType("jsonb");
+            b.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
+            b.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
+            b.HasIndex(e => e.TenantId).HasDatabaseName("ix_projects_tenant_id");
+        });
+
+        // ── WorkflowDefinitionRow ────────────────────────────────────────────
+        modelBuilder.Entity<WorkflowDefinitionRow>(b =>
+        {
+            b.ToTable("workflow_definitions");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(256);
+            b.Property(e => e.Name).HasMaxLength(512).IsRequired();
+            b.Property(e => e.Data).HasColumnType("text").IsRequired();
+            b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
+            b.Property(e => e.Visibility).HasMaxLength(32).HasDefaultValue("project");
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+        });
+
+        // ── AgentDefinitionRow ───────────────────────────────────────────────
+        modelBuilder.Entity<AgentDefinitionRow>(b =>
+        {
+            b.ToTable("agent_definitions");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(256);
+            b.Property(e => e.Name).HasMaxLength(512).IsRequired();
+            b.Property(e => e.Data).HasColumnType("text").IsRequired();
+            b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+        });
+
+        // ── AgentVersionRow (Fase 1) ─────────────────────────────────────────
+        modelBuilder.Entity<AgentVersionRow>(b =>
+        {
+            b.ToTable("agent_versions");
+            b.HasKey(e => e.AgentVersionId);
+            b.Property(e => e.AgentVersionId).HasMaxLength(64);
+            b.Property(e => e.AgentDefinitionId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Revision).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.CreatedBy).HasMaxLength(256);
+            b.Property(e => e.ChangeReason).HasMaxLength(1024);
+            b.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            b.Property(e => e.ContentHash).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Snapshot).HasColumnType("jsonb").IsRequired();
+            b.HasIndex(e => new { e.AgentDefinitionId, e.Revision }).IsUnique();
+            b.HasIndex(e => e.AgentDefinitionId);
+            b.HasIndex(e => e.ContentHash);
+        });
+
+        // ── WorkflowVersionRow ─────────────────────────────────────────────
+        modelBuilder.Entity<WorkflowVersionRow>(b =>
+        {
+            b.ToTable("workflow_versions");
+            b.HasKey(e => e.WorkflowVersionId);
+            b.Property(e => e.WorkflowVersionId).HasMaxLength(64);
+            b.Property(e => e.WorkflowDefinitionId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Revision).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.CreatedBy).HasMaxLength(256);
+            b.Property(e => e.ChangeReason).HasMaxLength(1024);
+            b.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            b.Property(e => e.ContentHash).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Snapshot).HasColumnType("jsonb").IsRequired();
+            b.HasIndex(e => new { e.WorkflowDefinitionId, e.Revision }).IsUnique();
+            b.HasIndex(e => new { e.WorkflowDefinitionId, e.ContentHash }).IsUnique();
+            b.HasIndex(e => e.WorkflowDefinitionId);
+        });
+
+        // ── SkillRow (Fase 3) ────────────────────────────────────────────────
+        modelBuilder.Entity<SkillRow>(b =>
+        {
+            b.ToTable("skills");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(256);
+            b.Property(e => e.Name).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Data).HasColumnType("jsonb").IsRequired();
+            b.Property(e => e.ContentHash).HasMaxLength(128).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+        });
+
+        // ── SkillVersionRow (Fase 3) ─────────────────────────────────────────
+        modelBuilder.Entity<SkillVersionRow>(b =>
+        {
+            b.ToTable("skill_versions");
+            b.HasKey(e => e.SkillVersionId);
+            b.Property(e => e.SkillVersionId).HasMaxLength(64);
+            b.Property(e => e.SkillId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Revision).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.CreatedBy).HasMaxLength(256);
+            b.Property(e => e.ChangeReason).HasMaxLength(1024);
+            b.Property(e => e.ContentHash).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Snapshot).HasColumnType("jsonb").IsRequired();
+            b.HasIndex(e => new { e.SkillId, e.Revision }).IsUnique();
+            b.HasIndex(e => e.SkillId);
+            b.HasIndex(e => e.ContentHash);
+        });
+
+        // ── AgentPromptVersionRow ────────────────────────────────────────────
+        modelBuilder.Entity<AgentPromptVersionRow>(b =>
+        {
+            b.ToTable("agent_prompt_versions");
+            b.HasKey(e => e.RowId);
+            b.Property(e => e.RowId).ValueGeneratedOnAdd();
+            b.Property(e => e.AgentId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.VersionId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Content).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.HasIndex(e => new { e.AgentId, e.VersionId }).IsUnique();
+            b.HasIndex(e => e.AgentId);
+        });
+
+        // ── WorkflowExecutionRow ─────────────────────────────────────────────
+        modelBuilder.Entity<WorkflowExecutionRow>(b =>
+        {
+            b.ToTable("workflow_executions");
+            b.HasKey(e => e.ExecutionId);
+            b.Property(e => e.ExecutionId).HasMaxLength(128);
+            b.Property(e => e.WorkflowId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
+            b.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            b.Property(e => e.Data).HasColumnType("text").IsRequired();
+            b.Property(e => e.StartedAt).IsRequired();
+            b.HasIndex(e => e.WorkflowId);
+            b.HasIndex(e => e.Status);
+            b.HasIndex(e => e.StartedAt);
+            b.HasIndex(e => new { e.WorkflowId, e.Status, e.StartedAt })
+             .IsDescending(false, false, true)
+             .HasDatabaseName("IX_workflow_executions_WorkflowId_Status_StartedAt");
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+        });
+
+        // ── NodeExecutionRow ─────────────────────────────────────────────────
+        modelBuilder.Entity<NodeExecutionRow>(b =>
+        {
+            b.ToTable("node_executions");
+            b.HasKey(e => e.RowId);
+            b.Property(e => e.RowId).ValueGeneratedOnAdd();
+            b.Property(e => e.ExecutionId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.NodeId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Data).HasColumnType("text").IsRequired();
+            b.HasIndex(e => new { e.ExecutionId, e.NodeId }).IsUnique();
+            b.HasIndex(e => e.ExecutionId);
+        });
+
+        // ── AtivoRow ─────────────────────────────────────────────────────────
+        modelBuilder.Entity<AtivoRow>(b =>
+        {
+            b.ToTable("ativos");
+            b.HasKey(e => e.Ticker);
+            b.Property(e => e.Ticker).HasMaxLength(20);
+            b.Property(e => e.Nome).HasMaxLength(255).IsRequired();
+            b.Property(e => e.Setor).HasMaxLength(100);
+            b.HasIndex(e => e.Setor);
+        });
+
+        // ── LlmTokenUsageRow ───────────────────────────────────────────────
+        modelBuilder.Entity<LlmTokenUsageRow>(b =>
+        {
+            b.ToTable("llm_token_usage");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).ValueGeneratedOnAdd();
+            b.Property(e => e.AgentId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.ModelId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.ExecutionId).HasMaxLength(128);
+            b.Property(e => e.WorkflowId).HasMaxLength(256);
+            b.Property(e => e.PromptVersionId).HasMaxLength(128);
+            b.Property(e => e.AgentVersionId).HasMaxLength(64);
+            b.Property(e => e.OutputContent).HasColumnType("text");
+            b.Property(e => e.RetryCount).HasDefaultValue(0);
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.HasIndex(e => e.AgentId);
+            b.HasIndex(e => e.ExecutionId);
+            b.HasIndex(e => e.CreatedAt);
+        });
+
+        // ── ToolInvocationRow ────────────────────────────────────────────────
+        modelBuilder.Entity<ToolInvocationRow>(b =>
+        {
+            b.ToTable("tool_invocations");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).ValueGeneratedOnAdd();
+            b.Property(e => e.ExecutionId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.AgentId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.ToolName).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Arguments).HasColumnType("jsonb");
+            b.Property(e => e.Result).HasColumnType("text");
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.HasIndex(e => e.ExecutionId);
+            b.HasIndex(e => e.AgentId);
+            b.HasIndex(e => e.ToolName);
+        });
+
+        // ── ModelPricingRow ─────────────────────────────────────────────────
+        modelBuilder.Entity<ModelPricingRow>(b =>
+        {
+            b.ToTable("model_pricing");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).ValueGeneratedOnAdd();
+            b.Property(e => e.ModelId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Provider).HasMaxLength(64).IsRequired();
+            b.Property(e => e.PricePerInputToken).HasColumnType("numeric(20,10)").IsRequired();
+            b.Property(e => e.PricePerOutputToken).HasColumnType("numeric(20,10)").IsRequired();
+            b.Property(e => e.Currency).HasMaxLength(3).HasDefaultValue("USD");
+            b.Property(e => e.EffectiveFrom).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.HasIndex(e => e.ModelId);
+        });
+
+        // ── WorkflowCheckpointRow ────────────────────────────────────────────
+        modelBuilder.Entity<WorkflowCheckpointRow>(b =>
+        {
+            b.ToTable("workflow_checkpoints");
+            b.HasKey(e => e.ExecutionId);
+            b.Property(e => e.ExecutionId).HasMaxLength(128);
+            b.Property(e => e.Data).HasColumnType("bytea").IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+        });
+
+        // ── HumanInteractionRow ──────────────────────────────────────────────
+        modelBuilder.Entity<HumanInteractionRow>(b =>
+        {
+            b.ToTable("human_interactions");
+            b.HasKey(e => e.InteractionId);
+            b.Property(e => e.InteractionId).HasMaxLength(128);
+            b.Property(e => e.ExecutionId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.WorkflowId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Prompt).IsRequired();
+            b.Property(e => e.InteractionType).HasMaxLength(32).HasDefaultValue("Approval");
+            b.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.HasIndex(e => e.ExecutionId);
+            b.HasIndex(e => e.Status);
+        });
+
+        // ── AgentSessionRow ──────────────────────────────────────────────────
+        modelBuilder.Entity<AgentSessionRow>(b =>
+        {
+            b.ToTable("agent_sessions");
+            b.HasKey(e => e.SessionId);
+            b.Property(e => e.SessionId).HasMaxLength(128);
+            b.Property(e => e.AgentId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.SerializedState).HasColumnType("text").IsRequired();
+            b.Property(e => e.TurnCount).HasDefaultValue(0);
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.LastAccessedAt).IsRequired();
+            b.Property(e => e.ExpiresAt).IsRequired();
+            b.HasIndex(e => e.AgentId);
+            b.HasIndex(e => e.ExpiresAt);
+        });
+
+        // ── BackgroundResponseJobRow (Fase 5) ────────────────────────────────
+        modelBuilder.Entity<BackgroundResponseJobRow>(b =>
+        {
+            b.ToTable("background_response_jobs");
+            b.HasKey(e => e.JobId);
+            b.Property(e => e.JobId).HasMaxLength(64);
+            b.Property(e => e.AgentId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.AgentVersionId).HasMaxLength(64);
+            b.Property(e => e.SessionId).HasMaxLength(128);
+            b.Property(e => e.Input).HasColumnType("text").IsRequired();
+            b.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            b.Property(e => e.Output).HasColumnType("text");
+            b.Property(e => e.LastError).HasColumnType("text");
+            b.Property(e => e.Attempt).HasDefaultValue(0);
+            b.Property(e => e.CallbackTarget).HasColumnType("jsonb");
+            b.Property(e => e.IdempotencyKey).HasMaxLength(128);
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.HasIndex(e => new { e.Status, e.CreatedAt });
+            b.HasIndex(e => e.IdempotencyKey).IsUnique().HasFilter("\"IdempotencyKey\" IS NOT NULL");
+        });
+
+        // ── WorkflowEventAuditRow ────────────────────────────────────────────
+        modelBuilder.Entity<WorkflowEventAuditRow>(b =>
+        {
+            b.ToTable("workflow_event_audit");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).ValueGeneratedOnAdd();
+            b.Property(e => e.ExecutionId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.EventType).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Payload).HasColumnType("text").IsRequired();
+            b.Property(e => e.Timestamp).IsRequired();
+            b.HasIndex(e => e.ExecutionId);
+            b.HasIndex(e => e.Timestamp);
+            b.HasIndex(e => new { e.ExecutionId, e.Id })
+             .HasDatabaseName("IX_workflow_event_audit_ExecutionId_Id");
+        });
+    }
+}

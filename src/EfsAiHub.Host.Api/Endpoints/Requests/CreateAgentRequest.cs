@@ -1,0 +1,46 @@
+using System.Text.Json;
+using EfsAiHub.Core.Agents;
+using EfsAiHub.Core.Agents.Skills;
+
+namespace EfsAiHub.Host.Api.Models.Requests;
+
+public class CreateAgentRequest
+{
+    public required string Id { get; init; }
+    public required string Name { get; init; }
+    public string? Description { get; init; }
+    public required AgentModelConfig Model { get; init; }
+    public AgentProviderConfig Provider { get; init; } = new();
+    public string? Instructions { get; init; }
+    public List<AgentToolDefinition> Tools { get; init; } = [];
+    public AgentStructuredOutputDefinition? StructuredOutput { get; init; }
+    public List<AgentMiddlewareConfig> Middlewares { get; init; } = [];
+
+    /// <summary>Fase 2 — política de retry/backoff. Null = defaults do engine.</summary>
+    public ResiliencePolicy? Resilience { get; init; }
+
+    /// <summary>Fase 2 — teto de custo em USD por execução. Null = sem enforcement.</summary>
+    public AgentCostBudget? CostBudget { get; init; }
+
+    /// <summary>Fase 3 — skills referenciadas (id + versão opcional). Null ou vazio = sem skills.</summary>
+    public List<SkillRef>? SkillRefs { get; init; }
+
+    public Dictionary<string, string> Metadata { get; init; } = [];
+
+    public AgentDefinition ToDomain() => new()
+    {
+        Id = Id,
+        Name = Name,
+        Description = Description,
+        Model = Model,
+        Provider = Provider,
+        Instructions = Instructions,
+        Tools = Tools,
+        StructuredOutput = StructuredOutput,
+        Middlewares = Middlewares,
+        Resilience = Resilience,
+        CostBudget = CostBudget,
+        SkillRefs = SkillRefs ?? [],
+        Metadata = Metadata
+    };
+}

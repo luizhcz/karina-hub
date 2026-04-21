@@ -1,0 +1,44 @@
+<Project>
+  <!-- Centraliza a versão do EF Core para evitar MSB3277 e FileNotFoundException em runtime.
+       Todos os projetos da solution herdam esta versão automaticamente. -->
+  <ItemGroup>
+    <PackageReference Update="Microsoft.EntityFrameworkCore"          Version="8.0.25" />
+    <PackageReference Update="Microsoft.EntityFrameworkCore.Relational" Version="8.0.25" />
+    <PackageReference Update="Microsoft.EntityFrameworkCore.Design"   Version="8.0.25">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Update="Npgsql.EntityFrameworkCore.PostgreSQL"  Version="8.0.11" />
+    <!-- Npgsql 8.0.11 não existe → NuGet resolvia para 9.0.0 quebrando HackyEnumTypeMapping.
+         Fixar em 8.0.9 (última versão real da série 8.0.x). -->
+    <PackageReference Update="Npgsql"                                 Version="8.0.9" />
+  </ItemGroup>
+
+  <!-- Versões centralizadas — pacotes compartilhados entre 2+ projetos -->
+  <ItemGroup>
+    <!-- Microsoft Agents -->
+    <PackageReference Update="Microsoft.Agents.AI"                    Version="1.1.0" />
+    <PackageReference Update="Microsoft.Agents.AI.Workflows"          Version="1.1.0" />
+    <PackageReference Update="Microsoft.Agents.AI.OpenAI"             Version="1.1.0" />
+
+    <!-- Microsoft Extensions AI -->
+    <PackageReference Update="Microsoft.Extensions.AI"                Version="10.5.0" />
+    <PackageReference Update="Microsoft.Extensions.AI.Abstractions"   Version="10.5.0" />
+
+    <!-- Microsoft Extensions (infrastructure) -->
+    <PackageReference Update="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.6" />
+    <PackageReference Update="Microsoft.Extensions.Hosting.Abstractions"             Version="10.0.6" />
+    <PackageReference Update="Microsoft.Extensions.Http"                             Version="10.0.6" />
+    <PackageReference Update="Microsoft.Extensions.Logging.Abstractions"             Version="10.0.6" />
+    <PackageReference Update="Microsoft.Extensions.Options"                          Version="10.0.6" />
+    <PackageReference Update="Microsoft.Extensions.Options.ConfigurationExtensions"  Version="10.0.6" />
+    <PackageReference Update="Microsoft.Extensions.Configuration.Abstractions"       Version="10.0.6" />
+    <PackageReference Update="Microsoft.Extensions.Configuration.Binder"             Version="10.0.6" />
+
+    <!-- Azure -->
+    <PackageReference Update="Azure.Identity"                         Version="1.21.0" />
+
+    <!-- Redis -->
+    <PackageReference Update="StackExchange.Redis"                    Version="2.12.14" />
+  </ItemGroup>
+</Project>

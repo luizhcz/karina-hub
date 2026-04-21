@@ -1,0 +1,25 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.DotSettings.user
+
+# IDE
+.vs/
+.idea/
+*.swp
+
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+dist/
+
+# Secrets — use dotnet user-secrets or env vars
+appsettings.Development.json
+.env
+
+# Backups
+backups/

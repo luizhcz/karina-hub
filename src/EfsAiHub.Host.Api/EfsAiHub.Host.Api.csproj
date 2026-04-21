@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);OPENAI001;MEAI001;MAAIW001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
+    <PackageReference Include="AspNetCore.HealthChecks.Redis" Version="9.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" Version="10.0.5" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.25" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="6.6.2" />
+    <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.1.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.5.0" />
+    <PackageReference Include="StackExchange.Redis" Version="2.12.14" />
+    <PackageReference Include="Npgsql" Version="8.0.9" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.11" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.9.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.9.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.9.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="DevPortal\devportal.html" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EfsAiHub.Core.Abstractions\EfsAiHub.Core.Abstractions.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Core.Agents\EfsAiHub.Core.Agents.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Core.Orchestration\EfsAiHub.Core.Orchestration.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Platform.Guards\EfsAiHub.Platform.Guards.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Platform.Runtime\EfsAiHub.Platform.Runtime.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Infra.Persistence\EfsAiHub.Infra.Persistence.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Infra.Messaging\EfsAiHub.Infra.Messaging.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Infra.Observability\EfsAiHub.Infra.Observability.csproj" />
+
+    <ProjectReference Include="..\EfsAiHub.Host.Worker\EfsAiHub.Host.Worker.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Infra.LlmProviders\EfsAiHub.Infra.LlmProviders.csproj" />
+  </ItemGroup>
+
+</Project>

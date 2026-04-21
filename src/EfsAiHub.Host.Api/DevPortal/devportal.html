@@ -1,0 +1,2169 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EFS AI Hub — Developer Portal</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d0f14;
+    --bg2:       #151820;
+    --bg3:       #1d2030;
+    --border:    #2a2d3a;
+    --text:      #e2e4ef;
+    --muted:     #7a7f99;
+    --dimmed:    #4a4f66;
+    --blue:      #4f8ef7;
+    --blue-dim:  #1e3a6e;
+    --green:     #3ecf8e;
+    --yellow:    #f5c542;
+    --red:       #e55353;
+    --purple:    #a78bfa;
+    --radius:    8px;
+    --mono:      'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── Layout ─────────────────────────────────────────────── */
+  .layout { display: flex; min-height: 100vh; }
+
+  nav {
+    width: 240px;
+    flex-shrink: 0;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    padding: 24px 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+
+  nav .logo {
+    padding: 0 20px 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
+  }
+  nav .logo-title { font-size: 15px; font-weight: 700; color: var(--text); }
+  nav .logo-sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  nav .nav-section { padding: 8px 20px 4px; font-size: 10px; font-weight: 700; color: var(--dimmed); text-transform: uppercase; letter-spacing: .08em; }
+
+  nav a {
+    display: block;
+    padding: 6px 20px;
+    font-size: 13px;
+    color: var(--muted);
+    border-left: 2px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  nav a:hover, nav a.active {
+    color: var(--text);
+    border-left-color: var(--blue);
+    background: rgba(79,142,247,.06);
+    text-decoration: none;
+  }
+
+  main { flex: 1; max-width: 900px; padding: 40px 48px; }
+
+  /* ── Sections ───────────────────────────────────────────── */
+  section { margin-bottom: 56px; scroll-margin-top: 24px; }
+
+  h1 { font-size: 26px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+  h2 { font-size: 19px; font-weight: 700; color: var(--text); margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; margin-top: 20px; }
+  p  { color: var(--muted); margin-bottom: 12px; }
+
+  /* ── Badges ─────────────────────────────────────────────── */
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600;
+  }
+  .badge-dev    { background: rgba(245,197,66,.12); color: var(--yellow); border: 1px solid rgba(245,197,66,.25); }
+  .badge-post   { background: rgba(62,207,142,.12); color: var(--green);  border: 1px solid rgba(62,207,142,.25); }
+  .badge-get    { background: rgba(79,142,247,.12); color: var(--blue);   border: 1px solid rgba(79,142,247,.25); }
+  .badge-green  { background: rgba(62,207,142,.12); color: var(--green);  border: 1px solid rgba(62,207,142,.25); }
+  .badge-blue   { background: rgba(79,142,247,.12); color: var(--blue);   border: 1px solid rgba(79,142,247,.25); }
+  .badge-purple { background: rgba(167,139,250,.12); color: var(--purple); border: 1px solid rgba(167,139,250,.25); }
+  .badge-yellow { background: rgba(245,197,66,.12); color: var(--yellow); border: 1px solid rgba(245,197,66,.25); }
+  .badge-red    { background: rgba(229,83,83,.12);   color: var(--red);   border: 1px solid rgba(229,83,83,.25); }
+  .badge-gray   { background: rgba(122,127,153,.12); color: var(--muted); border: 1px solid rgba(122,127,153,.25); }
+  .badge-put    { background: rgba(245,197,66,.12);  color: var(--yellow); border: 1px solid rgba(245,197,66,.25); }
+  .badge-delete { background: rgba(229,83,83,.12);   color: var(--red);   border: 1px solid rgba(229,83,83,.25); }
+
+  /* ── Cards / Callouts ───────────────────────────────────── */
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+
+  .callout {
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+  .callout-blue   { background: rgba(79,142,247,.08);  border-left: 3px solid var(--blue);   color: var(--text); }
+  .callout-green  { background: rgba(62,207,142,.08);  border-left: 3px solid var(--green);  color: var(--text); }
+  .callout-yellow { background: rgba(245,197,66,.08);  border-left: 3px solid var(--yellow); color: var(--text); }
+
+  /* ── Code ───────────────────────────────────────────────── */
+  pre[class*="language-"] {
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    font-size: 12.5px;
+    margin: 0 0 16px;
+    max-height: 380px;
+    overflow: auto;
+  }
+
+  code:not([class]) {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: var(--blue);
+  }
+
+  /* ── Tables ─────────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+  th { background: var(--bg3); color: var(--muted); font-weight: 600; text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+
+  /* ── Steps ──────────────────────────────────────────────── */
+  .steps { display: flex; flex-direction: column; gap: 0; }
+  .step  { display: flex; gap: 16px; }
+  .step-line { display: flex; flex-direction: column; align-items: center; }
+  .step-dot  { width: 28px; height: 28px; border-radius: 50%; background: var(--blue-dim); border: 2px solid var(--blue); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--blue); flex-shrink: 0; }
+  .step-connector { width: 2px; background: var(--border); flex: 1; min-height: 20px; margin: 4px 0; }
+  .step-body { padding-bottom: 24px; }
+  .step-title { font-weight: 700; color: var(--text); margin-bottom: 6px; }
+  .step-desc  { color: var(--muted); font-size: 13px; }
+
+  /* ── Endpoint cards ─────────────────────────────────────── */
+  .endpoint-card { margin-bottom: 24px; }
+  .endpoint-header {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius) var(--radius) 0 0;
+    padding: 12px 16px; cursor: pointer;
+  }
+  .endpoint-header:hover { background: var(--bg3); }
+  .endpoint-path { font-family: var(--mono); font-size: 13px; color: var(--text); flex: 1; }
+  .endpoint-desc { font-size: 12px; color: var(--muted); }
+  .endpoint-body {
+    background: var(--bg2); border: 1px solid var(--border); border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    padding: 16px 16px 4px;
+    display: none;
+  }
+  .endpoint-body.open { display: block; }
+  .chevron { color: var(--muted); transition: transform .2s; }
+  .chevron.open { transform: rotate(180deg); }
+
+  /* ── Events filter ──────────────────────────────────────── */
+  .filter-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .filter-btn {
+    padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border);
+    background: transparent; color: var(--muted); font-size: 12px; cursor: pointer;
+    transition: all .15s;
+  }
+  .filter-btn:hover, .filter-btn.active {
+    background: var(--blue); border-color: var(--blue); color: #fff;
+  }
+
+  /* ── HITL flow ──────────────────────────────────────────── */
+  .hitl-flow { font-family: var(--mono); font-size: 12.5px; line-height: 1.9; color: var(--muted); background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 24px; }
+  .hitl-flow .arrow   { color: var(--blue); }
+  .hitl-flow .event   { color: var(--green); }
+  .hitl-flow .wait    { color: var(--yellow); }
+  .hitl-flow .resolve { color: var(--purple); }
+  .hitl-flow .comment { color: var(--dimmed); }
+
+  /* ── Header ─────────────────────────────────────────────── */
+  .page-header { margin-bottom: 40px; }
+  .page-header .tagline { color: var(--muted); margin-top: 4px; }
+  .header-actions { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 600;
+    border: none; cursor: pointer; text-decoration: none; transition: opacity .15s;
+  }
+  .btn:hover { opacity: .85; text-decoration: none; }
+  .btn-primary { background: var(--blue); color: #fff; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+
+  /* ── Scrollbar ──────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--dimmed); }
+
+  @media (max-width: 768px) {
+    nav { display: none; }
+    main { padding: 24px 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- ── Sidebar nav ────────────────────────────────────────────────────────── -->
+<nav id="sidebar">
+  <div class="logo">
+    <div class="logo-title">EFS AI Hub</div>
+    <div class="logo-sub">Developer Portal</div>
+  </div>
+  <div class="nav-section">Início</div>
+  <a href="#overview">Visão Geral</a>
+  <a href="#quickstart">Quick Start</a>
+  <a href="#auth">Autenticação</a>
+  <div class="nav-section">AG-UI Protocol</div>
+  <a href="#endpoints">Endpoints</a>
+  <a href="#events">Catálogo de Eventos</a>
+  <a href="#hitl">Fluxo HITL</a>
+  <div class="nav-section">Gerenciamento</div>
+  <a href="#agents">Agentes</a>
+  <a href="#agents-schema">Schema do Agente</a>
+  <a href="#agents-tools">Tipos de Tools</a>
+  <a href="#agents-versions">Versionamento</a>
+  <a href="#agents-example">Exemplo Agente</a>
+  <div class="nav-section">Workflows</div>
+  <a href="#workflows">Visão Geral</a>
+  <a href="#workflows-modes">Modos de Orquestração</a>
+  <a href="#workflows-endpoints">Endpoints CRUD</a>
+  <a href="#workflows-advanced">Endpoints Avançados</a>
+  <a href="#workflows-schema">Schema Completo</a>
+  <a href="#workflows-graph">Graph Mode</a>
+  <a href="#workflows-triggers">Triggers</a>
+  <a href="#workflows-executions">Execuções</a>
+  <a href="#workflows-example">Exemplos</a>
+  <div class="nav-section">Exemplos Chat</div>
+  <a href="#example-js">JavaScript / Fetch</a>
+  <a href="#example-curl">cURL</a>
+  <div class="nav-section">Links</div>
+  <a href="/swagger" target="_blank">Swagger UI ↗</a>
+  <a href="/health/ready" target="_blank">Health Check ↗</a>
+</nav>
+
+<!-- ── Main content ───────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Header -->
+  <div class="page-header" id="overview">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+      <h1>EFS AI Hub</h1>
+      <span class="badge badge-dev">⚠ Development Only</span>
+    </div>
+    <p class="tagline">Portal de integração para times que estão começando a trabalhar com as APIs do sistema.</p>
+    <div class="header-actions">
+      <a class="btn btn-primary" href="/swagger" target="_blank">📄 Swagger UI</a>
+      <a class="btn btn-outline" href="/health/ready" target="_blank">💚 Health Check</a>
+    </div>
+    <div class="callout callout-yellow" style="margin-top:20px">
+      <strong>Ambiente de desenvolvimento</strong> — Esta página só está disponível quando
+      <code>ASPNETCORE_ENVIRONMENT=Development</code>. Em produção, a rota <code>/dev</code> retorna 404.
+    </div>
+  </div>
+
+  <!-- Visão Geral -->
+  <section>
+    <h2>Visão Geral</h2>
+    <p>
+      O EFS AI Hub é uma plataforma de orquestração de Agentes e Workflows de IA sobre o
+      <strong>Microsoft Agent Framework</strong>. Ele expõe uma API de chat em tempo real baseada no
+      protocolo <strong>AG-UI</strong> — compatível tanto com clientes customizados EFS quanto com
+      clientes padrão AG-UI (CopilotKit, AG-UI SDK, etc.).
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:16px">
+      <div class="card" style="padding:16px">
+        <div style="font-size:22px;margin-bottom:8px">🔄</div>
+        <div style="font-weight:700;margin-bottom:4px">Streaming SSE</div>
+        <div style="color:var(--muted);font-size:13px">Respostas token a token via Server-Sent Events</div>
+      </div>
+      <div class="card" style="padding:16px">
+        <div style="font-size:22px;margin-bottom:8px">🤝</div>
+        <div style="font-weight:700;margin-bottom:4px">HITL</div>
+        <div style="color:var(--muted);font-size:13px">Aprovação humana no loop — stream permanece aberto</div>
+      </div>
+      <div class="card" style="padding:16px">
+        <div style="font-size:22px;margin-bottom:8px">⚡</div>
+        <div style="font-weight:700;margin-bottom:4px">AG-UI Padrão</div>
+        <div style="color:var(--muted);font-size:13px">Compatível com CopilotKit e AG-UI SDK</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Start -->
+  <section id="quickstart">
+    <h2>Quick Start</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-line">
+          <div class="step-dot">1</div>
+          <div class="step-connector"></div>
+        </div>
+        <div class="step-body">
+          <div class="step-title">Defina o header de identidade</div>
+          <div class="step-desc">Escolha entre conta de cliente ou ID de assessor. Sem header, o usuário é <code>anonymous</code>.</div>
+          <pre class="language-bash" style="margin-top:10px"><code class="language-bash"># Cliente (conta de investimento)
+x-efs-account: 011982329
+
+# Assessor
+x-efs-user-profile-id: P-00123</code></pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-line">
+          <div class="step-dot">2</div>
+          <div class="step-connector"></div>
+        </div>
+        <div class="step-body">
+          <div class="step-title">Envie a primeira mensagem</div>
+          <div class="step-desc">Use <code>threadId: null</code> para criar uma nova conversa. O servidor retorna o <code>threadId</code> no evento <code>RUN_STARTED</code>.</div>
+          <pre class="language-bash" style="margin-top:10px"><code class="language-bash">curl -X POST http://localhost:5189/api/chat/ag-ui/stream \
+  -H "Content-Type: application/json" \
+  -H "x-efs-account: 011982329" \
+  -d '{"messages":[{"role":"user","content":"Olá, qual é o saldo da minha conta?"}],"threadId":null}' \
+  --no-buffer</code></pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-line">
+          <div class="step-dot">3</div>
+        </div>
+        <div class="step-body">
+          <div class="step-title">Leia o stream SSE</div>
+          <div class="step-desc">Cada evento chega como <code>data: {json}</code> separado por linha em branco. Acumule os <code>TEXT_MESSAGE_CONTENT</code> para montar a resposta completa.</div>
+          <pre class="language-text" style="margin-top:10px"><code class="language-text">id: 1
+data: {"type":"RUN_STARTED","runId":"exec-abc","threadId":"conv-xyz"}
+
+id: 2
+data: {"type":"TEXT_MESSAGE_START","messageId":"msg-1","role":"assistant"}
+
+id: 3
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-1","delta":"O saldo"}
+
+id: 4
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-1","delta":" é R$ 15.000"}
+
+id: 5
+data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Autenticação -->
+  <section id="auth">
+    <h2>Autenticação e Identidade</h2>
+    <p>Todos os endpoints AG-UI são <strong>públicos</strong> — não exigem token. Mas exigem um header de identidade.</p>
+    <table>
+      <thead><tr><th>Header</th><th>Tipo de usuário</th><th>Exemplo</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>x-efs-account</code></td>
+          <td>Cliente (conta de investimento)</td>
+          <td><code>x-efs-account: 011982329</code></td>
+        </tr>
+        <tr>
+          <td><code>x-efs-user-profile-id</code></td>
+          <td>Assessor de investimentos</td>
+          <td><code>x-efs-user-profile-id: P-00123</code></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="callout callout-blue">
+      Envie <strong>apenas um</strong> dos dois headers por requisição. Sem header, o usuário é identificado como <code>anonymous</code> e pode ter funcionalidades restritas dependendo do workflow.
+    </div>
+  </section>
+
+  <!-- Endpoints -->
+  <section id="endpoints">
+    <h2>Endpoints AG-UI</h2>
+    <p>Todos os endpoints estão sob o prefixo <code>/api/chat/ag-ui/</code>.</p>
+
+    <!-- POST /stream -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-post">POST</span>
+        <span class="endpoint-path">/api/chat/ag-ui/stream</span>
+        <span class="endpoint-desc">Envia mensagem e abre o stream SSE</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body open">
+        <p>Envia mensagem via array <code>messages[]</code> e abre o stream SSE de resposta.</p>
+        <h3>Headers opcionais (extensões EFS)</h3>
+        <table>
+          <thead><tr><th>Header</th><th>Descrição</th></tr></thead>
+          <tbody>
+            <tr><td><code>x-efs-project-id</code></td><td>Projeto do tenant. Default: <code>"default"</code></td></tr>
+            <tr><td><code>x-efs-workflow-id</code></td><td>Workflow a executar. Default: padrão do projeto/userType</td></tr>
+          </tbody>
+        </table>
+        <h3>Body</h3>
+        <pre class="language-json"><code class="language-json">{
+  "messages": [
+    { "id": "msg-1", "role": "user", "content": "Qual é o saldo da minha conta?" }
+  ],
+  "threadId": null,
+  "runId": "run-custom-001",
+  "tools": [],
+  "state": {}
+}</code></pre>
+        <h3>Campos principais</h3>
+        <table>
+          <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>
+          <tbody>
+            <tr><td><code>messages[]</code></td><td>array</td><td>Histórico; o último <code>role=user</code> é a mensagem efetiva</td></tr>
+            <tr><td><code>threadId</code></td><td>string | null</td><td>ID da conversa. <code>null</code> = criar nova</td></tr>
+            <tr><td><code>workflowId</code></td><td>string | null</td><td>Alternativo ao header <code>x-efs-workflow-id</code>; body tem prioridade</td></tr>
+            <tr><td><code>runId</code></td><td>string</td><td>Run ID fornecido pelo cliente</td></tr>
+          </tbody>
+        </table>
+        <h3>Códigos HTTP de resposta</h3>
+        <table>
+          <thead><tr><th>Código</th><th>Situação</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge badge-green">200</span></td><td>Stream aberto com sucesso (<code>text/event-stream</code>)</td></tr>
+            <tr><td><span class="badge badge-yellow">400</span></td><td>Nenhuma mensagem de usuário ou body inválido</td></tr>
+            <tr><td><span class="badge badge-yellow">404</span></td><td><code>threadId</code> não encontrado</td></tr>
+            <tr><td><span class="badge badge-red">429</span></td><td>Rate limit do projeto excedido</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- POST /cancel -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-post">POST</span>
+        <span class="endpoint-path">/api/chat/ag-ui/cancel</span>
+        <span class="endpoint-desc">Cancela uma execução em andamento</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Cancela o run identificado por <code>executionId</code>. O stream original receberá o evento <code>RUN_ERROR</code> com <code>errorCode: "CANCELLED"</code>.</p>
+        <pre class="language-json"><code class="language-json">{ "executionId": "exec-abc123" }</code></pre>
+        <p>O <code>executionId</code> é retornado no evento <code>RUN_STARTED.runId</code>.</p>
+      </div>
+    </div>
+
+    <!-- POST /resolve-hitl -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-post">POST</span>
+        <span class="endpoint-path">/api/chat/ag-ui/resolve-hitl</span>
+        <span class="endpoint-desc">Responde a uma aprovação humana (HITL)</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Resolve uma aprovação pendente. O stream original continua após receber a resposta — <strong>não feche o stream antes</strong>.</p>
+        <pre class="language-json"><code class="language-json">{
+  "toolCallId": "tc-xyz789",
+  "response": "approved"
+}</code></pre>
+        <table>
+          <thead><tr><th>Campo</th><th>Valores</th></tr></thead>
+          <tbody>
+            <tr><td><code>toolCallId</code></td><td>ID recebido no evento <code>TOOL_CALL_START</code></td></tr>
+            <tr><td><code>response</code></td><td><code>"approved"</code>, <code>"rejected"</code>, ou texto customizado das <code>options[]</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- GET /reconnect -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-get">GET</span>
+        <span class="endpoint-path">/api/chat/ag-ui/reconnect/{executionId}</span>
+        <span class="endpoint-desc">Reconecta após perda de conexão</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Reconecta a uma execução em andamento com suporte a replay via <code>Last-Event-ID</code>.</p>
+        <table>
+          <thead><tr><th>Header</th><th>Descrição</th></tr></thead>
+          <tbody>
+            <tr><td><code>Last-Event-ID</code></td><td>Sequence ID para replay a partir daquele ponto</td></tr>
+            <tr><td><code>x-thread-id</code></td><td>ID da conversa (<code>threadId</code>)</td></tr>
+          </tbody>
+        </table>
+        <div class="callout callout-blue">
+          Sem <code>Last-Event-ID</code>: o servidor envia <code>MESSAGES_SNAPSHOT</code> + <code>STATE_SNAPSHOT</code> para resync completo, depois continua o stream.
+        </div>
+        <pre class="language-javascript"><code class="language-javascript">// Armazene o último id: recebido do stream
+let lastEventId = null
+
+// Ao reconectar:
+const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
+  headers: {
+    'Last-Event-ID': lastEventId,
+    'x-thread-id': threadId,
+    'x-efs-account': conta,
+  }
+})</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Catálogo de Eventos -->
+  <section id="events">
+    <h2>Catálogo de Eventos</h2>
+    <p>Cada evento SSE chega no formato <code>data: {json}</code> com ao menos o campo <code>type</code>.</p>
+
+    <div class="filter-row">
+      <button class="filter-btn active" onclick="filterEvents('all', this)">Todos</button>
+      <button class="filter-btn" onclick="filterEvents('lifecycle', this)">Lifecycle</button>
+      <button class="filter-btn" onclick="filterEvents('steps', this)">Steps</button>
+      <button class="filter-btn" onclick="filterEvents('text', this)">Texto</button>
+      <button class="filter-btn" onclick="filterEvents('tools', this)">Tools</button>
+      <button class="filter-btn" onclick="filterEvents('state', this)">Estado</button>
+      <button class="filter-btn" onclick="filterEvents('reconnect', this)">Reconexão</button>
+      <button class="filter-btn" onclick="filterEvents('custom', this)">Custom</button>
+    </div>
+
+    <table id="events-table">
+      <thead>
+        <tr>
+          <th>Tipo</th>
+          <th>Categoria</th>
+          <th>Campos principais</th>
+          <th>Descrição</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr data-cat="lifecycle">
+          <td><code>RUN_STARTED</code></td>
+          <td><span class="badge badge-green">Lifecycle</span></td>
+          <td><code>runId</code>, <code>threadId</code></td>
+          <td>Workflow iniciou. Salve o <code>threadId</code> para próximas mensagens.</td>
+        </tr>
+        <tr data-cat="lifecycle">
+          <td><code>RUN_FINISHED</code></td>
+          <td><span class="badge badge-green">Lifecycle</span></td>
+          <td><code>runId</code>, <code>threadId</code>, <code>output</code></td>
+          <td>Workflow concluiu com sucesso. Stream encerrado após este evento.</td>
+        </tr>
+        <tr data-cat="lifecycle">
+          <td><code>RUN_ERROR</code></td>
+          <td><span class="badge badge-red">Lifecycle</span></td>
+          <td><code>error</code>, <code>errorCode</code></td>
+          <td>Workflow falhou. <code>errorCode</code>: <code>BUDGET_EXCEEDED</code> | <code>EXECUTION_FAILED</code> | <code>CANCELLED</code></td>
+        </tr>
+        <tr data-cat="steps">
+          <td><code>STEP_STARTED</code></td>
+          <td><span class="badge badge-blue">Steps</span></td>
+          <td><code>stepId</code>, <code>stepName</code></td>
+          <td>Etapa interna do workflow iniciou (agente ou nó do grafo).</td>
+        </tr>
+        <tr data-cat="steps">
+          <td><code>STEP_FINISHED</code></td>
+          <td><span class="badge badge-blue">Steps</span></td>
+          <td><code>stepId</code>, <code>stepName</code></td>
+          <td>Etapa interna concluiu.</td>
+        </tr>
+        <tr data-cat="text">
+          <td><code>TEXT_MESSAGE_START</code></td>
+          <td><span class="badge badge-purple">Texto</span></td>
+          <td><code>messageId</code>, <code>role</code></td>
+          <td>Nova mensagem do assistente começando. Crie a bolha de resposta.</td>
+        </tr>
+        <tr data-cat="text">
+          <td><code>TEXT_MESSAGE_CONTENT</code></td>
+          <td><span class="badge badge-purple">Texto</span></td>
+          <td><code>messageId</code>, <code>delta</code></td>
+          <td>Fragmento de token. Concatene <code>delta</code> para montar a mensagem.</td>
+        </tr>
+        <tr data-cat="text">
+          <td><code>TEXT_MESSAGE_END</code></td>
+          <td><span class="badge badge-purple">Texto</span></td>
+          <td><code>messageId</code></td>
+          <td>Mensagem do assistente finalizada.</td>
+        </tr>
+        <tr data-cat="tools">
+          <td><code>TOOL_CALL_START</code></td>
+          <td><span class="badge badge-yellow">Tools</span></td>
+          <td><code>toolCallId</code>, <code>toolCallName</code></td>
+          <td>Workflow chamando uma tool. Se <code>toolCallName = "request_approval"</code>: fluxo HITL.</td>
+        </tr>
+        <tr data-cat="tools">
+          <td><code>TOOL_CALL_ARGS</code></td>
+          <td><span class="badge badge-yellow">Tools</span></td>
+          <td><code>toolCallId</code>, <code>delta</code></td>
+          <td>Argumentos da tool em streaming (fragmentos de JSON). Acumule e parse só ao <code>TOOL_CALL_END</code>.</td>
+        </tr>
+        <tr data-cat="tools">
+          <td><code>TOOL_CALL_END</code></td>
+          <td><span class="badge badge-yellow">Tools</span></td>
+          <td><code>toolCallId</code></td>
+          <td>Fim do streaming de argumentos. Para HITL: mostre os botões de aprovação agora.</td>
+        </tr>
+        <tr data-cat="tools">
+          <td><code>TOOL_CALL_RESULT</code></td>
+          <td><span class="badge badge-yellow">Tools</span></td>
+          <td><code>toolCallId</code>, <code>result</code></td>
+          <td>Resultado da tool call.</td>
+        </tr>
+        <tr data-cat="state">
+          <td><code>STATE_SNAPSHOT</code></td>
+          <td><span class="badge badge-gray">Estado</span></td>
+          <td><code>snapshot</code></td>
+          <td>Estado completo atual do workflow. Emitido no início do stream ou na reconexão.</td>
+        </tr>
+        <tr data-cat="state">
+          <td><code>STATE_DELTA</code></td>
+          <td><span class="badge badge-gray">Estado</span></td>
+          <td><code>delta</code></td>
+          <td>Diff incremental de estado em formato JSON Patch.</td>
+        </tr>
+        <tr data-cat="reconnect">
+          <td><code>MESSAGES_SNAPSHOT</code></td>
+          <td><span class="badge badge-gray">Reconexão</span></td>
+          <td><code>messages[]</code></td>
+          <td>Histórico completo da conversa. Enviado apenas na reconexão sem <code>Last-Event-ID</code>.</td>
+        </tr>
+        <tr data-cat="custom">
+          <td><code>CUSTOM</code></td>
+          <td><span class="badge badge-gray">Custom</span></td>
+          <td><code>customName</code>, <code>customValue</code></td>
+          <td>Eventos de domínio específicos emitidos pelo workflow.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- HITL -->
+  <section id="hitl">
+    <h2>Fluxo HITL — Human in the Loop</h2>
+    <p>O HITL ocorre quando o workflow precisa de aprovação humana antes de prosseguir. O stream <strong>permanece aberto</strong> aguardando a resposta.</p>
+
+    <div class="hitl-flow">
+<span class="comment">// 1. Workflow solicita aprovação</span>
+<span class="arrow">stream ←</span> <span class="event">TOOL_CALL_START</span>   { toolCallId: <span class="resolve">"tc-1"</span>, toolCallName: <span class="resolve">"request_approval"</span> }
+<span class="arrow">stream ←</span> <span class="event">TOOL_CALL_ARGS</span>    { toolCallId: <span class="resolve">"tc-1"</span>, delta: <span class="resolve">'{"question":"Confirma transferência de R$ 50k?","options":["Aprovar","Rejeitar"]}'</span> }
+<span class="arrow">stream ←</span> <span class="event">TOOL_CALL_END</span>     { toolCallId: <span class="resolve">"tc-1"</span> }
+
+<span class="wait">  [ Frontend acumula delta e exibe botões de aprovação — stream permanece aberto ]</span>
+
+<span class="comment">// 2. Usuário clica em "Aprovar"</span>
+<span class="resolve">cliente →</span> POST /api/chat/ag-ui/resolve-hitl { toolCallId: <span class="resolve">"tc-1"</span>, response: <span class="resolve">"Aprovar"</span> }
+
+<span class="comment">// 3. Workflow continua</span>
+<span class="arrow">stream ←</span> <span class="event">TOOL_CALL_RESULT</span>  { toolCallId: <span class="resolve">"tc-1"</span>, result: <span class="resolve">"Aprovar"</span> }
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_START</span>
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_CONTENT</span> <span class="comment">[ tokens da resposta final ]</span>
+<span class="arrow">stream ←</span> <span class="event">RUN_FINISHED</span>
+    </div>
+
+    <div class="callout callout-green" style="margin-top:16px">
+      <strong>Dica:</strong> Acumule todos os <code>TOOL_CALL_ARGS.delta</code> antes do <code>TOOL_CALL_END</code> e só então parse o JSON — os args podem chegar em múltiplos fragmentos.
+    </div>
+
+    <h3>Estrutura do delta HITL</h3>
+    <pre class="language-json"><code class="language-json">{
+  "interactionId": "hitl-001",
+  "question": "Confirma transferência de R$ 50.000,00 para conta 123456?",
+  "options": ["Aprovar", "Rejeitar"],
+  "timeoutSeconds": 300
+}</code></pre>
+    <p>Quando <code>options</code> é <code>null</code>, assuma Aprovar / Rejeitar com valores <code>"approved"</code> / <code>"rejected"</code>.</p>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       SEÇÃO AGENTES
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <!-- Agentes — visão geral -->
+  <section id="agents">
+    <h2>Agentes</h2>
+    <p>
+      Agentes são os "cérebros" do sistema — cada um encapsula um modelo LLM, um sistema de instruções
+      (system prompt), ferramentas disponíveis, middlewares de guarda e política de resiliência.
+      Eles são referenciados por <strong>Workflows</strong>, que definem a orquestração entre múltiplos agentes.
+    </p>
+    <div class="callout callout-blue">
+      <strong>Isolamento por projeto</strong> — Todos os agentes pertencem a um <code>projectId</code>.
+      Envie o header <code>x-efs-project-id: &lt;id&gt;</code> para isolar recursos por projeto.
+      O valor padrão é <code>"default"</code> quando o header é omitido.
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:20px 0 28px">
+      <div class="card" style="padding:16px">
+        <div style="font-size:22px;margin-bottom:8px">📁</div>
+        <div style="font-weight:700;margin-bottom:4px">Isolamento por Projeto</div>
+        <div style="color:var(--muted);font-size:13px">Agentes são escopados por <code>projectId</code> — diferentes times não interferem uns nos outros</div>
+      </div>
+      <div class="card" style="padding:16px">
+        <div style="font-size:22px;margin-bottom:8px">🔖</div>
+        <div style="font-weight:700;margin-bottom:4px">Versionamento Automático</div>
+        <div style="color:var(--muted);font-size:13px">Cada edição gera um snapshot imutável com hash — rollback é possível para qualquer revisão anterior</div>
+      </div>
+      <div class="card" style="padding:16px">
+        <div style="font-size:22px;margin-bottom:8px">🛠</div>
+        <div style="font-weight:700;margin-bottom:4px">Tooling & Middlewares</div>
+        <div style="color:var(--muted);font-size:13px">Functions, MCP, web search, code interpreter — mais pipeline de middlewares por agente</div>
+      </div>
+    </div>
+
+    <h3>Endpoints CRUD</h3>
+
+    <!-- POST /api/agents -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-post">POST</span>
+        <span class="endpoint-path">/api/agents</span>
+        <span class="endpoint-desc">Criar um novo agente</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body open">
+        <p>Cria um agente e persiste a versão inicial (revision 1). Retorna <code>201 Created</code> com o agente criado.</p>
+        <pre class="language-json"><code class="language-json">{
+  "id": "assessor-investimentos",
+  "name": "Assessor de Investimentos",
+  "description": "Agente especializado em carteiras e ordens de investimento",
+  "model": {
+    "deploymentName": "gpt-4o",
+    "temperature": 0.2,
+    "maxTokens": 2048
+  },
+  "provider": {
+    "type": "AzureFoundry",
+    "clientType": "ChatCompletion"
+  },
+  "instructions": "Você é um assessor de investimentos da EFS. Responda sempre em português, de forma objetiva e transparente. Consulte a carteira do cliente antes de fazer qualquer recomendação.",
+  "tools": [
+    { "type": "function", "name": "get_client_position" },
+    { "type": "function", "name": "get_market_data" },
+    { "type": "function", "name": "build_redemption_order", "requiresApproval": true }
+  ],
+  "middlewares": [
+    { "type": "AccountGuard", "enabled": true }
+  ],
+  "resilience": {
+    "maxRetries": 3,
+    "initialDelayMs": 1000,
+    "backoffMultiplier": 2.0
+  },
+  "costBudget": {
+    "maxCostUsd": 0.50
+  },
+  "metadata": {
+    "owner": "squad-assessoria",
+    "env": "staging"
+  }
+}</code></pre>
+        <table>
+          <thead><tr><th>Código</th><th>Situação</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge badge-green">201</span></td><td>Agente criado com sucesso</td></tr>
+            <tr><td><span class="badge badge-yellow">400</span></td><td>Body inválido ou ID já existe</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- GET /api/agents -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-get">GET</span>
+        <span class="endpoint-path">/api/agents</span>
+        <span class="endpoint-desc">Listar todos os agentes do projeto</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Retorna todos os agentes do projeto ativo (definido pelo header <code>x-efs-project-id</code>). Resposta é um array de <code>AgentResponse</code>.</p>
+        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/agents \
+  -H "x-efs-account: 011982329"</code></pre>
+        <div class="callout callout-blue">
+          Para buscar agentes de um projeto específico: <code>-H "x-efs-project-id: meu-projeto"</code>
+        </div>
+      </div>
+    </div>
+
+    <!-- GET /api/agents/{id} -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-get">GET</span>
+        <span class="endpoint-path">/api/agents/{id}</span>
+        <span class="endpoint-desc">Buscar agente por ID</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Retorna o agente completo com todos os campos.</p>
+        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/agents/assessor-investimentos \
+  -H "x-efs-account: 011982329"</code></pre>
+        <table>
+          <thead><tr><th>Código</th><th>Situação</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge badge-green">200</span></td><td>Agente encontrado</td></tr>
+            <tr><td><span class="badge badge-yellow">404</span></td><td>ID não existe</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PUT /api/agents/{id} -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-put">PUT</span>
+        <span class="endpoint-path">/api/agents/{id}</span>
+        <span class="endpoint-desc">Atualizar agente (gera nova versão)</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Atualiza o agente e cria automaticamente uma nova <code>AgentVersion</code> com snapshot imutável. O body tem o mesmo schema do POST.</p>
+        <pre class="language-bash"><code class="language-bash">curl -X PUT http://localhost:5189/api/agents/assessor-investimentos \
+  -H "Content-Type: application/json" \
+  -H "x-efs-account: 011982329" \
+  -d '{
+    "id": "assessor-investimentos",
+    "name": "Assessor de Investimentos v2",
+    "model": { "deploymentName": "gpt-4o", "temperature": 0.1 },
+    "instructions": "Instrução atualizada..."
+  }'</code></pre>
+        <div class="callout callout-green">
+          O PUT sempre gera uma nova revisão — nunca sobrescreve. Use <code>POST /rollback</code> para reverter.
+        </div>
+      </div>
+    </div>
+
+    <!-- DELETE /api/agents/{id} -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-delete">DELETE</span>
+        <span class="endpoint-path">/api/agents/{id}</span>
+        <span class="endpoint-desc">Remover agente</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Remove o agente e todas as suas versões. Retorna <code>204 No Content</code>.</p>
+        <div class="callout callout-yellow">
+          <strong>Atenção:</strong> Workflows que referenciam este agente continuarão a existir, mas falharão ao tentar usá-lo.
+        </div>
+        <pre class="language-bash"><code class="language-bash">curl -X DELETE http://localhost:5189/api/agents/assessor-investimentos \
+  -H "x-efs-account: 011982329"</code></pre>
+      </div>
+    </div>
+
+    <h3>Endpoints Avançados</h3>
+
+    <!-- POST /validate -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-post">POST</span>
+        <span class="endpoint-path">/api/agents/{id}/validate</span>
+        <span class="endpoint-desc">Validar configuração do agente</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Verifica se o agente está corretamente configurado (tools existem, provider acessível, etc.) sem executá-lo. Resposta:</p>
+        <pre class="language-json"><code class="language-json">{ "isValid": true, "errors": [] }
+
+// Exemplo com erros:
+{ "isValid": false, "errors": ["Tool 'get_saldo' not registered", "Provider endpoint unreachable"] }</code></pre>
+      </div>
+    </div>
+
+    <!-- POST /sandbox -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-post">POST</span>
+        <span class="endpoint-path">/api/agents/{id}/sandbox</span>
+        <span class="endpoint-desc">Testar agente sem criar conversa</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Executa o agente em modo sandbox — útil para smoke tests antes de promover para produção. Você pode mockar tools específicas.</p>
+        <pre class="language-json"><code class="language-json">{
+  "input": "Qual é a carteira do cliente 011982329?",
+  "mockTools": ["get_client_position"]
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- POST /compare -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-post">POST</span>
+        <span class="endpoint-path">/api/agents/{id}/compare</span>
+        <span class="endpoint-desc">Comparar duas versões do agente</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Executa a mesma entrada nas duas versões e retorna as respostas lado a lado — ideal para avaliar impacto de mudanças de prompt.</p>
+        <pre class="language-json"><code class="language-json">{
+  "versionIdA": "v1-uuid-aqui",
+  "versionIdB": "v2-uuid-aqui",
+  "input": "Recomenda resgatar a posição em renda fixa?"
+}</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Schema do Agente -->
+  <section id="agents-schema">
+    <h2>Schema do Agente</h2>
+    <p>Campos aceitos em <code>POST /api/agents</code> e <code>PUT /api/agents/{id}</code> (body idêntico).</p>
+
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Obrig.</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>string</td><td>✓</td><td>Identificador único do agente (slug: letras, números, hífens). Ex: <code>"assessor-renda-fixa"</code></td></tr>
+        <tr><td><code>name</code></td><td>string</td><td>✓</td><td>Nome legível. Ex: <code>"Assessor de Renda Fixa"</code></td></tr>
+        <tr><td><code>description</code></td><td>string</td><td>—</td><td>Descrição do propósito do agente</td></tr>
+        <tr><td><code>model</code></td><td>object</td><td>✓</td><td>Configuração do modelo LLM (ver sub-tabela abaixo)</td></tr>
+        <tr><td><code>provider</code></td><td>object</td><td>—</td><td>Provider LLM — padrão: <code>AzureFoundry / ChatCompletion</code></td></tr>
+        <tr><td><code>instructions</code></td><td>string</td><td>—</td><td>System prompt do agente (injeta contexto, persona, regras)</td></tr>
+        <tr><td><code>tools</code></td><td>array</td><td>—</td><td>Lista de ferramentas disponíveis (ver seção Tools)</td></tr>
+        <tr><td><code>structuredOutput</code></td><td>object</td><td>—</td><td>Define formato de saída (<code>text</code> | <code>json</code> | <code>json_schema</code>)</td></tr>
+        <tr><td><code>middlewares</code></td><td>array</td><td>—</td><td>Pipeline de middlewares executados antes de cada invoke</td></tr>
+        <tr><td><code>resilience</code></td><td>object</td><td>—</td><td>Política de retry e backoff</td></tr>
+        <tr><td><code>costBudget</code></td><td>object</td><td>—</td><td>Limite máximo de custo em USD por execução</td></tr>
+        <tr><td><code>skillRefs</code></td><td>array</td><td>—</td><td>Skills vinculadas — cada skill adiciona tools e instruções ao agente</td></tr>
+        <tr><td><code>metadata</code></td><td>object</td><td>—</td><td>Dicionário livre de chave/valor para fins operacionais</td></tr>
+      </tbody>
+    </table>
+    <div class="callout callout-blue">
+      <strong>Nota:</strong> O campo <code>fallbackProvider</code> existe no modelo de domínio do agente (para circuit breaker) mas não é configurável via <code>POST</code>/<code>PUT</code>. É gerenciado pela plataforma com base nas configurações do projeto.
+    </div>
+
+    <h3>model</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Obrig.</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>deploymentName</code></td><td>string</td><td>✓</td><td>Nome do deployment. Ex: <code>"gpt-4o"</code>, <code>"gpt-4o-mini"</code></td></tr>
+        <tr><td><code>temperature</code></td><td>float</td><td>—</td><td>0.0 (determinístico) – 2.0 (criativo). Default do provider se omitido.</td></tr>
+        <tr><td><code>maxTokens</code></td><td>int</td><td>—</td><td>Limite de tokens na resposta. Default do modelo se omitido.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>provider</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Valores</th></tr></thead>
+      <tbody>
+        <tr><td><code>type</code></td><td>string</td><td><code>"AzureFoundry"</code> | <code>"AzureOpenAI"</code> | <code>"OpenAI"</code></td></tr>
+        <tr><td><code>clientType</code></td><td>string</td><td><code>"ChatCompletion"</code> | <code>"Responses"</code> | <code>"Assistants"</code></td></tr>
+        <tr><td><code>endpoint</code></td><td>string</td><td>URL de override do endpoint</td></tr>
+        <tr><td><code>apiKey</code></td><td>string</td><td>API key de override (prefira variáveis de ambiente)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>structuredOutput</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>responseFormat</code></td><td>string</td><td><code>"text"</code> (default) | <code>"json"</code> | <code>"json_schema"</code></td></tr>
+        <tr><td><code>schemaName</code></td><td>string</td><td>Nome do schema (obrigatório quando <code>json_schema</code>)</td></tr>
+        <tr><td><code>schemaDescription</code></td><td>string</td><td>Descrição do schema</td></tr>
+        <tr><td><code>schema</code></td><td>object</td><td>JSON Schema raw que o modelo deve respeitar</td></tr>
+      </tbody>
+    </table>
+
+    <h3>resilience</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Default</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>maxRetries</code></td><td>3</td><td>Número máximo de tentativas em caso de falha</td></tr>
+        <tr><td><code>initialDelayMs</code></td><td>1000</td><td>Delay inicial em ms antes da primeira retry</td></tr>
+        <tr><td><code>backoffMultiplier</code></td><td>2.0</td><td>Multiplicador exponencial entre retries</td></tr>
+        <tr><td><code>retriableHttpStatusCodes</code></td><td>null</td><td>Lista de status codes que disparam retry. null = usar defaults (429, 502, 503, 504)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>costBudget</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>maxCostUsd</code></td><td>decimal</td><td>Custo máximo em USD por execução de workflow. Ao exceder, o run é interrompido com <code>RUN_ERROR { errorCode: "BUDGET_EXCEEDED" }</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Tipos de Tools -->
+  <section id="agents-tools">
+    <h2>Tipos de Tools</h2>
+    <p>O campo <code>tools[]</code> do agente aceita cinco tipos. Cada tool é um objeto com <code>type</code> obrigatório e campos específicos por tipo.</p>
+
+    <table>
+      <thead><tr><th>type</th><th>Campos obrigatórios extras</th><th>Quando usar</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>function</code></td>
+          <td><code>name</code></td>
+          <td>Chamar uma function registrada no backend (FunctionToolRegistry). Use <code>GET /api/functions</code> para listar as disponíveis.</td>
+        </tr>
+        <tr>
+          <td><code>code_interpreter</code></td>
+          <td>—</td>
+          <td>Executar código Python/JS em sandbox isolado. Ideal para cálculos financeiros e geração de gráficos.</td>
+        </tr>
+        <tr>
+          <td><code>file_search</code></td>
+          <td>—</td>
+          <td>Busca vetorial em arquivos e bases de conhecimento associadas ao agente.</td>
+        </tr>
+        <tr>
+          <td><code>mcp</code></td>
+          <td><code>serverUrl</code>, <code>serverLabel</code></td>
+          <td>Integrar um servidor MCP externo. O agente descobrirá e poderá chamar todas as tools expostas pelo servidor.</td>
+        </tr>
+        <tr>
+          <td><code>web_search</code></td>
+          <td>—</td>
+          <td>Pesquisa na internet via Bing Grounding. Requer <code>connectionId</code> configurado no provider.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Campos comuns a todas as tools</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>type</code></td><td>string</td><td>Tipo da tool (obrigatório)</td></tr>
+        <tr><td><code>name</code></td><td>string</td><td>Nome da function (obrigatório em <code>function</code>)</td></tr>
+        <tr><td><code>requiresApproval</code></td><td>bool</td><td>Se <code>true</code>: ativa fluxo HITL antes de executar esta tool. Default: <code>false</code></td></tr>
+        <tr><td><code>fingerprintHash</code></td><td>string</td><td>SHA-256 da assinatura — garante que a function não mudou entre deploys</td></tr>
+        <tr><td><code>serverLabel</code></td><td>string</td><td>(MCP) Rótulo do servidor MCP</td></tr>
+        <tr><td><code>serverUrl</code></td><td>string</td><td>(MCP) URL do servidor MCP</td></tr>
+        <tr><td><code>allowedTools</code></td><td>array</td><td>(MCP) Lista de tools permitidas dentro do servidor. Vazio = todas</td></tr>
+        <tr><td><code>requireApproval</code></td><td>string</td><td>(MCP) <code>"never"</code> | <code>"always"</code></td></tr>
+        <tr><td><code>headers</code></td><td>object</td><td>(MCP) Headers adicionais na requisição ao servidor MCP</td></tr>
+        <tr><td><code>connectionId</code></td><td>string</td><td>(web_search) ID da conexão Bing Grounding</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Exemplo — agente com function + MCP + HITL</h3>
+    <pre class="language-json"><code class="language-json">"tools": [
+  {
+    "type": "function",
+    "name": "get_client_position",
+    "requiresApproval": false
+  },
+  {
+    "type": "function",
+    "name": "execute_redemption",
+    "requiresApproval": true
+  },
+  {
+    "type": "mcp",
+    "serverLabel": "compliance-mcp",
+    "serverUrl": "https://compliance.efs.internal/mcp",
+    "allowedTools": ["check_kyc", "check_aml"],
+    "headers": { "Authorization": "Bearer ${COMPLIANCE_TOKEN}" }
+  }
+]</code></pre>
+
+    <h3>Middlewares disponíveis</h3>
+    <p>Middlewares rodam antes de cada invoke do agente e podem bloquear a execução ou injetar contexto.</p>
+    <table>
+      <thead><tr><th>type</th><th>Descrição</th><th>Settings relevantes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>AccountGuard</code></td>
+          <td>Valida que a conta informada no header <code>x-efs-account</code> tem permissão para executar este agente. Retorna erro se a conta não for reconhecida.</td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+    <pre class="language-json"><code class="language-json">"middlewares": [
+  { "type": "AccountGuard", "enabled": true }
+]</code></pre>
+  </section>
+
+  <!-- Versionamento -->
+  <section id="agents-versions">
+    <h2>Versionamento de Agentes</h2>
+    <p>
+      Cada chamada <code>PUT /api/agents/{id}</code> cria automaticamente um snapshot imutável (<code>AgentVersion</code>)
+      com <code>contentHash</code> SHA-256 de toda a configuração. Você nunca perde histórico.
+    </p>
+
+    <div class="hitl-flow">
+<span class="comment">// Criação inicial</span>
+<span class="event">POST /api/agents</span>          <span class="arrow">→</span> <span class="resolve">revision 1</span>  contentHash: <span class="wait">a1b2c3...</span>
+
+<span class="comment">// Primeira edição (novo modelo)</span>
+<span class="event">PUT  /api/agents/{id}</span>      <span class="arrow">→</span> <span class="resolve">revision 2</span>  contentHash: <span class="wait">d4e5f6...</span>
+
+<span class="comment">// Segunda edição (novas instruções)</span>
+<span class="event">PUT  /api/agents/{id}</span>      <span class="arrow">→</span> <span class="resolve">revision 3</span>  contentHash: <span class="wait">g7h8i9...</span>
+
+<span class="comment">// Rollback para revision 1 — cria revision 4 com o conteúdo de revision 1</span>
+<span class="event">POST /api/agents/{id}/rollback</span> <span class="arrow">→</span> <span class="resolve">revision 4</span>  contentHash: <span class="wait">a1b2c3...</span> <span class="comment">(igual ao 1)</span>
+    </div>
+
+    <h3>Listar versões</h3>
+    <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/agents/assessor-investimentos/versions \
+  -H "x-efs-account: 011982329"</code></pre>
+
+    <h3>Buscar versão específica</h3>
+    <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/agents/assessor-investimentos/versions/{versionId} \
+  -H "x-efs-account: 011982329"</code></pre>
+
+    <h3>Rollback para versão anterior</h3>
+    <pre class="language-bash"><code class="language-bash">curl -X POST http://localhost:5189/api/agents/assessor-investimentos/rollback \
+  -H "Content-Type: application/json" \
+  -H "x-efs-account: 011982329" \
+  -d '{
+    "targetVersionId": "uuid-da-versao-alvo",
+    "changeReason": "Revertendo instrução problemática do deploy de ontem"
+  }'</code></pre>
+
+    <h3>Campos de AgentVersionResponse</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>agentVersionId</code></td><td>string (UUID)</td><td>ID único da versão</td></tr>
+        <tr><td><code>agentDefinitionId</code></td><td>string</td><td>ID do agente pai</td></tr>
+        <tr><td><code>revision</code></td><td>int</td><td>Número incremental da revisão (1, 2, 3…)</td></tr>
+        <tr><td><code>status</code></td><td>string</td><td><code>Draft</code> | <code>Published</code> | <code>Retired</code></td></tr>
+        <tr><td><code>createdAt</code></td><td>datetime</td><td>Timestamp de criação da versão</td></tr>
+        <tr><td><code>createdBy</code></td><td>string</td><td>Quem gerou a versão (usuário ou sistema)</td></tr>
+        <tr><td><code>changeReason</code></td><td>string</td><td>Motivo da mudança (passado no PUT ou rollback)</td></tr>
+        <tr><td><code>contentHash</code></td><td>string</td><td>SHA-256 do snapshot completo — igual entre rollbacks com o mesmo conteúdo</td></tr>
+        <tr><td><code>toolFingerprints</code></td><td>array</td><td>Hashes das tools no momento do snapshot</td></tr>
+        <tr><td><code>middlewarePipeline</code></td><td>array</td><td>Snapshot dos middlewares ativos</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Exemplo completo de agente -->
+  <section id="agents-example">
+    <h2>Exemplo Completo — Criar Agente e Conversar</h2>
+    <p>Fluxo end-to-end: criar agente → criar workflow → criar conversa → streaming.</p>
+    <pre class="language-javascript"><code class="language-javascript">const BASE = 'http://localhost:5189'
+const HEADERS = {
+  'Content-Type': 'application/json',
+  'x-efs-account': '011982329',
+}
+
+// ── 1. Criar o agente ────────────────────────────────────────────────────
+const agentRes = await fetch(`${BASE}/api/agents`, {
+  method: 'POST',
+  headers: HEADERS,
+  body: JSON.stringify({
+    id: 'assessor-demo',
+    name: 'Assessor Demo',
+    model: { deploymentName: 'gpt-4o', temperature: 0.2 },
+    instructions: 'Você é um assessor de investimentos. Responda sempre em português.',
+    tools: [
+      { type: 'function', name: 'get_client_position' },
+      { type: 'function', name: 'get_market_data' },
+    ],
+    middlewares: [{ type: 'AccountGuard', enabled: true }],
+    resilience: { maxRetries: 2, initialDelayMs: 500 },
+    costBudget: { maxCostUsd: 0.25 },
+  }),
+})
+const agent = await agentRes.json()
+console.log('Agente criado:', agent.id, '— revision 1')
+
+// ── 2. Criar o workflow referenciando o agente ───────────────────────────
+const wfRes = await fetch(`${BASE}/api/workflows`, {
+  method: 'POST',
+  headers: HEADERS,
+  body: JSON.stringify({
+    id: 'wf-assessoria-demo',
+    name: 'Workflow Assessoria Demo',
+    orchestrationMode: 'Sequential', // Sequential | Concurrent | Handoff | GroupChat | Graph
+    agents: [{ agentId: 'assessor-demo' }],
+  }),
+})
+const workflow = await wfRes.json()
+console.log('Workflow criado:', workflow.id)
+
+// ── 3. Criar conversa ────────────────────────────────────────────────────
+const convRes = await fetch(`${BASE}/api/conversations`, {
+  method: 'POST',
+  headers: HEADERS,
+  body: JSON.stringify({ workflowId: 'wf-assessoria-demo' }),
+})
+// Resposta: { conversationId, userId, userType, workflowId, createdAt }
+const conv = await convRes.json()
+const conversationId = conv.conversationId
+console.log('Conversa:', conversationId, '| userId:', conv.userId)
+
+// ── 4. Streaming via AG-UI ───────────────────────────────────────────────
+const streamRes = await fetch(`${BASE}/api/chat/ag-ui/stream`, {
+  method: 'POST',
+  headers: { ...HEADERS, 'x-efs-workflow-id': 'wf-assessoria-demo' },
+  body: JSON.stringify({
+    messages: [{ role: 'user', content: 'Quais são as melhores oportunidades em renda fixa agora?' }],
+    threadId: conversationId,
+  }),
+})
+
+const reader = streamRes.body.getReader()
+const decoder = new TextDecoder()
+let buffer = ''
+
+while (true) {
+  const { value, done } = await reader.read()
+  if (done) break
+
+  buffer += decoder.decode(value, { stream: true })
+  const frames = buffer.split('\n\n')
+  buffer = frames.pop()
+
+  for (const frame of frames) {
+    const dataLine = frame.split('\n').find(l => l.startsWith('data: '))
+    if (!dataLine) continue
+    const evt = JSON.parse(dataLine.slice(6))
+
+    if (evt.type === 'TEXT_MESSAGE_CONTENT') {
+      process.stdout.write(evt.content ?? evt.delta)
+    } else if (evt.type === 'RUN_FINISHED') {
+      console.log('\n[FIM]')
+    } else if (evt.type === 'RUN_ERROR') {
+      console.error('\n[ERRO]', evt.error, `(${evt.errorCode})`)
+    }
+  }
+}</code></pre>
+
+    <div class="callout callout-green">
+      <strong>Dica — fingerprinting de tools:</strong> Ao criar o agente, você pode passar <code>fingerprintHash</code>
+      em cada tool do tipo <code>function</code>. Use <code>GET /api/functions</code> para obter o hash atual
+      de cada function e garantir que ela não mudou desde que você testou o agente.
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       SEÇÃO WORKFLOWS
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <!-- Workflows — visão geral -->
+  <section id="workflows">
+    <h2>Workflows</h2>
+    <p>
+      Workflows orquestram um ou mais Agentes para resolver tarefas complexas. Cada workflow define
+      <strong>quais agentes participam</strong>, <strong>como se comunicam</strong> (modo de orquestração),
+      <strong>quando disparam</strong> (trigger) e <strong>limites de execução</strong> (tokens, custo, timeout).
+    </p>
+    <div class="callout callout-blue">
+      <strong>Isolamento por projeto</strong> — Assim como os agentes, workflows pertencem a um <code>projectId</code>
+      (header <code>x-efs-project-id</code>). Workflows com <code>visibility: "global"</code> aparecem em todos os projetos
+      via <code>GET /api/workflows/visible</code>.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:16px">
+      <div class="card" style="padding:16px">
+        <div style="font-size:22px;margin-bottom:8px">🔀</div>
+        <div style="font-weight:700;margin-bottom:4px">5 Modos de Orquestração</div>
+        <div style="color:var(--muted);font-size:13px">Sequential, Concurrent, Handoff, GroupChat, Graph — cada um com semântica própria</div>
+      </div>
+      <div class="card" style="padding:16px">
+        <div style="font-size:22px;margin-bottom:8px">⚡</div>
+        <div style="font-weight:700;margin-bottom:4px">Trigger Flexível</div>
+        <div style="color:var(--muted);font-size:13px">OnDemand (API), Scheduled (cron), EventDriven (webhook) — com suporte a disparo único</div>
+      </div>
+      <div class="card" style="padding:16px">
+        <div style="font-size:22px;margin-bottom:8px">🛡</div>
+        <div style="font-weight:700;margin-bottom:4px">Guardrails de Execução</div>
+        <div style="color:var(--muted);font-size:13px">Limites de tokens, custo, invocações de agente, timeout e concorrência por workflow</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Modos de Orquestração -->
+  <section id="workflows-modes">
+    <h2>Modos de Orquestração</h2>
+    <p>Definido pelo campo <code>orchestrationMode</code> (obrigatório). Determina como os agentes interagem entre si.</p>
+
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span class="badge badge-blue">Sequential</span>
+        <strong>Sequência linear de agentes</strong>
+      </div>
+      <p style="margin:0 0 8px">Cada agente recebe o output do anterior como input. Ideal para pipelines onde cada etapa enriquece o resultado.</p>
+      <pre class="language-text" style="margin:0"><code class="language-text">Usuário → Agente A → Agente B → Agente C → Resposta</code></pre>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span class="badge badge-green">Concurrent</span>
+        <strong>Execução paralela</strong>
+      </div>
+      <p style="margin:0 0 8px">Todos os agentes recebem o mesmo input e executam simultaneamente. Resultado é a agregação dos outputs. Ideal para análises multidimensionais.</p>
+      <pre class="language-text" style="margin:0"><code class="language-text">        ┌→ Agente A ─┐
+Usuário ─┤→ Agente B ─├→ Resposta agregada
+        └→ Agente C ─┘</code></pre>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span class="badge badge-yellow">Handoff</span>
+        <strong>Roteamento por escalação</strong>
+      </div>
+      <p style="margin:0 0 8px">Um agente pode escalar para outro via <code>EmitEscalationSignal</code>. O roteamento é controlado por <code>routingRules[]</code>. Ideal para triage — um agente generalista roteia para especialistas.</p>
+      <pre class="language-text" style="margin:0"><code class="language-text">Usuário → Triagem → (escala) → Especialista A
+                             └→ Especialista B</code></pre>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span class="badge badge-purple">GroupChat</span>
+        <strong>Chat em grupo com manager</strong>
+      </div>
+      <p style="margin:0 0 8px">Um agente <code>manager</code> coordena múltiplos <code>participant</code>s. O manager decide quando encerrar o chat. Ideal para tarefas colaborativas entre especialistas.</p>
+      <div class="callout callout-blue" style="margin:8px 0 0">
+        Requer exatamente 1 agente com <code>role: "manager"</code> e N agentes com <code>role: "participant"</code>.
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span class="badge badge-gray">Graph</span>
+        <strong>Grafo dirigido com nós e arestas</strong>
+      </div>
+      <p style="margin:0 0 8px">Máximo controle — você define <code>edges[]</code> entre agentes e executores (código puro sem LLM). Suporta roteamento condicional, fan-out/fan-in e loops. Veja a seção <a href="#workflows-graph">Graph Mode</a>.</p>
+    </div>
+  </section>
+
+  <!-- Endpoints CRUD -->
+  <section id="workflows-endpoints">
+    <h2>Endpoints CRUD</h2>
+
+    <!-- POST -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-post">POST</span>
+        <span class="endpoint-path">/api/workflows</span>
+        <span class="endpoint-desc">Criar workflow</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body open">
+        <p>Cria um workflow e persiste a revisão inicial. Retorna <code>201 Created</code> com <code>WorkflowResponse</code>.</p>
+        <pre class="language-json"><code class="language-json">{
+  "id": "assessoria-completa",
+  "name": "Assessoria Completa",
+  "description": "Triagem + especialistas de renda fixa e variável",
+  "version": "1.0.0",
+  "orchestrationMode": "Handoff",
+  "agents": [
+    { "agentId": "triagem-agent" },
+    { "agentId": "renda-fixa-agent" },
+    { "agentId": "renda-variavel-agent" }
+  ],
+  "routingRules": [
+    { "match": "category:renda-fixa",    "targetNodeId": "renda-fixa-agent",    "priority": 10 },
+    { "match": "category:renda-variavel","targetNodeId": "renda-variavel-agent", "priority": 10 },
+    { "match": "any",                    "targetNodeId": "triagem-agent",        "priority": 0  }
+  ],
+  "configuration": {
+    "timeoutSeconds": 120,
+    "maxAgentInvocations": 6,
+    "maxTokensPerExecution": 30000,
+    "maxCostUsdPerExecution": 0.50,
+    "inputMode": "Chat"
+  },
+  "metadata": { "squad": "assessoria", "env": "prod" }
+}</code></pre>
+        <table>
+          <thead><tr><th>Código</th><th>Situação</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge badge-green">201</span></td><td>Workflow criado com sucesso</td></tr>
+            <tr><td><span class="badge badge-yellow">400</span></td><td>Body inválido, ID duplicado, ou agentes referenciados inexistentes</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- GET all -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-get">GET</span>
+        <span class="endpoint-path">/api/workflows</span>
+        <span class="endpoint-desc">Listar todos os workflows do projeto</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/workflows \
+  -H "x-efs-account: 011982329"</code></pre>
+      </div>
+    </div>
+
+    <!-- GET by ID -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-get">GET</span>
+        <span class="endpoint-path">/api/workflows/{id}</span>
+        <span class="endpoint-desc">Buscar workflow por ID</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <table>
+          <thead><tr><th>Código</th><th>Situação</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge badge-green">200</span></td><td>Workflow encontrado</td></tr>
+            <tr><td><span class="badge badge-yellow">404</span></td><td>ID não existe</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- GET visible -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-get">GET</span>
+        <span class="endpoint-path">/api/workflows/visible</span>
+        <span class="endpoint-desc">Listar workflows visíveis (projeto + global)</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Retorna workflows do projeto atual <strong>e</strong> workflows com <code>visibility: "global"</code> de outros projetos. Use para descoberta de catálogos compartilhados.</p>
+      </div>
+    </div>
+
+    <!-- PUT -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-put">PUT</span>
+        <span class="endpoint-path">/api/workflows/{id}</span>
+        <span class="endpoint-desc">Atualizar workflow (gera nova versão)</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Body idêntico ao POST. Gera automaticamente uma nova revisão com snapshot imutável. Idempotente por ContentHash — conteúdo idêntico não cria revisão.</p>
+        <div class="callout callout-green">
+          Se o conteúdo enviado for idêntico ao da última versão (mesmo ContentHash), nenhuma nova revisão é criada.
+        </div>
+      </div>
+    </div>
+
+    <!-- DELETE -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-delete">DELETE</span>
+        <span class="endpoint-path">/api/workflows/{id}</span>
+        <span class="endpoint-desc">Remover workflow</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Remove o workflow e todas as suas versões. Retorna <code>204 No Content</code>.</p>
+        <div class="callout callout-yellow">
+          <strong>Atenção:</strong> Conversas em andamento com este workflow continuarão até concluir, mas novas execuções falharão com 404.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Endpoints Avançados -->
+  <section id="workflows-advanced">
+    <h2>Endpoints Avançados</h2>
+
+    <!-- Trigger -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-post">POST</span>
+        <span class="endpoint-path">/api/workflows/{id}/trigger</span>
+        <span class="endpoint-desc">Disparar execução (fire-and-forget)</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Enfileira o workflow para execução em background. Retorna <code>202 Accepted</code> com o <code>executionId</code> imediatamente — sem aguardar o resultado.</p>
+        <pre class="language-json"><code class="language-json">{ "input": "Analise a carteira do cliente 011982329", "metadata": { "source": "crm" } }</code></pre>
+        <p>Resposta:</p>
+        <pre class="language-json"><code class="language-json">{ "executionId": "exec-abc123", "statusUrl": "/api/executions/exec-abc123" }</code></pre>
+        <p>Acompanhe via <code>GET /api/workflows/{id}/executions</code> ou polling de <code>statusUrl</code>.</p>
+      </div>
+    </div>
+
+    <!-- Sandbox -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-post">POST</span>
+        <span class="endpoint-path">/api/workflows/{id}/sandbox</span>
+        <span class="endpoint-desc">Executar em modo sandbox</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Mesmo body que <code>/trigger</code>. O LLM é real, mas as tools são mockadas. Sem persistência de ChatMessage. Métricas tagueadas com <code>mode=sandbox</code>.</p>
+        <p>Resposta: <code>{ "executionId": "exec-abc123", "mode": "sandbox", "statusUrl": "/api/executions/exec-abc123" }</code></p>
+        <div class="callout callout-blue">
+          Use sandbox para smoke tests antes de promover um workflow para produção.
+        </div>
+      </div>
+    </div>
+
+    <!-- Validate -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-post">POST</span>
+        <span class="endpoint-path">/api/workflows/{id}/validate</span>
+        <span class="endpoint-desc">Validar configuração</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Verifica se todos os agentes existem, se edges são válidas, se triggers estão corretos etc. Sem executar o workflow.</p>
+        <pre class="language-json"><code class="language-json">// Sucesso
+{ "isValid": true, "errors": [] }
+
+// Com erros
+{ "isValid": false, "errors": ["Agent 'renda-fixa-agent' not found", "GroupChat requires exactly 1 manager"] }</code></pre>
+      </div>
+    </div>
+
+    <!-- Diagram -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-get">GET</span>
+        <span class="endpoint-path">/api/workflows/{id}/diagram</span>
+        <span class="endpoint-desc">Gerar diagrama PNG do workflow</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Retorna um PNG renderizado do grafo do workflow (<code>Content-Type: image/png</code>). Usa Graphviz local se disponível; fallback para mermaid.ink.</p>
+        <table>
+          <thead><tr><th>Código</th><th>Situação</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge badge-green">200</span></td><td>PNG gerado com sucesso</td></tr>
+            <tr><td><span class="badge badge-yellow">404</span></td><td>Workflow não encontrado</td></tr>
+            <tr><td><span class="badge badge-red">422</span></td><td>Workflow com <code>exposeAsAgent: true</code> — grafo não é exposto</td></tr>
+          </tbody>
+        </table>
+        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/workflows/assessoria-completa/diagram \
+  -H "x-efs-account: 011982329" \
+  --output workflow.png</code></pre>
+      </div>
+    </div>
+
+    <!-- Clone -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-post">POST</span>
+        <span class="endpoint-path">/api/workflows/{id}/clone</span>
+        <span class="endpoint-desc">Clonar workflow</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Cria uma cópia do workflow no projeto atual. Se <code>newId</code> não for informado, um ID é gerado automaticamente. Retorna <code>201 Created</code>.</p>
+        <pre class="language-json"><code class="language-json">{ "newId": "assessoria-v2" }
+// ou omita o body para gerar ID automático</code></pre>
+      </div>
+    </div>
+
+    <!-- Versions -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-get">GET</span>
+        <span class="endpoint-path">/api/workflows/{id}/versions</span>
+        <span class="endpoint-desc">Listar versões do workflow</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Retorna todas as revisões em ordem decrescente (mais recente primeiro). Campos: <code>workflowVersionId</code>, <code>revision</code>, <code>status</code> (<code>Draft</code>|<code>Published</code>|<code>Retired</code>), <code>createdAt</code>, <code>createdBy</code>, <code>changeReason</code>, <code>contentHash</code>.</p>
+      </div>
+    </div>
+
+    <!-- Rollback -->
+    <div class="endpoint-card">
+      <div class="endpoint-header" onclick="toggleEndpoint(this)">
+        <span class="badge badge-post">POST</span>
+        <span class="endpoint-path">/api/workflows/{id}/rollback</span>
+        <span class="endpoint-desc">Reverter para versão anterior</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Restaura o workflow para o snapshot de uma versão anterior, criando uma nova revisão com o conteúdo da versão alvo.</p>
+        <pre class="language-json"><code class="language-json">{ "versionId": "uuid-da-versao-alvo" }</code></pre>
+        <div class="callout callout-green">
+          Idempotente por ContentHash — se o conteúdo da versão alvo for igual ao atual, nenhuma nova revisão é criada.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Schema Completo -->
+  <section id="workflows-schema">
+    <h2>Schema Completo — CreateWorkflowRequest</h2>
+    <p>Campos aceitos em <code>POST /api/workflows</code> e <code>PUT /api/workflows/{id}</code>.</p>
+
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Obrig.</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>string</td><td>✓</td><td>Identificador único (slug). Ex: <code>"assessoria-renda-fixa"</code></td></tr>
+        <tr><td><code>name</code></td><td>string</td><td>✓</td><td>Nome legível do workflow</td></tr>
+        <tr><td><code>description</code></td><td>string</td><td>—</td><td>Descrição do propósito</td></tr>
+        <tr><td><code>version</code></td><td>string</td><td>—</td><td>Semver declarativo. Default: <code>"1.0.0"</code></td></tr>
+        <tr><td><code>orchestrationMode</code></td><td>string</td><td>✓</td><td><code>Sequential</code> | <code>Concurrent</code> | <code>Handoff</code> | <code>GroupChat</code> | <code>Graph</code></td></tr>
+        <tr><td><code>agents</code></td><td>array</td><td>✓</td><td>Lista de <code>WorkflowAgentReference</code> — mínimo 1 agente</td></tr>
+        <tr><td><code>executors</code></td><td>array</td><td>—</td><td>Passos de código puro sem LLM (Graph mode). Ver sub-tabela.</td></tr>
+        <tr><td><code>edges</code></td><td>array</td><td>—</td><td>Arestas do grafo (Graph mode). Ver seção Graph Mode.</td></tr>
+        <tr><td><code>trigger</code></td><td>object</td><td>—</td><td>Como o workflow é disparado. Ver seção Triggers.</td></tr>
+        <tr><td><code>configuration</code></td><td>object</td><td>—</td><td>Limites e comportamentos. Ver sub-tabela.</td></tr>
+        <tr><td><code>metadata</code></td><td>object</td><td>—</td><td>Dicionário livre chave/valor</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout callout-blue">
+      <strong>Campos somente de domínio (não configuráveis via POST/PUT):</strong><br>
+      • <code>visibility</code> (<code>"project"</code> | <code>"global"</code>) e <code>projectId</code> — gerenciados pela plataforma.<br>
+      • <code>routingRules[]</code> — existe no modelo de domínio (Handoff mode) mas <strong>não é aceito no body da requisição</strong>. As regras de roteamento são configuradas internamente pela plataforma com base na sinalização dos agentes via <code>EmitEscalationSignal</code>.
+    </div>
+
+    <h3>agents[] — WorkflowAgentReference</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Obrig.</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>agentId</code></td><td>string</td><td>✓</td><td>ID do agente (deve existir no projeto)</td></tr>
+        <tr><td><code>role</code></td><td>string</td><td>—</td><td><code>"manager"</code> | <code>"participant"</code> — obrigatório apenas no modo GroupChat</td></tr>
+      </tbody>
+    </table>
+
+    <h3>executors[] — WorkflowExecutorStep (Graph mode)</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>string</td><td>ID único do nó — referenciado nas arestas (<code>edge.from</code> / <code>edge.to</code>)</td></tr>
+        <tr><td><code>functionName</code></td><td>string</td><td>Nome da função registrada em <code>ICodeExecutorRegistry</code>. Use <code>GET /api/functions</code> para listar.</td></tr>
+        <tr><td><code>description</code></td><td>string</td><td>Documentação interna do nó</td></tr>
+      </tbody>
+    </table>
+
+    <h3>RoutingRule — estrutura (Handoff mode / domínio)</h3>
+    <p style="color:var(--muted);font-size:13px">As routing rules fazem parte do modelo de domínio do workflow mas são configuradas internamente pela plataforma. Apresentadas aqui como referência para entender o roteamento de escalação.</p>
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>match</code></td><td>string</td><td>Expressão de match. Formatos: <code>"category:billing"</code>, <code>"tag:priority"</code>, <code>"regex:^refund.*"</code>, <code>"any"</code> (fallback)</td></tr>
+        <tr><td><code>targetNodeId</code></td><td>string</td><td>ID do agente ou executor de destino</td></tr>
+        <tr><td><code>priority</code></td><td>int</td><td>Maior valor vence em caso de múltiplos matches. Default: 0</td></tr>
+      </tbody>
+    </table>
+
+    <h3>configuration — WorkflowConfiguration</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Default</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>timeoutSeconds</code></td><td>int</td><td>300</td><td>Timeout total da execução em segundos. Ao expirar: <code>RUN_ERROR { errorCode: "BUDGET_EXCEEDED" }</code></td></tr>
+        <tr><td><code>maxRounds</code></td><td>int?</td><td>null</td><td>Máximo de rodadas de conversação (GroupChat). null = ilimitado</td></tr>
+        <tr><td><code>maxAgentInvocations</code></td><td>int</td><td>10</td><td>Máximo de invocações de agentes por execução — protege contra loops de handoff</td></tr>
+        <tr><td><code>maxTokensPerExecution</code></td><td>int</td><td>50000</td><td>Hard cap de tokens LLM (input + output, todas as chamadas somadas)</td></tr>
+        <tr><td><code>maxCostUsdPerExecution</code></td><td>decimal?</td><td>null</td><td>Hard cap de custo em USD. null = sem enforcement</td></tr>
+        <tr><td><code>maxConcurrentExecutions</code></td><td>int?</td><td>null</td><td>Semáforo por workflow. null = ilimitado. &gt;0 = N execuções simultâneas no máximo</td></tr>
+        <tr><td><code>enableHumanInTheLoop</code></td><td>bool</td><td>false</td><td>Habilita suporte a HITL para este workflow</td></tr>
+        <tr><td><code>checkpointMode</code></td><td>string</td><td>"InMemory"</td><td><code>"InMemory"</code> | <code>"Postgres"</code> | <code>"Blob"</code> — estratégia de checkpointing de estado</td></tr>
+        <tr><td><code>inputMode</code></td><td>string</td><td>"Standalone"</td><td><code>"Standalone"</code> = input é string livre | <code>"Chat"</code> = input é ChatTurnContext JSON com histórico</td></tr>
+        <tr><td><code>maxHistoryMessages</code></td><td>int</td><td>20</td><td>Tamanho máximo da janela de histórico em modo Chat</td></tr>
+        <tr><td><code>exposeAsAgent</code></td><td>bool</td><td>false</td><td>Exporta o workflow como <code>AIAgent</code> — pode ser referenciado como agente em outro workflow</td></tr>
+        <tr><td><code>exposedAgentDescription</code></td><td>string?</td><td>null</td><td>Descrição do agente exposto. Obrigatório quando <code>exposeAsAgent: true</code></td></tr>
+        <tr><td><code>outputNodes</code></td><td>string[]?</td><td>null</td><td>(Graph mode) IDs dos nós de saída final. Sobrescreve auto-detecção. Necessário em grafos com loops</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Graph Mode -->
+  <section id="workflows-graph">
+    <h2>Graph Mode — Arestas e Tipos</h2>
+    <p>
+      No modo <code>Graph</code>, você define o fluxo explicitamente via <code>edges[]</code>. Cada aresta conecta
+      nós (agentes ou executores) com um tipo de conexão específico.
+    </p>
+
+    <h3>Tipos de Aresta (WorkflowEdgeType)</h3>
+    <table>
+      <thead><tr><th>EdgeType</th><th>Comportamento</th><th>Campos usados</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>Direct</code></td>
+          <td>Conexão 1→1 sem condição. Fluxo sempre passa de <code>from</code> para <code>to</code>.</td>
+          <td><code>from</code>, <code>to</code></td>
+        </tr>
+        <tr>
+          <td><code>Conditional</code></td>
+          <td>Conexão 1→1 com condição. O fluxo passa apenas se o output do nó de origem <strong>contém</strong> a string <code>condition</code> (case-insensitive).</td>
+          <td><code>from</code>, <code>to</code>, <code>condition</code></td>
+        </tr>
+        <tr>
+          <td><code>Switch</code></td>
+          <td>Ramificação 1→N com casos. O primeiro <code>case.condition</code> encontrado no output vence. Se nenhum combinar, o caso <code>isDefault: true</code> é ativado.</td>
+          <td><code>from</code>, <code>cases[]</code></td>
+        </tr>
+        <tr>
+          <td><code>FanOut</code></td>
+          <td>Fan-out 1→N paralelo. O nó de origem envia para todos os nós em <code>targets[]</code> simultaneamente.</td>
+          <td><code>from</code>, <code>targets[]</code></td>
+        </tr>
+        <tr>
+          <td><code>FanIn</code></td>
+          <td>Fan-in N→1 barreira. Aguarda todos os nós em <code>sources[]</code> antes de prosseguir para <code>to</code>.</td>
+          <td><code>sources[]</code>, <code>to</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Campos de WorkflowEdge</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>from</code></td><td>string?</td><td>ID do nó de origem</td></tr>
+        <tr><td><code>to</code></td><td>string?</td><td>ID do nó de destino (Direct, Conditional, FanIn)</td></tr>
+        <tr><td><code>condition</code></td><td>string?</td><td>Substring a encontrar no output do nó de origem (Conditional)</td></tr>
+        <tr><td><code>edgeType</code></td><td>string</td><td>Tipo da aresta. Default: <code>Direct</code></td></tr>
+        <tr><td><code>targets</code></td><td>string[]</td><td>IDs dos nós de destino (FanOut)</td></tr>
+        <tr><td><code>sources</code></td><td>string[]</td><td>IDs dos nós de origem (FanIn)</td></tr>
+        <tr><td><code>cases</code></td><td>array</td><td>Casos do switch (Switch). Cada item: <code>{ condition, targets[], isDefault }</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3>Exemplo — Grafo com FanOut e FanIn</h3>
+    <pre class="language-json"><code class="language-json">{
+  "id": "analise-paralela",
+  "name": "Análise Paralela de Ativos",
+  "orchestrationMode": "Graph",
+  "agents": [
+    { "agentId": "orquestrador" },
+    { "agentId": "analista-rf" },
+    { "agentId": "analista-rv" },
+    { "agentId": "sintetizador" }
+  ],
+  "executors": [
+    { "id": "fetch-dados", "functionName": "fetch_ativos", "description": "Busca dados de mercado" }
+  ],
+  "edges": [
+    { "from": "orquestrador", "to": "fetch-dados", "edgeType": "Direct" },
+    { "from": "fetch-dados",  "targets": ["analista-rf", "analista-rv"], "edgeType": "FanOut" },
+    { "sources": ["analista-rf", "analista-rv"], "to": "sintetizador", "edgeType": "FanIn" }
+  ],
+  "configuration": {
+    "outputNodes": ["sintetizador"],
+    "maxTokensPerExecution": 60000
+  }
+}</code></pre>
+
+    <h3>Exemplo — Switch condicional</h3>
+    <pre class="language-json"><code class="language-json">{
+  "edges": [
+    {
+      "from": "classificador",
+      "edgeType": "Switch",
+      "cases": [
+        { "condition": "renda_fixa",    "targets": ["agente-rf"],  "isDefault": false },
+        { "condition": "renda_variavel","targets": ["agente-rv"],  "isDefault": false },
+        { "condition": null,            "targets": ["agente-geral"],"isDefault": true  }
+      ]
+    }
+  ]
+}</code></pre>
+  </section>
+
+  <!-- Triggers -->
+  <section id="workflows-triggers">
+    <h2>Triggers</h2>
+    <p>O campo <code>trigger</code> define como o workflow é disparado automaticamente. Sem trigger, use <code>POST /trigger</code> sob demanda.</p>
+
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Obrig.</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>type</code></td><td>string</td><td>✓</td><td><code>"OnDemand"</code> | <code>"Scheduled"</code> | <code>"EventDriven"</code></td></tr>
+        <tr><td><code>cronExpression</code></td><td>string?</td><td>se Scheduled</td><td>Expressão cron (ex: <code>"0 9 * * 1-5"</code> = 9h em dias úteis)</td></tr>
+        <tr><td><code>eventTopic</code></td><td>string?</td><td>se EventDriven</td><td>Tópico do webhook externo</td></tr>
+        <tr><td><code>enabled</code></td><td>bool</td><td>—</td><td>Ativa/desativa o trigger sem removê-lo. Default: <code>true</code></td></tr>
+        <tr><td><code>disableAfterFire</code></td><td>bool</td><td>—</td><td>Se <code>true</code>: desativa automaticamente após o primeiro disparo. Ideal para execuções únicas agendadas. Default: <code>false</code></td></tr>
+        <tr><td><code>lastFiredAt</code></td><td>datetime?</td><td>—</td><td>Timestamp do último disparo. Preenchido e sobrescrito automaticamente pelo scheduler após cada execução.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Exemplo — Cron diário às 9h (dias úteis)</h3>
+    <pre class="language-json"><code class="language-json">"trigger": {
+  "type": "Scheduled",
+  "cronExpression": "0 9 * * 1-5",
+  "enabled": true,
+  "disableAfterFire": false
+}</code></pre>
+
+    <h3>Exemplo — Execução única agendada</h3>
+    <pre class="language-json"><code class="language-json">"trigger": {
+  "type": "Scheduled",
+  "cronExpression": "0 14 15 7 *",
+  "disableAfterFire": true
+}</code></pre>
+  </section>
+
+  <!-- Execuções -->
+  <section id="workflows-executions">
+    <h2>Execuções</h2>
+    <p>Cada chamada a <code>/trigger</code> ou <code>/sandbox</code> cria um objeto <code>WorkflowExecution</code> rastreável.</p>
+
+    <h3>Status possíveis</h3>
+    <table>
+      <thead><tr><th>Status</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>Pending</code></td><td>Enfileirada, aguardando execução</td></tr>
+        <tr><td><code>Running</code></td><td>Em execução</td></tr>
+        <tr><td><code>Paused</code></td><td>Pausada (aguardando HITL)</td></tr>
+        <tr><td><code>Completed</code></td><td>Concluída com sucesso</td></tr>
+        <tr><td><code>Failed</code></td><td>Falhou — veja <code>errorMessage</code> e <code>errorCategory</code></td></tr>
+        <tr><td><code>Cancelled</code></td><td>Cancelada pelo usuário</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Categorias de erro (errorCategory)</h3>
+    <table>
+      <thead><tr><th>ErrorCategory</th><th>Situação</th></tr></thead>
+      <tbody>
+        <tr><td><code>Timeout</code></td><td>Excedeu <code>configuration.timeoutSeconds</code></td></tr>
+        <tr><td><code>AgentLoopLimit</code></td><td>Excedeu <code>configuration.maxAgentInvocations</code></td></tr>
+        <tr><td><code>BudgetExceeded</code></td><td>Excedeu <code>maxTokensPerExecution</code> ou <code>maxCostUsdPerExecution</code></td></tr>
+        <tr><td><code>LlmRateLimit</code></td><td>Rate limit da API do LLM</td></tr>
+        <tr><td><code>LlmContentFilter</code></td><td>Content filter ativado pelo LLM</td></tr>
+        <tr><td><code>ToolError</code></td><td>Erro ao invocar uma function tool</td></tr>
+        <tr><td><code>Cancelled</code></td><td>Cancelado via endpoint de cancel</td></tr>
+        <tr><td><code>BackPressureRejected</code></td><td>Limite global de execuções simultâneas atingido</td></tr>
+        <tr><td><code>CheckpointRecoveryFailed</code></td><td>Falha ao recuperar estado de checkpoint</td></tr>
+        <tr><td><code>FrameworkError</code></td><td>Erro interno do Microsoft Agent Framework</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Listar execuções (paginado)</h3>
+    <pre class="language-bash"><code class="language-bash">curl "http://localhost:5189/api/workflows/assessoria-completa/executions?page=1&amp;pageSize=20&amp;status=Failed" \
+  -H "x-efs-account: 011982329"</code></pre>
+
+    <h3>Campos de ExecutionResponse</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>executionId</code></td><td>string</td><td>ID único da execução</td></tr>
+        <tr><td><code>workflowId</code></td><td>string</td><td>ID do workflow executado</td></tr>
+        <tr><td><code>status</code></td><td>string</td><td>Status atual (ver tabela acima)</td></tr>
+        <tr><td><code>input</code></td><td>string?</td><td>Input enviado para a execução</td></tr>
+        <tr><td><code>output</code></td><td>string?</td><td>Output final (disponível após Completed)</td></tr>
+        <tr><td><code>errorMessage</code></td><td>string?</td><td>Mensagem de erro (se Failed)</td></tr>
+        <tr><td><code>startedAt</code></td><td>datetime</td><td>Timestamp de início</td></tr>
+        <tr><td><code>completedAt</code></td><td>datetime?</td><td>Timestamp de conclusão</td></tr>
+        <tr><td><code>metadata</code></td><td>object</td><td>Metadados passados no trigger</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Exemplos de Workflow -->
+  <section id="workflows-example">
+    <h2>Exemplos Completos</h2>
+
+    <h3>1. Workflow Sequential (mais simples)</h3>
+    <pre class="language-json"><code class="language-json">{
+  "id": "resumo-carteira",
+  "name": "Resumo de Carteira",
+  "orchestrationMode": "Sequential",
+  "agents": [
+    { "agentId": "buscador-posicoes" },
+    { "agentId": "analista-risco" },
+    { "agentId": "redator-relatorio" }
+  ],
+  "configuration": {
+    "timeoutSeconds": 90,
+    "maxTokensPerExecution": 20000,
+    "inputMode": "Chat"
+  }
+}</code></pre>
+
+    <h3>2. Workflow Handoff com RoutingRules</h3>
+    <pre class="language-json"><code class="language-json">{
+  "id": "triagem-assessoria",
+  "name": "Triagem com Especialistas",
+  "orchestrationMode": "Handoff",
+  "agents": [
+    { "agentId": "triagem-agent" },
+    { "agentId": "especialista-rf" },
+    { "agentId": "especialista-rv" },
+    { "agentId": "especialista-previdencia" }
+  ],
+  "routingRules": [
+    { "match": "category:renda-fixa",       "targetNodeId": "especialista-rf",         "priority": 10 },
+    { "match": "category:renda-variavel",   "targetNodeId": "especialista-rv",         "priority": 10 },
+    { "match": "tag:previdencia",           "targetNodeId": "especialista-previdencia", "priority": 8  },
+    { "match": "any",                       "targetNodeId": "triagem-agent",            "priority": 0  }
+  ],
+  "configuration": {
+    "maxAgentInvocations": 8,
+    "maxCostUsdPerExecution": 0.30,
+    "inputMode": "Chat"
+  }
+}</code></pre>
+
+    <h3>3. Workflow GroupChat</h3>
+    <pre class="language-json"><code class="language-json">{
+  "id": "comite-investimentos",
+  "name": "Comitê de Investimentos",
+  "orchestrationMode": "GroupChat",
+  "agents": [
+    { "agentId": "coordenador-comite", "role": "manager" },
+    { "agentId": "analista-macro",     "role": "participant" },
+    { "agentId": "analista-credito",   "role": "participant" },
+    { "agentId": "analista-acoes",     "role": "participant" }
+  ],
+  "configuration": {
+    "maxRounds": 5,
+    "maxTokensPerExecution": 80000
+  }
+}</code></pre>
+
+    <h3>4. Disparar e acompanhar via JavaScript</h3>
+    <pre class="language-javascript"><code class="language-javascript">const BASE = 'http://localhost:5189'
+const HEADERS = { 'Content-Type': 'application/json', 'x-efs-account': '011982329' }
+
+// Disparar execução
+const trigRes = await fetch(`${BASE}/api/workflows/resumo-carteira/trigger`, {
+  method: 'POST',
+  headers: HEADERS,
+  body: JSON.stringify({ input: 'Analise a carteira do cliente 011982329', metadata: { source: 'portal' } }),
+})
+const { executionId, statusUrl } = await trigRes.json()
+console.log('Execução iniciada:', executionId)
+
+// Polling até concluir (ou use SSE via /api/chat/ag-ui/stream)
+let done = false
+while (!done) {
+  await new Promise(r => setTimeout(r, 2000))
+  const execRes = await fetch(`${BASE}${statusUrl}`, { headers: HEADERS })
+  const exec = await execRes.json()
+  console.log('Status:', exec.status)
+  if (['Completed', 'Failed', 'Cancelled'].includes(exec.status)) {
+    done = true
+    console.log('Resultado:', exec.output ?? exec.errorMessage)
+  }
+}</code></pre>
+
+    <div class="callout callout-blue">
+      <strong>Chat vs Trigger</strong> — Para workflows interativos (resposta em tempo real), use <code>POST /api/chat/ag-ui/stream</code>
+      (streaming SSE). Para execuções batch em background, use <code>POST /api/workflows/{id}/trigger</code> + polling.
+    </div>
+  </section>
+
+  <!-- Exemplo JS -->
+  <section id="example-js">
+    <h2>Exemplo Completo — JavaScript</h2>
+    <p>Implementação completa do cliente AG-UI com suporte a streaming, HITL e cancel.</p>
+    <pre class="language-javascript"><code class="language-javascript">async function chat(conta, mensagem, threadId = null, workflowId = null) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-efs-account': conta,
+  }
+  if (workflowId) headers['x-efs-workflow-id'] = workflowId
+
+  const res = await fetch('/api/chat/ag-ui/stream', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ messages: [{ role: 'user', content: mensagem }], threadId }),
+  })
+
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let currentThreadId = threadId
+  let runId = null
+
+  // Buffers para TOOL_CALL_ARGS — acumule antes de parsear
+  const toolArgBuffers = new Map()
+  const hitlPending    = new Set()
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+
+    // Parsing por frame SSE (\n\n) para capturar id: e data:
+    buffer += decoder.decode(value, { stream: true })
+    const frames = buffer.split('\n\n')
+    buffer = frames.pop() // último frame pode estar incompleto
+
+    for (const frame of frames) {
+      if (!frame.trim()) continue
+
+      let evtData = null
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('data: ')) evtData = JSON.parse(line.slice(6))
+      }
+      if (!evtData) continue
+
+      switch (evtData.type) {
+        case 'RUN_STARTED':
+          currentThreadId = evtData.threadId
+          runId = evtData.runId
+          console.log('Conversa:', currentThreadId, '| Run:', runId)
+          break
+
+        case 'TEXT_MESSAGE_CONTENT':
+          process.stdout.write(evtData.delta)
+          break
+
+        case 'STEP_STARTED':
+          console.log(`\n⏳ ${evtData.stepName}`)
+          break
+
+        case 'STEP_FINISHED':
+          console.log(`✓ ${evtData.stepName}`)
+          break
+
+        case 'TOOL_CALL_START':
+          if (evtData.toolCallName === 'request_approval') {
+            hitlPending.add(evtData.toolCallId)
+          }
+          toolArgBuffers.set(evtData.toolCallId, '')
+          break
+
+        case 'TOOL_CALL_ARGS':
+          // Acumule — NÃO parse aqui; o JSON pode chegar em fragmentos
+          toolArgBuffers.set(
+            evtData.toolCallId,
+            (toolArgBuffers.get(evtData.toolCallId) ?? '') + (evtData.delta ?? '')
+          )
+          break
+
+        case 'TOOL_CALL_END':
+          if (hitlPending.has(evtData.toolCallId)) {
+            hitlPending.delete(evtData.toolCallId)
+            const args = JSON.parse(toolArgBuffers.get(evtData.toolCallId) ?? '{}')
+            console.log('\n[HITL]', args.question)
+
+            // Mantenha o stream aberto e resolva em paralelo:
+            fetch('/api/chat/ag-ui/resolve-hitl', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ toolCallId: evtData.toolCallId, response: 'approved' }),
+            })
+          }
+          toolArgBuffers.delete(evtData.toolCallId)
+          break
+
+        case 'RUN_FINISHED':
+          console.log('\n[DONE]')
+          break
+
+        case 'RUN_ERROR':
+          console.error('\n[ERROR]', evtData.error, `(${evtData.errorCode})`)
+          break
+      }
+    }
+  }
+
+  return currentThreadId
+}
+
+// Cancel durante o streaming:
+async function cancelRun(runId) {
+  await fetch('/api/chat/ag-ui/cancel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ executionId: runId }),
+  })
+}
+
+// Uso:
+let thread = await chat('011982329', 'Qual é o saldo da minha conta?')
+thread = await chat('011982329', 'E os últimos extratos?', thread)</code></pre>
+  </section>
+
+  <!-- Exemplo cURL -->
+  <section id="example-curl">
+    <h2>Exemplos cURL</h2>
+
+    <h3>Chat básico</h3>
+    <pre class="language-bash"><code class="language-bash">curl -X POST http://localhost:5189/api/chat/ag-ui/stream \
+  -H "Content-Type: application/json" \
+  -H "x-efs-account: 011982329" \
+  -d '{
+    "messages": [{"id":"m1","role":"user","content":"Olá!"}],
+    "threadId": null,
+    "tools": [],
+    "state": {}
+  }' \
+  --no-buffer</code></pre>
+
+    <h3>Cancelar execução</h3>
+    <pre class="language-bash"><code class="language-bash">curl -X POST http://localhost:5189/api/chat/ag-ui/cancel \
+  -H "Content-Type: application/json" \
+  -H "x-efs-account: 011982329" \
+  -d '{"executionId":"exec-abc123"}'</code></pre>
+
+    <h3>Resolver HITL</h3>
+    <pre class="language-bash"><code class="language-bash">curl -X POST http://localhost:5189/api/chat/ag-ui/resolve-hitl \
+  -H "Content-Type: application/json" \
+  -H "x-efs-account: 011982329" \
+  -d '{"toolCallId":"tc-xyz789","response":"approved"}'</code></pre>
+
+    <h3>Health check</h3>
+    <pre class="language-bash"><code class="language-bash"># Processo vivo?
+curl http://localhost:5189/health/live
+
+# Postgres e Redis OK?
+curl http://localhost:5189/health/ready</code></pre>
+  </section>
+
+  <!-- Footer -->
+  <footer style="border-top:1px solid var(--border);padding-top:24px;margin-top:24px;color:var(--dimmed);font-size:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <span>EFS AI Hub — Developer Portal · <span class="badge badge-dev">Development Only</span></span>
+    <span>
+      <a href="/swagger" target="_blank">Swagger UI</a> ·
+      <a href="/health/ready" target="_blank">Health</a>
+    </span>
+  </footer>
+
+</main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script>
+  // ── Endpoint accordion ─────────────────────────────────────────────────────
+  function toggleEndpoint(header) {
+    const body    = header.nextElementSibling
+    const chevron = header.querySelector('.chevron')
+    const open    = body.classList.toggle('open')
+    chevron.classList.toggle('open', open)
+  }
+
+  // ── Event filter ──────────────────────────────────────────────────────────
+  function filterEvents(cat, btn) {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+    document.querySelectorAll('#events-table tbody tr').forEach(row => {
+      row.style.display = (cat === 'all' || row.dataset.cat === cat) ? '' : 'none'
+    })
+  }
+
+  // ── Active nav link on scroll ─────────────────────────────────────────────
+  const sections = document.querySelectorAll('section[id], .page-header[id]')
+  const navLinks = document.querySelectorAll('nav a[href^="#"]')
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(a => a.classList.remove('active'))
+        const active = document.querySelector(`nav a[href="#${entry.target.id}"]`)
+        if (active) active.classList.add('active')
+      }
+    })
+  }, { rootMargin: '-20% 0px -70% 0px' })
+
+  sections.forEach(s => observer.observe(s))
+</script>
+</body>
+</html>
