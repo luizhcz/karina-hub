@@ -90,6 +90,12 @@ public class PgModelPricingRepository : IModelPricingRepository
         return true;
     }
 
+    public async Task RefreshMaterializedViewAsync(CancellationToken ct = default)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        await ctx.Database.ExecuteSqlRawAsync("REFRESH MATERIALIZED VIEW CONCURRENTLY v_llm_cost", ct);
+    }
+
     private static ModelPricing MapToDomain(ModelPricingRow row) => new()
     {
         Id = row.Id,

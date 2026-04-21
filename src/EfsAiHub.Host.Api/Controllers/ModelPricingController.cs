@@ -1,8 +1,6 @@
 using EfsAiHub.Platform.Runtime.Execution;
 using EfsAiHub.Host.Api.Models.Requests;
-using EfsAiHub.Infra.Persistence.Postgres;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Swashbuckle.AspNetCore.Annotations;
 
 namespace EfsAiHub.Host.Api.Controllers;
@@ -85,12 +83,9 @@ public class ModelPricingController : ControllerBase
 
     [HttpPost("refresh-view")]
     [SwaggerOperation(Summary = "Atualiza a materialized view v_llm_cost com dados mais recentes")]
-    public async Task<IActionResult> RefreshCostView(
-        [FromServices] IDbContextFactory<AgentFwDbContext> dbFactory,
-        CancellationToken ct)
+    public async Task<IActionResult> RefreshCostView(CancellationToken ct)
     {
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-        await db.Database.ExecuteSqlRawAsync("REFRESH MATERIALIZED VIEW CONCURRENTLY v_llm_cost", ct);
+        await _repo.RefreshMaterializedViewAsync(ct);
         return Ok(new { message = "Materialized view v_llm_cost atualizada." });
     }
 }

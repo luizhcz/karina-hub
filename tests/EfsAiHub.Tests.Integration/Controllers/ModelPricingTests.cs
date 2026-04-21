@@ -85,4 +85,14 @@ public class ModelPricingTests(IntegrationWebApplicationFactory factory) : IAsyn
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task RefreshView_Retorna200()
+    {
+        var response = await _client.PostAsync("/api/admin/model-pricing/refresh-view", content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("message").GetString().Should().Contain("v_llm_cost");
+    }
 }
