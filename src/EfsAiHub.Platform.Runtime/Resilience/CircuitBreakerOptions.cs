@@ -18,4 +18,14 @@ public class CircuitBreakerOptions
 
     /// <summary>Habilita o circuit breaker. Default: true.</summary>
     public bool Enabled { get; init; } = true;
+
+    /// <summary>
+    /// Número efetivo de réplicas (pods) rodando em paralelo. Usado para dividir o
+    /// <see cref="FailureThreshold"/> entre os pods, já que o estado do circuit breaker
+    /// é mantido em memória per-process (não compartilhado via Redis).
+    /// Default: 1. Ajustar para N em deploys multi-pod — o threshold efetivo vira
+    /// <c>max(1, FailureThreshold / EffectiveReplicaCount)</c>.
+    /// Backlog: migrar estado para Redis Lua quando atingir ≥4 réplicas.
+    /// </summary>
+    public int EffectiveReplicaCount { get; init; } = 1;
 }

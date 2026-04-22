@@ -5,8 +5,24 @@ namespace EfsAiHub.Platform.Runtime.Resilience;
 
 /// <summary>
 /// Circuit breaker state machine por provider key (Type:Endpoint).
-/// Singleton — compartilhado entre todas as execuções.
+/// Singleton — compartilhado entre todas as execuções DO MESMO PROCESSO.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Limitação:</b> o estado (<see cref="CircuitState"/>) é mantido em
+/// <see cref="ConcurrentDictionary{TKey, TValue}"/> em memória do processo. Em deploys multi-pod,
+/// cada réplica mantém seu próprio contador de falhas — não há sincronização cross-pod.
+/// Isso significa que, para N réplicas, o sistema aceita até N× o
+/// <see cref="CircuitBreakerOptions.FailureThreshold"/> antes de todos os pods abrirem.
+/// </para>
+/// <para>
+/// <b>Mitigação atual:</b> use <see cref="CircuitBreakerOptions.EffectiveReplicaCount"/> para
+/// dividir proporcionalmente o threshold. Ver docs/plataforma.md (resiliência) para guidance.
+/// </para>
+/// <para>
+/// <b>Backlog:</b> migrar estado para Redis Lua quando atingir ≥4 réplicas.
+/// </para>
+/// </remarks>
 public sealed class LlmCircuitBreaker
 {
     private readonly ConcurrentDictionary<string, CircuitState> _states = new();
@@ -57,18 +73,25 @@ public sealed class LlmCircuitBreaker
         {
             state.ConsecutiveFailures++;
 
-            if (state.ConsecutiveFailures >= _options.FailureThreshold && state.Status == CircuitStatus.Closed)
+            var effectiveThreshold = Math.Max(1,
+                _options.FailureThreshold / Math.Max(1, _options.EffectiveReplicaCount));
+
+            if (state.ConsecutiveFailures >= effectiveThreshold && state.Status == CircuitStatus.Closed)
             {
                 state.Status = CircuitStatus.Open;
                 state.OpensAt = DateTime.UtcNow.AddSeconds(_options.OpenDurationSeconds);
 
                 _logger.LogWarning(
-                    "[CircuitBreaker] OPEN for provider '{ProviderKey}' after {Failures} consecutive failures. " +
+                    "[CircuitBreaker] OPEN for provider '{ProviderKey}' after {Failures} consecutive failures " +
+                    "(effectiveThreshold={EffectiveThreshold}, replicas={Replicas}). " +
                     "Will try half-open at {OpensAt:HH:mm:ss}.",
-                    providerKey, state.ConsecutiveFailures, state.OpensAt);
+                    providerKey, state.ConsecutiveFailures, effectiveThreshold,
+                    _options.EffectiveReplicaCount, state.OpensAt);
 
                 MetricsRegistry.CircuitBreakerOpened.Add(1,
-                    new KeyValuePair<string, object?>("provider", providerKey));
+                    new KeyValuePair<string, object?>("provider", providerKey),
+                    new KeyValuePair<string, object?>("effective_threshold", effectiveThreshold),
+                    new KeyValuePair<string, object?>("replicas", _options.EffectiveReplicaCount));
             }
 
             // Em HalfOpen, uma falha reabre o circuito

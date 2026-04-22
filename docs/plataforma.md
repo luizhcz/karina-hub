@@ -1059,7 +1059,7 @@ Configurado via `OpenTelemetry:OtlpEndpoint` — suporta Jaeger, Tempo, etc.
 | Classe | Seção appsettings | Propriedades Chave |
 |--------|-------------------|-------------------|
 | `WorkflowEngineOptions` | `WorkflowEngine` | MaxConcurrentExecutions, ChatMaxConcurrentExecutions, CheckpointMode, HITL recovery, retention days, DisconnectGracePeriodSeconds |
-| `CircuitBreakerOptions` | `LlmCircuitBreaker` | FailureThreshold (5), OpenDurationSeconds (30), HalfOpenTimeoutSeconds (10) |
+| `CircuitBreakerOptions` | `CircuitBreaker` | FailureThreshold (5), OpenDurationSeconds (30), HalfOpenTimeoutSeconds (10), EffectiveReplicaCount (1) — divide o threshold proporcionalmente em deploys multi-pod |
 | `ChatRateLimitOptions` | `ChatRateLimit` | MaxMessages (10), WindowSeconds (60), per-conversation limits |
 | `ChatRoutingOptions` | `ChatRouting` | DefaultWorkflows (map userType → workflowId) |
 | `DocumentIntelligenceOptions` | `DocumentIntelligence` | Endpoint, ApiKey, UseManagedIdentity, MaxFileSizeBytes, timeouts, CacheTtlDays |

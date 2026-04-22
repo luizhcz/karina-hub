@@ -267,12 +267,33 @@ Principais seções do `appsettings.json`:
   "Admin": {
     "AccountIds": ["011982329"]
   },
+  "CircuitBreaker": {
+    "Enabled": true,
+    "FailureThreshold": 5,
+    "OpenDurationSeconds": 30,
+    "HalfOpenTimeoutSeconds": 10,
+    "EffectiveReplicaCount": 1
+  },
   "OpenTelemetry": {
     "ServiceName": "efs-ai-hub",
     "OtlpEndpoint": "http://localhost:4317"
   }
 }
 ```
+
+### Deploy multi-pod — `CircuitBreaker:EffectiveReplicaCount`
+
+O circuit breaker LLM mantém estado **per-process** (em memória). Em deploys com N réplicas, cada pod
+conta falhas independentemente — na prática o sistema aceita até N× o `FailureThreshold` antes de
+todos os pods abrirem. Para compensar, ajuste `EffectiveReplicaCount` ao número de réplicas:
+
+| Cenário | Config recomendada |
+|---|---|
+| 1 pod (dev/single-pod) | `"EffectiveReplicaCount": 1` (default) |
+| 2-3 pods (produção atual) | `"EffectiveReplicaCount": 3` — threshold efetivo = `FailureThreshold / 3` |
+| ≥4 pods | migrar estado para Redis (backlog — issue aberta) |
+
+O threshold efetivo nunca fica abaixo de 1 (garantia do código).
 
 ---
 
