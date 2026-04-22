@@ -357,6 +357,25 @@ Após cada chamada LLM →
 
 **Fail-open:** Se Redis indisponível, loga warning e permite.
 
+### ⚠️ Semântica: SOFT budget
+
+O `ProjectBudgetGuard` implementa **soft budget** — não hard budget. Consequências práticas:
+
+- O check **bloqueia** apenas requisições *novas* depois que o contador Redis já ultrapassou o teto.
+- O incremento é **post-LLM-call** (via `TokenUsagePersistenceService`), não upfront.
+- Requisições concorrentes próximas do limite podem passar juntas no check, rodar em paralelo e — somadas — exceder o limite em alguns pontos percentuais.
+
+**Por que isso importa:** o label visível na UI ("Limite diário") pode sugerir comportamento *hard* para o usuário final. Alinhar com Product Owner antes de comunicar como contrato SLA.
+
+**Migração para HARD budget** (pendente de decisão do PO — ver [issue #1](https://github.com/luizhcz/efs-ai-hub/issues/1)):
+
+1. Estimar `max_tokens` da request antes da chamada LLM.
+2. Reservar via Lua script atômico (`INCR` + comparar + rollback se exceder).
+3. Executar chamada LLM.
+4. Reconciliar contador com tokens reais consumidos.
+
+Esforço estimado: ~1 semana. Decisão depende de requisito comercial (contratos enterprise geralmente exigem hard).
+
 ---
 
 ## 6. Model Pricing

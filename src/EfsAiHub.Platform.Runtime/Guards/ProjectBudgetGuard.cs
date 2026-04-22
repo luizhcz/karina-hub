@@ -8,6 +8,26 @@ namespace EfsAiHub.Platform.Runtime.Guards;
 /// Usa Redis para acumular contadores diários por projeto (incrementados pelo TokenUsagePersistenceService).
 /// Retorna 402 quando o orçamento diário é excedido.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Semântica: SOFT budget.</b> <see cref="CheckAsync"/> bloqueia requisições novas
+/// apenas DEPOIS que o contador Redis já ultrapassou o teto (read-then-compare).
+/// Como o contador é incrementado post-LLM-call pelo <c>TokenUsagePersistenceService</c>,
+/// requisições concorrentes próximas do limite podem passar juntas no check, rodar, e
+/// somadas exceder o limite em alguns pontos percentuais.
+/// </para>
+/// <para>
+/// <b>Implicação de produto:</b> o label visível na UI ("Limite diário") sugere
+/// comportamento <i>hard</i>. Alinhar com Product Owner se a percepção do usuário precisa
+/// ser ajustada (ex: "Uso diário estimado") ou se o comportamento deve virar hard.
+/// </para>
+/// <para>
+/// <b>Para budget HARD</b> (impossível exceder), o design exigiria reserva upfront
+/// — estimar <c>max_tokens</c> da request antes de chamar o LLM, decrementar atomicamente
+/// com Lua script, executar, reconciliar com tokens reais depois. Esforço ~1 semana.
+/// Ver GitHub issue #1 para discussão com produto.
+/// </para>
+/// </remarks>
 public sealed class ProjectBudgetGuard
 {
     private readonly IEfsRedisCache _cache;
