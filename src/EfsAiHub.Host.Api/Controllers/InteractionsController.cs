@@ -36,9 +36,10 @@ public class InteractionsController : ControllerBase
     [SwaggerOperation(Summary = "Resolve uma interação HITL pendente com a resposta do humano")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public IActionResult Resolve(string interactionId, [FromBody] ResolveInteractionRequest request)
+    public async Task<IActionResult> Resolve(
+        string interactionId, [FromBody] ResolveInteractionRequest request, CancellationToken ct)
     {
-        var resolved = _hitlService.Resolve(interactionId, request.Resolution, request.Approved);
+        var resolved = await _hitlService.ResolveAsync(interactionId, request.Resolution, request.Approved, ct: ct);
         if (!resolved) return NotFound(new { message = $"Interação '{interactionId}' não encontrada ou já resolvida." });
         return Ok(new { message = "Interação resolvida.", interactionId });
     }

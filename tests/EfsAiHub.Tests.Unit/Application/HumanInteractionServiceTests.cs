@@ -56,58 +56,99 @@ public class HumanInteractionServiceTests
     }
 
     [Fact]
-    public void Resolve_Approved_AtualizaStatusERetornaTrue()
+    public async Task Resolve_IdInexistente_RetornaFalseSemCAS()
     {
         var repo = Substitute.For<IHumanInteractionRepository>();
         repo.GetPendingAsync(Arg.Any<CancellationToken>())
             .Returns(new List<HumanInteractionRequest>());
 
         var svc = Build(repo);
-        var req = NewRequest("int-a");
 
-        // Registra no cache interno usando RequestAsync em background
-        // Para testar Resolve, precisamos injetar via ReRegisterPending ou observar via GetById
-        // Aqui testamos o caminho onde Resolve retorna false para interação desconhecida
-        var result = svc.Resolve("nao-existe", "sim");
+        var result = await svc.ResolveAsync("nao-existe", "sim");
 
         result.Should().BeFalse();
+        // Nem deveria chegar a tentar CAS se o id não está em _pending
+        await repo.DidNotReceive().TryResolveAsync(
+            Arg.Any<string>(), Arg.Any<EfsAiHub.Core.Orchestration.Enums.HumanInteractionStatus>(),
+            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Resolve_Approved_AprovadaAposLoadFromDb()
+    public async Task Resolve_CASVence_AprovadaERemovidaDoCache()
     {
         var repo = Substitute.For<IHumanInteractionRepository>();
         var req = NewRequest("int-b", "exec-b");
         repo.GetPendingAsync(Arg.Any<CancellationToken>())
             .Returns(new List<HumanInteractionRequest> { req });
-        repo.UpdateAsync(Arg.Any<HumanInteractionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Task.CompletedTask);
+        repo.TryResolveAsync(
+            Arg.Any<string>(),
+            Arg.Any<EfsAiHub.Core.Orchestration.Enums.HumanInteractionStatus>(),
+            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(true);  // CAS vence
 
         var svc = new HumanInteractionService(repo, Substitute.For<ILogger<HumanInteractionService>>());
         await svc.LoadPendingFromDbAsync();
 
-        var result = svc.Resolve("int-b", "aprovado", approved: true, publishToCross: false);
+        var result = await svc.ResolveAsync("int-b", "aprovado", approved: true, publishToCross: false);
 
         result.Should().BeTrue();
-        svc.GetById("int-b").Should().BeNull(); // removido do cache
+        svc.GetById("int-b").Should().BeNull(); // removido do cache local
     }
 
     [Fact]
-    public async Task Resolve_Rejected_AprovadaAposLoadFromDb()
+    public async Task Resolve_CASPerde_RetornaFalseELimpaLocal()
     {
+        // Outro pod já resolveu — CAS retorna false. Esperado: service retorna false
+        // mas ainda limpa estado local (senão o pending ficaria orfão no cache).
         var repo = Substitute.For<IHumanInteractionRepository>();
-        var req = NewRequest("int-c", "exec-c");
+        var req = NewRequest("int-conflict", "exec-conflict");
         repo.GetPendingAsync(Arg.Any<CancellationToken>())
             .Returns(new List<HumanInteractionRequest> { req });
-        repo.UpdateAsync(Arg.Any<HumanInteractionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Task.CompletedTask);
+        repo.TryResolveAsync(
+            Arg.Any<string>(),
+            Arg.Any<EfsAiHub.Core.Orchestration.Enums.HumanInteractionStatus>(),
+            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(false);  // Outro venceu o CAS
 
         var svc = new HumanInteractionService(repo, Substitute.For<ILogger<HumanInteractionService>>());
         await svc.LoadPendingFromDbAsync();
 
-        var result = svc.Resolve("int-c", "rejeitado", approved: false, publishToCross: false);
+        var result = await svc.ResolveAsync("int-conflict", "aprovado", approved: true, publishToCross: false);
 
-        result.Should().BeTrue();
+        result.Should().BeFalse();
+        svc.GetById("int-conflict").Should().BeNull(); // limpeza local acontece mesmo em conflict
+    }
+
+    [Fact]
+    public async Task Resolve_ChamadasConcorrentes_ApenasUmaRetornaTrue()
+    {
+        // Race test: 50 callers tentam resolver simultaneamente. CAS garante que apenas 1 vence;
+        // os outros 49 recebem false sem corromper estado em memória.
+        var repo = Substitute.For<IHumanInteractionRepository>();
+        var req = NewRequest("int-race", "exec-race");
+        repo.GetPendingAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<HumanInteractionRequest> { req });
+
+        // Semantics reais do banco: primeiro rowsAffected=1 vira 0 pra todos os seguintes.
+        var casCalls = 0;
+        repo.TryResolveAsync(
+            Arg.Any<string>(),
+            Arg.Any<EfsAiHub.Core.Orchestration.Enums.HumanInteractionStatus>(),
+            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Interlocked.Increment(ref casCalls) == 1);
+
+        var svc = new HumanInteractionService(repo, Substitute.For<ILogger<HumanInteractionService>>());
+        await svc.LoadPendingFromDbAsync();
+
+        var tasks = Enumerable.Range(0, 50)
+            .Select(_ => Task.Run(async () =>
+                await svc.ResolveAsync("int-race", "approve", approved: true, publishToCross: false)))
+            .ToArray();
+
+        var results = await Task.WhenAll(tasks);
+
+        results.Count(r => r).Should().Be(1, "apenas uma chamada deve vencer o CAS");
+        results.Count(r => !r).Should().Be(49, "todas as outras devem receber false");
     }
 
     [Fact]

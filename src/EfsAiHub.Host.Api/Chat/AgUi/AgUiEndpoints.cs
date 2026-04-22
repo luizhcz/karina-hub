@@ -41,7 +41,7 @@ public static class AgUiEndpoints
         CancellationToken ct)
     {
         // 0. Processar respostas de aprovação pendentes (HITL via request_approval)
-        approvalMiddleware.ProcessApprovals(input.Messages);
+        await approvalMiddleware.ProcessApprovalsAsync(input.Messages, ct);
 
         // Mensagem efetiva: último Messages[role=user]
         var effectiveMessage = input.Messages?.LastOrDefault(m => m.Role == "user")?.Content;
@@ -183,14 +183,15 @@ public static class AgUiEndpoints
     /// Resolve uma interação HITL pendente sem abrir um novo SSE stream.
     /// O SSE stream original (que está aguardando) continua e receberá os eventos restantes.
     /// </summary>
-    private static IResult ResolveHitlAsync(
+    private static async Task<IResult> ResolveHitlAsync(
         HitlResolveRequest request,
-        AgUiApprovalMiddleware approvalMiddleware)
+        AgUiApprovalMiddleware approvalMiddleware,
+        CancellationToken ct)
     {
-        approvalMiddleware.ProcessApprovals(
+        await approvalMiddleware.ProcessApprovalsAsync(
         [
             new AgUiInputMessage("tool", request.Response, request.ToolCallId)
-        ]);
+        ], ct);
         return Results.Ok(new { resolved = true, toolCallId = request.ToolCallId });
     }
 

@@ -39,7 +39,7 @@ public partial class ConversationService
             if (pendingHitl is not null)
             {
                 var userContent = lastInput.Message;
-                _hitlService.Resolve(pendingHitl.InteractionId, userContent, approved: true);
+                await _hitlService.ResolveAsync(pendingHitl.InteractionId, userContent, approved: true, ct: ct);
 
                 _logger.LogInformation(
                     "[ConvService] HITL '{InteractionId}' resolvido pela mensagem do chat '{ConvId}'.",

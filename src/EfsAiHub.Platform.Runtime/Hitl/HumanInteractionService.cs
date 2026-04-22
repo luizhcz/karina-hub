@@ -79,7 +79,18 @@ public class HumanInteractionService : IHumanInteractionService
                     _logger.LogWarning(
                         "[HITL] Interação '{InteractionId}' expirou após {Timeout}s (timeout HITL independente).",
                         request.InteractionId, request.TimeoutSeconds);
-                    Resolve(request.InteractionId, "timeout", approved: false);
+                    // Callback de CancellationToken é síncrono; Resolve é async após CAS →
+                    // schedule fire-and-forget. Falha não deve propagar ao timer.
+                    _ = Task.Run(async () =>
+                    {
+                        try { await ResolveAsync(request.InteractionId, "timeout", approved: false); }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex,
+                                "[HITL] Falha ao resolver por timeout a interação '{InteractionId}'.",
+                                request.InteractionId);
+                        }
+                    });
                 }
             });
         }
@@ -120,43 +131,63 @@ public class HumanInteractionService : IHumanInteractionService
         }
     }
 
-    /// <summary>Resolve uma interação pendente com a resposta do humano.</summary>
-    public bool Resolve(string interactionId, string resolution, bool approved = true, bool publishToCross = true)
+    /// <summary>
+    /// Resolve uma interação pendente com a resposta do humano. CAS a nível de banco
+    /// garante que duas chamadas concorrentes (ex: API + cross-pod NOTIFY) não corrompam
+    /// o estado — apenas uma vence. Retorna false se já foi resolvido.
+    /// </summary>
+    public async Task<bool> ResolveAsync(
+        string interactionId,
+        string resolution,
+        bool approved = true,
+        bool publishToCross = true,
+        CancellationToken ct = default)
     {
         if (!_pending.TryGetValue(interactionId, out var request))
             return false;
 
-        request.Resolution = resolution;
-        request.Status = approved ? HumanInteractionStatus.Approved : HumanInteractionStatus.Rejected;
-        request.ResolvedAt = DateTime.UtcNow;
+        var newStatus = approved ? HumanInteractionStatus.Approved : HumanInteractionStatus.Rejected;
+        var resolvedAt = DateTime.UtcNow;
 
-        var outcome = approved ? "approved" : "rejected";
-        RecordResolution(request, outcome);
-
-        // Persiste a resolução no banco (fire-and-forget — não bloqueia o path de resumo do workflow)
-        _ = Task.Run(async () =>
+        // CAS no banco ANTES de tocar estado em memória. Se outro pod/caller já resolveu,
+        // rowsAffected=0 e retornamos false sem mutar nada local.
+        bool cas;
+        try
         {
-            try { await _repo.UpdateAsync(request); }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,
-                    "[HITL] Falha ao persistir resolução da interação '{InteractionId}' no banco.",
-                    interactionId);
-            }
-        });
+            cas = await _repo.TryResolveAsync(interactionId, newStatus, resolution, resolvedAt, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "[HITL] Falha no CAS de resolução da interação '{InteractionId}' — abortado.", interactionId);
+            return false;
+        }
 
-        _pending.TryRemove(interactionId, out _);
-        UpdatePendingAgeGauge();
+        if (!cas)
+        {
+            MetricsRegistry.HitlResolveConflicts.Add(1,
+                new KeyValuePair<string, object?>("outcome", approved ? "approved" : "rejected"));
+            _logger.LogDebug(
+                "[HITL] Resolução concorrente detectada para '{InteractionId}' — CAS retornou false; " +
+                "outro caller/pod já resolveu.", interactionId);
+            // Ainda assim limpa estado local — pode ter vindo cross-pod e só agora chegou aqui.
+            CleanupLocalState(interactionId, resolution);
+            return false;
+        }
 
-        if (_pendingTcs.TryRemove(interactionId, out var tcs))
-            tcs.TrySetResult(resolution);
-        // Interações órfãs (sem TCS — processo reiniciou) também são removidas do pending em memória
+        // Venceu o CAS — aplica snapshot no objeto em memória para consistência local.
+        request.Resolution = resolution;
+        request.Status = newStatus;
+        request.ResolvedAt = resolvedAt;
+
+        RecordResolution(request, approved ? "approved" : "rejected");
+        CleanupLocalState(interactionId, resolution);
 
         _logger.LogInformation(
             "Interação HITL '{InteractionId}' resolvida (approved={Approved}).",
             interactionId, approved);
 
-        // Fix #A1: propaga para outros pods para eles limparem caches locais / desbloquearem TCS.
+        // Propaga para outros pods só quando efetivamente resolvemos (evita loop de NOTIFY).
         if (publishToCross && _crossBus is not null)
         {
             _ = Task.Run(async () =>
@@ -171,6 +202,15 @@ public class HumanInteractionService : IHumanInteractionService
         }
 
         return true;
+    }
+
+    private void CleanupLocalState(string interactionId, string resolution)
+    {
+        _pending.TryRemove(interactionId, out _);
+        UpdatePendingAgeGauge();
+
+        if (_pendingTcs.TryRemove(interactionId, out var tcs))
+            tcs.TrySetResult(resolution);
     }
 
     /// <summary>

@@ -98,6 +98,11 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("hitl.resolved",
             description: "Interações HITL resolvidas. Tags: outcome (approved/rejected/expired)");
 
+    public static readonly Counter<long> HitlResolveConflicts =
+        _meter.CreateCounter<long>("hitl.resolve_conflicts",
+            description: "CAS de resolução HITL perdido para outro caller/pod (race concorrente). " +
+                         "Tags: outcome (approved/rejected). Alto volume indica contenção no caminho HITL.");
+
     public static readonly Histogram<double> HitlResolutionDuration =
         _meter.CreateHistogram<double>("hitl.resolution_duration_seconds", unit: "s",
             description: "Tempo entre criação e resolução de uma interação HITL. Tags: outcome");

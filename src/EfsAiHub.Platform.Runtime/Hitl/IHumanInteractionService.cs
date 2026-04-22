@@ -13,8 +13,18 @@ public interface IHumanInteractionService
     /// </summary>
     Task<string> RequestAsync(HumanInteractionRequest request, CancellationToken ct = default);
 
-    /// <summary>Resolve uma interação pendente com a resposta do humano.</summary>
-    bool Resolve(string interactionId, string resolution, bool approved = true, bool publishToCross = true);
+    /// <summary>
+    /// Resolve uma interação pendente com a resposta do humano. Usa CAS a nível de banco
+    /// (<see cref="IHumanInteractionRepository.TryResolveAsync"/>) para garantir que apenas
+    /// um caller (entre API local, NOTIFY cross-pod, timeout HITL) efetiva a resolução.
+    /// Retorna <c>true</c> se esta chamada venceu o CAS; <c>false</c> se outro já resolveu.
+    /// </summary>
+    Task<bool> ResolveAsync(
+        string interactionId,
+        string resolution,
+        bool approved = true,
+        bool publishToCross = true,
+        CancellationToken ct = default);
 
     /// <summary>Retorna todas as interações pendentes em memória.</summary>
     IReadOnlyList<HumanInteractionRequest> GetPending();

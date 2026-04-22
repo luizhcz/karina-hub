@@ -87,14 +87,14 @@ public sealed class CrossNodeCoordinator : BackgroundService
         _ = Task.Run(() => HandleAsync(args.Channel, args.Payload));
     }
 
-    private Task HandleAsync(string channel, string payload)
+    private async Task HandleAsync(string channel, string payload)
     {
         try
         {
             if (string.Equals(channel, PgCrossNodeBus.CancelChannel, StringComparison.Ordinal))
             {
                 var msg = JsonSerializer.Deserialize<CancelPayload>(payload);
-                if (msg is null || string.IsNullOrEmpty(msg.executionId)) return Task.CompletedTask;
+                if (msg is null || string.IsNullOrEmpty(msg.executionId)) return;
 
                 using var scope = _scopeFactory.CreateScope();
                 var chatRegistry = scope.ServiceProvider.GetRequiredService<IExecutionSlotRegistry>();
@@ -110,12 +110,15 @@ public sealed class CrossNodeCoordinator : BackgroundService
             else if (string.Equals(channel, PgCrossNodeBus.HitlResolvedChannel, StringComparison.Ordinal))
             {
                 var msg = JsonSerializer.Deserialize<HitlPayload>(payload);
-                if (msg is null || string.IsNullOrEmpty(msg.interactionId)) return Task.CompletedTask;
+                if (msg is null || string.IsNullOrEmpty(msg.interactionId)) return;
 
                 using var scope = _scopeFactory.CreateScope();
                 var hitl = scope.ServiceProvider.GetRequiredService<IHumanInteractionService>();
                 // publishToCross=false para não criar loop de NOTIFY.
-                var resolvedLocally = hitl.Resolve(msg.interactionId, msg.resolution ?? string.Empty, msg.approved, publishToCross: false);
+                // CAS no banco decide quem venceu: se outro pod já resolveu, ResolveAsync retorna false
+                // e apenas limpa estado local desse pod.
+                var resolvedLocally = await hitl.ResolveAsync(
+                    msg.interactionId, msg.resolution ?? string.Empty, msg.approved, publishToCross: false);
                 if (resolvedLocally)
                 {
                     MetricsRegistry.CrossNodeHitlResolvedReceived.Add(1);
@@ -129,7 +132,6 @@ public sealed class CrossNodeCoordinator : BackgroundService
         {
             _logger.LogWarning(ex, "[CrossNodeCoordinator] Falha ao processar notification {Channel}.", channel);
         }
-        return Task.CompletedTask;
     }
 
     // ReSharper disable InconsistentNaming

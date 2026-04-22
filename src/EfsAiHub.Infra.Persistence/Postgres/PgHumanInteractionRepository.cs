@@ -94,6 +94,29 @@ public class PgHumanInteractionRepository(IDbContextFactory<AgentFwDbContext> fa
                 ct);
     }
 
+    public async Task<bool> TryResolveAsync(
+        string interactionId,
+        HumanInteractionStatus newStatus,
+        string resolution,
+        DateTime resolvedAt,
+        CancellationToken ct = default)
+    {
+        await using var ctx = await factory.CreateDbContextAsync(ct);
+        var pendingStr = nameof(HumanInteractionStatus.Pending);
+        var newStatusStr = newStatus.ToString();
+        // ExecuteUpdateAsync gera UPDATE ... WHERE ... em uma única ida ao banco,
+        // garantindo atomicidade do CAS. rowsAffected=1 → este caller venceu; 0 → já foi resolvido.
+        var rowsAffected = await ctx.HumanInteractions
+            .Where(r => r.InteractionId == interactionId
+                     && r.Status == pendingStr)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(r => r.Status, newStatusStr)
+                .SetProperty(r => r.Resolution, resolution)
+                .SetProperty(r => r.ResolvedAt, (DateTime?)resolvedAt),
+                ct);
+        return rowsAffected > 0;
+    }
+
     public async Task ExpireOrphanedAsync(CancellationToken ct = default)
     {
         await using var ctx = await factory.CreateDbContextAsync(ct);

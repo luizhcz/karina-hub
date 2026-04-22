@@ -613,11 +613,16 @@ public enum InteractionType
 1. Nó agenda execução
 2. HitlDecoratorExecutor intercepta (before/after)
 3. Publica evento hitl_required via IWorkflowEventBus
-4. Persiste HumanInteractionRequest no PostgreSQL
+4. Persiste HumanInteractionRequest no PostgreSQL (Status=Pending)
 5. Bloqueia workflow via TaskCompletionSource
 6. Humano recebe prompt via SSE (AG-UI)
-7. Humano responde → HumanInteractionService.Resolve()
-8. TCS é completado → workflow continua ou falha
+7. Humano responde → HumanInteractionService.ResolveAsync()
+   │
+   └─ CAS: IHumanInteractionRepository.TryResolveAsync
+          UPDATE ... WHERE Status='Pending' → rowsAffected=1 vence
+8. Vencedor: TCS completado → workflow continua ou falha
+   Perdedores (resolução concorrente): incrementa hitl.resolve_conflicts,
+                                       limpa local sem duplicar efeito
 ```
 
 ### HitlDecoratorExecutor
@@ -663,6 +668,22 @@ Background service que recupera workflows pausados:
 ### Propagação Cross-Pod
 
 Resolução HITL propagada via PostgreSQL LISTEN/NOTIFY (`ICrossNodeBus.PublishHitlResolvedAsync`).
+
+### Idempotência — CAS na resolução
+
+`HumanInteractionService.ResolveAsync` é **idempotente por CAS a nível de banco**. Três callers podem tentar resolver a mesma interação em paralelo:
+
+1. **API local** (`POST /api/interactions/{id}/resolve` ou `POST /api/chat/ag-ui/resolve-hitl`)
+2. **Cross-pod NOTIFY** (outro pod já resolveu e está propagando)
+3. **Timeout HITL** (`request.TimeoutSeconds` expirou)
+
+Apenas **um** vence o CAS — a chamada que altera `Status` de `Pending` para `Approved/Rejected/Expired` no PostgreSQL via `UPDATE ... WHERE Status = 'Pending'` retornando `rowsAffected > 0`. Os demais callers recebem `false` e limpam seu estado local (mas não duplicam o efeito): não disparam o TCS duas vezes, não propagam NOTIFY em loop, não incrementam o contador de resolved duas vezes.
+
+**Observabilidade:**
+- Métrica `hitl.resolved` incrementada apenas pelo vencedor (`outcome` = approved/rejected/expired).
+- Métrica `hitl.resolve_conflicts` incrementada por quem **perdeu** o CAS (com tag `outcome`). Alto volume indica contenção alta — possível bug de caller chamando repetidamente.
+
+**Contrato:** `TryResolveAsync` no `IHumanInteractionRepository` é o único mecanismo de atomicidade. Qualquer novo caller de resolução deve ir via `HumanInteractionService.ResolveAsync` (que encapsula o CAS), nunca tocar `UpdateAsync` diretamente para mudar Status.
 
 ---
 
