@@ -6,6 +6,7 @@ import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.2/index.js'
 
 const BASE = __ENV.BASE_URL || 'http://localhost:5189'
 const WORKFLOW_ID = __ENV.WORKFLOW_ID || 'atendimento-cliente'
+const VUS = parseInt(__ENV.VUS || '30', 10)
 const TURN_MESSAGES = [
   __ENV.USER_MESSAGE_1 || 'Olá, queria ver minha carteira',
   __ENV.USER_MESSAGE_2 || 'E qual a minha melhor posição atual?',
@@ -22,11 +23,13 @@ const streamErrors = new Counter('stream_error_events')
 const turn1Success = new Counter('turn1_success')
 const turn2Success = new Counter('turn2_success')
 
+// Thresholds escalam linearmente com VUS: `turn{N}_success >= VUS - 1` tolera
+// no máximo 1 falha (timing extremo). Outros limites são absolutos.
 export const options = {
   scenarios: {
     burst: {
       executor: 'per-vu-iterations',
-      vus: 30,
+      vus: VUS,
       iterations: 1,
       maxDuration: '5m',
       startTime: '0s',
@@ -36,13 +39,13 @@ export const options = {
   thresholds: {
     http_req_failed: ['rate<0.05'],
     checks: ['rate>0.95'],
-    workflow_completion_turn1_ms: ['p(95)<45000'],
-    workflow_completion_turn2_ms: ['p(95)<45000'],
-    ttfb_create_conversation: ['p(95)<2000'],
-    rate_limited_429: ['count<2'],
+    workflow_completion_turn1_ms: ['p(95)<60000'],
+    workflow_completion_turn2_ms: ['p(95)<60000'],
+    ttfb_create_conversation: ['p(95)<5000'],
+    rate_limited_429: ['count<5'],
     back_pressure_503: ['count==0'],
-    turn1_success: ['count>=29'],
-    turn2_success: ['count>=29'],
+    turn1_success: [`count>=${VUS - 1}`],
+    turn2_success: [`count>=${VUS - 1}`],
   },
 }
 

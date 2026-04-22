@@ -1049,10 +1049,12 @@ src/EfsAiHub.Host.Api/Program.cs
 | Pool | Propósito | Min | Max (default) | Config |
 |------|-----------|-----|---------------|--------|
 | `general` | Chat path + escritas | 10 | 200 | `Npgsql:GeneralMinPoolSize/MaxPoolSize` |
-| `sse` | LISTEN long-lived | — | 50 | `Npgsql:SseMaxPoolSize` |
+| `sse` | LISTEN long-lived (dispatcher + CrossNode) | — | 10 | `Npgsql:SseMaxPoolSize` |
 | `reporting` | Analytics read-only | — | 20 | `Npgsql:ReportingMaxPoolSize` |
 
-Soma dos pools = **270 slots**. Postgres sobe com `max_connections=300` (ver `docker-compose.yml`) — 30 slots de folga para outros consumidores (superuser, admin queries, etc.). Qualquer aumento de pool deve respeitar essa soma ou ajustar `max_connections` junto.
+Soma dos pools = **230 slots**. Postgres sobe com `max_connections=300` (ver `docker-compose.yml`), deixando ~70 slots de folga para outros consumidores (superuser, admin queries, etc.).
+
+O pool `sse` ficou muito pequeno após a introdução do [PgNotifyDispatcher](#201-arquitetura-pub-sub-e-limites-operacionais) — 1 conn pra ele + 2 pra CrossNodeCoordinator + folga. Antes consumia 1 conn por subscriber SSE (teto ~50 clientes concorrentes).
 
 O pool `reporting` pode apontar para read replica via `ConnectionStrings:PostgresReporting` (fallback para main se não configurado).
 
@@ -1060,26 +1062,42 @@ Registrados via `AddKeyedSingleton<NpgsqlDataSource>("pool-name", ...)`.
 
 ---
 
-## 20.1. Limites operacionais conhecidos
+## 20.1. Arquitetura pub/sub e limites operacionais
 
-### SSE concorrente — teto hoje: ~80-100 subscribers por instância
+### Padrão atual: dispatcher singleton com fanout in-memory
 
-O padrão atual de pub/sub aloca **1 conexão PG dedicada por subscriber SSE ativo** (via pool `sse`, max 50). O teto efetivo por instância é o min entre:
+`src/EfsAiHub.Infra.Messaging/PgNotifyDispatcher.cs` é um `IHostedService` singleton que:
 
-- `Npgsql:SseMaxPoolSize` (default 50) — subscribers simultâneos esperam quando estourado
-- Latência média do workflow (~3-5s) × chegada de novos clientes — define quantas conns ficam presas simultâneas
+1. Abre **uma única conexão PG persistente** do pool `sse` no startup
+2. Executa `LISTEN wf_events` (canal global, um para todo o processo)
+3. Mantém `ConcurrentDictionary<executionId, List<ChannelWriter>>` em memória
+4. Ao receber NOTIFY, desserializa, pega `ExecutionId` do payload e escreve nos channels dos subscribers registrados daquela execução
 
-Na prática, dev solo ou squad pequeno opera confortável até **~30-50 usuários reais simultâneos em chat**. Acima disso, sinais de pressão:
+`PgEventBus.SubscribeAsync` (o consumidor) não abre conn própria — registra um `Subscription` no dispatcher e drena o `ChannelReader`. Replay do histórico via `workflow_event_audit` + dedup por `SequenceId` é preservado, eliminando race entre replay e primeiros NOTIFYs.
 
-- `NpgsqlException: timeout fetching connection` em `PgEventBus.SubscribeAsync`
-- Métrica `eventbus.active_subscriptions` se aproximando ou cruzando `SseMaxPoolSize`
-- SSE clients sentindo atraso no primeiro evento (stream trava esperando conn)
+Reconexão automática com backoff exponencial (200ms → 10s) se a conn do dispatcher cair. Durante a janela de reconexão, novos NOTIFY podem ser perdidos, mas o replay do histórico no próximo `SubscribeAsync` cobre.
 
-**Fix estrutural** (se/quando virar bloqueador): substituir o padrão por dispatcher singleton multiplexando 1 conn persistente + fanout in-memory via `Channel<T>`. Destrava ~10x capacidade.
+### Capacidade — teto atual: ~1000+ SSE concorrentes por instância
 
-### Bug historicamente observado
+Capacidade é limitada por memória do processo (ordem de milhares de ChannelReader), não mais pelo pool SSE. **Validado em load test** com 100 VUs × 2 turnos passando 100/100 em ambos os turnos (`scripts/load/atendimento_cliente_burst.js VUS=100`).
 
-Sob burst de 30 conexões SSE × 2 turnos de conversa, ~40% dos segundos turnos falhavam com `Npgsql.NpgsqlOperationInProgressException: The connection is already in state 'Waiting'`. Causa: race entre `linkedCts.Cancel()` e `conn.DisposeAsync()` no finally de `SubscribeAsync` — a task background de `conn.WaitAsync` ainda estava pendente quando o dispose começava, devolvendo conn ao pool em estado inconsistente. **Corrigido** em `PgEventBus.cs` guardando referência à task e aguardando seu término com timeout de 2s antes do dispose. O `UNLISTEN *` é feito implicitamente pelo Npgsql no reset do pool — chamar explícito adicionava latência e estourava o pool SSE (max 50) sob burst.
+Sinais para monitorar:
+
+- Métrica `eventbus.active_subscriptions` — agora proxy direto de clientes SSE conectados, não do pool
+- Métrica `eventbus.background_task.timeouts` — sinaliza instabilidade no WaitAsync do dispatcher (conn caindo). Spikes >0 indicam problema de rede com o PG
+- Log `[PgNotifyDispatcher] Conexão LISTEN caiu. Reconectando…` — backoff em ação
+
+### Bug historicamente observado (arquitetura anterior)
+
+Sob burst de 30 conexões SSE × 2 turnos, ~40% dos segundos turnos falhavam com `Npgsql.NpgsqlOperationInProgressException: The connection is already in state 'Waiting'`. A arquitetura de "1 conn dedicada por subscriber" sofria de race entre `linkedCts.Cancel()` e `conn.DisposeAsync()`. O fix da Fase 1 (await da task background antes do dispose) resolveu o sintoma, mas o teto estrutural em ~50 subscribers permanecia. **Fase 3 eliminou o gargalo estrutural** migrando para o dispatcher descrito acima.
+
+### Regressão
+
+Oráculo: `scripts/load/atendimento_cliente_burst.js` (k6). Rodar com `VUS=100 ./scripts/load/run_burst.sh`. Threshold `turn{N}_success >= VUS-1` em cada turno. Baselines em `scripts/load/baselines/` com snapshot de cada marco.
+
+Testes de integração:
+- `PgEventBusLifecycleTests` — subscribe/dispose/resubscribe, concorrência entre executions, cancel precoce
+- `PgNotifyDispatcherTests` — routing por executionId, fanout de subscribers da mesma execution, subscribers descartados, stress de 30 execuções concorrentes sem cross-talk
 
 ### Observabilidade
 

@@ -6,7 +6,8 @@ Relatórios HTML preservados como referência de "estado conhecido bom" após fi
 
 | Arquivo | Cenário | Commit de referência | Notas |
 |---|---|---|---|
-| `burst-2turns-postfix.html` | 30 VUs × 2 turnos (atendimento-cliente) | `20472a6` | Primeiro run verde após fix do lifecycle do PgEventBus. Todos os thresholds passaram: `turn1_success=30/30`, `turn2_success=30/30`, `http_req_failed=0%`, `workflow_completion p95 <5s`. |
+| `burst-2turns-postfix.html` | 30 VUs × 2 turnos (atendimento-cliente) | `20472a6`, `3c23654` | Primeiro run verde após fix do lifecycle do PgEventBus. `turn1_success=30/30`, `turn2_success=30/30`, `http_req_failed=0%`, `workflow_completion p95 <5s`. Arquitetura 1-conn-por-subscriber. |
+| `burst-100vu-dispatcher.html` | 100 VUs × 2 turnos (atendimento-cliente) | Fase 3 | Primeiro run verde com `PgNotifyDispatcher` singleton multiplexando LISTEN. `turn1_success=100/100`, `turn2_success=99/100`, `http_req_failed=0%`, `workflow_completion p95 ~4s`, `conversation_total p95 ~8s`. Teto estrutural subiu de ~50 para 1000+ subscribers por instância. |
 
 ## Como atualizar
 
