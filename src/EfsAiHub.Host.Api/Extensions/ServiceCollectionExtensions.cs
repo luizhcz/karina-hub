@@ -301,23 +301,36 @@ public static class ServiceCollectionExtensions
             EfsAiHub.Platform.Runtime.Checkpointing.EngineCheckpointAdapter>();
 
         // Hosted services
+        // WorkflowEngine options são lidas localmente para gating dos serviços opcionais.
+        // Não chamamos services.Configure<...>() aqui porque quem chama este método
+        // já pode ter registrado o options binder; pegar direto da IConfiguration evita
+        // depender de ordem de registro.
+        var engineOpts = configuration.GetSection(WorkflowEngineOptions.SectionName).Get<WorkflowEngineOptions>()
+            ?? new WorkflowEngineOptions();
+
         services.AddHostedService<DatabaseBootstrapService>();
         services.AddHostedService<AgentSessionCleanupService>();
         services.AddHostedService<LlmCostRefreshService>();
         services.AddHostedService<AuditRetentionService>();
-        services.AddHostedService<CrossNodeCoordinator>();
+        if (engineOpts.MultiNode)
+            services.AddHostedService<CrossNodeCoordinator>();
         // HitlRecoveryService DEVE ser registrado por último
         services.AddHostedService<HitlRecoveryService>();
 
-        // Background Service Registry
-        services.AddBackgroundServiceRegistry();
+        // Background Service Registry — propagamos as opções pra refletir o que foi
+        // efetivamente registrado (intervalos reais + gating do CrossNodeCoordinator).
+        services.AddBackgroundServiceRegistry(engineOpts);
 
         return services;
     }
 
     // ── Background Service Registry ─────────────────────────────────────────────
-    public static IServiceCollection AddBackgroundServiceRegistry(this IServiceCollection services)
+    public static IServiceCollection AddBackgroundServiceRegistry(
+        this IServiceCollection services,
+        WorkflowEngineOptions? engineOpts = null)
     {
+        var opts = engineOpts ?? new WorkflowEngineOptions();
+
         services.AddSingleton<EfsAiHub.Core.Abstractions.BackgroundServices.IBackgroundServiceRegistry>(_ =>
         {
             var registry = new EfsAiHub.Platform.Runtime.Services.BackgroundServiceRegistry();
@@ -325,12 +338,15 @@ public static class ServiceCollectionExtensions
             registry.Register("DatabaseBootstrap", new() { Name = "DatabaseBootstrap", Description = "Limpeza no startup de execuções órfãs deixadas por restart", Lifecycle = "OneTime", ServiceType = typeof(DatabaseBootstrapService) });
             registry.Register("AgentSessionCleanup", new() { Name = "AgentSessionCleanup", Description = "Remove sessões de agente expiradas pelo TTL", Lifecycle = "Continuous", Interval = TimeSpan.FromHours(6), ServiceType = typeof(AgentSessionCleanupService) });
             registry.Register("AuditRetention", new() { Name = "AuditRetention", Description = "Descarta partições antigas das tabelas de auditoria", Lifecycle = "Continuous", Interval = TimeSpan.FromHours(24), ServiceType = typeof(AuditRetentionService) });
-            registry.Register("CrossNodeCoordinator", new() { Name = "CrossNodeCoordinator", Description = "Propaga cancelamentos e eventos HITL entre pods via LISTEN/NOTIFY", Lifecycle = "Continuous", ServiceType = typeof(CrossNodeCoordinator) });
-            registry.Register("HitlRecovery", new() { Name = "HitlRecovery", Description = "Retoma execuções HITL pausadas após restart ou timeout", Lifecycle = "Continuous", Interval = TimeSpan.FromSeconds(30), ServiceType = typeof(HitlRecoveryService) });
+            // CrossNodeCoordinator só aparece no registry se o hosted service foi registrado
+            // (gated por WorkflowEngine:MultiNode) — evita confusão na UI em deploy single-node.
+            if (opts.MultiNode)
+                registry.Register("CrossNodeCoordinator", new() { Name = "CrossNodeCoordinator", Description = "Propaga cancelamentos e eventos HITL entre pods via LISTEN/NOTIFY", Lifecycle = "Continuous", ServiceType = typeof(CrossNodeCoordinator) });
+            registry.Register("HitlRecovery", new() { Name = "HitlRecovery", Description = "Retoma execuções HITL pausadas após restart ou timeout", Lifecycle = "Continuous", Interval = TimeSpan.FromSeconds(Math.Max(1, opts.HitlRecoveryIntervalSeconds)), ServiceType = typeof(HitlRecoveryService) });
             registry.Register("NodePersistence", new() { Name = "NodePersistence", Description = "Persiste sequencialmente o estado dos nós de workflow", Lifecycle = "Continuous", ServiceType = typeof(NodePersistenceService) });
             registry.Register("TokenUsagePersistence", new() { Name = "TokenUsagePersistence", Description = "Persiste consumo de tokens em lote", Lifecycle = "Continuous", ServiceType = typeof(TokenUsagePersistenceService) });
             registry.Register("ToolInvocationPersistence", new() { Name = "ToolInvocationPersistence", Description = "Persiste invocações de tools em lote", Lifecycle = "Continuous", ServiceType = typeof(ToolInvocationPersistenceService) });
-            registry.Register("LlmCostRefresh", new() { Name = "LlmCostRefresh", Description = "Atualiza as views materializadas de custo de LLM", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(5), ServiceType = typeof(LlmCostRefreshService) });
+            registry.Register("LlmCostRefresh", new() { Name = "LlmCostRefresh", Description = "Atualiza as views materializadas de custo de LLM", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(Math.Max(1, opts.LlmCostRefreshIntervalMinutes)), ServiceType = typeof(LlmCostRefreshService) });
             registry.Register("AgUiTokenChannelCleanup", new() { Name = "AgUiTokenChannelCleanup", Description = "Remove canais SSE inativos do streaming AG-UI", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(5), ServiceType = typeof(EfsAiHub.Host.Api.Chat.AgUi.Streaming.AgUiTokenChannelCleanupService) });
 
             return registry;

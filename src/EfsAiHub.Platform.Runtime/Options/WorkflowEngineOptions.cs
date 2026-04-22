@@ -25,9 +25,27 @@ public class WorkflowEngineOptions
     /// Intervalo em segundos entre ciclos periódicos do HitlRecoveryService.
     /// O primeiro ciclo roda imediatamente no startup. Ciclos subsequentes varrem
     /// execuções Paused que possam ter ficado órfãs (ex: NOTIFY perdido).
-    /// 0 = desabilita polling periódico (apenas startup). Default: 30.
+    /// 0 = desabilita polling periódico (apenas startup). Default: 600 (10min) —
+    /// o caminho normal é o CrossNodeCoordinator via LISTEN/NOTIFY; o polling é
+    /// safety net barata para NOTIFYs perdidos, então 10min é suficiente.
     /// </summary>
-    public int HitlRecoveryIntervalSeconds { get; init; } = 30;
+    public int HitlRecoveryIntervalSeconds { get; init; } = 600;
+
+    /// <summary>
+    /// Intervalo em minutos do LlmCostRefreshService (REFRESH MATERIALIZED VIEW CONCURRENTLY).
+    /// Default: 30. Aumente em produção com alto volume de llm_token_usage se o REFRESH ficar caro;
+    /// reduza apenas se os dashboards de custo precisarem estar quase realtime.
+    /// </summary>
+    public int LlmCostRefreshIntervalMinutes { get; init; } = 30;
+
+    /// <summary>
+    /// Quando <c>true</c>, registra o CrossNodeCoordinator (LISTEN em efs_exec_cancel /
+    /// efs_hitl_resolved) + 1 conexão persistente no pool "sse". Obrigatório em deploy
+    /// multi-pod — sem ele, cancel e HITL disparados em outro pod não chegam aqui.
+    /// Em single-node o coordinator recebe apenas NOTIFYs do próprio pod (no-op via CAS),
+    /// então default <c>false</c> economiza uma conexão permanente.
+    /// </summary>
+    public bool MultiNode { get; init; } = false;
 
     /// <summary>Dias de retenção para workflow_event_audit (drop de partições antigas). Default: 30.</summary>
     public int AuditRetentionDays { get; init; } = 30;

@@ -1,41 +1,45 @@
 using EfsAiHub.Infra.Persistence.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace EfsAiHub.Host.Worker.Services;
 
 /// <summary>
 /// Atualiza a MATERIALIZED VIEW v_llm_cost periodicamente.
-/// Executa um REFRESH inicial no boot e depois a cada 5 minutos.
+/// Intervalo configurável via WorkflowEngine:LlmCostRefreshIntervalMinutes (default 30).
 /// Usa CONCURRENTLY para não travar leituras durante o refresh.
 /// Advisory lock garante que apenas um pod executa o refresh de cada vez.
 /// </summary>
 public sealed class LlmCostRefreshService : BackgroundService
 {
-    private static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);
     // Chave estável para advisory lock — evita refresh concorrente entre pods
     private const long RefreshLockKey = 0x4566_7341_6948_7562;
 
     private readonly IDbContextFactory<AgentFwDbContext> _dbFactory;
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<LlmCostRefreshService> _logger;
+    private readonly TimeSpan _interval;
 
     public LlmCostRefreshService(
         IDbContextFactory<AgentFwDbContext> dbFactory,
         [FromKeyedServices("general")] NpgsqlDataSource dataSource,
-        ILogger<LlmCostRefreshService> logger)
+        ILogger<LlmCostRefreshService> logger,
+        IOptions<WorkflowEngineOptions> options)
     {
         _dbFactory = dbFactory;
         _dataSource = dataSource;
         _logger = logger;
+        var minutes = options.Value.LlmCostRefreshIntervalMinutes;
+        _interval = TimeSpan.FromMinutes(minutes > 0 ? minutes : 30);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await RefreshIfLeaderAsync(stoppingToken);
 
-        using var timer = new PeriodicTimer(Interval);
+        using var timer = new PeriodicTimer(_interval);
         while (await timer.WaitForNextTickAsync(stoppingToken))
             await RefreshIfLeaderAsync(stoppingToken);
     }
