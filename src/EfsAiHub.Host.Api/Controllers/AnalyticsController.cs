@@ -42,4 +42,18 @@ public class AnalyticsController : ControllerBase
         var buckets = await _analytics.GetTimeseriesAsync(fromDate, toDate, workflowId, groupBy, ct);
         return Ok(new { buckets });
     }
+
+    [HttpGet("executions/failure-breakdown")]
+    [SwaggerOperation(Summary = "Breakdown de falhas por ErrorCategory no período — espelha a tag error.category da métrica workflows.failed")]
+    public async Task<IActionResult> GetFailureBreakdown(
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] string? workflowId,
+        CancellationToken ct = default)
+    {
+        var fromDate = from ?? DateTime.UtcNow.AddDays(-30);
+        var toDate = to ?? DateTime.UtcNow;
+        var breakdown = await _analytics.GetFailureBreakdownAsync(fromDate, toDate, workflowId, ct);
+        return Ok(new { breakdown });
+    }
 }

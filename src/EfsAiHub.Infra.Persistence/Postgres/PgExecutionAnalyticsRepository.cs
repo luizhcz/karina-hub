@@ -123,4 +123,43 @@ ORDER BY bucket;";
 
         return buckets;
     }
+
+    public async Task<IReadOnlyList<ExecutionFailureBreakdown>> GetFailureBreakdownAsync(
+        DateTime from,
+        DateTime to,
+        string? workflowId = null,
+        CancellationToken ct = default)
+    {
+        // WorkflowExecutionRow persiste WorkflowExecution serializado em Data (JSONB).
+        // ErrorCategory não é coluna dedicada — extraímos via operador ->> que navega o JSONB.
+        // COALESCE+NULLIF garante 'Unknown' para execuções Failed sem ErrorCategory (edge case).
+        // Filtra apenas Status=Failed (workflows.cancelled é counter separado).
+        // Ordena por count DESC (top categorias primeiro).
+        const string sql = @"
+SELECT
+    COALESCE(NULLIF(""Data""::jsonb ->> 'ErrorCategory', ''), 'Unknown') AS category,
+    COUNT(*)                                                             AS count
+FROM workflow_executions
+WHERE ""Status"" = 'Failed'
+  AND ""StartedAt"" >= @from AND ""StartedAt"" <= @to
+  AND (@workflowId IS NULL OR ""WorkflowId"" = @workflowId)
+GROUP BY COALESCE(NULLIF(""Data""::jsonb ->> 'ErrorCategory', ''), 'Unknown')
+ORDER BY count DESC;";
+
+        await using var conn = await _reporting.OpenConnectionAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("from", from);
+        cmd.Parameters.AddWithValue("to", to);
+        cmd.Parameters.Add(new NpgsqlParameter("workflowId", NpgsqlDbType.Varchar) { Value = (object?)workflowId ?? DBNull.Value });
+
+        var breakdown = new List<ExecutionFailureBreakdown>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            breakdown.Add(new ExecutionFailureBreakdown(
+                Category: reader.GetString(0),
+                Count: (int)reader.GetInt64(1)));
+        }
+        return breakdown;
+    }
 }

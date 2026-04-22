@@ -1036,6 +1036,7 @@ src/EfsAiHub.Infra.Observability/Metrics/MetricsRegistry.cs
 
 **Counters:**
 - `workflows.triggered/completed/failed/cancelled`
+  - `workflows.failed` tem tag `error.category` (Timeout | BudgetExceeded | HitlRejected | CheckpointRecoveryFailed | FrameworkError | AgentError | ToolError | InvalidConfig | DependencyFailure | CircuitOpen | Cancelled | Unknown) — permite quebrar no Grafana/OTel por tipo de falha e priorizar. Espelhada pelo endpoint `GET /api/analytics/executions/failure-breakdown` para consumo no frontend (card "Falhas por Categoria" em `/metrics`).
 - `llm.retries`, `llm.budget.exceeded`
 - `llm.circuit_breaker.opened/rejected/fallbacks`
 - `hitl.requested/resolved/orphaned_recoveries/recoveries`

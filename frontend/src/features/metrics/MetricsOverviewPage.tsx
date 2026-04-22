@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { useExecutionSummary, useExecutionTimeseries } from '../../api/analytics'
+import { useExecutionSummary, useExecutionTimeseries, useExecutionFailureBreakdown } from '../../api/analytics'
 import { useTokenSummary } from '../../api/token-usage'
 import { Card } from '../../shared/ui/Card'
 import { MetricCard } from '../../shared/data/MetricCard'
@@ -21,6 +21,7 @@ export function MetricsOverviewPage() {
   const summary = useExecutionSummary({ from })
   const timeseries = useExecutionTimeseries({ from })
   const tokens = useTokenSummary({ from })
+  const failureBreakdown = useExecutionFailureBreakdown({ from })
 
   if (summary.isLoading) return <PageLoader />
   if (summary.error) return <ErrorCard message="Erro ao carregar métricas" onRetry={summary.refetch} />
@@ -43,6 +44,29 @@ export function MetricsOverviewPage() {
         { name: 'Cancelled', value: s.cancelled, color: '#6B7280' },
       ].filter((d) => d.value > 0)
     : []
+
+  // Cores consistentes por ErrorCategory — tons quentes (vermelho/laranja/âmbar)
+  // para erros técnicos; roxo/cinza para casos "esperados" (HITL rejected, timeout).
+  const FAILURE_COLORS: Record<string, string> = {
+    Timeout:                  '#F97316', // orange — esperado sob load
+    BudgetExceeded:           '#F59E0B', // amber — limite de custo
+    HitlRejected:             '#A855F7', // purple — decisão humana
+    CheckpointRecoveryFailed: '#DC2626', // red-600 — crítico
+    FrameworkError:           '#EF4444', // red-500 — crítico
+    AgentError:               '#EC4899', // pink — agente
+    ToolError:                '#06B6D4', // cyan — tool
+    InvalidConfig:            '#8B5CF6', // violet — config
+    DependencyFailure:        '#14B8A6', // teal — deps externas
+    CircuitOpen:              '#B91C1C', // red-700 — provider down
+    Cancelled:                '#9CA3AF', // gray — cancelamento explícito
+    Unknown:                  '#64748B', // slate — sem categoria
+  }
+
+  const failureData = (failureBreakdown.data?.breakdown ?? []).map((b) => ({
+    name: b.category,
+    value: b.count,
+    color: FAILURE_COLORS[b.category] ?? '#64748B',
+  }))
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -125,6 +149,38 @@ export function MetricsOverviewPage() {
           )}
         </Card>
       </div>
+
+      {/* Falhas por Categoria — espelha tag error.category da métrica workflows.failed */}
+      {failureData.length > 0 && (
+        <Card title="Falhas por Categoria">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-1">
+              <DonutChart data={failureData} height={240} />
+            </div>
+            <div className="lg:col-span-2 flex flex-col gap-2 mt-4">
+              <p className="text-xs text-text-muted">
+                Breakdown de <strong>{s?.failed ?? 0}</strong> falhas no período por{' '}
+                <code className="text-xs bg-bg-tertiary px-1 py-0.5 rounded">ErrorCategory</code>.
+                Correlacionar com dashboard OTel filtrando por tag <code>error.category</code> na
+                métrica <code>workflows.failed</code> para debug mais profundo.
+              </p>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                {failureData.map((f) => (
+                  <div key={f.name} className="flex items-center gap-2 text-xs">
+                    <span
+                      className="inline-block w-3 h-3 rounded"
+                      style={{ backgroundColor: f.color }}
+                      aria-hidden
+                    />
+                    <span className="text-text-secondary flex-1">{f.name}</span>
+                    <span className="text-text-primary font-mono">{formatNumber(f.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
     </div>
   )
 }

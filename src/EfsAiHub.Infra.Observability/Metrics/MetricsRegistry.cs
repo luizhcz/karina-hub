@@ -15,7 +15,11 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("workflows.completed", description: "Total de workflows concluídos com sucesso");
 
     public static readonly Counter<long> WorkflowsFailed =
-        _meter.CreateCounter<long>("workflows.failed", description: "Total de workflows que falharam");
+        _meter.CreateCounter<long>("workflows.failed",
+            description: "Total de workflows que falharam. Tags: workflow.id, error.category " +
+                         "(Timeout | BudgetExceeded | HitlRejected | CheckpointRecoveryFailed | FrameworkError | " +
+                         "AgentError | ToolError | InvalidConfig | DependencyFailure | CircuitOpen | Cancelled | Unknown). " +
+                         "Dashboards devem quebrar por error.category para priorizar tipo de falha.");
 
     public static readonly Counter<long> WorkflowsCancelled =
         _meter.CreateCounter<long>("workflows.cancelled", description: "Total de workflows cancelados");
