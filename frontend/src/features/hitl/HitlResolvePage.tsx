@@ -10,8 +10,10 @@ import { ErrorCard } from '../../shared/ui/ErrorCard'
 import {
   useInteraction,
   useResolveInteraction,
+  isHitlAlreadyResolvedError,
   type HumanInteraction,
 } from '../../api/interactions'
+import { ApiError } from '../../api/client'
 import { useUserStore } from '../../stores/user'
 
 // ── Status helpers ────────────────────────────────────────────────────────────
@@ -50,9 +52,31 @@ export function HitlResolvePage() {
           refetch()
           navigate('/hitl')
         },
+        onError: (err) => {
+          // 404 = CAS perdido (outro pod/caller já resolveu) — UI já refetchou via
+          // useResolveInteraction.onError; basta atualizar esta página para refletir
+          // o novo status (Resolved/Rejected) sem navegar embora.
+          if (isHitlAlreadyResolvedError(err)) {
+            refetch()
+          }
+        },
       }
     )
   }
+
+  /**
+   * Mensagem amigável derivada do erro da mutation. Prioriza:
+   * - 404 → texto específico sobre race/concorrência
+   * - Outras ApiError → message do backend (já extraída pelo client.ts)
+   * - Erro desconhecido → fallback genérico
+   */
+  const resolveErrorMessage = resolveInteraction.error
+    ? isHitlAlreadyResolvedError(resolveInteraction.error)
+      ? 'Esta interação já foi resolvida por outro operador ou a execução expirou. Recarregando...'
+      : resolveInteraction.error instanceof ApiError
+        ? resolveInteraction.error.message
+        : 'Erro ao resolver interação. Tente novamente.'
+    : null
 
   if (!id) return <ErrorCard message="ID da interação não encontrado." />
   if (isLoading) return <PageLoader />
@@ -180,8 +204,16 @@ export function HitlResolvePage() {
               placeholder="ID do operador"
             />
 
-            {resolveInteraction.isError && (
-              <p className="text-sm text-red-400">Erro ao resolver interação. Tente novamente.</p>
+            {resolveErrorMessage && (
+              <p
+                className={`text-sm ${
+                  isHitlAlreadyResolvedError(resolveInteraction.error)
+                    ? 'text-amber-400'
+                    : 'text-red-400'
+                }`}
+              >
+                {resolveErrorMessage}
+              </p>
             )}
 
             <div className="flex gap-2 pt-2">

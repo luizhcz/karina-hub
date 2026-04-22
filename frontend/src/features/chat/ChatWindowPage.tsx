@@ -12,7 +12,7 @@ import {
   useDeleteConversation,
   type ChatMsg,
 } from '../../api/chat'
-import { getIdentityHeaders } from '../../api/client'
+import { getIdentityHeaders, post, ApiError } from '../../api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { KEYS } from '../../api/chat'
 import type { LocalMsg } from './types'
@@ -334,6 +334,7 @@ export function ChatWindowPage() {
   }
 
   const handleApproval = async (toolCallId: string, response: string) => {
+    // Otimista: marca localmente antes de confirmar no backend.
     setLocalMsgs(prev =>
       prev.map(m =>
         m.kind === 'approval' && m.toolCallId === toolCallId
@@ -343,13 +344,28 @@ export function ChatWindowPage() {
     )
 
     try {
-      await fetch('/api/chat/ag-ui/resolve-hitl', {
-        method: 'POST',
-        headers: makeHeaders(),
-        body: JSON.stringify({ toolCallId, response }),
-      })
+      // Usa `post` do client.ts (wrapped safeFetch) — extrai ApiError do backend
+      // com mensagem real. Não precisa passar `makeHeaders()` porque o client
+      // injeta identity headers automaticamente via getIdentityHeaders().
+      await post<void>('/chat/ag-ui/resolve-hitl', { toolCallId, response })
     } catch (err) {
-      console.error('[AG-UI] resolve-hitl error', err)
+      // 404 = CAS perdido no HumanInteractionService.ResolveAsync (C7 do sprint anterior):
+      // outro caller/pod já resolveu OU a execução expirou. A UI já está otimista,
+      // então marca uma nota visível informando que o estado pode estar dessincronizado.
+      if (err instanceof ApiError && err.status === 404) {
+        setLocalMsgs(prev =>
+          prev.map(m =>
+            m.kind === 'approval' && m.toolCallId === toolCallId
+              ? { ...m, resolved: response, note: 'Já resolvido por outro operador' }
+              : m
+          )
+        )
+      } else {
+        // Falha de rede ou erro não-esperado: reverter otimismo seria útil, mas
+        // muitas vezes o backend processou ok (falha foi no response path).
+        // Por segurança, apenas logar — dashboard de métricas tem HitlResolveConflicts.
+        console.error('[AG-UI] resolve-hitl error', err)
+      }
     }
   }
 

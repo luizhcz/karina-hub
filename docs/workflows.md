@@ -709,6 +709,16 @@ Apenas **um** vence o CAS — a chamada que altera `Status` de `Pending` para `A
 
 **Contrato:** `TryResolveAsync` no `IHumanInteractionRepository` é o único mecanismo de atomicidade. Qualquer novo caller de resolução deve ir via `HumanInteractionService.ResolveAsync` (que encapsula o CAS), nunca tocar `UpdateAsync` diretamente para mudar Status.
 
+### UX no frontend para CAS perdido
+
+Quando um caller frontend (API `/resolve` ou chat `/resolve-hitl`) perde o CAS, o backend retorna **HTTP 404**. O `safeFetch` wrapper extrai `{error: "mensagem"}` e lança `ApiError(404, ...)`. A UI trata graciously:
+
+- **`HitlResolvePage`** (`/hitl/:id`): mutation `useResolveInteraction` detecta 404 via `isHitlAlreadyResolvedError()` → exibe banner âmbar "Esta interação já foi resolvida por outro operador ou a execução expirou. Recarregando..." e `refetch()` para carregar o novo status. Evita navegar embora automaticamente para que o operador entenda o que aconteceu.
+- **`ChatWindowPage.handleApproval`**: otimismo local é mantido (bubble mostra aprovação), mas uma `note` visual em âmbar "⚠ Já resolvido por outro operador" é adicionada para sinalizar divergência.
+- **`useResolveInteraction`** invalida `KEYS.pending`, `KEYS.detail(id)` e `['interactions', 'execution']` em **ambos** `onSuccess` e `onError-404` para que qualquer tela aberta (detalhe da execução, lista pending, minha interação) seja atualizada.
+
+Correlação com observabilidade: picos de métrica `hitl.resolve_conflicts` no backend correspondem a usuários recebendo o toast 404 no frontend — dashboards devem mostrar ambos lado a lado para debug de contenção.
+
 ---
 
 ## 10. Escalation e Roteamento

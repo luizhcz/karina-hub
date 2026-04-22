@@ -1,4 +1,4 @@
-import { get, post } from './client'
+import { get, post, ApiError } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -55,12 +55,35 @@ export function useInteractionsByExecution(executionId: string, enabled = true) 
   })
 }
 
+/**
+ * Discrimina o motivo de uma falha em `resolveInteraction`. Backend retorna 404
+ * quando o CAS a nível de banco perdeu (outro pod/caller já resolveu — ver
+ * C7 do sprint anterior) OU quando o ID não existe. UX trata iguais: "já foi resolvido".
+ */
+export function isHitlAlreadyResolvedError(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.status === 404
+}
+
 export function useResolveInteraction() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: ResolveInteractionRequest }) => resolveInteraction(id, body),
-    onSuccess: () => {
+    mutationFn: ({ id, body }: { id: string; body: ResolveInteractionRequest }) =>
+      resolveInteraction(id, body),
+    onSuccess: (_data, { id }) => {
+      // Invalidar listas + detalhe da própria interação + listas by-execution
+      // (pode haver uma tab aberta no ExecutionDetailPage mostrando HITLs da execução).
       qc.invalidateQueries({ queryKey: KEYS.pending })
+      qc.invalidateQueries({ queryKey: KEYS.detail(id) })
+      qc.invalidateQueries({ queryKey: ['interactions', 'execution'] })
+    },
+    onError: (err, { id }) => {
+      // CAS perdido / 404: quem quer que esteja vendo, deve refetch pra mostrar resolução
+      // feita por outro caller/pod sem duplicar side-effects.
+      if (isHitlAlreadyResolvedError(err)) {
+        qc.invalidateQueries({ queryKey: KEYS.pending })
+        qc.invalidateQueries({ queryKey: KEYS.detail(id) })
+        qc.invalidateQueries({ queryKey: ['interactions', 'execution'] })
+      }
     },
   })
 }

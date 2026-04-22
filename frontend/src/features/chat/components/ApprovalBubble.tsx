@@ -20,6 +20,9 @@ export function ApprovalBubble({
       <div className="flex justify-start">
         <div className="max-w-[70%] px-4 py-2.5 rounded-2xl rounded-bl-sm text-sm bg-bg-tertiary border border-border-primary text-text-muted italic">
           {label}
+          {item.note && (
+            <p className="text-[11px] mt-1 text-amber-400 not-italic">⚠ {item.note}</p>
+          )}
           {item.createdAt && (
             <p className="text-[10px] mt-1 text-text-dimmed not-italic">
               {new Date(item.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
