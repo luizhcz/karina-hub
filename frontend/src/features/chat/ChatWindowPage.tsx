@@ -96,8 +96,12 @@ export function ChatWindowPage() {
   const lastEventIdRef = useRef<string | null>(null)
   const runIdRef = useRef<string | null>(null)
 
-  // Limpa shared state ao trocar de conversa (mas NÃO ao finalizar stream)
-  useEffect(() => { clearState() }, [id, clearState])
+  // Limpa shared state + timeline ao trocar de conversa (mas NÃO ao finalizar stream
+  // nem ao mandar nova mensagem — eventos acumulam para debug da sessão inteira).
+  useEffect(() => {
+    clearState()
+    clearEvents()
+  }, [id, clearState, clearEvents])
 
   const { data, isLoading, error, refetch } = useConversationFull(id ?? '', !!id)
   const { data: messages, refetch: refetchMessages } = useMessages(id ?? '')
@@ -127,9 +131,10 @@ export function ChatWindowPage() {
     // Captura o total antes do envio para detectar novos registros no banco
     const prevMsgCount = persistedMsgs.length
 
-    // 1. Mensagem do usuário aparece imediatamente
+    // 1. Mensagem do usuário aparece imediatamente.
+    // NÃO limpa events aqui — acumulam dentro da mesma conversa (debug cross-turn).
+    // Limpeza acontece só na troca de conversa (useEffect acima) ou via botão "Limpar" no painel.
     setLocalMsgs([{ kind: 'optimistic-user', id: 'opt-user', text }])
-    clearEvents()
     setSseStatus('streaming')
     setReconnectAttempt(0)
     lastEventIdRef.current = null
@@ -669,7 +674,7 @@ export function ChatWindowPage() {
 
         {/* Event timeline — fixo na parte inferior, sempre visível */}
         <div className="shrink-0 mt-4 max-h-[40%] overflow-y-auto">
-          <EventTimelinePanel events={events} isStreaming={isSending} />
+          <EventTimelinePanel events={events} isStreaming={isSending} onClear={clearEvents} />
         </div>
       </aside>
 

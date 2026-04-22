@@ -7,7 +7,9 @@ export interface TimelineEvent {
   data: Record<string, unknown>
 }
 
-const MAX_EVENTS = 200
+// Cap acumulando entre interações. 500 cobre debug de sessões longas sem estourar
+// memória (cada evento já é trimmed em ~1-2KB no stream).
+const MAX_EVENTS = 500
 
 export function useAgUiEventTimeline() {
   const [events, setEvents] = useState<TimelineEvent[]>([])
