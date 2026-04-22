@@ -102,8 +102,12 @@ public sealed class PgEventBus : IWorkflowEventBus
 
         // Conexão dedicada do pool "sse" para LISTEN — mantida aberta durante toda a subscrição.
         // Pool isolado evita que conexões SSE esgotem o pool "general" usado pelo Chat Path.
-        // Ao ser descartada no finally, retorna ao pool e o Npgsql executa UNLISTEN * implicitamente.
+        // Ao ser descartada no finally, retorna ao pool após UNLISTEN * explícito.
         var conn = await _sseDataSource.OpenConnectionAsync(ct);
+        // Task de fundo (LISTEN loop) — referência guardada para sincronizar o dispose.
+        // Sem await, a conn poderia voltar ao pool em estado "Waiting" e a próxima
+        // reutilização bate NpgsqlOperationInProgressException.
+        Task? backgroundTask = null;
         try
         {
             // 1. Registrar handler ANTES de LISTEN para garantir zero lacunas
@@ -156,7 +160,7 @@ public sealed class PgEventBus : IWorkflowEventBus
             }
 
             // 4. Loop background: chama WaitAsync para que Npgsql dispare conn.Notification
-            _ = Task.Run(async () =>
+            backgroundTask = Task.Run(async () =>
             {
                 try
                 {
@@ -209,6 +213,39 @@ public sealed class PgEventBus : IWorkflowEventBus
         finally
         {
             linkedCts.Cancel();
+
+            // Aguarda a task background sair do WaitAsync antes do dispose.
+            // Sem isso, DisposeAsync pode iniciar enquanto conn.WaitAsync ainda está
+            // pendente, devolvendo a conn ao pool em estado "Waiting" — próximo subscribe
+            // dispara NpgsqlOperationInProgressException.
+            if (backgroundTask is not null)
+            {
+                try
+                {
+                    await backgroundTask.WaitAsync(TimeSpan.FromSeconds(2));
+                }
+                catch (OperationCanceledException) { }
+                catch (TimeoutException)
+                {
+                    _logger.LogWarning(
+                        "[PgEventBus] Background LISTEN task não concluiu em 2s após cancel. ExecutionId={ExecutionId}",
+                        executionId);
+                }
+            }
+
+            // UNLISTEN * explícito antes do dispose — torna a ordem de limpeza determinística
+            // e evita que a conn volte ao pool com subscriptions pendentes.
+            try
+            {
+                await using var unlistenCmd = conn.CreateCommand();
+                unlistenCmd.CommandText = "UNLISTEN *";
+                await unlistenCmd.ExecuteNonQueryAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[PgEventBus] UNLISTEN falhou — prosseguindo com dispose.");
+            }
+
             await conn.DisposeAsync();
         }
     }
