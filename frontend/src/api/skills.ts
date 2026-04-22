@@ -37,7 +37,19 @@ export const KEYS = {
 
 // ── Raw API Functions ────────────────────────────────────────────────────────
 
-export const getSkills = () => get<Skill[]>('/skills')
+// Backend retorna paginado `{ items, total, page, pageSize }` — extrai items para
+// manter a interface de array que os callers esperam (SkillsListPage, AgentForm skill picker).
+interface SkillPage {
+  items: Skill[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export const getSkills = async (): Promise<Skill[]> => {
+  const page = await get<SkillPage>('/skills', { pageSize: 200 })
+  return page.items
+}
 export const getSkill = (id: string) => get<Skill>(`/skills/${id}`)
 export const updateSkill = (id: string, body: UpdateSkillRequest) => put<Skill>(`/skills/${id}`, body)
 export const deleteSkill = (id: string) => del(`/skills/${id}`)

@@ -34,8 +34,20 @@ export const MODEL_CATALOG_KEYS = {
 
 // ── Raw API Functions ─────────────────────────────────────────────────────────
 
-export const getModelCatalog = (provider?: string, activeOnly = true) =>
-  get<ModelCatalog[]>(`/model-catalog${provider ? `?provider=${provider}` : ''}${activeOnly ? (provider ? '&' : '?') + 'activeOnly=true' : ''}`)
+// Backend retorna paginado `{ items, total, page, pageSize }` — extrai items para
+// manter a interface de array usada por ModelCatalogPage.
+interface ModelCatalogPage {
+  items: ModelCatalog[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export const getModelCatalog = async (provider?: string, activeOnly = true): Promise<ModelCatalog[]> => {
+  const url = `/model-catalog${provider ? `?provider=${provider}` : ''}${activeOnly ? (provider ? '&' : '?') + 'activeOnly=true' : ''}`
+  const page = await get<ModelCatalogPage>(url)
+  return page.items
+}
 
 export const upsertModelCatalog = (body: UpsertModelCatalogRequest) =>
   post<ModelCatalog>('/model-catalog', body)

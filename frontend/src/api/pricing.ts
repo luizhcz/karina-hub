@@ -32,7 +32,20 @@ export const KEYS = {
 
 // ── Raw API Functions ────────────────────────────────────────────────────────
 
-export const getModelPricings = () => get<ModelPricing[]>('/admin/model-pricing')
+// Backend retorna paginado `{ items, total, page, pageSize }` — extrai items para
+// preservar a interface de array que todos os callers (CostDashboardPage, WorkflowCostPage,
+// ProjectCostPage, ModelPricingPage) já consomem.
+interface ModelPricingPage {
+  items: ModelPricing[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export const getModelPricings = async (): Promise<ModelPricing[]> => {
+  const page = await get<ModelPricingPage>('/admin/model-pricing', { pageSize: 200 })
+  return page.items
+}
 export const getModelPricing = (id: number) => get<ModelPricing>(`/admin/model-pricing/${id}`)
 export const createModelPricing = (body: CreateModelPricingRequest) => post<ModelPricing>('/admin/model-pricing', body)
 export const deleteModelPricing = (id: number) => del(`/admin/model-pricing/${id}`)
