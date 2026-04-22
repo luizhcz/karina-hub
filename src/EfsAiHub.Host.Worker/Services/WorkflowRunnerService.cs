@@ -29,6 +29,7 @@ public sealed record WorkflowRunnerCollaborators(
     ExecutionFailureWriter FailureWriter,
     NodePersistenceService NodePersistence,
     IEngineCheckpointAdapter CheckpointAdapter,
+    EventHandlers.AgentHandoffEventHandler AgentHandoffHandler,
     EfsAiHub.Core.Abstractions.AgUi.IAgUiSharedStateWriter? SharedStateWriter = null);
 
 public class WorkflowRunnerService
@@ -41,6 +42,7 @@ public class WorkflowRunnerService
     private readonly ExecutionFailureWriter _failureWriter;
     private readonly NodePersistenceService _nodePersistence;
     private readonly IEngineCheckpointAdapter _checkpointAdapter;
+    private readonly EventHandlers.AgentHandoffEventHandler _agentHandoffHandler;
     private readonly EfsAiHub.Core.Abstractions.AgUi.IAgUiSharedStateWriter? _sharedStateWriter;
     private readonly ILogger<WorkflowRunnerService> _logger;
 
@@ -57,6 +59,7 @@ public class WorkflowRunnerService
         _failureWriter = collaborators.FailureWriter;
         _nodePersistence = collaborators.NodePersistence;
         _checkpointAdapter = collaborators.CheckpointAdapter;
+        _agentHandoffHandler = collaborators.AgentHandoffHandler;
         _sharedStateWriter = collaborators.SharedStateWriter;
         _logger = logger;
     }
@@ -603,84 +606,7 @@ public class WorkflowRunnerService
         switch (evt)
         {
             case AgentResponseUpdateEvent tokenEvt:
-                var agentId = tokenEvt.ExecutorId;
-                var tokenText = tokenEvt.Data?.ToString() ?? string.Empty;
-
-                // Detecta troca de agente ativo
-                if (agentId is not null && agentId != nodeTracker.CurrentAgentId)
-                {
-                    // Finaliza o agente anterior
-                    if (nodeTracker.CurrentAgentId is not null
-                        && nodeTracker.TryGetRecord(nodeTracker.CurrentAgentId, out var prev)
-                        && prev.Status == "running")
-                    {
-                        prev.Status = "completed";
-                        prev.CompletedAt = DateTime.UtcNow;
-                        if (prev.StartedAt.HasValue)
-                        {
-                            var agentDuration = (prev.CompletedAt.Value - prev.StartedAt.Value).TotalSeconds;
-                            MetricsRegistry.AgentInvocationDuration.Record(agentDuration,
-                                new KeyValuePair<string, object?>("agent.id", nodeTracker.CurrentAgentId),
-                                new KeyValuePair<string, object?>("workflow.id", execution.WorkflowId));
-                        }
-                        nodeTracker.TryEndAgentSpan(nodeTracker.CurrentAgentId, out _);
-                        nodeTracker.MaterializeOutput(nodeTracker.CurrentAgentId);
-                        await _nodeRepo.SetNodeAsync(prev);
-                        var prevAgentName = agentNames is not null && agentNames.TryGetValue(nodeTracker.CurrentAgentId, out var pan) ? pan : null;
-                        await PublishEventAsync(execution.ExecutionId, "node_completed",
-                            new
-                            {
-                                nodeId = nodeTracker.CurrentAgentId,
-                                nodeType = "agent",
-                                agentId = nodeTracker.CurrentAgentId,
-                                agentName = prevAgentName,
-                                output = (prev.Output ?? "")[..Math.Min(300, (prev.Output ?? "").Length)],
-                                timestamp = prev.CompletedAt
-                            });
-                    }
-
-                    // Emite evento de handoff para analytics (decisão de roteamento)
-                    var fromAgentName = nodeTracker.CurrentAgentId is not null && agentNames is not null && agentNames.TryGetValue(nodeTracker.CurrentAgentId, out var fan) ? fan : null;
-                    var toAgentName = agentId is not null && agentNames is not null && agentNames.TryGetValue(agentId, out var tan) ? tan : null;
-                    await PublishEventAsync(execution.ExecutionId, "handoff", new
-                    {
-                        fromAgentId = nodeTracker.CurrentAgentId,
-                        fromAgentName,
-                        toAgentId = agentId,
-                        toAgentName,
-                        timestamp = DateTime.UtcNow
-                    });
-
-                    // Inicia o novo agente
-                    var newRecord = new NodeExecutionRecord
-                    {
-                        NodeId = agentId!,
-                        ExecutionId = execution.ExecutionId,
-                        NodeType = "agent",
-                        Status = "running",
-                        StartedAt = DateTime.UtcNow
-                    };
-                    nodeTracker.SetRecord(agentId!, newRecord);
-                    nodeTracker.CurrentAgentId = agentId;
-
-                    // Inicia o span de tracing do novo agente
-                    var newAgentName = agentNames is not null && agentNames.TryGetValue(agentId!, out var nan) ? nan : agentId;
-                    nodeTracker.StartAgentSpan(agentId!, newAgentName, execution.WorkflowId, execution.ExecutionId);
-
-                    await _nodeRepo.SetNodeAsync(newRecord);
-                    await PublishEventAsync(execution.ExecutionId, "node_started",
-                        new { nodeId = agentId, nodeType = "agent", timestamp = newRecord.StartedAt });
-                }
-
-                // Fix #A3: acumula tokens num StringBuilder (tracker) — sem string concat O(N²)
-                // e sem SetNodeAsync inline no hot path. O Output só é materializado e persistido
-                // ao encerrar o agente (handoff ou fim do workflow).
-                if (agentId is not null)
-                {
-                    nodeTracker.AppendOutput(agentId, tokenText);
-                }
-
-                _tokenBatcher.Enqueue(execution.ExecutionId, tokenEvt.ExecutorId, tokenText);
+                await _agentHandoffHandler.HandleAsync(tokenEvt, execution, nodeTracker, agentNames, ct);
                 break;
 
             case WorkflowOutputEvent outputEvt:

@@ -288,6 +288,7 @@ public static class ServiceCollectionExtensions
 
         // Workflow execution
         services.AddScoped<ExecutionFailureWriter>();
+        services.AddScoped<EfsAiHub.Host.Worker.Services.EventHandlers.AgentHandoffEventHandler>();
         services.AddScoped<WorkflowRunnerRepositories>();
         services.AddScoped<WorkflowRunnerCollaborators>();
         services.AddScoped<WorkflowRunnerService>();

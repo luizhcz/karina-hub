@@ -1555,6 +1555,7 @@ POST /api/workflows
 | Edge Handlers | `src/EfsAiHub.Platform.Runtime/Factories/EdgeHandlers.cs` |
 | Executor | `src/EfsAiHub.Host.Worker/Services/WorkflowExecutor.cs` |
 | Runner | `src/EfsAiHub.Host.Worker/Services/WorkflowRunnerService.cs` |
+| Agent Handoff Handler | `src/EfsAiHub.Host.Worker/Services/EventHandlers/AgentHandoffEventHandler.cs` |
 | State Tracker | `src/EfsAiHub.Host.Worker/Services/NodeStateTracker.cs` |
 | Node Persist | `src/EfsAiHub.Host.Worker/Services/NodePersistenceService.cs` |
 | Failure Writer | `src/EfsAiHub.Platform.Runtime/Workflows/ExecutionFailureWriter.cs` |

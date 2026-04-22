@@ -287,6 +287,26 @@ See `src/EfsAiHub.Host.Api/AtivoExecutorSetup.cs` for a real example of this pat
 
 ---
 
+## Workflow event handlers (internal extension point)
+
+Some framework events (from `Microsoft.Agents.AI.Workflows`) are routed through `WorkflowRunnerService.HandleEventAsync`. When a specific event type needs non-trivial logic, extract it into a dedicated handler class in `src/EfsAiHub.Host.Worker/Services/EventHandlers/`.
+
+**Pattern (`AgentHandoffEventHandler` is the reference implementation):**
+
+1. Create a `sealed class XyzEventHandler` in `EventHandlers/` with a single public method `HandleAsync(TEvent evt, WorkflowExecution execution, NodeStateTracker tracker, ...agentNames, CancellationToken ct)`.
+2. Inject only what you need via constructor — typically `INodeExecutionRepository`, `IWorkflowEventBus`, `TokenBatcher`, `ILogger<>`. Keep `NodeStateTracker` as a method parameter (it's per-execution state, not DI-registered).
+3. Register in `ServiceCollectionExtensions` as scoped next to `WorkflowRunnerCollaborators`:
+   ```csharp
+   services.AddScoped<EventHandlers.XyzEventHandler>();
+   ```
+4. Add the handler as a field in `WorkflowRunnerCollaborators` record.
+5. Replace the `switch` case in `WorkflowRunnerService.HandleEventAsync` with a single `await _xyzHandler.HandleAsync(...)` call.
+6. Add unit tests in `tests/EfsAiHub.Tests.Unit/Workers/` mocking `INodeExecutionRepository` + `IWorkflowEventBus`.
+
+This keeps `WorkflowRunnerService` focused on orchestration (event loop, timeout, metrics aggregation) while delegating event-specific behavior to small testable units.
+
+---
+
 ## Where to find examples
 
 | Extension Type | Example Implementation | Example Registration |

@@ -8,8 +8,10 @@ namespace EfsAiHub.Host.Worker.Services;
 /// Encapsula o estado de rastreamento por nó dentro de uma execução:
 /// nodeState (ConcurrentDictionary), agentSpans e o agente ativo atual.
 /// Instanciado uma vez por execução — não registrado no DI container.
+/// Exposto como public para ser parâmetro de métodos dos event handlers extraídos
+/// (ex: AgentHandoffEventHandler) — consumido apenas pelo pipeline de execução.
 /// </summary>
-internal sealed class NodeStateTracker : IAsyncDisposable
+public sealed class NodeStateTracker : IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, NodeExecutionRecord> _nodeState =
         new(StringComparer.OrdinalIgnoreCase);
