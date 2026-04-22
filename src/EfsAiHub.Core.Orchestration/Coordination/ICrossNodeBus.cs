@@ -11,9 +11,11 @@ public interface ICrossNodeBus
     Task PublishCancelAsync(string executionId, CancellationToken ct = default);
 
     /// <summary>Propaga uma resolução HITL para todos os pods (canal efs_hitl_resolved).</summary>
+    /// <param name="resolvedBy">UserId de quem resolveu — propagado para auditoria nos pods que replicam.</param>
     Task PublishHitlResolvedAsync(
         string interactionId,
         string resolution,
         bool approved,
+        string resolvedBy,
         CancellationToken ct = default);
 }

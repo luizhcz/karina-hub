@@ -242,6 +242,16 @@ export function HitlResolvePage() {
                 </span>
               )}
             </div>
+            {interaction.resolvedBy && (
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-text-muted">Resolvido por:</p>
+                <p className="text-xs font-mono text-text-secondary">
+                  {interaction.resolvedBy === 'system:timeout'
+                    ? '⏱ sistema (timeout automático)'
+                    : interaction.resolvedBy}
+                </p>
+              </div>
+            )}
             {interaction.resolution && (
               <div className="bg-bg-tertiary rounded-lg p-3">
                 <p className="text-xs text-text-muted mb-1">Resposta</p>

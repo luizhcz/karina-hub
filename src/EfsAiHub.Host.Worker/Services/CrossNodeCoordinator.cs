@@ -116,15 +116,20 @@ public sealed class CrossNodeCoordinator : BackgroundService
                 var hitl = scope.ServiceProvider.GetRequiredService<IHumanInteractionService>();
                 // publishToCross=false para não criar loop de NOTIFY.
                 // CAS no banco decide quem venceu: se outro pod já resolveu, ResolveAsync retorna false
-                // e apenas limpa estado local desse pod.
+                // e apenas limpa estado local desse pod. resolvedBy vem do payload — preserva auditoria
+                // ao propagar (ou fallback para "unknown" em payloads pré-migration).
                 var resolvedLocally = await hitl.ResolveAsync(
-                    msg.interactionId, msg.resolution ?? string.Empty, msg.approved, publishToCross: false);
+                    msg.interactionId,
+                    msg.resolution ?? string.Empty,
+                    resolvedBy: msg.resolvedBy ?? "unknown",
+                    approved: msg.approved,
+                    publishToCross: false);
                 if (resolvedLocally)
                 {
                     MetricsRegistry.CrossNodeHitlResolvedReceived.Add(1);
                     _logger.LogInformation(
-                        "[CrossNodeCoordinator] HITL '{InteractionId}' resolvida via cross-pod.",
-                        msg.interactionId);
+                        "[CrossNodeCoordinator] HITL '{InteractionId}' resolvida via cross-pod por '{ResolvedBy}'.",
+                        msg.interactionId, msg.resolvedBy ?? "unknown");
                 }
             }
         }
@@ -136,6 +141,8 @@ public sealed class CrossNodeCoordinator : BackgroundService
 
     // ReSharper disable InconsistentNaming
     private sealed record CancelPayload(string executionId);
-    private sealed record HitlPayload(string interactionId, string? resolution, bool approved);
+    // `resolvedBy` adicionado em PR 6 — opcional para retrocompat com payloads antigos em flight
+    // durante deploy rolling (fallback para "unknown" no consumidor).
+    private sealed record HitlPayload(string interactionId, string? resolution, bool approved, string? resolvedBy);
     // ReSharper restore InconsistentNaming
 }

@@ -21,7 +21,11 @@ public sealed class AgUiApprovalMiddleware
     /// Processa quaisquer mensagens de aprovação pendentes no request.
     /// Deve ser chamado antes do início da execução em StreamAsync.
     /// </summary>
-    public async Task ProcessApprovalsAsync(IReadOnlyList<AgUiInputMessage>? messages, CancellationToken ct = default)
+    /// <param name="resolvedBy">UserId capturado do header da request (x-efs-account/x-efs-user-profile-id).</param>
+    public async Task ProcessApprovalsAsync(
+        IReadOnlyList<AgUiInputMessage>? messages,
+        string resolvedBy,
+        CancellationToken ct = default)
     {
         if (messages is null) return;
 
@@ -31,7 +35,12 @@ public sealed class AgUiApprovalMiddleware
             if (msg.ToolCallId is null) continue;
 
             var approved = HitlResolutionClassifier.IsApproved(msg.Content);
-            await _hitlService.ResolveAsync(msg.ToolCallId, msg.Content, approved, ct: ct);
+            await _hitlService.ResolveAsync(
+                msg.ToolCallId,
+                msg.Content,
+                resolvedBy: resolvedBy,
+                approved: approved,
+                ct: ct);
         }
     }
 }

@@ -37,4 +37,22 @@ public class HumanInteractionRequest
 
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime? ResolvedAt { get; set; }
+
+    /// <summary>
+    /// UserId de quem resolveu a interação (x-efs-account ou x-efs-user-profile-id
+    /// capturado do caller). Para expiração automática por timeout interno do service,
+    /// usar a constante <c>HitlActors.SystemTimeout</c> ("system:timeout").
+    /// Null enquanto <see cref="Status"/> == Pending.
+    /// </summary>
+    public string? ResolvedBy { get; set; }
+}
+
+/// <summary>
+/// Valores convencionais para <see cref="HumanInteractionRequest.ResolvedBy"/>
+/// quando a resolução é acionada por código do sistema (não por humano).
+/// </summary>
+public static class HitlActors
+{
+    /// <summary>Resolução automática por expiração do timeout interno do service.</summary>
+    public const string SystemTimeout = "system:timeout";
 }

@@ -64,13 +64,13 @@ public class HumanInteractionServiceTests
 
         var svc = Build(repo);
 
-        var result = await svc.ResolveAsync("nao-existe", "sim");
+        var result = await svc.ResolveAsync("nao-existe", "sim", resolvedBy: "user-123");
 
         result.Should().BeFalse();
         // Nem deveria chegar a tentar CAS se o id não está em _pending
         await repo.DidNotReceive().TryResolveAsync(
             Arg.Any<string>(), Arg.Any<EfsAiHub.Core.Orchestration.Enums.HumanInteractionStatus>(),
-            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -83,16 +83,44 @@ public class HumanInteractionServiceTests
         repo.TryResolveAsync(
             Arg.Any<string>(),
             Arg.Any<EfsAiHub.Core.Orchestration.Enums.HumanInteractionStatus>(),
-            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(true);  // CAS vence
 
         var svc = new HumanInteractionService(repo, Substitute.For<ILogger<HumanInteractionService>>());
         await svc.LoadPendingFromDbAsync();
 
-        var result = await svc.ResolveAsync("int-b", "aprovado", approved: true, publishToCross: false);
+        var result = await svc.ResolveAsync("int-b", "aprovado", resolvedBy: "user-b", approved: true, publishToCross: false);
 
         result.Should().BeTrue();
         svc.GetById("int-b").Should().BeNull(); // removido do cache local
+    }
+
+    [Fact]
+    public async Task Resolve_CASVence_PropagaResolvedByParaRepo()
+    {
+        // Garante que o userId passado à service chega ao repo.TryResolveAsync.
+        var repo = Substitute.For<IHumanInteractionRepository>();
+        var req = NewRequest("int-rb", "exec-rb");
+        repo.GetPendingAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<HumanInteractionRequest> { req });
+        repo.TryResolveAsync(
+            Arg.Any<string>(),
+            Arg.Any<EfsAiHub.Core.Orchestration.Enums.HumanInteractionStatus>(),
+            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var svc = new HumanInteractionService(repo, Substitute.For<ILogger<HumanInteractionService>>());
+        await svc.LoadPendingFromDbAsync();
+
+        await svc.ResolveAsync("int-rb", "ok", resolvedBy: "operator-42", publishToCross: false);
+
+        await repo.Received(1).TryResolveAsync(
+            "int-rb",
+            Arg.Any<EfsAiHub.Core.Orchestration.Enums.HumanInteractionStatus>(),
+            "ok",
+            Arg.Any<DateTime>(),
+            "operator-42",
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -107,13 +135,13 @@ public class HumanInteractionServiceTests
         repo.TryResolveAsync(
             Arg.Any<string>(),
             Arg.Any<EfsAiHub.Core.Orchestration.Enums.HumanInteractionStatus>(),
-            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(false);  // Outro venceu o CAS
 
         var svc = new HumanInteractionService(repo, Substitute.For<ILogger<HumanInteractionService>>());
         await svc.LoadPendingFromDbAsync();
 
-        var result = await svc.ResolveAsync("int-conflict", "aprovado", approved: true, publishToCross: false);
+        var result = await svc.ResolveAsync("int-conflict", "aprovado", resolvedBy: "user-c", approved: true, publishToCross: false);
 
         result.Should().BeFalse();
         svc.GetById("int-conflict").Should().BeNull(); // limpeza local acontece mesmo em conflict
@@ -134,7 +162,7 @@ public class HumanInteractionServiceTests
         repo.TryResolveAsync(
             Arg.Any<string>(),
             Arg.Any<EfsAiHub.Core.Orchestration.Enums.HumanInteractionStatus>(),
-            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(_ => Interlocked.Increment(ref casCalls) == 1);
 
         var svc = new HumanInteractionService(repo, Substitute.For<ILogger<HumanInteractionService>>());
@@ -142,7 +170,7 @@ public class HumanInteractionServiceTests
 
         var tasks = Enumerable.Range(0, 50)
             .Select(_ => Task.Run(async () =>
-                await svc.ResolveAsync("int-race", "approve", approved: true, publishToCross: false)))
+                await svc.ResolveAsync("int-race", "approve", resolvedBy: "user-race", approved: true, publishToCross: false)))
             .ToArray();
 
         var results = await Task.WhenAll(tasks);

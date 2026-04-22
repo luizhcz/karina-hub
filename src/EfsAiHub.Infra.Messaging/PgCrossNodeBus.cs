@@ -33,9 +33,9 @@ public sealed class PgCrossNodeBus : ICrossNodeBus
     }
 
     public async Task PublishHitlResolvedAsync(
-        string interactionId, string resolution, bool approved, CancellationToken ct = default)
+        string interactionId, string resolution, bool approved, string resolvedBy, CancellationToken ct = default)
     {
-        var payload = JsonSerializer.Serialize(new { interactionId, resolution, approved });
+        var payload = JsonSerializer.Serialize(new { interactionId, resolution, approved, resolvedBy });
         await NotifyAsync(HitlResolvedChannel, payload, ct);
     }
 

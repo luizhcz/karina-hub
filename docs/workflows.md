@@ -640,14 +640,35 @@ public enum InteractionType
 4. Persiste HumanInteractionRequest no PostgreSQL (Status=Pending)
 5. Bloqueia workflow via TaskCompletionSource
 6. Humano recebe prompt via SSE (AG-UI)
-7. Humano responde → HumanInteractionService.ResolveAsync()
+7. Humano responde → HumanInteractionService.ResolveAsync(
+       interactionId, resolution, resolvedBy: <userId do caller>)
    │
    └─ CAS: IHumanInteractionRepository.TryResolveAsync
-          UPDATE ... WHERE Status='Pending' → rowsAffected=1 vence
+          UPDATE ... WHERE Status='Pending'
+          SET Status=Approved|Rejected, Resolution=<texto>,
+              ResolvedAt=NOW(), ResolvedBy=<userId>
+          → rowsAffected=1 vence
 8. Vencedor: TCS completado → workflow continua ou falha
    Perdedores (resolução concorrente): incrementa hitl.resolve_conflicts,
                                        limpa local sem duplicar efeito
 ```
+
+### Auditoria HITL — coluna `ResolvedBy`
+
+A tabela `human_interactions` tem coluna `ResolvedBy VARCHAR(128) NULL` (migration em `db/migration_hitl_resolved_by.sql`) para rastrear quem decidiu cada interação:
+
+| Caller | Origem do userId | Valor gravado |
+|---|---|---|
+| `POST /api/interactions/{id}/resolve` | header `x-efs-account` ou `x-efs-user-profile-id` | userId do header |
+| `POST /api/chat/ag-ui/stream` com message `role=tool` | mesmo header resolvido antes do `ProcessApprovalsAsync` | userId do header |
+| `POST /api/chat/ag-ui/resolve-hitl` | idem | userId do header |
+| `ConversationService` (chat reply resolve HITL pendente) | `conversation.UserId` | userId da conversa |
+| Timeout interno do service (`request.TimeoutSeconds` expirou) | constante `HitlActors.SystemTimeout` | `"system:timeout"` |
+| Cross-pod NOTIFY replay | payload da origem | userId do pod origem ou `"unknown"` em payloads pré-migration |
+
+Índice partial `IX_human_interactions_ResolvedBy_ResolvedAt` (WHERE ResolvedBy IS NOT NULL) suporta queries "minhas resoluções" em `/hitl/:id` e dashboards de auditoria.
+
+UI exibe `ResolvedBy` em `/hitl/:id` → card "Resolução" (formatado como ícone ⏱ + "sistema (timeout automático)" para system:timeout, fonte monospace para userIds).
 
 ### HitlDecoratorExecutor
 

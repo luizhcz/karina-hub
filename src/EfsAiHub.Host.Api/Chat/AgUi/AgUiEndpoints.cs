@@ -40,8 +40,15 @@ public static class AgUiEndpoints
         HttpContext context,
         CancellationToken ct)
     {
-        // 0. Processar respostas de aprovação pendentes (HITL via request_approval)
-        await approvalMiddleware.ProcessApprovalsAsync(input.Messages, ct);
+        // 0. Resolver identidade (precisamos dela antes de ProcessApprovalsAsync para gravar ResolvedBy).
+        //    Fallback para JWT sub-claim quando headers custom não estão presentes.
+        var earlyIdentity = identityResolver.TryResolve(context.Request.Headers, out _);
+        var hitlResolvedBy = earlyIdentity?.UserId
+            ?? context.User.FindFirst("sub")?.Value
+            ?? "anonymous";
+
+        // 1. Processar respostas de aprovação pendentes (HITL via request_approval)
+        await approvalMiddleware.ProcessApprovalsAsync(input.Messages, hitlResolvedBy, ct);
 
         // Mensagem efetiva: último Messages[role=user]
         var effectiveMessage = input.Messages?.LastOrDefault(m => m.Role == "user")?.Content;
@@ -186,12 +193,19 @@ public static class AgUiEndpoints
     private static async Task<IResult> ResolveHitlAsync(
         HitlResolveRequest request,
         AgUiApprovalMiddleware approvalMiddleware,
+        UserIdentityResolver identityResolver,
+        HttpContext context,
         CancellationToken ct)
     {
+        var identity = identityResolver.TryResolve(context.Request.Headers, out _);
+        var resolvedBy = identity?.UserId
+            ?? context.User.FindFirst("sub")?.Value
+            ?? "anonymous";
+
         await approvalMiddleware.ProcessApprovalsAsync(
         [
             new AgUiInputMessage("tool", request.Response, request.ToolCallId)
-        ], ct);
+        ], resolvedBy, ct);
         return Results.Ok(new { resolved = true, toolCallId = request.ToolCallId });
     }
 

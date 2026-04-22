@@ -41,6 +41,7 @@ public class PgHumanInteractionRepository(IDbContextFactory<AgentFwDbContext> fa
         row.Status = request.Status.ToString();
         row.Resolution = request.Resolution;
         row.ResolvedAt = request.ResolvedAt;
+        row.ResolvedBy = request.ResolvedBy;
         await ctx.SaveChangesAsync(ct);
     }
 
@@ -99,6 +100,7 @@ public class PgHumanInteractionRepository(IDbContextFactory<AgentFwDbContext> fa
         HumanInteractionStatus newStatus,
         string resolution,
         DateTime resolvedAt,
+        string resolvedBy,
         CancellationToken ct = default)
     {
         await using var ctx = await factory.CreateDbContextAsync(ct);
@@ -112,7 +114,8 @@ public class PgHumanInteractionRepository(IDbContextFactory<AgentFwDbContext> fa
             .ExecuteUpdateAsync(s => s
                 .SetProperty(r => r.Status, newStatusStr)
                 .SetProperty(r => r.Resolution, resolution)
-                .SetProperty(r => r.ResolvedAt, (DateTime?)resolvedAt),
+                .SetProperty(r => r.ResolvedAt, (DateTime?)resolvedAt)
+                .SetProperty(r => r.ResolvedBy, (string?)resolvedBy),
                 ct);
         return rowsAffected > 0;
     }
@@ -150,6 +153,7 @@ WHERE  ""Status"" = 'Pending'
         Status = Enum.Parse<HumanInteractionStatus>(row.Status),
         Resolution = row.Resolution,
         CreatedAt = row.CreatedAt,
-        ResolvedAt = row.ResolvedAt
+        ResolvedAt = row.ResolvedAt,
+        ResolvedBy = row.ResolvedBy
     };
 }

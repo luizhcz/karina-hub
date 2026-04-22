@@ -39,7 +39,14 @@ public partial class ConversationService
             if (pendingHitl is not null)
             {
                 var userContent = lastInput.Message;
-                await _hitlService.ResolveAsync(pendingHitl.InteractionId, userContent, approved: true, ct: ct);
+                // ResolvedBy = userId da conversa. Em chat context a conversa sempre tem UserId
+                // definido (criada via facade). Propagação automática para auditoria HITL.
+                await _hitlService.ResolveAsync(
+                    pendingHitl.InteractionId,
+                    userContent,
+                    resolvedBy: conversation.UserId,
+                    approved: true,
+                    ct: ct);
 
                 _logger.LogInformation(
                     "[ConvService] HITL '{InteractionId}' resolvido pela mensagem do chat '{ConvId}'.",

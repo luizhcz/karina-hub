@@ -216,6 +216,8 @@ internal class HumanInteractionRow
     public string? Resolution { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? ResolvedAt { get; set; }
+    /// <summary>UserId de quem resolveu; "system:timeout" em expiração automática; NULL em Pending.</summary>
+    public string? ResolvedBy { get; set; }
 }
 
 internal class AgentSessionRow
@@ -584,6 +586,7 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.InteractionType).HasMaxLength(32).HasDefaultValue("Approval");
             b.Property(e => e.Status).HasMaxLength(32).IsRequired();
             b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.ResolvedBy).HasMaxLength(128);
             b.HasIndex(e => e.ExecutionId);
             b.HasIndex(e => e.Status);
         });

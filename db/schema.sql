@@ -316,6 +316,7 @@ CREATE TABLE IF NOT EXISTS aihub.human_interactions (
     "Resolution"    TEXT         NULL,
     "CreatedAt"     TIMESTAMPTZ  NOT NULL,
     "ResolvedAt"    TIMESTAMPTZ  NULL,
+    "ResolvedBy"    VARCHAR(128) NULL,                  -- UserId de quem resolveu; 'system:timeout' para expiração automática
     CONSTRAINT "PK_human_interactions" PRIMARY KEY ("InteractionId")
 );
 
@@ -324,6 +325,11 @@ CREATE INDEX IF NOT EXISTS "IX_human_interactions_ExecutionId"
 
 CREATE INDEX IF NOT EXISTS "IX_human_interactions_Status"
     ON aihub.human_interactions ("Status");
+
+-- Auditoria: "minhas resoluções HITL" — queries por quem resolveu em dado período.
+CREATE INDEX IF NOT EXISTS "IX_human_interactions_ResolvedBy_ResolvedAt"
+    ON aihub.human_interactions ("ResolvedBy", "ResolvedAt" DESC)
+    WHERE "ResolvedBy" IS NOT NULL;
 
 -- =============================================================================
 -- 12. SESSÕES DE AGENTE

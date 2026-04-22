@@ -19,9 +19,16 @@ public interface IHumanInteractionService
     /// um caller (entre API local, NOTIFY cross-pod, timeout HITL) efetiva a resolução.
     /// Retorna <c>true</c> se esta chamada venceu o CAS; <c>false</c> se outro já resolveu.
     /// </summary>
+    /// <param name="resolvedBy">
+    /// UserId de quem está resolvendo. Convenção: x-efs-account / x-efs-user-profile-id
+    /// do caller da API. Para resolução automática pelo sistema (ex: timeout interno,
+    /// cross-pod NOTIFY replay), usar <see cref="HitlActors.SystemTimeout"/> ou o userId
+    /// do pod origem quando disponível no payload cross-pod.
+    /// </param>
     Task<bool> ResolveAsync(
         string interactionId,
         string resolution,
+        string resolvedBy,
         bool approved = true,
         bool publishToCross = true,
         CancellationToken ct = default);

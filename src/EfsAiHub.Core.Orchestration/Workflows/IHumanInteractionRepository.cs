@@ -25,11 +25,16 @@ public interface IHumanInteractionRepository
     /// caller/pod já havia resolvido (ou o id não existe).
     /// Elimina race condition entre dois resolve concorrentes (ex: API + cross-pod NOTIFY).
     /// </summary>
+    /// <param name="resolvedBy">
+    /// UserId de quem resolveu — convenção: x-efs-account / x-efs-user-profile-id do caller,
+    /// ou <see cref="HitlActors.SystemTimeout"/> em timeout interno.
+    /// </param>
     Task<bool> TryResolveAsync(
         string interactionId,
         EfsAiHub.Core.Orchestration.Enums.HumanInteractionStatus newStatus,
         string resolution,
         DateTime resolvedAt,
+        string resolvedBy,
         CancellationToken ct = default);
     /// <summary>
     /// Expira em lote todos os HITLs Pending cujas execuções já estão em estado terminal

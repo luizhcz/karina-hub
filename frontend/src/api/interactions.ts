@@ -13,6 +13,8 @@ export interface HumanInteraction {
   resolution?: string
   createdAt: string
   resolvedAt?: string
+  /** UserId de quem resolveu a interação. "system:timeout" para expiração automática. Null em Pending. */
+  resolvedBy?: string
 }
 
 /**

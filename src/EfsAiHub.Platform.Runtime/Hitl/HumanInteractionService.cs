@@ -83,7 +83,14 @@ public class HumanInteractionService : IHumanInteractionService
                     // schedule fire-and-forget. Falha não deve propagar ao timer.
                     _ = Task.Run(async () =>
                     {
-                        try { await ResolveAsync(request.InteractionId, "timeout", approved: false); }
+                        try
+                        {
+                            await ResolveAsync(
+                                request.InteractionId,
+                                "timeout",
+                                resolvedBy: HitlActors.SystemTimeout,
+                                approved: false);
+                        }
                         catch (Exception ex)
                         {
                             _logger.LogError(ex,
@@ -139,6 +146,7 @@ public class HumanInteractionService : IHumanInteractionService
     public async Task<bool> ResolveAsync(
         string interactionId,
         string resolution,
+        string resolvedBy,
         bool approved = true,
         bool publishToCross = true,
         CancellationToken ct = default)
@@ -154,7 +162,7 @@ public class HumanInteractionService : IHumanInteractionService
         bool cas;
         try
         {
-            cas = await _repo.TryResolveAsync(interactionId, newStatus, resolution, resolvedAt, ct);
+            cas = await _repo.TryResolveAsync(interactionId, newStatus, resolution, resolvedAt, resolvedBy, ct);
         }
         catch (Exception ex)
         {
@@ -179,20 +187,21 @@ public class HumanInteractionService : IHumanInteractionService
         request.Resolution = resolution;
         request.Status = newStatus;
         request.ResolvedAt = resolvedAt;
+        request.ResolvedBy = resolvedBy;
 
         RecordResolution(request, approved ? "approved" : "rejected");
         CleanupLocalState(interactionId, resolution);
 
         _logger.LogInformation(
-            "Interação HITL '{InteractionId}' resolvida (approved={Approved}).",
-            interactionId, approved);
+            "Interação HITL '{InteractionId}' resolvida por '{ResolvedBy}' (approved={Approved}).",
+            interactionId, resolvedBy, approved);
 
         // Propaga para outros pods só quando efetivamente resolvemos (evita loop de NOTIFY).
         if (publishToCross && _crossBus is not null)
         {
             _ = Task.Run(async () =>
             {
-                try { await _crossBus.PublishHitlResolvedAsync(interactionId, resolution, approved); }
+                try { await _crossBus.PublishHitlResolvedAsync(interactionId, resolution, approved, resolvedBy); }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex,
