@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { cn } from '../../shared/utils/cn'
@@ -8,6 +8,15 @@ import { PageLoader } from '../../shared/ui/LoadingSpinner'
 import { useWorkflow, useSandboxWorkflow } from '../../api/workflows'
 import { getExecution, KEYS as EXECUTION_KEYS } from '../../api/executions'
 import type { WorkflowExecution } from '../../api/executions'
+
+// Workflows cujo primeiro executor é `document_intelligence` — recebem um
+// ExtractionRequest JSON com PDF em base64. Para esses, trocamos o textarea
+// por um file picker (<input type="file" accept="application/pdf">) que
+// codifica e monta o JSON automaticamente. Adicione novos IDs aqui quando
+// surgirem workflows similares (ver db/seed_default_project.sql).
+const PDF_WORKFLOW_IDS = new Set<string>([
+  'classificacao-fato-relevante',
+])
 
 // ── Status Badge ─────────────────────────────────────────────────────────────
 
@@ -46,8 +55,12 @@ export function WorkflowSandboxPage() {
 
   const [input, setInput] = useState('')
   const [executionId, setExecutionId] = useState<string | null>(null)
+  const [pdfFile, setPdfFile] = useState<File | null>(null)
+  const [pdfError, setPdfError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const isChatMode = (workflow?.configuration?.inputMode ?? 'Standalone').toLowerCase() === 'chat'
+  const isPdfWorkflow = !!id && PDF_WORKFLOW_IDS.has(id)
   const isSubmitting = sandboxMutation.isPending
 
   // Poll execution until terminal state
@@ -64,17 +77,58 @@ export function WorkflowSandboxPage() {
 
   const isDone = execution && !['Pending', 'Running'].includes(execution.status)
 
-  const handleRun = () => {
-    if (!input.trim() || !id || isSubmitting) return
+  // Lê o File como base64 puro (sem o prefixo data:application/pdf;base64,).
+  // FileReader.readAsDataURL devolve `data:<mime>;base64,<payload>` — strippa o
+  // prefixo pra casar com DocumentSource { type: "bytes", bytes: "<base64>" }.
+  const readFileAsBase64 = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = reader.result as string
+        const comma = result.indexOf(',')
+        resolve(comma >= 0 ? result.slice(comma + 1) : result)
+      }
+      reader.onerror = () => reject(reader.error ?? new Error('Falha ao ler PDF.'))
+      reader.readAsDataURL(file)
+    })
+
+  const handleRun = async () => {
+    if (!id || isSubmitting) return
+
+    let payload: string
+    if (isPdfWorkflow) {
+      if (!pdfFile) { setPdfError('Selecione um PDF.'); return }
+      try {
+        const base64 = await readFileAsBase64(pdfFile)
+        // Espelha ExtractionRequest em src/EfsAiHub.Core.Agents/DocumentIntelligence/ExtractionRequest.cs.
+        // cacheEnabled=true é default — reaproveita extração prévia se o hash do PDF bater.
+        payload = JSON.stringify({
+          source: { type: 'bytes', bytes: base64 },
+          model: 'prebuilt-layout',
+          cacheEnabled: true,
+        })
+      } catch (err) {
+        setPdfError((err as Error).message)
+        return
+      }
+    } else {
+      if (!input.trim()) return
+      payload = input.trim()
+    }
+
     setExecutionId(null)
+    setPdfError(null)
     sandboxMutation.mutate(
-      { id, body: { input: input.trim() } },
+      { id, body: { input: payload } },
       { onSuccess: (data) => setExecutionId(data.executionId) },
     )
   }
 
   const handleReset = () => {
     setExecutionId(null)
+    setPdfFile(null)
+    setPdfError(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
     sandboxMutation.reset()
   }
 
@@ -151,28 +205,76 @@ export function WorkflowSandboxPage() {
         )}
       </div>
 
-      {/* Input */}
+      {/* Input — file picker para workflows com document_intelligence; textarea caso contrário */}
       <div className="flex flex-col gap-3 bg-bg-secondary border border-border-primary rounded-xl p-4">
-        <label className="text-sm font-medium text-text-primary">Input</label>
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Digite o input para o workflow... (Ctrl+Enter para executar)"
-          rows={6}
-          disabled={isSubmitting || (!!executionId && !isDone)}
-          className={cn(
-            'w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm text-text-primary font-mono',
-            'placeholder:text-text-muted focus:outline-none focus:border-accent-blue resize-y transition-colors',
-            (isSubmitting || (!!executionId && !isDone)) && 'opacity-50 cursor-not-allowed',
-          )}
-        />
+        {isPdfWorkflow ? (
+          <>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-sm font-medium text-text-primary">PDF</label>
+              <Badge variant="purple">document_intelligence</Badge>
+            </div>
+            <p className="text-xs text-text-muted">
+              O PDF será codificado em base64 e enviado como{' '}
+              <code className="text-[11px] bg-bg-tertiary px-1 py-0.5 rounded">ExtractionRequest</code>{' '}
+              (source.type=bytes, model=prebuilt-layout, cacheEnabled=true).
+            </p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              disabled={isSubmitting || (!!executionId && !isDone)}
+              onChange={(e) => {
+                const file = e.target.files?.[0] ?? null
+                setPdfFile(file)
+                setPdfError(null)
+              }}
+              className={cn(
+                'block w-full text-sm text-text-secondary',
+                'file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0',
+                'file:text-sm file:font-medium file:bg-accent-blue file:text-white',
+                'file:cursor-pointer hover:file:bg-blue-500',
+                (isSubmitting || (!!executionId && !isDone)) && 'opacity-50 cursor-not-allowed',
+              )}
+            />
+            {pdfFile && (
+              <div className="text-xs text-text-muted flex items-center gap-2">
+                <span>📄</span>
+                <span className="font-mono">{pdfFile.name}</span>
+                <span className="text-text-dimmed">({(pdfFile.size / 1024).toFixed(1)} KB)</span>
+              </div>
+            )}
+            {pdfError && (
+              <div className="px-3 py-2 rounded-lg text-xs bg-red-500/10 border border-red-500/30 text-red-400">
+                {pdfError}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <label className="text-sm font-medium text-text-primary">Input</label>
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Digite o input para o workflow... (Ctrl+Enter para executar)"
+              rows={6}
+              disabled={isSubmitting || (!!executionId && !isDone)}
+              className={cn(
+                'w-full bg-bg-tertiary border border-border-primary rounded-lg px-3 py-2 text-sm text-text-primary font-mono',
+                'placeholder:text-text-muted focus:outline-none focus:border-accent-blue resize-y transition-colors',
+                (isSubmitting || (!!executionId && !isDone)) && 'opacity-50 cursor-not-allowed',
+              )}
+            />
+          </>
+        )}
         <div className="flex justify-end">
           <Button
             variant="primary"
             onClick={handleRun}
             loading={isSubmitting}
-            disabled={!input.trim() || (!!executionId && !isDone)}
+            disabled={
+              (isPdfWorkflow ? !pdfFile : !input.trim()) || (!!executionId && !isDone)
+            }
           >
             ▷ Executar
           </Button>
