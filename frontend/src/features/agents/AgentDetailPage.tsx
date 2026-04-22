@@ -39,9 +39,16 @@ function formToRequest(values: AgentFormValues): CreateAgentRequest {
         }
       : undefined,
     instructions: values.instructions || undefined,
-    tools: values.tools.length > 0
-      ? values.tools.map((name) => ({ type: 'function', name }))
-      : undefined,
+    // Array heterogêneo: function tools + mcp tools (id-based). A UI só emite
+    // a forma id-based; agents com MCP inline legacy continuam válidos no domain
+    // mas precisam ser re-editados aqui via picker (o inline não aparece no form).
+    tools: (() => {
+      const merged = [
+        ...values.tools.map((name) => ({ type: 'function', name })),
+        ...values.mcpServerIds.map((mcpServerId) => ({ type: 'mcp', mcpServerId })),
+      ]
+      return merged.length > 0 ? merged : undefined
+    })(),
     structuredOutput: values.structuredOutput.responseFormat !== 'text'
       ? {
           responseFormat: values.structuredOutput.responseFormat,

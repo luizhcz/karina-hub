@@ -25,20 +25,17 @@ public class AgentService : IAgentService
 
     private readonly IAgentDefinitionRepository _repository;
     private readonly IAgentPromptRepository _promptRepo;
-    private readonly IMcpHealthChecker _mcpHealthChecker;
     private readonly IProjectContextAccessor _projectAccessor;
     private readonly ILogger<AgentService> _logger;
 
     public AgentService(
         IAgentDefinitionRepository repository,
         IAgentPromptRepository promptRepo,
-        IMcpHealthChecker mcpHealthChecker,
         IProjectContextAccessor projectAccessor,
         ILogger<AgentService> logger)
     {
         _repository = repository;
         _promptRepo = promptRepo;
-        _mcpHealthChecker = mcpHealthChecker;
         _projectAccessor = projectAccessor;
         _logger = logger;
     }
@@ -131,7 +128,7 @@ public class AgentService : IAgentService
         _logger.LogInformation("Definição de agente '{AgentId}' removida.", id);
     }
 
-    public async Task<(bool IsValid, IReadOnlyList<string> Errors)> ValidateAsync(AgentDefinition definition, CancellationToken ct = default)
+    public Task<(bool IsValid, IReadOnlyList<string> Errors)> ValidateAsync(AgentDefinition definition, CancellationToken ct = default)
     {
         var errors = new List<string>();
 
@@ -182,26 +179,26 @@ public class AgentService : IAgentService
 
             if (tool.Type.Equals("mcp", StringComparison.OrdinalIgnoreCase))
             {
-                if (string.IsNullOrWhiteSpace(tool.ServerLabel))
-                    errors.Add("MCP tool requer 'serverLabel'.");
-                if (string.IsNullOrWhiteSpace(tool.ServerUrl))
+                // Modo id-based (preferido): agent referencia registro em aihub.mcp_servers.
+                // Modo inline (legacy/fallback BC): agent guarda ServerLabel+ServerUrl direto.
+                // Zero chamada de rede — a resolução ocorre em runtime no provider LLM.
+                var hasIdRef = !string.IsNullOrWhiteSpace(tool.McpServerId);
+                var hasInlineConfig = !string.IsNullOrWhiteSpace(tool.ServerLabel)
+                                      && !string.IsNullOrWhiteSpace(tool.ServerUrl);
+
+                if (!hasIdRef && !hasInlineConfig)
                 {
-                    errors.Add("MCP tool requer 'serverUrl'.");
+                    errors.Add("MCP tool requer 'mcpServerId' (preferido) ou 'serverLabel' + 'serverUrl' (legacy).");
                 }
-                else
+                else if (!hasIdRef && hasInlineConfig)
                 {
+                    // Valida shape inline só quando não há referência por Id.
                     if (!Uri.TryCreate(tool.ServerUrl, UriKind.Absolute, out var mcpUri)
-                        || mcpUri.Scheme is not ("http" or "https"))
-                        errors.Add($"MCP tool 'serverUrl' deve ser uma URL absoluta válida com esquema http ou https.");
-                    else
-                    {
-                        var healthError = await _mcpHealthChecker.CheckAsync(tool.ServerUrl, tool.ServerLabel ?? "unknown", ct);
-                        if (healthError is not null)
-                            errors.Add(healthError);
-                    }
+                        || mcpUri!.Scheme is not ("http" or "https"))
+                        errors.Add("MCP tool 'serverUrl' deve ser uma URL absoluta válida com esquema http ou https.");
+                    if (tool.AllowedTools.Count == 0)
+                        errors.Add("MCP tool inline requer ao menos um item em 'allowedTools'.");
                 }
-                if (tool.AllowedTools.Count == 0)
-                    errors.Add("MCP tool requer ao menos um item em 'allowedTools'.");
 
                 if (!string.IsNullOrWhiteSpace(tool.RequireApproval)
                     && !ValidRequireApprovalValues.Contains(tool.RequireApproval))
@@ -239,6 +236,6 @@ public class AgentService : IAgentService
                 errors.Add($"Middleware type inválido: '{mw.Type}'. Valores aceitos: {string.Join(", ", ValidMiddlewareTypes)}.");
         }
 
-        return (errors.Count == 0, errors);
+        return Task.FromResult<(bool, IReadOnlyList<string>)>((errors.Count == 0, errors));
     }
 }

@@ -205,6 +205,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWorkflowEventRepository, PgWorkflowEventRepository>();
         services.AddSingleton<IExecutionAnalyticsRepository, PgExecutionAnalyticsRepository>();
         services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger, PgAdminAuditLogRepository>();
+        services.AddSingleton<EfsAiHub.Core.Agents.McpServers.IMcpServerRepository, PgMcpServerRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentExtractionRepository, PgDocumentExtractionRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentIntelligenceService, EfsAiHub.Platform.Runtime.Services.DocumentIntelligenceService>();
         services.AddSingleton<EfsAiHub.Platform.Runtime.Functions.DocumentIntelligenceFunctions>();
@@ -216,8 +217,6 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddEfsApplicationServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddSingleton<EfsAiHub.Core.Abstractions.Execution.IExecutionSlotRegistry, ChatExecutionRegistry>();
-        services.AddHttpClient("McpHealthCheck");
-        services.AddSingleton<IMcpHealthChecker, McpHealthChecker>();
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<WorkflowValidator>();
         services.AddScoped<IExecutionDetailReader, ExecutionDetailAssembler>();

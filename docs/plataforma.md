@@ -278,6 +278,35 @@ CREATE TABLE aihub.admin_audit_log (
 
 **UI:** `/audit/admin` (sidebar → Admin → "Audit Admin"). Modal de detalhe exibe `PayloadBefore/After` via `JsonViewer` para diff visual.
 
+### MCP Servers Registry
+
+Tabela `aihub.mcp_servers` centraliza os servidores MCP (Model Context Protocol) conhecidos pela plataforma. Substitui a configuração inline que vivia dentro de `agent_definitions.Data` — agents agora referenciam por `McpServerId` e o provider LLM resolve `ServerLabel`/`ServerUrl`/`AllowedTools`/`Headers` em runtime (**id-based live resolution**).
+
+**Schema:**
+
+```sql
+CREATE TABLE aihub.mcp_servers (
+    "Id"        VARCHAR(128) PRIMARY KEY,
+    "Name"      VARCHAR(256) NOT NULL,
+    "Data"      JSONB        NOT NULL,   -- McpServer serializado
+    "ProjectId" VARCHAR(128) NOT NULL DEFAULT 'default',
+    "CreatedAt" TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    "UpdatedAt" TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX "IX_mcp_servers_ProjectId_Name" ON aihub.mcp_servers ("ProjectId", "Name");
+```
+
+**Escopo:** project-scoped via `HasQueryFilter(e => e.ProjectId == CurrentProjectId)` no DbContext. Um MCP cadastrado em um projeto não é visível em outro.
+
+**Fluxo de resolução (runtime):**
+1. `AzureFoundryClientProvider.CreateAgentAsync` chama `FoundryToolBuilder.BuildAsync`.
+2. Para cada tool com `Type=mcp`: se `McpServerId != null`, busca no `IMcpServerRepository`. Se não achar (dangling após delete), log warning e tool é pulada.
+3. Monta `MCPToolDefinition(ServerLabel, ServerUrl)` + `AllowedTools` com os campos do registro — **não do agent**.
+
+**Endpoint CRUD:** `POST/GET/PUT/DELETE /api/admin/mcp-servers` (admin-gated). Cada escrita emite linha em `admin_audit_log` com `resourceType=mcp_server` (ver seção anterior).
+
+**Sem validação de rede:** create/update NÃO faz health check do MCP — cadastrar MCPs offline é permitido. A classe `McpHealthChecker` foi **removida** nesta feature. Detalhes completos em [`docs/mcp.md`](./mcp.md).
+
 ### DefaultProjectGuard
 
 ```

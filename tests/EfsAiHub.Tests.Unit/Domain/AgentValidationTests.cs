@@ -1,4 +1,3 @@
-using EfsAiHub.Host.Api.Services;
 using EfsAiHub.Core.Abstractions.Identity;
 using Microsoft.Extensions.Logging;
 
@@ -9,14 +8,9 @@ public class AgentValidationTests
 {
     private static AgentService BuildService()
     {
-        var mcpChecker = Substitute.For<IMcpHealthChecker>();
-        mcpChecker.CheckAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns((string?)null);
-
         return new AgentService(
             repository: Substitute.For<IAgentDefinitionRepository>(),
             promptRepo: Substitute.For<IAgentPromptRepository>(),
-            mcpHealthChecker: mcpChecker,
             projectAccessor: Substitute.For<IProjectContextAccessor>(),
             logger: Substitute.For<ILogger<AgentService>>());
     }
@@ -55,13 +49,54 @@ public class AgentValidationTests
     }
 
     [Fact]
-    public async Task McpTool_SemServerUrl_RetornaErro()
+    public async Task McpTool_SemIdNemInline_RetornaErro()
     {
+        // Novo contrato: MCP tool exige McpServerId OU (ServerLabel + ServerUrl inline).
+        // Sem nenhum dos dois → erro.
         var svc = BuildService();
         var def = new AgentDefinition
         {
             Id = "agent-mcp",
             Name = "MCP Agent",
+            Model = new AgentModelConfig { DeploymentName = "gpt-4o" },
+            Tools = [new AgentToolDefinition { Type = "mcp" }]
+        };
+
+        var (isValid, errors) = await svc.ValidateAsync(def);
+
+        isValid.Should().BeFalse();
+        errors.Should().Contain(e => e.Contains("mcpServerId") || e.Contains("serverLabel"));
+    }
+
+    [Fact]
+    public async Task McpTool_ComMcpServerId_Aprovada()
+    {
+        // Id-based: basta o McpServerId. ServerLabel/ServerUrl/AllowedTools são resolvidos
+        // em runtime pelo provider a partir do registry aihub.mcp_servers.
+        var svc = BuildService();
+        var def = new AgentDefinition
+        {
+            Id = "agent-mcp-id",
+            Name = "MCP Agent ID-based",
+            Model = new AgentModelConfig { DeploymentName = "gpt-4o" },
+            Tools = [new AgentToolDefinition { Type = "mcp", McpServerId = "mcp-server-123" }]
+        };
+
+        var (isValid, _) = await svc.ValidateAsync(def);
+
+        isValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task McpTool_InlineSemUrl_RetornaErro()
+    {
+        // Legacy inline: se McpServerId é null mas ServerLabel está presente,
+        // exige ServerUrl válida.
+        var svc = BuildService();
+        var def = new AgentDefinition
+        {
+            Id = "agent-mcp-inline",
+            Name = "MCP Agent Inline",
             Model = new AgentModelConfig { DeploymentName = "gpt-4o" },
             Tools =
             [
@@ -78,34 +113,7 @@ public class AgentValidationTests
         var (isValid, errors) = await svc.ValidateAsync(def);
 
         isValid.Should().BeFalse();
-        errors.Should().Contain(e => e.Contains("serverUrl"));
-    }
-
-    [Fact]
-    public async Task McpTool_SemServerLabel_RetornaErro()
-    {
-        var svc = BuildService();
-        var def = new AgentDefinition
-        {
-            Id = "agent-mcp2",
-            Name = "MCP Agent 2",
-            Model = new AgentModelConfig { DeploymentName = "gpt-4o" },
-            Tools =
-            [
-                new AgentToolDefinition
-                {
-                    Type = "mcp",
-                    ServerLabel = null,
-                    ServerUrl = "https://mcp.example.com",
-                    AllowedTools = ["tool1"]
-                }
-            ]
-        };
-
-        var (isValid, errors) = await svc.ValidateAsync(def);
-
-        isValid.Should().BeFalse();
-        errors.Should().Contain(e => e.Contains("serverLabel"));
+        errors.Should().Contain(e => e.Contains("mcpServerId") || e.Contains("serverUrl"));
     }
 
     [Fact]

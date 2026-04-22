@@ -43,7 +43,10 @@ export interface AgentFormValues {
     endpoint: string
   }
   instructions: string
+  /** Function tools selecionadas (nomes). Outros tipos — mcp, code_interpreter, etc — vivem em seus próprios campos. */
   tools: string[]
+  /** Ids dos MCP servers referenciados por este agent (resolvidos live em runtime). */
+  mcpServerIds: string[]
   skills: string[]
   structuredOutput: {
     responseFormat: string

@@ -179,6 +179,26 @@ CREATE INDEX IF NOT EXISTS "IX_skill_versions_ContentHash"
     ON aihub.skill_versions ("ContentHash");
 
 -- =============================================================================
+-- 5.1 MCP SERVERS (Model Context Protocol — registry centralizado)
+-- =============================================================================
+-- Agents referenciam servidores MCP pelo Id deste registro. A coluna Data
+-- JSONB guarda o McpServer completo (ServerLabel, ServerUrl, AllowedTools,
+-- Headers, RequireApproval, Description). Project-scoped.
+
+CREATE TABLE IF NOT EXISTS aihub.mcp_servers (
+    "Id"         VARCHAR(128) NOT NULL,
+    "Name"       VARCHAR(256) NOT NULL,
+    "Data"       JSONB        NOT NULL,
+    "ProjectId"  VARCHAR(128) NOT NULL DEFAULT 'default',
+    "CreatedAt"  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    "UpdatedAt"  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT "PK_mcp_servers" PRIMARY KEY ("Id")
+);
+
+CREATE INDEX IF NOT EXISTS "IX_mcp_servers_ProjectId_Name"
+    ON aihub.mcp_servers ("ProjectId", "Name");
+
+-- =============================================================================
 -- 6. EXECUÇÕES DE WORKFLOW
 -- =============================================================================
 

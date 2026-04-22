@@ -96,7 +96,7 @@ A plataforma expõe uma API REST + streaming SSE (protocolo AG-UI) para gerencia
 |---|---|---|
 | **Core** | `Core.Abstractions`, `Core.Orchestration`, `Core.Agents` | Domínio, interfaces, modelos de orquestração, validação |
 | **Plataforma** | `Platform.Runtime`, `Platform.Queue`, `Platform.Guards` | Registries (tools, middlewares, executores), filas, rate limiting, budget guards |
-| **Infraestrutura** | `Infra.Persistence`, `Infra.Messaging`, `Infra.LlmProviders`, `Infra.Observability`, `Infra.Tools` | Postgres (EF Core + raw SQL), event bus (LISTEN/NOTIFY), LLM providers, OpenTelemetry, MCP health |
+| **Infraestrutura** | `Infra.Persistence`, `Infra.Messaging`, `Infra.LlmProviders`, `Infra.Observability`, `Infra.Tools` | Postgres (EF Core + raw SQL), event bus (LISTEN/NOTIFY), LLM providers (Azure Foundry + MCP registry), OpenTelemetry |
 | **Host** | `Host.Api`, `Host.Worker` | API principal + AG-UI SSE, background jobs + scheduling |
 
 ---
@@ -126,6 +126,7 @@ A plataforma expõe uma API REST + streaming SSE (protocolo AG-UI) para gerencia
 | `/executions` | Lista de execuções, detalhe com streaming em tempo real |
 | `/hitl` | Aprovações pendentes e histórico de interações humanas |
 | `/skills` | CRUD de skills reutilizáveis com versionamento |
+| `/mcp-servers` | CRUD de servidores MCP (Model Context Protocol) referenciados por agents — [docs/mcp.md](docs/mcp.md) |
 | `/metrics` | Sumário de execuções, séries temporais, métricas por agente/provider |
 | `/costs` | Dashboard de custos, por workflow, por projeto, catálogo de modelos |
 | `/audit` | Trail de auditoria, consumo de tokens |

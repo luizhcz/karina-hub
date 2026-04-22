@@ -12,6 +12,7 @@ import { useFunctions } from '../../../api/tools'
 import { ToolPicker } from './ToolPicker'
 import { MiddlewarePicker, type MiddlewareEntry } from './MiddlewarePicker'
 import { useSkills } from '../../../api/skills'
+import { useMcpServers } from '../../../api/mcpServers'
 import { useModelCatalog } from '../../../api/modelCatalog'
 import type { AgentFormValues } from '../types'
 import type { AgentDef } from '../../../api/agents'
@@ -42,6 +43,7 @@ export const agentFormSchema = z.object({
   }).optional().default({}),
   instructions: z.string().optional().default(''),
   tools: z.array(z.string()).optional().default([]),
+  mcpServerIds: z.array(z.string()).optional().default([]),
   skills: z.array(z.string()).optional().default([]),
   structuredOutput: z.object({
     responseFormat: z.string().optional().default('text'),
@@ -77,6 +79,7 @@ const defaultValues: AgentFormValues = {
   fallbackProvider: { enabled: false, type: '', endpoint: '' },
   instructions: '',
   tools: [],
+  mcpServerIds: [],
   skills: [],
   structuredOutput: { responseFormat: 'text', schemaName: '', schemaDescription: '', schema: '' },
   middlewares: [],
@@ -108,7 +111,11 @@ export function agentToFormValues(agent: AgentDef): AgentFormValues {
       endpoint: agent.fallbackProvider?.endpoint ?? '',
     },
     instructions: agent.instructions ?? '',
-    tools: agent.tools?.filter((t) => t.type === 'function').map((t) => t.name ?? '') .filter(Boolean) ?? [],
+    tools: agent.tools?.filter((t) => t.type === 'function').map((t) => t.name ?? '').filter(Boolean) ?? [],
+    // Extrai ids de MCP tools que usam o novo contrato (mcpServerId). Agents com
+    // config inline legacy são preservados no submit (ver formToRequest do caller),
+    // mas não aparecem no picker — a UI é id-based only.
+    mcpServerIds: agent.tools?.filter((t) => t.type === 'mcp' && !!t.mcpServerId).map((t) => t.mcpServerId!) ?? [],
     skills: agent.skillRefs?.map((s) => s.skillId) ?? [],
     structuredOutput: {
       responseFormat: agent.structuredOutput?.responseFormat ?? 'text',
@@ -363,6 +370,66 @@ function ToolsSection() {
   )
 }
 
+/**
+ * Seletor de MCP servers. Mostra checkboxes com os MCPs registrados em
+ * /mcp-servers do projeto atual; o agent guarda só o id e o backend resolve
+ * serverLabel/serverUrl/allowedTools/headers em runtime.
+ */
+function McpToolsSection() {
+  const { watch, setValue } = useFormContext<AgentFormValues>()
+  const selected = watch('mcpServerIds')
+  const { data: mcpServers } = useMcpServers()
+
+  const toggle = (id: string) => {
+    const next = selected.includes(id)
+      ? selected.filter((s) => s !== id)
+      : [...selected, id]
+    setValue('mcpServerIds', next)
+  }
+
+  return (
+    <Card title="MCP Tools">
+      <p className="text-xs text-text-muted mb-3">
+        Selecione os MCP servers cadastrados em{' '}
+        <code className="text-xs bg-bg-tertiary px-1 py-0.5 rounded">/mcp-servers</code>.
+        As tools permitidas (<code className="text-xs">allowedTools</code>) de cada registro
+        são resolvidas em runtime — editar o registry afeta este agent imediatamente.
+      </p>
+      {!mcpServers || mcpServers.length === 0 ? (
+        <p className="text-sm text-text-dimmed">
+          Nenhum MCP server cadastrado. Registre um primeiro em <code className="text-xs">/mcp-servers</code>.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto">
+          {mcpServers.map((srv) => (
+            <label
+              key={srv.id}
+              className="flex items-start gap-2 text-sm text-text-secondary hover:text-text-primary cursor-pointer p-2 rounded hover:bg-bg-tertiary"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(srv.id)}
+                onChange={() => toggle(srv.id)}
+                className="accent-accent-blue mt-0.5"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{srv.name}</span>
+                  <span className="text-[10px] text-text-dimmed font-mono">{srv.id}</span>
+                </div>
+                <div className="text-xs text-text-muted font-mono truncate">{srv.serverUrl}</div>
+                <div className="text-[11px] text-text-dimmed mt-0.5">
+                  {srv.allowedTools.length} tool(s) — {srv.requireApproval === 'always' ? '⚑ always approval' : 'sem HITL'}
+                </div>
+              </div>
+            </label>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 function SkillsSection() {
   const { watch, setValue } = useFormContext<AgentFormValues>()
   const selected = watch('skills')
@@ -525,6 +592,7 @@ export function AgentForm({ initialValues, onSubmit, loading }: AgentFormProps) 
         <FallbackSection />
         <PromptSection />
         <ToolsSection />
+        <McpToolsSection />
         <SkillsSection />
         <StructuredOutputSection />
         <MiddlewaresSection />

@@ -7,10 +7,20 @@ export interface AgentToolDef {
   type: string
   name?: string
   requiresApproval?: boolean
+  /**
+   * Id-based reference (preferido) para MCP tools — aponta para registro em
+   * /api/admin/mcp-servers. Quando presente, serverLabel/serverUrl/allowedTools/headers
+   * são resolvidos em runtime pelo backend (mudanças no registry propagam).
+   */
+  mcpServerId?: string
+  /** Legacy/fallback (BC): campo inline de MCP — preferir mcpServerId. */
   serverLabel?: string
+  /** Legacy/fallback (BC): campo inline de MCP. */
   serverUrl?: string
+  /** Legacy/fallback (BC): campo inline de MCP. */
   allowedTools?: string[]
   requireApproval?: string
+  /** Legacy/fallback (BC): headers inline de MCP. */
   headers?: Record<string, string>
   connectionId?: string
 }

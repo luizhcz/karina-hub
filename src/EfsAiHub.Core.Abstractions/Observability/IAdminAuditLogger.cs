@@ -76,4 +76,5 @@ public static class AdminAuditResources
     public const string Workflow = "workflow";
     public const string Skill = "skill";
     public const string ModelPricing = "model_pricing";
+    public const string McpServer = "mcp_server";
 }

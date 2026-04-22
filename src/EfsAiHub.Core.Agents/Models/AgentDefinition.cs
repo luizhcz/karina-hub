@@ -162,12 +162,24 @@ public class AgentToolDefinition
     public string? FingerprintHash { get; init; }
 
     // mcp tool fields
+    /// <summary>
+    /// Referência por Id ao registro em <c>aihub.mcp_servers</c>. Quando presente, o provider
+    /// LLM resolve <c>ServerLabel</c>, <c>ServerUrl</c>, <c>AllowedTools</c> e <c>Headers</c>
+    /// em runtime a partir do registro — mudanças no MCP server propagam automaticamente.
+    /// Se null, cai no fallback legacy (campos inline abaixo) para BC com agents seedados.
+    /// </summary>
+    public string? McpServerId { get; init; }
+
+    /// <summary>Legacy/fallback: label do server MCP (preencher só se <see cref="McpServerId"/> não existir).</summary>
     public string? ServerLabel { get; init; }
+    /// <summary>Legacy/fallback: URL inline do server MCP.</summary>
     public string? ServerUrl { get; init; }
+    /// <summary>Legacy/fallback: whitelist inline das tools MCP permitidas.</summary>
     public List<string> AllowedTools { get; init; } = [];
 
     /// <summary>"never" | "always" — apenas para MCP tools</summary>
     public string? RequireApproval { get; init; }
+    /// <summary>Legacy/fallback: headers inline para o MCP server.</summary>
     public Dictionary<string, string> Headers { get; init; } = [];
 
     // web_search (Bing Grounding) fields — connectionId do Azure AI Foundry

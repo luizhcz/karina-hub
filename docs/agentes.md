@@ -108,11 +108,12 @@ public class AgentDefinition : IProjectScoped
 | `Name` | string? | Nome da função (obrigatório para `function`) |
 | `RequiresApproval` | bool | Declarado para HITL per-tool (Phase futura — não enforced atualmente) |
 | `FingerprintHash` | string? | SHA-256 do schema da tool (versionamento imutável) |
-| `ServerLabel` | string? | Label do servidor MCP (obrigatório para `mcp`) |
-| `ServerUrl` | string? | URL do servidor MCP (obrigatório para `mcp`) |
-| `AllowedTools` | List\<string\> | Whitelist de tools MCP permitidas |
+| `McpServerId` | string? | **Preferido** para `type=mcp` — aponta para registro em [`/mcp-servers`](./mcp.md). O runtime resolve `ServerLabel`/`ServerUrl`/`AllowedTools`/`Headers` via `IMcpServerRepository`. |
+| `ServerLabel` | string? | *(legacy/fallback BC — preferir `McpServerId`)* Label do servidor MCP. |
+| `ServerUrl` | string? | *(legacy/fallback BC — preferir `McpServerId`)* URL do servidor MCP. |
+| `AllowedTools` | List\<string\> | *(legacy/fallback BC — preferir `McpServerId`)* Whitelist de tools MCP permitidas inline. |
 | `RequireApproval` | string? | `"never"` \| `"always"` (apenas MCP) |
-| `Headers` | Dictionary | Headers customizados |
+| `Headers` | Dictionary | *(legacy/fallback BC — preferir `McpServerId`)* Headers customizados inline. |
 | `ConnectionId` | string? | ID de conexão Azure Foundry (para `web_search`) |
 
 ### AgentStructuredOutputDefinition
@@ -308,10 +309,16 @@ public class Skill : IProjectScoped
 | Tipo | Onde roda | Descrição |
 |------|-----------|-----------|
 | `function` | In-process | Função C# no registry |
-| `mcp` | HTTP | Servidor MCP externo |
+| `mcp` | HTTP | Servidor MCP externo — **referenciado por Id** via registry centralizado ([`/mcp-servers`](./mcp.md)). |
 | `code_interpreter` | Server-side | Azure Foundry |
 | `file_search` | Server-side | Azure Foundry |
 | `web_search` | Server-side | Azure Foundry |
+
+### MCP Servers Registry
+
+Agents referenciam MCPs pelo `McpServerId` ao invés de duplicar inline URL, label e allowed tools em cada definição. Ver [`docs/mcp.md`](./mcp.md) para o contrato completo, CRUD via `/api/admin/mcp-servers`, UI em `/mcp-servers` e resolução live pelo `AzureFoundryClientProvider`.
+
+Não há validação de saúde (health check) no create/update do agent — cadastre MCPs mesmo que o endpoint esteja offline temporariamente.
 
 ### Implementação e Registro
 

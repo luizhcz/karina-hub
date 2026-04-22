@@ -17,6 +17,7 @@ const operationItems: NavItem[] = [
   { label: 'HITL', path: '/hitl', icon: '⚑' },
   { label: 'Tools', path: '/tools', icon: '⚙' },
   { label: 'Skills', path: '/skills', icon: '✦' },
+  { label: 'MCP Servers', path: '/mcp-servers', icon: '🧩' },
 ]
 
 const observabilityItems: NavItem[] = [

@@ -240,6 +240,19 @@ internal class WorkflowEventAuditRow
     public DateTime Timestamp { get; set; }
 }
 
+// Phase MCP-1 — MCP Server registry (project-scoped, CRUD simples sem versions).
+// Data é o McpServer serializado completo em JSONB; colunas denormalizadas
+// (Name, ProjectId, CreatedAt, UpdatedAt) são só para indexar/ordenar na UI.
+internal class McpServerRow
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Data { get; set; } = "{}";  // McpServer serializado
+    public string ProjectId { get; set; } = "default";
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
 internal class AdminAuditLogRow
 {
     public long Id { get; set; }
@@ -294,6 +307,7 @@ public class AgentFwDbContext : DbContext
     internal DbSet<AgentSessionRow> AgentSessions => Set<AgentSessionRow>();
     internal DbSet<WorkflowEventAuditRow> WorkflowEventAudits => Set<WorkflowEventAuditRow>();
     internal DbSet<AdminAuditLogRow> AdminAuditLogs => Set<AdminAuditLogRow>();
+    internal DbSet<McpServerRow> McpServers => Set<McpServerRow>();
     internal DbSet<BackgroundResponseJobRow> BackgroundResponseJobs => Set<BackgroundResponseJobRow>();
 
     private static JsonDocument ParseJsonDocument(string json)
@@ -658,6 +672,22 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.Timestamp);
             b.HasIndex(e => new { e.ExecutionId, e.Id })
              .HasDatabaseName("IX_workflow_event_audit_ExecutionId_Id");
+        });
+
+        // ── McpServerRow (MCP Servers Registry) ──────────────────────────────
+        modelBuilder.Entity<McpServerRow>(b =>
+        {
+            b.ToTable("mcp_servers");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(128);
+            b.Property(e => e.Name).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Data).HasColumnType("jsonb").IsRequired();
+            b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.HasIndex(e => new { e.ProjectId, e.Name })
+             .HasDatabaseName("IX_mcp_servers_ProjectId_Name");
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
         });
 
         // ── AdminAuditLogRow ─────────────────────────────────────────────────

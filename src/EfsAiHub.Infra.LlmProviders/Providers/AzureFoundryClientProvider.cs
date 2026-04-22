@@ -1,5 +1,6 @@
 using Azure.AI.Agents.Persistent;
 using Azure.Core;
+using EfsAiHub.Core.Agents.McpServers;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -9,20 +10,25 @@ namespace EfsAiHub.Infra.LlmProviders.Providers;
 /// <summary>
 /// Cria agentes usando Azure Foundry (PersistentAgentsClient).
 /// Agentes são criados server-side com managed state.
+/// Depende de <see cref="IMcpServerRepository"/> para resolver em runtime os MCP tools
+/// que referenciam um registro por <c>McpServerId</c> (id-based live resolution).
 /// </summary>
 public class AzureFoundryClientProvider : ILlmClientProvider
 {
     private readonly AzureAIOptions _options;
     private readonly TokenCredential _credential;
+    private readonly IMcpServerRepository _mcpRepo;
     private readonly ILogger<AzureFoundryClientProvider> _logger;
 
     public AzureFoundryClientProvider(
         IOptions<AzureAIOptions> options,
         TokenCredential credential,
+        IMcpServerRepository mcpRepo,
         ILogger<AzureFoundryClientProvider> logger)
     {
         _options = options.Value;
         _credential = credential;
+        _mcpRepo = mcpRepo;
         _logger = logger;
     }
 
@@ -34,7 +40,7 @@ public class AzureFoundryClientProvider : ILlmClientProvider
         var endpoint = definition.Provider.Endpoint ?? _options.Endpoint;
         var client = new PersistentAgentsClient(endpoint, _credential);
 
-        var toolDefinitions = FoundryToolBuilder.Build(definition, _logger);
+        var toolDefinitions = await FoundryToolBuilder.BuildAsync(definition, _mcpRepo, _logger, ct);
         var deploymentName = ResolveDeployment(definition);
 
         var agentResult = await client.Administration.CreateAgentAsync(
@@ -74,10 +80,15 @@ public class AzureFoundryClientProvider : ILlmClientProvider
 
 /// <summary>
 /// Constrói a lista de ToolDefinition para o PersistentAgentsClient do Azure Foundry.
+/// Async porque o tipo <c>mcp</c> resolve o registro em runtime via <see cref="IMcpServerRepository"/>.
 /// </summary>
 internal static class FoundryToolBuilder
 {
-    public static List<ToolDefinition> Build(AgentDefinition definition, ILogger logger)
+    public static async Task<List<ToolDefinition>> BuildAsync(
+        AgentDefinition definition,
+        IMcpServerRepository mcpRepo,
+        ILogger logger,
+        CancellationToken ct = default)
     {
         var tools = new List<ToolDefinition>();
 
@@ -105,15 +116,8 @@ internal static class FoundryToolBuilder
                     break;
 
                 case "mcp":
-                    if (string.IsNullOrWhiteSpace(tool.ServerLabel) || string.IsNullOrWhiteSpace(tool.ServerUrl))
-                    {
-                        logger.LogWarning("MCP tool ignored: serverLabel and serverUrl are required.");
-                        break;
-                    }
-                    var mcpTool = new MCPToolDefinition(tool.ServerLabel, tool.ServerUrl);
-                    foreach (var allowed in tool.AllowedTools)
-                        mcpTool.AllowedTools.Add(allowed);
-                    tools.Add(mcpTool);
+                    var mcpDef = await ResolveMcpAsync(tool, mcpRepo, logger, ct);
+                    if (mcpDef is not null) tools.Add(mcpDef);
                     break;
 
                 case "function":
@@ -127,5 +131,55 @@ internal static class FoundryToolBuilder
         }
 
         return tools;
+    }
+
+    /// <summary>
+    /// Resolve uma MCP tool em duas ordens:
+    ///   1. id-based (preferido): busca registro em <c>aihub.mcp_servers</c>; se não achar,
+    ///      loga warning e pula a tool (dangling — MCP foi deletado).
+    ///   2. legacy/fallback: se <c>McpServerId</c> é null, usa os campos inline
+    ///      (<c>ServerLabel</c>, <c>ServerUrl</c>, <c>AllowedTools</c>) do próprio
+    ///      <see cref="AgentToolDefinition"/>. Mantém BC com agents seedados antes do registry.
+    /// </summary>
+    private static async Task<MCPToolDefinition?> ResolveMcpAsync(
+        AgentToolDefinition tool,
+        IMcpServerRepository mcpRepo,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        string? label;
+        string? url;
+        IEnumerable<string> allowed;
+
+        if (!string.IsNullOrWhiteSpace(tool.McpServerId))
+        {
+            var server = await mcpRepo.GetByIdAsync(tool.McpServerId, ct);
+            if (server is null)
+            {
+                logger.LogWarning(
+                    "MCP tool '{McpServerId}' não encontrado no registry — tool pulada (dangling reference).",
+                    tool.McpServerId);
+                return null;
+            }
+            label = server.ServerLabel;
+            url = server.ServerUrl;
+            allowed = server.AllowedTools;
+        }
+        else if (!string.IsNullOrWhiteSpace(tool.ServerLabel) && !string.IsNullOrWhiteSpace(tool.ServerUrl))
+        {
+            label = tool.ServerLabel;
+            url = tool.ServerUrl;
+            allowed = tool.AllowedTools;
+        }
+        else
+        {
+            logger.LogWarning("MCP tool ignored: requires 'McpServerId' or inline 'ServerLabel'+'ServerUrl'.");
+            return null;
+        }
+
+        var mcpTool = new MCPToolDefinition(label!, url!);
+        foreach (var name in allowed)
+            mcpTool.AllowedTools.Add(name);
+        return mcpTool;
     }
 }

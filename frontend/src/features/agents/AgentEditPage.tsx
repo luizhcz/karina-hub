@@ -25,9 +25,13 @@ function formToRequest(values: AgentFormValues): CreateAgentRequest {
         }
       : undefined,
     instructions: values.instructions || undefined,
-    tools: values.tools.length > 0
-      ? values.tools.map((name) => ({ type: 'function', name }))
-      : undefined,
+    tools: (() => {
+      const merged = [
+        ...values.tools.map((name) => ({ type: 'function', name })),
+        ...values.mcpServerIds.map((mcpServerId) => ({ type: 'mcp', mcpServerId })),
+      ]
+      return merged.length > 0 ? merged : undefined
+    })(),
     structuredOutput: values.structuredOutput.responseFormat !== 'text'
       ? {
           responseFormat: values.structuredOutput.responseFormat,

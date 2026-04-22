@@ -65,6 +65,9 @@ import { ProjectEditPage } from './features/projects/ProjectEditPage'
 import { ProjectStatsPage } from './features/projects/ProjectStatsPage'
 import { ConfigPage } from './features/config/ConfigPage'
 import { BackgroundJobsPage } from './features/background/BackgroundJobsPage'
+import { McpServersListPage } from './features/mcp/McpServersListPage'
+import { McpServerCreatePage } from './features/mcp/McpServerCreatePage'
+import { McpServerEditPage } from './features/mcp/McpServerEditPage'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -116,6 +119,11 @@ export const router = createBrowserRouter([
       { path: 'skills', element: <SkillsListPage /> },
       { path: 'skills/new', element: <SkillCreatePage /> },
       { path: 'skills/:id', element: <SkillEditPage /> },
+
+      // MCP Servers (registry)
+      { path: 'mcp-servers', element: <McpServersListPage /> },
+      { path: 'mcp-servers/new', element: <McpServerCreatePage /> },
+      { path: 'mcp-servers/:id', element: <McpServerEditPage /> },
 
       // Observability
       { path: 'metrics', element: <MetricsOverviewPage /> },
