@@ -285,19 +285,19 @@ export function WorkflowDiagramPage() {
     if (!workflow) return { nodes: [], edges: [] }
 
     const agents    = workflow.agents ?? []
-    const executors = (workflow as any).executors ?? []
+    const executors = workflow.executors ?? []
     const wfEdges   = workflow.edges ?? []
     const isHandoff = workflow.orchestrationMode === 'Handoff'
 
-    // Nós: agentes + executors
+    // Nós: agentes + executors (tipos vêm de api/workflows.ts — sem cast)
     const agentNodes: Node[] = [
-      ...agents.map((a: any) => ({
+      ...agents.map((a) => ({
         id: a.agentId,
         type: 'workflowNode',
         position: { x: 0, y: 0 },
         data: { label: a.agentId, nodeType: 'agent', role: a.role ?? undefined },
       })),
-      ...executors.map((ex: any) => ({
+      ...executors.map((ex) => ({
         id: ex.id,
         type: 'workflowNode',
         position: { x: 0, y: 0 },
@@ -305,9 +305,9 @@ export function WorkflowDiagramPage() {
       })),
     ]
 
-    const allParticipantIds = new Set([
-      ...agents.map((a: any)   => a.agentId as string),
-      ...executors.map((ex: any) => ex.id    as string),
+    const allParticipantIds = new Set<string>([
+      ...agents.map((a) => a.agentId),
+      ...executors.map((ex) => ex.id),
     ])
 
     // Arestas brutas (inclui Switch → cases)
@@ -352,7 +352,7 @@ export function WorkflowDiagramPage() {
     // Detecta entry / terminal
     const allTargets = new Set(rawEdges.map((e) => e.target))
     const allSources = new Set(rawEdges.map((e) => e.source))
-    const outputNodes: string[] = (workflow.configuration as any)?.outputNodes ?? []
+    const outputNodes: string[] = workflow.configuration?.outputNodes ?? []
 
     const topoEntries = [...allParticipantIds].filter((id) => !allTargets.has(id))
     const effectiveEntryIds = topoEntries.length > 0 ? topoEntries : agentNodes.slice(0, 1).map((n) => n.id)

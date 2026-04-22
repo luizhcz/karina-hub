@@ -3,10 +3,7 @@ import { Badge } from '../../../../shared/ui/Badge'
 import { resolveType, hasChildren, getChildProps, getChildRequired } from './utils'
 import { EditFieldModal } from './EditFieldModal'
 import { AddFieldInline } from './AddFieldInline'
-import type { SchemaType, FieldEditData } from './types'
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SchemaNode = Record<string, any>
+import type { SchemaType, FieldEditData, JsonSchemaNode } from './types'
 
 const TYPE_VARIANT: Record<string, 'blue' | 'yellow' | 'purple' | 'green' | 'gray'> = {
   string: 'blue',
@@ -19,7 +16,7 @@ const TYPE_VARIANT: Record<string, 'blue' | 'yellow' | 'purple' | 'green' | 'gra
 
 interface FieldNodeProps {
   fieldKey: string
-  prop: SchemaNode
+  prop: JsonSchemaNode
   required: boolean
   depth: number
   path: string[]

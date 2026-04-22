@@ -4,14 +4,11 @@ import { FieldNode } from './FieldNode'
 import { AddFieldInline } from './AddFieldInline'
 import { useSchemaHistory } from './useSchemaHistory'
 import { deepClone, navigateToParent, rebuildProp, resolveType, tryParseSchema } from './utils'
-import type { EditorMode, FieldEditData, SchemaEditorProps, SchemaType } from './types'
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SchemaNode = Record<string, any>
+import type { EditorMode, FieldEditData, JsonSchemaNode, SchemaEditorProps, SchemaType } from './types'
 
 export function SchemaEditor({ value, onChange }: SchemaEditorProps) {
   const [mode, setMode] = useState<EditorMode>('visual')
-  const [schema, setSchema] = useState<SchemaNode | null>(() => {
+  const [schema, setSchema] = useState<JsonSchemaNode | null>(() => {
     const result = tryParseSchema(value)
     return result.ok ? result.schema : null
   })
@@ -70,7 +67,7 @@ export function SchemaEditor({ value, onChange }: SchemaEditorProps) {
     setTimeout(() => setToast(null), 2000)
   }, [])
 
-  const pushSchema = useCallback((s: SchemaNode) => {
+  const pushSchema = useCallback((s: JsonSchemaNode) => {
     const json = JSON.stringify(s, null, 2)
     history.set(json)
     setSchema(s)
@@ -102,17 +99,17 @@ export function SchemaEditor({ value, onChange }: SchemaEditorProps) {
     const { resolved: oldResolved } = resolveType(oldProp)
     const preserveChildren = (data.type === 'object' || data.type === 'array') && oldResolved.type === data.type
 
-    let newProp: SchemaNode
+    let newProp: JsonSchemaNode
     if (preserveChildren && data.type === 'object' && oldResolved.properties) {
       newProp = data.nullable
         ? { anyOf: [{ ...oldResolved, type: 'object' }, { type: 'null' }], ...(data.description ? { description: data.description } : {}) }
         : { ...oldResolved }
       if (data.description) newProp.description = data.description
     } else if (preserveChildren && data.type === 'array' && oldResolved.items) {
-      const inner = data.nullable
+      const inner: JsonSchemaNode = data.nullable
         ? { anyOf: [{ type: 'array', items: oldResolved.items }, { type: 'null' }] }
         : { type: 'array', items: oldResolved.items }
-      if (data.description) (inner as SchemaNode).description = data.description
+      if (data.description) inner.description = data.description
       newProp = inner
     } else {
       newProp = rebuildProp(data.type, data.description, data.nullable)
@@ -153,8 +150,8 @@ export function SchemaEditor({ value, onChange }: SchemaEditorProps) {
 
   const handleAddRoot = useCallback((name: string, type: SchemaType) => {
     if (!schema) {
-      const s: SchemaNode = { type: 'object', properties: {}, required: [], additionalProperties: false }
-      s.properties[name] = rebuildProp(type, '', false)
+      const s: JsonSchemaNode = { type: 'object', properties: {}, required: [], additionalProperties: false }
+      s.properties![name] = rebuildProp(type, '', false)
       pushSchema(s)
     } else {
       const s = deepClone(schema)
@@ -301,7 +298,7 @@ export function SchemaEditor({ value, onChange }: SchemaEditorProps) {
               <FieldNode
                 key={k}
                 fieldKey={k}
-                prop={schema.properties[k]}
+                prop={schema.properties![k]}
                 required={rootRequired.includes(k)}
                 depth={0}
                 path={[]}

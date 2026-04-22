@@ -2,11 +2,30 @@ export type SchemaType = 'string' | 'number' | 'integer' | 'boolean' | 'object' 
 
 export const SCHEMA_TYPES: SchemaType[] = ['string', 'number', 'integer', 'boolean', 'object', 'array']
 
+/**
+ * Representação mínima de um node JSON Schema manipulado pelo editor.
+ * JSON Schema é estruturalmente recursivo e extensível — usamos type local
+ * ao invés de importar uma lib inteira (`json-schema`). Campos comuns ficam
+ * tipados explicitamente; extensões arbitrárias caem em `[key: string]: unknown`.
+ */
+export interface JsonSchemaNode {
+  type?: SchemaType | SchemaType[] | 'null' | ('null' | SchemaType)[]
+  description?: string
+  anyOf?: JsonSchemaNode[]
+  oneOf?: JsonSchemaNode[]
+  allOf?: JsonSchemaNode[]
+  properties?: Record<string, JsonSchemaNode>
+  required?: string[]
+  items?: JsonSchemaNode
+  enum?: unknown[]
+  default?: unknown
+  [key: string]: unknown
+}
+
 export interface ResolvedType {
   types: SchemaType[]
   nullable: boolean
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  resolved: Record<string, any>
+  resolved: JsonSchemaNode
 }
 
 export interface FieldEditData {

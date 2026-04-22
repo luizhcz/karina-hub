@@ -54,6 +54,8 @@ export interface WorkflowConfiguration {
   inputMode?: string
   maxHistoryMessages?: number
   maxAgentInvocations?: number
+  /** IDs explícitos dos nós que produzem output final (Graph mode). Vazio = auto-detecta via edges. */
+  outputNodes?: string[]
 }
 
 export interface WorkflowDef {

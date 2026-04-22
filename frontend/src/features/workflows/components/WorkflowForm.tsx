@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useForm, useFieldArray, Controller, useWatch } from 'react-hook-form'
-import type { Control, UseFormRegister } from 'react-hook-form'
+import type { Control, FieldPath, UseFormRegister } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Tabs } from '../../../shared/ui/Tabs'
@@ -500,21 +500,28 @@ function EdgeItem({ idx, control, register, nodeOptions, onRemove }: EdgeItemPro
 
 // ── HITL Fields (reused for agents and executors) ─────────────────────────
 
+/**
+ * Paths de HITL config permitidos no form. Restringe o componente para nunca receber
+ * um path arbitrário — o type checker valida `${prefix}.enabled` etc. contra a shape real.
+ */
+type HitlFieldsPrefix =
+  | `agents.${number}.hitl`
+  | `executors.${number}.hitl`
+
 function HitlFields({
   prefix,
   control,
   register,
   watch,
 }: {
-  prefix: string
+  prefix: HitlFieldsPrefix
   control: Control<WorkflowFormValues>
   register: UseFormRegister<WorkflowFormValues>
   watch: ReturnType<typeof useForm<WorkflowFormValues>>['watch']
 }) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const enabled = watch(`${prefix}.enabled` as any)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const interactionType = watch(`${prefix}.interactionType` as any)
+  // FieldPath cast mais estreito que `as any` — valida que é um path válido da shape.
+  const enabled = watch(`${prefix}.enabled` as FieldPath<WorkflowFormValues>)
+  const interactionType = watch(`${prefix}.interactionType` as FieldPath<WorkflowFormValues>)
 
   return (
     <div className="border-t border-border-secondary pt-3 mt-1">
