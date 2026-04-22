@@ -861,6 +861,33 @@ Se o cliente reconecta em um pod diferente:
 2. Replay/resync funciona normalmente (eventos persistidos no PostgreSQL)
 3. Token channel é recriado (tokens não persistidos são perdidos — output final é persistido)
 
+### Reconnect Protocol no Frontend
+
+O `ChatWindowPage.handleSend` (`frontend/src/features/chat/ChatWindowPage.tsx`) implementa reconexão automática quando a conexão SSE cai durante streaming ativo. Utility em `frontend/src/features/chat/sseReconnect.ts` encapsula backoff e parsing.
+
+**Fluxo:**
+
+1. **Conexão inicial:** `POST /api/chat/ag-ui/stream` com body `{messages, threadId}`. Stream começa.
+2. **Captura de estado durante parsing:**
+   - Cada frame com `id: N` atualiza `lastEventIdRef.current`.
+   - Evento `RUN_STARTED` grava `runIdRef.current = evt.runId`.
+3. **Detecção de queda:** exception no `reader.read()` (rede, backend reset, timeout). Se `done=false` E `runIdRef.current` presente E erro retriável → tenta reconectar.
+4. **Backoff exponencial + jitter** (paridade com C4 backend — `ResiliencePolicy.JitterRatio`):
+   - `computeBackoffDelay(attempt)` — `initialDelayMs * multiplier^attempt`, cap `30_000ms`, jitter ±10%.
+   - Defaults em `DEFAULT_RECONNECT_POLICY` (500ms / 2.0 / 30s cap / 0.1 jitter / 5 max attempts).
+5. **Reconexão:** `GET /api/chat/ag-ui/reconnect/{runId}` com headers:
+   - `Last-Event-ID: {last captured id}` → backend aplica **replay parcial** via `AgUiReconnectionHandler`.
+   - `x-thread-id: {threadId}`.
+6. **UI:** `SseHealthIndicator` exibe `Reconectando (N)` em âmbar durante retry; `Streaming` verde ao reestabelecer.
+7. **Max attempts excedido:** propaga exception para `catch` externo → exibe bubble de erro + marca `sseStatus='error'`.
+
+**Contrato para novas mudanças:**
+- Eventos SSE devem emitir `id: N` por frame (qualquer valor monotônico). Sem isso, reconnect fará resync completo em vez de replay parcial (mais caro mas funciona).
+- `RUN_STARTED` DEVE vir **antes** de qualquer outro evento de estado — é o único ponto que o frontend tem para capturar `runId`. Reconnect sem `runId` não é tentado.
+- Erros 4xx (`isRetriableStreamError` retorna false) não disparam reconnect — propaga para o usuário.
+
+**Smoke test:** durante streaming ativo, `docker compose restart backend`. UI deve mostrar `SSE: Reconectando (1)`, então (2), (3) até reconectar ou esgotar 5 tentativas em ~6s. Após reestabelecer, eventos pós-last-event-id chegam via replay.
+
 ---
 
 ## 15. Cancelamento

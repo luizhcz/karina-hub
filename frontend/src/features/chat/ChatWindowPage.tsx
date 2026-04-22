@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router'
 import { cn } from '../../shared/utils/cn'
 import { Button } from '../../shared/ui/Button'
@@ -29,6 +29,7 @@ import { ScrollToBottomFab } from './components/ScrollToBottomFab'
 import { SharedStatePanel } from './components/SharedStatePanel'
 import { EventTimelinePanel } from './components/EventTimelinePanel'
 import { SseHealthIndicator, type SseStatus } from './components/SseHealthIndicator'
+import { computeBackoffDelay, isRetriableStreamError, sleep } from './sseReconnect'
 import { useSmartScroll } from './hooks/useSmartScroll'
 import { useAgUiSharedState } from './hooks/useAgUiSharedState'
 import { useAgUiEventTimeline } from './hooks/useAgUiEventTimeline'
@@ -88,6 +89,12 @@ export function ChatWindowPage() {
     useAgUiSharedState()
   const { events, addEvent, clearEvents } = useAgUiEventTimeline()
   const [sseStatus, setSseStatus] = useState<SseStatus>('idle')
+  const [reconnectAttempt, setReconnectAttempt] = useState(0)
+  // Refs para reconexão SSE — atualizados durante o parsing de frames.
+  // `lastEventIdRef` captura o último `id:` recebido (enviado via Last-Event-ID na reconexão).
+  // `runIdRef` guarda o executionId do RUN_STARTED — sem ele, não dá para reconectar.
+  const lastEventIdRef = useRef<string | null>(null)
+  const runIdRef = useRef<string | null>(null)
 
   // Limpa shared state ao trocar de conversa (mas NÃO ao finalizar stream)
   useEffect(() => { clearState() }, [id, clearState])
@@ -124,50 +131,84 @@ export function ChatWindowPage() {
     setLocalMsgs([{ kind: 'optimistic-user', id: 'opt-user', text }])
     clearEvents()
     setSseStatus('streaming')
+    setReconnectAttempt(0)
+    lastEventIdRef.current = null
+    runIdRef.current = null
 
     let refetchDone = false
 
-    try {
-      const response = await fetch('/api/chat/ag-ui/stream', {
-        method: 'POST',
-        headers: makeHeaders(conversation?.workflowId),
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: text }],
-          threadId: id,
-        }),
+    /**
+     * Abre a conexão SSE inicial (POST /stream) ou uma reconexão (GET /reconnect/{id}
+     * com Last-Event-ID). Retorna a Response ou throws em caso de falha de rede/HTTP.
+     */
+    const openStream = async (isReconnect: boolean): Promise<Response> => {
+      if (!isReconnect) {
+        return fetch('/api/chat/ag-ui/stream', {
+          method: 'POST',
+          headers: makeHeaders(conversation?.workflowId),
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: text }],
+            threadId: id,
+          }),
+        })
+      }
+      // Reconnect — exige runId capturado em algum RUN_STARTED anterior.
+      if (!runIdRef.current) throw new Error('Reconnect called without runId')
+      const reconnectHeaders: Record<string, string> = makeHeaders(conversation?.workflowId)
+      reconnectHeaders['Accept'] = 'text/event-stream'
+      reconnectHeaders['x-thread-id'] = id
+      if (lastEventIdRef.current) reconnectHeaders['Last-Event-ID'] = lastEventIdRef.current
+      return fetch(`/api/chat/ag-ui/reconnect/${runIdRef.current}`, {
+        method: 'GET',
+        headers: reconnectHeaders,
       })
+    }
+
+    // Estado do loop (compartilhado entre conexão inicial e reconexões)
+    let done = false
+    let reconnectCount = 0
+    // Buffers locais ao loop de stream — não precisam de estado React
+    const toolArgBuffers = new Map<string, string>() // toolCallId → delta acumulado
+    const hitlPending = new Set<string>()            // toolCallIds de request_approval
+
+    try {
+      let response = await openStream(false)
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       if (!response.body) throw new Error('No stream body')
 
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let done = false
+      // Outer loop: permite reconexão se a leitura cair com runId já conhecido.
+      // Inner loop: consome frames até `done` (RUN_FINISHED/RUN_ERROR) ou stream terminar.
+      reconnectLoop: while (!done) {
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
 
-      // Buffers locais ao loop de stream — não precisam de estado React
-      const toolArgBuffers = new Map<string, string>() // toolCallId → delta acumulado
-      const hitlPending = new Set<string>()            // toolCallIds de request_approval
+        try {
+          while (!done) {
+            const { done: streamDone, value } = await reader.read()
+            if (streamDone) break
 
-      while (!done) {
-        const { done: streamDone, value } = await reader.read()
-        if (streamDone) break
+            // Parsing por frame SSE (separados por \n\n) para capturar id: e data:
+            buffer += decoder.decode(value, { stream: true })
+            const frames = buffer.split('\n\n')
+            buffer = frames.pop() ?? ''
 
-        // Parsing por frame SSE (separados por \n\n) para capturar id: e data:
-        buffer += decoder.decode(value, { stream: true })
-        const frames = buffer.split('\n\n')
-        buffer = frames.pop() ?? ''
+            for (const frame of frames) {
+              if (!frame.trim()) continue
 
-        for (const frame of frames) {
-          if (!frame.trim()) continue
+              let dataLine: string | null = null
+              let eventId: string | null = null
+              for (const line of frame.split('\n')) {
+                if (line.startsWith('data: ')) dataLine = line.slice(6).trim()
+                else if (line.startsWith('data:')) dataLine = line.slice(5).trim()
+                else if (line.startsWith('id: ')) eventId = line.slice(4).trim()
+                else if (line.startsWith('id:')) eventId = line.slice(3).trim()
+              }
+              // Captura o último event id para usar em Last-Event-ID numa eventual reconexão.
+              if (eventId) lastEventIdRef.current = eventId
 
-          let dataLine: string | null = null
-          for (const line of frame.split('\n')) {
-            if (line.startsWith('data: ')) dataLine = line.slice(6).trim()
-            // 'id: N' disponível aqui para reconexão futura via Last-Event-ID
-          }
-
-          if (!dataLine) continue
+              if (!dataLine) continue
 
           try {
             const evt = JSON.parse(dataLine) as {
@@ -187,6 +228,8 @@ export function ChatWindowPage() {
 
             if (evt.type === 'RUN_STARTED') {
               setCurrentRunId(evt.runId ?? null)
+              // Captura o runId também em ref síncrono — sem ele, reconnect é impossível.
+              if (evt.runId) runIdRef.current = evt.runId
 
             } else if (evt.type === 'TEXT_MESSAGE_START') {
               const msgId = evt.messageId ?? `msg_${Date.now()}`
@@ -285,16 +328,52 @@ export function ChatWindowPage() {
               done = true
               break
 
-            } else if (evt.type === 'STATE_SNAPSHOT') {
-              handleStateSnapshot(evt.snapshot)
+              } else if (evt.type === 'STATE_SNAPSHOT') {
+                handleStateSnapshot(evt.snapshot)
 
-            } else if (evt.type === 'STATE_DELTA') {
-              handleStateDelta(evt.delta)
+              } else if (evt.type === 'STATE_DELTA') {
+                handleStateDelta(evt.delta)
 
+              }
+            } catch {
+              // frame malformado — ignorar
             }
-          } catch {
-            // frame malformado — ignorar
+            }
           }
+          // Stream terminou naturalmente (reader.read() sinalizou done) — sair do outer loop.
+          break reconnectLoop
+        } catch (streamErr) {
+          // Erro durante leitura do stream (rede caiu, backend reiniciou, etc).
+          // Se não é retriável ou já temos `done=true` ou nunca recebemos runId → propaga.
+          if (done || !runIdRef.current || !isRetriableStreamError(streamErr)) {
+            throw streamErr
+          }
+
+          // Tenta reconectar. Max tentativas governadas por DEFAULT_RECONNECT_POLICY.
+          reconnectCount += 1
+          const maxAttempts = 5
+          if (reconnectCount > maxAttempts) {
+            console.error(
+              `[AG-UI] max reconnect attempts (${maxAttempts}) excedido — desistindo.`,
+              streamErr,
+            )
+            throw streamErr
+          }
+
+          const delay = computeBackoffDelay(reconnectCount - 1)
+          setSseStatus('reconnecting')
+          setReconnectAttempt(reconnectCount)
+          console.warn(
+            `[AG-UI] stream caiu (tentativa ${reconnectCount}/${maxAttempts}) — ` +
+            `reconectando em ${Math.round(delay)}ms`,
+            streamErr,
+          )
+          await sleep(delay)
+          response = await openStream(true)
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          if (!response.body) throw new Error('No stream body')
+          setSseStatus('streaming')
+          // Loop continua — novo reader criado no topo do outer loop.
         }
       }
 
@@ -546,7 +625,7 @@ export function ChatWindowPage() {
             <div>
               <p className="text-[10px] text-text-muted uppercase tracking-wide">Conexão SSE</p>
               <div className="mt-0.5">
-                <SseHealthIndicator status={sseStatus} />
+                <SseHealthIndicator status={sseStatus} reconnectAttempt={reconnectAttempt} />
               </div>
             </div>
             {conversation?.activeExecutionId && (
