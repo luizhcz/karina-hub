@@ -179,4 +179,29 @@ public static class MetricsRegistry
     public static readonly Counter<long> UnhandledExceptions =
         _meter.CreateCounter<long>("http.unhandled_exceptions",
             description: "Exceções não tratadas capturadas pelo GlobalExceptionMiddleware. Tags: path, method");
+
+    // ── PgEventBus — observabilidade do LISTEN/NOTIFY SSE ────────────────────
+
+    /// <summary>
+    /// Subscribers SSE ativos (conns PG "sse" em LISTEN). Proxy direto pro uso do pool:
+    /// se cruzar SseMaxPoolSize, próximas subscrições vão esperar/timeout.
+    /// </summary>
+    public static readonly UpDownCounter<int> EventBusActiveSubscriptions =
+        _meter.CreateUpDownCounter<int>("eventbus.active_subscriptions",
+            description: "Subscribers SSE ativos (conn PG dedicada em LISTEN)");
+
+    /// <summary>
+    /// Timeouts da task background WaitAsync durante dispose (limite: 2s). Valor > 0 indica
+    /// que a conn pode ter voltado ao pool em estado inconsistente — investigar pressão sobre pool SSE.
+    /// </summary>
+    public static readonly Counter<long> EventBusBackgroundTaskTimeouts =
+        _meter.CreateCounter<long>("eventbus.background_task.timeouts",
+            description: "Task background do LISTEN não concluiu no timeout de dispose (default 2s)");
+
+    /// <summary>
+    /// Falhas no setup do subscriber, antes de produzir qualquer evento. Tag: phase (open|listen|replay).
+    /// </summary>
+    public static readonly Counter<long> EventBusSubscribeSetupErrors =
+        _meter.CreateCounter<long>("eventbus.subscribe.setup_errors",
+            description: "Erros durante o setup do subscriber (open/listen/replay). Tag: phase");
 }

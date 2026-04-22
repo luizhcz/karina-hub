@@ -1048,13 +1048,55 @@ src/EfsAiHub.Host.Api/Program.cs
 
 | Pool | Propósito | Min | Max (default) | Config |
 |------|-----------|-----|---------------|--------|
-| `general` | Chat path + escritas | 10 | 500 | `Npgsql:GeneralMinPoolSize/MaxPoolSize` |
+| `general` | Chat path + escritas | 10 | 200 | `Npgsql:GeneralMinPoolSize/MaxPoolSize` |
 | `sse` | LISTEN long-lived | — | 50 | `Npgsql:SseMaxPoolSize` |
 | `reporting` | Analytics read-only | — | 20 | `Npgsql:ReportingMaxPoolSize` |
+
+Soma dos pools = **270 slots**. Postgres sobe com `max_connections=300` (ver `docker-compose.yml`) — 30 slots de folga para outros consumidores (superuser, admin queries, etc.). Qualquer aumento de pool deve respeitar essa soma ou ajustar `max_connections` junto.
 
 O pool `reporting` pode apontar para read replica via `ConnectionStrings:PostgresReporting` (fallback para main se não configurado).
 
 Registrados via `AddKeyedSingleton<NpgsqlDataSource>("pool-name", ...)`.
+
+---
+
+## 20.1. Limites operacionais conhecidos
+
+### SSE concorrente — teto hoje: ~80-100 subscribers por instância
+
+O padrão atual de pub/sub aloca **1 conexão PG dedicada por subscriber SSE ativo** (via pool `sse`, max 50). O teto efetivo por instância é o min entre:
+
+- `Npgsql:SseMaxPoolSize` (default 50) — subscribers simultâneos esperam quando estourado
+- Latência média do workflow (~3-5s) × chegada de novos clientes — define quantas conns ficam presas simultâneas
+
+Na prática, dev solo ou squad pequeno opera confortável até **~30-50 usuários reais simultâneos em chat**. Acima disso, sinais de pressão:
+
+- `NpgsqlException: timeout fetching connection` em `PgEventBus.SubscribeAsync`
+- Métrica `eventbus.active_subscriptions` se aproximando ou cruzando `SseMaxPoolSize`
+- SSE clients sentindo atraso no primeiro evento (stream trava esperando conn)
+
+**Fix estrutural** (se/quando virar bloqueador): substituir o padrão por dispatcher singleton multiplexando 1 conn persistente + fanout in-memory via `Channel<T>`. Destrava ~10x capacidade.
+
+### Bug historicamente observado
+
+Sob burst de 30 conexões SSE × 2 turnos de conversa, ~40% dos segundos turnos falhavam com `Npgsql.NpgsqlOperationInProgressException: The connection is already in state 'Waiting'`. Causa: race entre `linkedCts.Cancel()` e `conn.DisposeAsync()` no finally de `SubscribeAsync` — a task background de `conn.WaitAsync` ainda estava pendente quando o dispose começava, devolvendo conn ao pool em estado inconsistente. **Corrigido** em `PgEventBus.cs` guardando referência à task e aguardando seu término com timeout de 2s antes do dispose. O `UNLISTEN *` é feito implicitamente pelo Npgsql no reset do pool — chamar explícito adicionava latência e estourava o pool SSE (max 50) sob burst.
+
+### Observabilidade
+
+OTel disponível em `EfsAiHub.Api.EventBus` (ActivitySource). Spans:
+- `eventbus.subscribe` (raiz)
+- `eventbus.subscribe.open_conn`, `eventbus.subscribe.listen`, `eventbus.subscribe.replay`, `eventbus.subscribe.dispose`
+
+Métricas (meter `EfsAiHub.Api`):
+- `eventbus.active_subscriptions` — UpDownCounter, proxy direto do uso do pool SSE
+- `eventbus.background_task.timeouts` — Counter, sinaliza pressão sobre pool (conn potencialmente devolvida em estado inconsistente)
+- `eventbus.subscribe.setup_errors` — Counter com tag `phase` (open|listen|replay), útil para separar falha de infra vs. falha da execution
+
+### Regressão
+
+Oráculo reproduzível em `scripts/load/atendimento_cliente_burst.js` (k6). Rodar com `./scripts/load/run_burst.sh`. Threshold `turn2_success >= 29` em 30 VUs × 2 turnos. Baseline pós-fix disponível em `scripts/load/baselines/burst-2turns-postfix.html`. Se o teste regredir, o primeiro sinal é `NpgsqlOperationInProgressException` no log do backend.
+
+Testes de integração em `tests/EfsAiHub.Tests.Integration/Messaging/PgEventBusLifecycleTests.cs` cobrem resubscribe em rajada, cancel precoce e subscribers concorrentes.
 
 ---
 

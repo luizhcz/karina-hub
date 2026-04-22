@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Channels;
 using EfsAiHub.Core.Orchestration.Workflows;
+using EfsAiHub.Infra.Observability;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -100,10 +102,33 @@ public sealed class PgEventBus : IWorkflowEventBus
         // CTS vinculado ao token externo; usado para encerrar o loop WaitAsync
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
+        // Span engloba todo o lifecycle do subscriber: open → listen → replay → drain → dispose.
+        using var subscribeActivity = ActivitySources.EventBusSource.StartActivity(
+            "eventbus.subscribe", ActivityKind.Internal);
+        subscribeActivity?.SetTag("execution_id", executionId);
+
         // Conexão dedicada do pool "sse" para LISTEN — mantida aberta durante toda a subscrição.
         // Pool isolado evita que conexões SSE esgotem o pool "general" usado pelo Chat Path.
         // Ao ser descartada no finally, retorna ao pool após UNLISTEN * explícito.
-        var conn = await _sseDataSource.OpenConnectionAsync(ct);
+        NpgsqlConnection conn;
+        using (var openActivity = ActivitySources.EventBusSource.StartActivity(
+            "eventbus.subscribe.open_conn", ActivityKind.Internal))
+        {
+            try
+            {
+                conn = await _sseDataSource.OpenConnectionAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                MetricsRegistry.EventBusSubscribeSetupErrors.Add(1,
+                    new KeyValuePair<string, object?>("phase", "open"));
+                openActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                throw;
+            }
+        }
+
+        MetricsRegistry.EventBusActiveSubscriptions.Add(1);
+
         // Task de fundo (LISTEN loop) — referência guardada para sincronizar o dispose.
         // Sem await, a conn poderia voltar ao pool em estado "Waiting" e a próxima
         // reutilização bate NpgsqlOperationInProgressException.
@@ -127,17 +152,45 @@ public sealed class PgEventBus : IWorkflowEventBus
             };
 
             // 2. LISTEN no canal desta execução
-            await using (var listenCmd = conn.CreateCommand())
+            using (var listenActivity = ActivitySources.EventBusSource.StartActivity(
+                "eventbus.subscribe.listen", ActivityKind.Internal))
             {
-                listenCmd.CommandText = $"LISTEN \"{ChannelFor(executionId)}\"";
-                await listenCmd.ExecuteNonQueryAsync(ct);
+                try
+                {
+                    await using var listenCmd = conn.CreateCommand();
+                    listenCmd.CommandText = $"LISTEN \"{ChannelFor(executionId)}\"";
+                    await listenCmd.ExecuteNonQueryAsync(ct);
+                }
+                catch (Exception ex)
+                {
+                    MetricsRegistry.EventBusSubscribeSetupErrors.Add(1,
+                        new KeyValuePair<string, object?>("phase", "listen"));
+                    listenActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                    throw;
+                }
             }
 
             // 3. Replay do histórico; constrói conjunto de dedup por SequenceId (determinístico)
             var seen = new HashSet<long>();
             bool terminated = false;
 
-            var history = await _events.GetAllAsync(executionId, ct);
+            IReadOnlyList<WorkflowEventEnvelope> history;
+            using (var replayActivity = ActivitySources.EventBusSource.StartActivity(
+                "eventbus.subscribe.replay", ActivityKind.Internal))
+            {
+                try
+                {
+                    history = await _events.GetAllAsync(executionId, ct);
+                    replayActivity?.SetTag("events.count", history.Count);
+                }
+                catch (Exception ex)
+                {
+                    MetricsRegistry.EventBusSubscribeSetupErrors.Add(1,
+                        new KeyValuePair<string, object?>("phase", "replay"));
+                    replayActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                    throw;
+                }
+            }
             foreach (var evt in history)
             {
                 if (evt.SequenceId > 0)
@@ -212,6 +265,10 @@ public sealed class PgEventBus : IWorkflowEventBus
         }
         finally
         {
+            using var disposeActivity = ActivitySources.EventBusSource.StartActivity(
+                "eventbus.subscribe.dispose", ActivityKind.Internal);
+            disposeActivity?.SetTag("execution_id", executionId);
+
             linkedCts.Cancel();
 
             // Aguarda a task background sair do WaitAsync antes do dispose.
@@ -227,26 +284,20 @@ public sealed class PgEventBus : IWorkflowEventBus
                 catch (OperationCanceledException) { }
                 catch (TimeoutException)
                 {
+                    MetricsRegistry.EventBusBackgroundTaskTimeouts.Add(1);
+                    disposeActivity?.SetTag("background_task.timeout", true);
                     _logger.LogWarning(
                         "[PgEventBus] Background LISTEN task não concluiu em 2s após cancel. ExecutionId={ExecutionId}",
                         executionId);
                 }
             }
 
-            // UNLISTEN * explícito antes do dispose — torna a ordem de limpeza determinística
-            // e evita que a conn volte ao pool com subscriptions pendentes.
-            try
-            {
-                await using var unlistenCmd = conn.CreateCommand();
-                unlistenCmd.CommandText = "UNLISTEN *";
-                await unlistenCmd.ExecuteNonQueryAsync(CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "[PgEventBus] UNLISTEN falhou — prosseguindo com dispose.");
-            }
-
+            // UNLISTEN é feito implicitamente pelo Npgsql no reset do pool (no_reset_on_close=false
+            // é o default). Chamar UNLISTEN * explícito aqui ADICIONA latência no finally e, sob burst,
+            // segura a conn no DB por mais um round-trip — pool SSE (max 50) pode estourar com 30 VUs
+            // fazendo dispose simultâneo. Confiar no reset implícito é mais rápido e correto.
             await conn.DisposeAsync();
+            MetricsRegistry.EventBusActiveSubscriptions.Add(-1);
         }
     }
 

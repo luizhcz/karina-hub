@@ -8,9 +8,11 @@ public static class ActivitySources
     public const string AgentInvocation = "EfsAiHub.Api.AgentInvocation";
     public const string LlmCall = "EfsAiHub.Api.LlmCall";
     public const string ToolCall = "EfsAiHub.Api.ToolCall";
+    public const string EventBus = "EfsAiHub.Api.EventBus";
 
     public static readonly ActivitySource WorkflowExecutionSource = new(WorkflowExecution, "1.0.0");
     public static readonly ActivitySource AgentInvocationSource = new(AgentInvocation, "1.0.0");
     public static readonly ActivitySource LlmCallSource = new(LlmCall, "1.0.0");
     public static readonly ActivitySource ToolCallSource = new(ToolCall, "1.0.0");
+    public static readonly ActivitySource EventBusSource = new(EventBus, "1.0.0");
 }

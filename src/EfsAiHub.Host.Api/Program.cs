@@ -122,6 +122,7 @@ builder.Services.AddOpenTelemetry()
          .AddSource(ActivitySources.AgentInvocation)
          .AddSource(ActivitySources.LlmCall)
          .AddSource(ActivitySources.ToolCall)
+         .AddSource(ActivitySources.EventBus)
          .AddAspNetCoreInstrumentation();
 
         if (!string.IsNullOrWhiteSpace(otelOptions.OtlpEndpoint))
