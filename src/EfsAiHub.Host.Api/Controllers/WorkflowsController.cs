@@ -1,6 +1,8 @@
 using EfsAiHub.Host.Api.Models.Requests;
 using EfsAiHub.Host.Api.Models.Responses;
+using EfsAiHub.Host.Api.Services;
 using EfsAiHub.Core.Abstractions.Execution;
+using EfsAiHub.Core.Abstractions.Observability;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
@@ -15,15 +17,21 @@ public class WorkflowsController : ControllerBase
     private readonly IWorkflowService _workflowService;
     private readonly IWorkflowFactory _workflowFactory;
     private readonly DiagramRenderingService _diagramService;
+    private readonly IAdminAuditLogger _audit;
+    private readonly AdminAuditContext _auditContext;
 
     public WorkflowsController(
         IWorkflowService workflowService,
         IWorkflowFactory workflowFactory,
-        DiagramRenderingService diagramService)
+        DiagramRenderingService diagramService,
+        IAdminAuditLogger audit,
+        AdminAuditContext auditContext)
     {
         _workflowService = workflowService;
         _workflowFactory = workflowFactory;
         _diagramService = diagramService;
+        _audit = audit;
+        _auditContext = auditContext;
     }
 
     [HttpPost]
@@ -35,6 +43,11 @@ public class WorkflowsController : ControllerBase
         try
         {
             var definition = await _workflowService.CreateAsync(request.ToDomain(), ct);
+            await _audit.RecordAsync(_auditContext.Build(
+                AdminAuditActions.Create,
+                AdminAuditResources.Workflow,
+                definition.Id,
+                payloadAfter: AdminAuditContext.Snapshot(WorkflowResponse.FromDomain(definition))), ct);
             return CreatedAtAction(nameof(GetById), new { id = definition.Id }, WorkflowResponse.FromDomain(definition));
         }
         catch (ArgumentException ex)
@@ -76,8 +89,17 @@ public class WorkflowsController : ControllerBase
     {
         try
         {
+            var existing = await _workflowService.GetAsync(id, ct);
+            var before = existing is null ? null : AdminAuditContext.Snapshot(WorkflowResponse.FromDomain(existing));
+
             var definition = request.ToDomain();
             var updated = await _workflowService.UpdateAsync(definition, ct);
+            await _audit.RecordAsync(_auditContext.Build(
+                AdminAuditActions.Update,
+                AdminAuditResources.Workflow,
+                updated.Id,
+                payloadBefore: before,
+                payloadAfter: AdminAuditContext.Snapshot(WorkflowResponse.FromDomain(updated))), ct);
             return Ok(WorkflowResponse.FromDomain(updated));
         }
         catch (ArgumentException ex)
@@ -96,7 +118,15 @@ public class WorkflowsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(string id, CancellationToken ct)
     {
+        var existing = await _workflowService.GetAsync(id, ct);
+        var before = existing is null ? null : AdminAuditContext.Snapshot(WorkflowResponse.FromDomain(existing));
+
         await _workflowService.DeleteAsync(id, ct);
+        await _audit.RecordAsync(_auditContext.Build(
+            AdminAuditActions.Delete,
+            AdminAuditResources.Workflow,
+            id,
+            payloadBefore: before), ct);
         return NoContent();
     }
 

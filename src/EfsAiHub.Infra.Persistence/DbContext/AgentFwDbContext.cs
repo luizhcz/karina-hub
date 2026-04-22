@@ -240,6 +240,21 @@ internal class WorkflowEventAuditRow
     public DateTime Timestamp { get; set; }
 }
 
+internal class AdminAuditLogRow
+{
+    public long Id { get; set; }
+    public string? TenantId { get; set; }
+    public string? ProjectId { get; set; }
+    public string ActorUserId { get; set; } = "";
+    public string? ActorUserType { get; set; }
+    public string Action { get; set; } = "";
+    public string ResourceType { get; set; } = "";
+    public string ResourceId { get; set; } = "";
+    public string? PayloadBefore { get; set; }  // JSONB mapeado como string para evitar conversão dupla.
+    public string? PayloadAfter { get; set; }
+    public DateTime Timestamp { get; set; }
+}
+
 // ── DbContext ─────────────────────────────────────────────────────────────────
 
 public class AgentFwDbContext : DbContext
@@ -278,6 +293,7 @@ public class AgentFwDbContext : DbContext
     internal DbSet<HumanInteractionRow> HumanInteractions => Set<HumanInteractionRow>();
     internal DbSet<AgentSessionRow> AgentSessions => Set<AgentSessionRow>();
     internal DbSet<WorkflowEventAuditRow> WorkflowEventAudits => Set<WorkflowEventAuditRow>();
+    internal DbSet<AdminAuditLogRow> AdminAuditLogs => Set<AdminAuditLogRow>();
     internal DbSet<BackgroundResponseJobRow> BackgroundResponseJobs => Set<BackgroundResponseJobRow>();
 
     private static JsonDocument ParseJsonDocument(string json)
@@ -642,6 +658,35 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.Timestamp);
             b.HasIndex(e => new { e.ExecutionId, e.Id })
              .HasDatabaseName("IX_workflow_event_audit_ExecutionId_Id");
+        });
+
+        // ── AdminAuditLogRow ─────────────────────────────────────────────────
+        // Trilha de mudanças CRUD em Project/Agent/Workflow/Skill/ModelPricing.
+        // Payload* são JSONB opcionais; escritas são do raw SQL do repositório
+        // (mantemos o DbSet para testes EF e consistência de schema).
+        modelBuilder.Entity<AdminAuditLogRow>(b =>
+        {
+            b.ToTable("admin_audit_log");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).ValueGeneratedOnAdd();
+            b.Property(e => e.TenantId).HasMaxLength(128);
+            b.Property(e => e.ProjectId).HasMaxLength(128);
+            b.Property(e => e.ActorUserId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.ActorUserType).HasMaxLength(32);
+            b.Property(e => e.Action).HasMaxLength(32).IsRequired();
+            b.Property(e => e.ResourceType).HasMaxLength(64).IsRequired();
+            b.Property(e => e.ResourceId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.PayloadBefore).HasColumnType("jsonb");
+            b.Property(e => e.PayloadAfter).HasColumnType("jsonb");
+            b.Property(e => e.Timestamp).IsRequired();
+            b.HasIndex(e => new { e.TenantId, e.Timestamp })
+             .HasDatabaseName("IX_admin_audit_log_TenantId_Timestamp")
+             .IsDescending(false, true);
+            b.HasIndex(e => new { e.ResourceType, e.ResourceId })
+             .HasDatabaseName("IX_admin_audit_log_ResourceType_ResourceId");
+            b.HasIndex(e => new { e.ActorUserId, e.Timestamp })
+             .HasDatabaseName("IX_admin_audit_log_ActorUserId_Timestamp")
+             .IsDescending(false, true);
         });
     }
 }

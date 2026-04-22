@@ -50,6 +50,7 @@ import { TracingDetailPage } from './features/tracing/TracingDetailPage'
 import { AuditEventsPage } from './features/audit/AuditEventsPage'
 import { AuditTrailPage } from './features/audit/AuditTrailPage'
 import { TokenUsageAuditPage } from './features/audit/TokenUsageAuditPage'
+import { AdminAuditPage } from './features/audit/AdminAuditPage'
 
 // Admin
 import { CostLayout } from './features/costs/CostLayout'
@@ -126,6 +127,7 @@ export const router = createBrowserRouter([
       { path: 'audit', element: <AuditEventsPage /> },
       { path: 'audit/trail', element: <AuditTrailPage /> },
       { path: 'audit/tokens', element: <TokenUsageAuditPage /> },
+      { path: 'audit/admin', element: <AdminAuditPage /> },
 
       // Admin — Custos (layout com tabs)
       {

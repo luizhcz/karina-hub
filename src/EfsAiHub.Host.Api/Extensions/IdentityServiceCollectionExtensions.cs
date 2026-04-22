@@ -10,6 +10,8 @@ public static class IdentityServiceCollectionExtensions
     public static IServiceCollection AddHostApiIdentity(this IServiceCollection services)
     {
         services.AddSingleton<UserIdentityResolver>();
+        services.AddHttpContextAccessor();
+        services.AddScoped<AdminAuditContext>();
         return services;
     }
 }

@@ -1,5 +1,7 @@
-using EfsAiHub.Platform.Runtime.Execution;
+using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Host.Api.Models.Requests;
+using EfsAiHub.Host.Api.Services;
+using EfsAiHub.Platform.Runtime.Execution;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
 
@@ -12,11 +14,19 @@ public class ModelPricingController : ControllerBase
 {
     private readonly IModelPricingRepository _repo;
     private readonly IModelPricingCache _pricingCache;
+    private readonly IAdminAuditLogger _audit;
+    private readonly AdminAuditContext _auditContext;
 
-    public ModelPricingController(IModelPricingRepository repo, IModelPricingCache pricingCache)
+    public ModelPricingController(
+        IModelPricingRepository repo,
+        IModelPricingCache pricingCache,
+        IAdminAuditLogger audit,
+        AdminAuditContext auditContext)
     {
         _repo = repo;
         _pricingCache = pricingCache;
+        _audit = audit;
+        _auditContext = auditContext;
     }
 
     [HttpGet]
@@ -59,8 +69,19 @@ public class ModelPricingController : ControllerBase
             EffectiveFrom = request.EffectiveFrom,
             EffectiveTo = request.EffectiveTo
         };
+
+        // Id=0 = create (Postgres gera identity); Id>0 = update.
+        var action = (request.Id ?? 0) == 0 ? AdminAuditActions.Create : AdminAuditActions.Update;
+        var before = (request.Id ?? 0) == 0 ? null : AdminAuditContext.Snapshot(await _repo.GetByIdAsync(request.Id!.Value, ct));
+
         var result = await _repo.UpsertAsync(pricing, ct);
         await _pricingCache.InvalidateAsync(pricing.ModelId);
+        await _audit.RecordAsync(_auditContext.Build(
+            action,
+            AdminAuditResources.ModelPricing,
+            result.Id.ToString(),
+            payloadBefore: before,
+            payloadAfter: AdminAuditContext.Snapshot(result)), ct);
         return Ok(result);
     }
 
@@ -78,6 +99,11 @@ public class ModelPricingController : ControllerBase
         if (existing is not null)
             await _pricingCache.InvalidateAsync(existing.ModelId);
 
+        await _audit.RecordAsync(_auditContext.Build(
+            AdminAuditActions.Delete,
+            AdminAuditResources.ModelPricing,
+            id.ToString(),
+            payloadBefore: AdminAuditContext.Snapshot(existing)), ct);
         return NoContent();
     }
 

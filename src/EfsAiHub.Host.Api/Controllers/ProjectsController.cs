@@ -4,6 +4,7 @@ using EfsAiHub.Host.Api.Configuration;
 using EfsAiHub.Host.Api.Models.Requests;
 using EfsAiHub.Host.Api.Models.Responses;
 using EfsAiHub.Core.Abstractions.Identity;
+using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Abstractions.Projects;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -21,17 +22,23 @@ public class ProjectsController : ControllerBase
     private readonly ITenantContextAccessor _tenantAccessor;
     private readonly HashSet<string> _adminAccountIds;
     private readonly UserIdentityResolver _identityResolver;
+    private readonly IAdminAuditLogger _audit;
+    private readonly AdminAuditContext _auditContext;
 
     public ProjectsController(
         IProjectRepository repo,
         ITenantContextAccessor tenantAccessor,
         IOptions<AdminOptions> adminOptions,
-        UserIdentityResolver identityResolver)
+        UserIdentityResolver identityResolver,
+        IAdminAuditLogger audit,
+        AdminAuditContext auditContext)
     {
         _repo = repo;
         _tenantAccessor = tenantAccessor;
         _adminAccountIds = new HashSet<string>(adminOptions.Value.AccountIds, StringComparer.Ordinal);
         _identityResolver = identityResolver;
+        _audit = audit;
+        _auditContext = auditContext;
     }
 
     private bool IsAdmin()
@@ -65,6 +72,11 @@ public class ProjectsController : ControllerBase
                 : null);
 
         await _repo.CreateAsync(project, ct);
+        await _audit.RecordAsync(_auditContext.Build(
+            AdminAuditActions.Create,
+            AdminAuditResources.Project,
+            project.Id,
+            payloadAfter: AdminAuditContext.Snapshot(ProjectResponse.From(project))), ct);
         return CreatedAtAction(nameof(GetById), new { id = project.Id }, ProjectResponse.From(project));
     }
 
@@ -106,6 +118,8 @@ public class ProjectsController : ControllerBase
         var project = await _repo.GetByIdAsync(id, ct);
         if (project is null) return NotFound();
 
+        var before = AdminAuditContext.Snapshot(ProjectResponse.From(project));
+
         if (request.Name is not null) project.Name = request.Name;
         if (request.Description is not null) project.Description = request.Description;
         if (request.Settings is not null) project.Settings = MapSettings(request.Settings);
@@ -132,6 +146,12 @@ public class ProjectsController : ControllerBase
             project.Budget = JsonDocument.Parse(request.Budget.Value.GetRawText());
 
         await _repo.UpdateAsync(project, ct);
+        await _audit.RecordAsync(_auditContext.Build(
+            AdminAuditActions.Update,
+            AdminAuditResources.Project,
+            project.Id,
+            payloadBefore: before,
+            payloadAfter: AdminAuditContext.Snapshot(ProjectResponse.From(project))), ct);
         return Ok(ProjectResponse.From(project));
     }
 
@@ -147,7 +167,13 @@ public class ProjectsController : ControllerBase
         var project = await _repo.GetByIdAsync(id, ct);
         if (project is null) return NotFound();
 
+        var before = AdminAuditContext.Snapshot(ProjectResponse.From(project));
         await _repo.DeleteAsync(id, ct);
+        await _audit.RecordAsync(_auditContext.Build(
+            AdminAuditActions.Delete,
+            AdminAuditResources.Project,
+            id,
+            payloadBefore: before), ct);
         return NoContent();
     }
 

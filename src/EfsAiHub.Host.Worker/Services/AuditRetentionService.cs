@@ -80,6 +80,32 @@ public sealed class AuditRetentionService : BackgroundService
         {
             _logger.LogWarning(ex, "[AuditRetention] DELETE de workflow_checkpoints falhou.");
         }
+
+        // 4) Admin audit log — tabela não-particionada; DELETE batched por Timestamp
+        // para evitar lock escalation quando volume é alto. Usa AuditRetentionDays
+        // (mesmo TTL de workflow_event_audit).
+        try
+        {
+            int totalDeleted = 0, batch;
+            do
+            {
+                batch = await ctx.Database.ExecuteSqlInterpolatedAsync(
+                    $@"DELETE FROM aihub.admin_audit_log WHERE ctid IN (
+                        SELECT ctid FROM aihub.admin_audit_log
+                        WHERE ""Timestamp"" < {auditCutoff}
+                        LIMIT 1000)", ct);
+                totalDeleted += batch;
+                if (batch > 0) await Task.Delay(200, ct);
+            }
+            while (batch == 1000 && !ct.IsCancellationRequested);
+
+            if (totalDeleted > 0)
+                _logger.LogInformation("[AuditRetention] {Count} linhas removidas de admin_audit_log.", totalDeleted);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[AuditRetention] DELETE de admin_audit_log falhou.");
+        }
     }
 
     /// <summary>

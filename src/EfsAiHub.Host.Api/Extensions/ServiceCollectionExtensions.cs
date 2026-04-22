@@ -204,6 +204,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IModelPricingRepository, PgModelPricingRepository>();
         services.AddSingleton<IWorkflowEventRepository, PgWorkflowEventRepository>();
         services.AddSingleton<IExecutionAnalyticsRepository, PgExecutionAnalyticsRepository>();
+        services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger, PgAdminAuditLogRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentExtractionRepository, PgDocumentExtractionRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentIntelligenceService, EfsAiHub.Platform.Runtime.Services.DocumentIntelligenceService>();
         services.AddSingleton<EfsAiHub.Platform.Runtime.Functions.DocumentIntelligenceFunctions>();

@@ -2,7 +2,9 @@ using System.Text.Json;
 using EfsAiHub.Core.Agents;
 using EfsAiHub.Host.Api.Models.Requests;
 using EfsAiHub.Host.Api.Models.Responses;
+using EfsAiHub.Host.Api.Services;
 using EfsAiHub.Core.Abstractions.Execution;
+using EfsAiHub.Core.Abstractions.Observability;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
 
@@ -15,11 +17,19 @@ public class AgentsController : ControllerBase
 {
     private readonly IAgentService _agentService;
     private readonly IAgentVersionRepository _versionRepo;
+    private readonly IAdminAuditLogger _audit;
+    private readonly AdminAuditContext _auditContext;
 
-    public AgentsController(IAgentService agentService, IAgentVersionRepository versionRepo)
+    public AgentsController(
+        IAgentService agentService,
+        IAgentVersionRepository versionRepo,
+        IAdminAuditLogger audit,
+        AdminAuditContext auditContext)
     {
         _agentService = agentService;
         _versionRepo = versionRepo;
+        _audit = audit;
+        _auditContext = auditContext;
     }
 
     [HttpPost]
@@ -31,6 +41,11 @@ public class AgentsController : ControllerBase
         try
         {
             var definition = await _agentService.CreateAsync(request.ToDomain(), ct);
+            await _audit.RecordAsync(_auditContext.Build(
+                AdminAuditActions.Create,
+                AdminAuditResources.Agent,
+                definition.Id,
+                payloadAfter: AdminAuditContext.Snapshot(AgentResponse.FromDomain(definition))), ct);
             return CreatedAtAction(nameof(GetById), new { id = definition.Id }, AgentResponse.FromDomain(definition));
         }
         catch (ArgumentException ex)
@@ -68,8 +83,17 @@ public class AgentsController : ControllerBase
     {
         try
         {
+            var existing = await _agentService.GetAsync(id, ct);
+            var before = existing is null ? null : AdminAuditContext.Snapshot(AgentResponse.FromDomain(existing));
+
             var definition = request.ToDomain();
             var updated = await _agentService.UpdateAsync(definition, ct);
+            await _audit.RecordAsync(_auditContext.Build(
+                AdminAuditActions.Update,
+                AdminAuditResources.Agent,
+                updated.Id,
+                payloadBefore: before,
+                payloadAfter: AdminAuditContext.Snapshot(AgentResponse.FromDomain(updated))), ct);
             return Ok(AgentResponse.FromDomain(updated));
         }
         catch (ArgumentException ex)
@@ -88,7 +112,15 @@ public class AgentsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(string id, CancellationToken ct)
     {
+        var existing = await _agentService.GetAsync(id, ct);
+        var before = existing is null ? null : AdminAuditContext.Snapshot(AgentResponse.FromDomain(existing));
+
         await _agentService.DeleteAsync(id, ct);
+        await _audit.RecordAsync(_auditContext.Build(
+            AdminAuditActions.Delete,
+            AdminAuditResources.Agent,
+            id,
+            payloadBefore: before), ct);
         return NoContent();
     }
 

@@ -234,6 +234,50 @@ O sistema é projetado para rodar **atrás de um API Gateway** (Azure APIM, Kong
 
 **Gate desabilitado:** Se `AccountIds` está vazio (modo dev/test).
 
+### Admin Audit Trail
+
+Tabela `aihub.admin_audit_log` registra toda mudança CRUD em recursos administrativos — pré-requisito de compliance. Cada controller admin grava uma linha após persistir:
+
+| Controller | Ações auditadas | ResourceType |
+|---|---|---|
+| `ProjectsController` | create / update / delete | `project` |
+| `AgentsController` | create / update / delete | `agent` |
+| `WorkflowsController` | create / update / delete | `workflow` |
+| `SkillsController` | upsert (create/update) / delete | `skill` |
+| `ModelPricingController` | upsert (create/update) / delete | `model_pricing` |
+
+**Schema:**
+
+```sql
+CREATE TABLE aihub.admin_audit_log (
+    "Id"            BIGINT IDENTITY PRIMARY KEY,
+    "TenantId"      VARCHAR(128) NULL,
+    "ProjectId"     VARCHAR(128) NULL,
+    "ActorUserId"   VARCHAR(128) NOT NULL,     -- UserId do header
+    "ActorUserType" VARCHAR(32)  NULL,         -- 'cliente' | 'assessor'
+    "Action"        VARCHAR(32)  NOT NULL,     -- create | update | delete
+    "ResourceType"  VARCHAR(64)  NOT NULL,
+    "ResourceId"    VARCHAR(128) NOT NULL,
+    "PayloadBefore" JSONB        NULL,         -- snapshot pré (update/delete)
+    "PayloadAfter"  JSONB        NULL,         -- snapshot pós (create/update)
+    "Timestamp"     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+```
+
+**Campos indexados:**
+- `(TenantId, Timestamp DESC)` — governance dashboard "o que mudou no tenant X nas últimas 24h"
+- `(ResourceType, ResourceId)` — histórico de um recurso específico
+- `(ActorUserId, Timestamp DESC)` — compliance "minhas ações administrativas"
+
+**Semântica:**
+
+- **Fire-and-log:** `IAdminAuditLogger.RecordAsync()` engole exceções — falha de write de auditoria **não** quebra o CRUD primário. Log warning no service logger com tag `[AdminAudit]`.
+- **Actor:** `UserIdentityResolver` extrai dos headers `x-efs-account` / `x-efs-user-profile-id`. Actor default `"system:anonymous"` quando headers ausentes.
+- **Retenção:** `AuditRetentionService` faz DELETE batched (1000 rows / batch, sleep 200ms) via `AuditRetentionDays` (default 90).
+- **Consulta:** `GET /api/admin/audit-log` — paginado, ordena `Timestamp DESC`. `TenantId` é sempre aplicado do contexto da request (não do query param — impede cross-tenant scan).
+
+**UI:** `/audit/admin` (sidebar → Admin → "Audit Admin"). Modal de detalhe exibe `PayloadBefore/After` via `JsonViewer` para diff visual.
+
 ### DefaultProjectGuard
 
 ```

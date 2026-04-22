@@ -1,4 +1,6 @@
 using EfsAiHub.Core.Agents.Skills;
+using EfsAiHub.Core.Abstractions.Observability;
+using EfsAiHub.Host.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
 
@@ -14,11 +16,19 @@ public class SkillsController : ControllerBase
 {
     private readonly ISkillRepository _skills;
     private readonly ISkillVersionRepository _versions;
+    private readonly IAdminAuditLogger _audit;
+    private readonly AdminAuditContext _auditContext;
 
-    public SkillsController(ISkillRepository skills, ISkillVersionRepository versions)
+    public SkillsController(
+        ISkillRepository skills,
+        ISkillVersionRepository versions,
+        IAdminAuditLogger audit,
+        AdminAuditContext auditContext)
     {
         _skills = skills;
         _versions = versions;
+        _audit = audit;
+        _auditContext = auditContext;
     }
 
     [HttpGet]
@@ -48,14 +58,38 @@ public class SkillsController : ControllerBase
     {
         if (!string.Equals(id, skill.Id, StringComparison.OrdinalIgnoreCase))
             return BadRequest("Path id and body id must match.");
+
+        var existing = await _skills.GetByIdAsync(id, ct);
+        var action = existing is null ? AdminAuditActions.Create : AdminAuditActions.Update;
+        var before = existing is null ? null : AdminAuditContext.Snapshot(existing);
+
         var saved = await _skills.UpsertAsync(skill, ct);
+        await _audit.RecordAsync(_auditContext.Build(
+            action,
+            AdminAuditResources.Skill,
+            saved.Id,
+            payloadBefore: before,
+            payloadAfter: AdminAuditContext.Snapshot(saved)), ct);
         return Ok(saved);
     }
 
     [HttpDelete("{id}")]
     [SwaggerOperation(Summary = "Remove uma skill (não apaga skill_versions)")]
     public async Task<IActionResult> Delete(string id, CancellationToken ct)
-        => (await _skills.DeleteAsync(id, ct)) ? NoContent() : NotFound();
+    {
+        var existing = await _skills.GetByIdAsync(id, ct);
+        if (existing is null) return NotFound();
+
+        var deleted = await _skills.DeleteAsync(id, ct);
+        if (!deleted) return NotFound();
+
+        await _audit.RecordAsync(_auditContext.Build(
+            AdminAuditActions.Delete,
+            AdminAuditResources.Skill,
+            id,
+            payloadBefore: AdminAuditContext.Snapshot(existing)), ct);
+        return NoContent();
+    }
 
     [HttpGet("{id}/versions")]
     [SwaggerOperation(Summary = "Lista versões imutáveis de uma skill (DESC)")]
