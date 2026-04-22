@@ -322,16 +322,16 @@ public static class ServiceCollectionExtensions
         {
             var registry = new EfsAiHub.Platform.Runtime.Services.BackgroundServiceRegistry();
 
-            registry.Register("DatabaseBootstrap", new() { Name = "DatabaseBootstrap", Description = "Startup cleanup de execuções órfãs", Lifecycle = "OneTime", ServiceType = typeof(DatabaseBootstrapService) });
-            registry.Register("AgentSessionCleanup", new() { Name = "AgentSessionCleanup", Description = "TTL cleanup de sessions expiradas", Lifecycle = "Continuous", Interval = TimeSpan.FromHours(6), ServiceType = typeof(AgentSessionCleanupService) });
-            registry.Register("AuditRetention", new() { Name = "AuditRetention", Description = "Drop de partições expiradas", Lifecycle = "Continuous", Interval = TimeSpan.FromHours(24), ServiceType = typeof(AuditRetentionService) });
-            registry.Register("CrossNodeCoordinator", new() { Name = "CrossNodeCoordinator", Description = "LISTEN/NOTIFY cancel + HITL cross-pod", Lifecycle = "Continuous", ServiceType = typeof(CrossNodeCoordinator) });
-            registry.Register("HitlRecovery", new() { Name = "HitlRecovery", Description = "Resume de execuções HITL pausadas", Lifecycle = "Continuous", Interval = TimeSpan.FromSeconds(30), ServiceType = typeof(HitlRecoveryService) });
-            registry.Register("NodePersistence", new() { Name = "NodePersistence", Description = "Persistência sequencial de estado de nós", Lifecycle = "Continuous", ServiceType = typeof(NodePersistenceService) });
-            registry.Register("TokenUsagePersistence", new() { Name = "TokenUsagePersistence", Description = "Batch persist token usage", Lifecycle = "Continuous", ServiceType = typeof(TokenUsagePersistenceService) });
-            registry.Register("ToolInvocationPersistence", new() { Name = "ToolInvocationPersistence", Description = "Batch persist tool invocations", Lifecycle = "Continuous", ServiceType = typeof(ToolInvocationPersistenceService) });
-            registry.Register("LlmCostRefresh", new() { Name = "LlmCostRefresh", Description = "Refresh materialized views analytics", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(5), ServiceType = typeof(LlmCostRefreshService) });
-            registry.Register("AgUiTokenChannelCleanup", new() { Name = "AgUiTokenChannelCleanup", Description = "Cleanup SSE channels stale", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(5), ServiceType = typeof(EfsAiHub.Host.Api.Chat.AgUi.Streaming.AgUiTokenChannelCleanupService) });
+            registry.Register("DatabaseBootstrap", new() { Name = "DatabaseBootstrap", Description = "Limpeza no startup de execuções órfãs deixadas por restart", Lifecycle = "OneTime", ServiceType = typeof(DatabaseBootstrapService) });
+            registry.Register("AgentSessionCleanup", new() { Name = "AgentSessionCleanup", Description = "Remove sessões de agente expiradas pelo TTL", Lifecycle = "Continuous", Interval = TimeSpan.FromHours(6), ServiceType = typeof(AgentSessionCleanupService) });
+            registry.Register("AuditRetention", new() { Name = "AuditRetention", Description = "Descarta partições antigas das tabelas de auditoria", Lifecycle = "Continuous", Interval = TimeSpan.FromHours(24), ServiceType = typeof(AuditRetentionService) });
+            registry.Register("CrossNodeCoordinator", new() { Name = "CrossNodeCoordinator", Description = "Propaga cancelamentos e eventos HITL entre pods via LISTEN/NOTIFY", Lifecycle = "Continuous", ServiceType = typeof(CrossNodeCoordinator) });
+            registry.Register("HitlRecovery", new() { Name = "HitlRecovery", Description = "Retoma execuções HITL pausadas após restart ou timeout", Lifecycle = "Continuous", Interval = TimeSpan.FromSeconds(30), ServiceType = typeof(HitlRecoveryService) });
+            registry.Register("NodePersistence", new() { Name = "NodePersistence", Description = "Persiste sequencialmente o estado dos nós de workflow", Lifecycle = "Continuous", ServiceType = typeof(NodePersistenceService) });
+            registry.Register("TokenUsagePersistence", new() { Name = "TokenUsagePersistence", Description = "Persiste consumo de tokens em lote", Lifecycle = "Continuous", ServiceType = typeof(TokenUsagePersistenceService) });
+            registry.Register("ToolInvocationPersistence", new() { Name = "ToolInvocationPersistence", Description = "Persiste invocações de tools em lote", Lifecycle = "Continuous", ServiceType = typeof(ToolInvocationPersistenceService) });
+            registry.Register("LlmCostRefresh", new() { Name = "LlmCostRefresh", Description = "Atualiza as views materializadas de custo de LLM", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(5), ServiceType = typeof(LlmCostRefreshService) });
+            registry.Register("AgUiTokenChannelCleanup", new() { Name = "AgUiTokenChannelCleanup", Description = "Remove canais SSE inativos do streaming AG-UI", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(5), ServiceType = typeof(EfsAiHub.Host.Api.Chat.AgUi.Streaming.AgUiTokenChannelCleanupService) });
 
             return registry;
         });
