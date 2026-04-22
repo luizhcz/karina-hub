@@ -82,6 +82,81 @@ public class RetryingChatClientTests
         await act.Should().ThrowAsync<Exception>();
         stub.CallCount.Should().Be(1); // apenas 1 chamada, sem retry
     }
+
+    // ── Timeout per-call (C4) ─────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetResponseAsync_CallTimeoutExpira_RetentaAteMax()
+    {
+        // Provider sempre trava até cancelar — timeout de 50ms força retry
+        var stub = new HangingChatClient();
+        var sut = new RetryingChatClient(
+            stub, "agent-test", "model-test",
+            NullLogger<RetryingChatClientTests>.Instance,
+            new ResiliencePolicy(
+                MaxRetries: 1, InitialDelayMs: 1, BackoffMultiplier: 1.0,
+                CallTimeoutMs: 50));
+
+        var act = async () => await sut.GetResponseAsync(AnyMessages);
+
+        // MaxRetries=1 → 2 tentativas totais, ambas timed-out, última propaga OCE
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        stub.CallCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_UserCancela_NaoRetenta()
+    {
+        // CancellationToken externo cancelado deve propagar sem retry
+        var stub = new HangingChatClient();
+        var sut = new RetryingChatClient(
+            stub, "agent-test", "model-test",
+            NullLogger<RetryingChatClientTests>.Instance,
+            new ResiliencePolicy(
+                MaxRetries: 3, InitialDelayMs: 1, BackoffMultiplier: 1.0,
+                CallTimeoutMs: 10_000));  // timeout alto — só o user cancela
+
+        using var cts = new CancellationTokenSource();
+        var task = sut.GetResponseAsync(AnyMessages, cancellationToken: cts.Token);
+        cts.CancelAfter(TimeSpan.FromMilliseconds(50));
+
+        var act = async () => await task;
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        stub.CallCount.Should().Be(1);  // nenhum retry — foi user quem cancelou
+    }
+
+    // ── Jitter (C4) ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ApplyJitter_RatioZero_RetornaDelayOriginal()
+    {
+        var sut = new RetryingChatClient(
+            new CountingChatClient("ok"), "a", "m",
+            NullLogger<RetryingChatClientTests>.Instance,
+            new ResiliencePolicy(JitterRatio: 0.0));
+
+        var original = TimeSpan.FromMilliseconds(1000);
+        sut.ApplyJitter(original).Should().Be(original);
+    }
+
+    [Fact]
+    public void ApplyJitter_RatioPositivo_AdicionaDentroDoRatio()
+    {
+        var sut = new RetryingChatClient(
+            new CountingChatClient("ok"), "a", "m",
+            NullLogger<RetryingChatClientTests>.Instance,
+            new ResiliencePolicy(JitterRatio: 0.1));
+
+        var original = TimeSpan.FromMilliseconds(1000);
+        // Com ratio=0.1, jitter máximo = 100ms; resultado ∈ [1000, 1100]
+        for (var i = 0; i < 100; i++)
+        {
+            var actual = sut.ApplyJitter(original);
+            actual.TotalMilliseconds.Should()
+                .BeGreaterThanOrEqualTo(1000)
+                .And.BeLessThanOrEqualTo(1100);
+        }
+    }
 }
 
 // ── Stubs ─────────────────────────────────────────────────────────────────────
@@ -161,6 +236,31 @@ internal sealed class AlwaysFailChatClient : IChatClient
     {
         CallCount++;
         throw new HttpRequestException("always fail", null, _code);
+    }
+
+    public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+        IEnumerable<AiChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)
+        => throw new NotImplementedException();
+
+    public object? GetService(Type t, object? key = null) => null;
+    public void Dispose() { }
+}
+
+/// <summary>
+/// Stub que trava indefinidamente até o CancellationToken ser cancelado.
+/// Usado para simular provider pendurado e verificar timeout per-call / cancel por user.
+/// </summary>
+internal sealed class HangingChatClient : IChatClient
+{
+    public int CallCount { get; private set; }
+    public ChatClientMetadata Metadata => new("stub", null, null);
+
+    public async Task<ChatResponse> GetResponseAsync(
+        IEnumerable<AiChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)
+    {
+        CallCount++;
+        await Task.Delay(Timeout.Infinite, ct);
+        throw new InvalidOperationException("unreachable");
     }
 
     public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(

@@ -131,6 +131,8 @@ public class AgentDefinition : IProjectScoped
 | `InitialDelayMs` | 1000 | Delay inicial (ms) |
 | `BackoffMultiplier` | 2.0 | Multiplicador exponencial |
 | `RetriableHttpStatusCodes` | null | Status codes para retry (default: 429, 500, 502, 503) |
+| `CallTimeoutMs` | null | Timeout máximo em ms por chamada LLM individual (sem acumular retries). Null/≤0 = sem timeout adicional. Recomendado em produção: 60000 para não-streaming; em streaming, aplica só à conexão inicial. |
+| `JitterRatio` | 0.0 | Fração de jitter aplicada ao backoff para reduzir thundering herd (0.0 a 1.0). Ex: 0.1 adiciona até 10% de jitter aleatório sobre o delay. Recomendado em produção: 0.1. |
 
 ### AgentCostBudget
 
@@ -433,12 +435,14 @@ Request do Workflow
 
 | Aspecto | Detalhe |
 |---------|---------|
-| Retry trigger | HTTP 429 (TooManyRequests), 500, 502, 503 |
+| Retry trigger | HTTP 429 (TooManyRequests), 500, 502, 503 + **timeout per-call** (se configurado) |
 | Custom codes | Configurável via `ResiliencePolicy.RetriableHttpStatusCodes` |
 | Max retries | Default 3 (configurável por agente) |
-| Backoff | `initialDelay × backoffMultiplier^attempt` (1s → 2s → 4s) |
+| Backoff | `initialDelay × backoffMultiplier^attempt` (1s → 2s → 4s), com **jitter opcional** (`JitterRatio`) |
+| Timeout per-call | `ResiliencePolicy.CallTimeoutMs` cobre cada tentativa individualmente (não acumula). Em streaming, aplica só à conexão inicial. |
+| Cancel do usuário | `CancellationToken` externo sempre propaga sem retry (cancelamento do cliente ≠ timeout nosso). |
 | Streaming | Retry apenas na **conexão inicial** (antes do primeiro chunk). Uma vez streaming, erros propagam imediatamente. |
-| Métricas | Counter de retries por tentativa |
+| Métricas | Counter `LlmRetries` com tags: `agent.id`, `model.id`, `attempt`, `status_code`, `timeout_triggered` |
 
 **Exemplo de configuração no agente:**
 ```json
@@ -447,10 +451,14 @@ Request do Workflow
     "maxRetries": 5,
     "initialDelayMs": 2000,
     "backoffMultiplier": 1.5,
+    "callTimeoutMs": 60000,
+    "jitterRatio": 0.1,
     "retriableHttpStatusCodes": [429, 500, 502, 503, 504]
   }
 }
 ```
+
+**Distinção timeout vs cancel:** um provider pendurado dispara o `CallTimeoutMs` (tag `timeout_triggered=true` na métrica, retenta). Um `CancellationToken` cancelado externamente (usuário saiu da tela, workflow timeout) propaga `OperationCanceledException` imediatamente sem retry.
 
 ---
 

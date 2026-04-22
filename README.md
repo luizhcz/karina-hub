@@ -295,6 +295,19 @@ todos os pods abrirem. Para compensar, ajuste `EffectiveReplicaCount` ao número
 
 O threshold efetivo nunca fica abaixo de 1 (garantia do código).
 
+### Timeout + jitter por agente — `ResiliencePolicy`
+
+Cada agente pode ter sua própria `ResiliencePolicy` no JSON da definição. Além dos campos clássicos
+(`MaxRetries`, `InitialDelayMs`, `BackoffMultiplier`, `RetriableHttpStatusCodes`), o C4 adiciona:
+
+| Campo | Default | Recomendação produção | Função |
+|---|---|---|---|
+| `CallTimeoutMs` | `null` | `60000` (60s) | Timeout máximo por tentativa individual. Se o provider pendurar, a chamada é abortada e retry entra. Em streaming, aplica só à conexão inicial. |
+| `JitterRatio` | `0.0` | `0.1` | Jitter aleatório sobre o delay de backoff (`delay + rand(0, delay * ratio)`) para evitar thundering herd em recovery. |
+
+Ver `docs/agentes.md#91-retryingchatclient` para detalhes. Tag nova `timeout_triggered` no counter
+`LlmRetries` permite distinguir retries por timeout vs por erro HTTP no Grafana/OTel.
+
 ---
 
 ## Estendendo a plataforma
