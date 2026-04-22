@@ -23,3 +23,7 @@ appsettings.Development.json
 
 # Backups
 backups/
+
+# Load test artifacts
+scripts/load/last-report.html
+
