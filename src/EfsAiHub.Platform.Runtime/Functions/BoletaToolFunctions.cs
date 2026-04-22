@@ -24,10 +24,10 @@ public class BoletaToolFunctions(IHttpClientFactory httpClientFactory, ILogger<B
         return Task.FromResult(now.ToString("yyyy-MM-ddTHH:mm:ss"));
     }
 
-    // ── buscar_ativo ─────────────────────────────────────────────────────────
+    // ── search_asset ─────────────────────────────────────────────────────────
 
     [Description("Busca ativos financeiros por ticker, nome, apelido, setor ou linguagem natural de trading. Retorna até top_k resultados ordenados por relevância e liquidez.")]
-    public async Task<string> BuscarAtivo(
+    public async Task<string> SearchAsset(
         [Description("Query de busca: ticker, nome, apelido, setor ou linguagem natural (ex: 'Petrobras', 'PETR4', 'bancos', 'petróleo')")]
         string query,
         [Description("Número máximo de resultados (padrão: 3)")]
@@ -54,15 +54,15 @@ public class BoletaToolFunctions(IHttpClientFactory httpClientFactory, ILogger<B
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "BuscarAtivo falhou para ticker '{Ticker}'.", ticker);
+            logger.LogWarning(ex, "SearchAsset falhou para ticker '{Ticker}'.", ticker);
             return $"[{{\"found\":false,\"ticker\":\"{ticker}\",\"message\":\"Erro ao buscar ativo: {ex.Message}\"}}]";
         }
     }
 
-    // ── ObterPosicaoCliente ───────────────────────────────────────────────────
+    // ── get_asset_position ────────────────────────────────────────────────────
 
     [Description("Consulta a posição atual do cliente em um ativo específico. Retorna ticker, totalQuantity e financialVolume (BRL).")]
-    public async Task<string> ObterPosicaoCliente(
+    public async Task<string> GetAssetPosition(
         [Description("Conta operacional do cliente")]
         string conta,
         [Description("Ticker canônico do ativo (ex: PETR4)")]
@@ -91,7 +91,7 @@ public class BoletaToolFunctions(IHttpClientFactory httpClientFactory, ILogger<B
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "ObterPosicaoCliente falhou para conta '{Conta}' ticker '{Ticker}'.", conta, ticker);
+            logger.LogWarning(ex, "GetAssetPosition falhou para conta '{Conta}' ticker '{Ticker}'.", conta, ticker);
             return $"[{{\"ticker\":\"{ticker.ToUpper()}\",\"totalQuantity\":0,\"financialVolume\":0.0,\"message\":\"Erro ao obter posição: {ex.Message}\"}}]";
         }
     }

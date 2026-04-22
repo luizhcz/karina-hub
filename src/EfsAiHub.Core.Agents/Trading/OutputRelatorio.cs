@@ -13,7 +13,7 @@ public class OutputRelatorio
     [JsonPropertyName("message")]
     public required string Message { get; set; }
 
-    [Description("Lista de posições do cliente obtidas via ObterPosicaoCliente.")]
+    [Description("Lista de posições do cliente obtidas via get_asset_position.")]
     [JsonPropertyName("posicoes")]
     public required List<PosicaoCliente> Posicoes { get; set; }
 

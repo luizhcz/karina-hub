@@ -9,10 +9,10 @@ namespace EfsAiHub.Platform.Runtime.Functions;
 /// </summary>
 public static class ApexHandoffFunctions
 {
-    // ── ConsultarCarteira ─────────────────────────────────────────────────────
+    // ── get_portfolio ─────────────────────────────────────────────────────────
 
     [Description("Consulta a carteira completa do cliente. Retorna posição de todos os ativos com valor financeiro e variação no ano.")]
-    public static Task<string> ConsultarCarteira(
+    public static Task<string> GetPortfolio(
         [Description("Número da conta do cliente. Se não souber, use 'demo'.")]
         string conta = "demo")
     {
@@ -37,10 +37,10 @@ public static class ApexHandoffFunctions
         return Task.FromResult(JsonSerializer.Serialize(portfolio));
     }
 
-    // ── ExecutarResgate ───────────────────────────────────────────────────────
+    // ── redeem_asset ──────────────────────────────────────────────────────────
 
     [Description("Executa resgate de ativo financeiro. REQUER APROVAÇÃO DO CLIENTE antes de executar. Retorna confirmação com número de referência e prazo de liquidação.")]
-    public static Task<string> ExecutarResgate(
+    public static Task<string> RedeemAsset(
         [Description("Número da conta do cliente")]
         string conta,
         [Description("Nome ou ticker do ativo a resgatar (ex: 'TESOURO IPCA+ 2029', 'KNCR11', 'CDB Bradesco 120% CDI')")]
@@ -62,10 +62,10 @@ public static class ApexHandoffFunctions
         return Task.FromResult(JsonSerializer.Serialize(resultado));
     }
 
-    // ── ExecutarAplicacao ─────────────────────────────────────────────────────
+    // ── invest_asset ──────────────────────────────────────────────────────────
 
     [Description("Executa aplicação em ativo financeiro. REQUER APROVAÇÃO DO CLIENTE antes de executar. Retorna confirmação com número de referência e prazo de liquidação.")]
-    public static Task<string> ExecutarAplicacao(
+    public static Task<string> InvestAsset(
         [Description("Número da conta do cliente")]
         string conta,
         [Description("Nome ou ticker do ativo alvo (ex: 'TESOURO SELIC 2029', 'KNCR11', 'CDB Bradesco 120% CDI')")]
@@ -87,10 +87,10 @@ public static class ApexHandoffFunctions
         return Task.FromResult(JsonSerializer.Serialize(resultado));
     }
 
-    // ── CalcularIrResgate ─────────────────────────────────────────────────────
+    // ── calculate_asset_redemption_tax ────────────────────────────────────────
 
     [Description("Calcula o IR estimado de um resgate de renda fixa pela tabela regressiva (Lei 11.033/2004). Retorna alíquota, IR em reais e valor líquido estimado.")]
-    public static Task<string> CalcularIrResgate(
+    public static Task<string> CalculateAssetRedemptionTax(
         [Description("Tipo ou nome do ativo (ex: 'Tesouro IPCA+', 'CDB', 'LCI', 'LCA', 'Debênture Incentivada')")]
         string ativo,
         [Description("Prazo da aplicação em dias corridos (ex: 730 para 2 anos)")]

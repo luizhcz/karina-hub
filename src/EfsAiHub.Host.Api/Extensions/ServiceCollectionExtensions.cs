@@ -68,14 +68,14 @@ public static class ServiceCollectionExtensions
             registry.Register("search_web", AIFunctionFactory.Create(WebSearchFunctions.SearchWeb));
 
             var boleta = sp.GetRequiredService<BoletaToolFunctions>();
-            registry.Register("buscar_ativo", AIFunctionFactory.Create(boleta.BuscarAtivo));
-            registry.Register("ObterPosicaoCliente", AIFunctionFactory.Create(boleta.ObterPosicaoCliente));
+            registry.Register("search_asset", AIFunctionFactory.Create(boleta.SearchAsset));
+            registry.Register("get_asset_position", AIFunctionFactory.Create(boleta.GetAssetPosition));
             registry.Register("SendOrder", AIFunctionFactory.Create(boleta.SendOrder));
 
-            registry.Register("ConsultarCarteira", AIFunctionFactory.Create(ApexHandoffFunctions.ConsultarCarteira));
-            registry.Register("ExecutarResgate", AIFunctionFactory.Create(ApexHandoffFunctions.ExecutarResgate));
-            registry.Register("ExecutarAplicacao", AIFunctionFactory.Create(ApexHandoffFunctions.ExecutarAplicacao));
-            registry.Register("CalcularIrResgate", AIFunctionFactory.Create(ApexHandoffFunctions.CalcularIrResgate));
+            registry.Register("get_portfolio", AIFunctionFactory.Create(ApexHandoffFunctions.GetPortfolio));
+            registry.Register("redeem_asset", AIFunctionFactory.Create(ApexHandoffFunctions.RedeemAsset));
+            registry.Register("invest_asset", AIFunctionFactory.Create(ApexHandoffFunctions.InvestAsset));
+            registry.Register("calculate_asset_redemption_tax", AIFunctionFactory.Create(ApexHandoffFunctions.CalculateAssetRedemptionTax));
 
             return registry;
         });
@@ -100,8 +100,8 @@ public static class ServiceCollectionExtensions
 
             registry.Register("search_single", (input, ct) => WebSearchBatchFunctions.SearchSingle(input, ct));
 
-            registry.Register("atendimento_pre_processor", (input, ct) => AtendimentoPreProcessor.EnrichInput(input, ct));
-            registry.Register("atendimento_post_processor", (input, ct) => AtendimentoPostProcessor.ValidateAndEnrich(input, ct));
+            registry.Register("service_pre_processor", (input, ct) => ServicePreProcessor.EnrichInput(input, ct));
+            registry.Register("service_post_processor", (input, ct) => ServicePostProcessor.ValidateAndEnrich(input, ct));
 
             return registry;
         });

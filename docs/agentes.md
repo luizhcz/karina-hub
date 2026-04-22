@@ -105,7 +105,7 @@ public class AgentDefinition : IProjectScoped
 | Propriedade | Tipo | Descrição |
 |-------------|------|-----------|
 | `Type` | string (required) | `function` \| `mcp` \| `code_interpreter` \| `file_search` \| `web_search` |
-| `Name` | string? | Nome da função (obrigatório para `function`) |
+| `Name` | string? | Nome da função (obrigatório para `function`) — convenção `snake_case` em inglês; descrição em pt-BR. Ver §7 |
 | `RequiresApproval` | bool | Declarado para HITL per-tool (Phase futura — não enforced atualmente) |
 | `FingerprintHash` | string? | SHA-256 do schema da tool (versionamento imutável) |
 | `McpServerId` | string? | **Preferido** para `type=mcp` — aponta para registro em [`/mcp-servers`](./mcp.md). O runtime resolve `ServerLabel`/`ServerUrl`/`AllowedTools`/`Headers` via `IMcpServerRepository`. |
@@ -313,6 +313,20 @@ public class Skill : IProjectScoped
 | `code_interpreter` | Server-side | Azure Foundry |
 | `file_search` | Server-side | Azure Foundry |
 | `web_search` | Server-side | Azure Foundry |
+
+### Convenção de nomenclatura
+
+Nomes de tools e code executors devem ser em **inglês (`snake_case`)** — consistente
+com o padrão da OpenAI/Azure e com a expectativa do LLM (ele pensa em inglês antes de
+traduzir para o idioma do usuário). As **descrições** (via atributo `[Description]`)
+permanecem em **português**, que é o idioma dos prompts e dos usuários da plataforma.
+
+Function tools atuais: `search_asset`, `get_asset_position`, `get_portfolio`,
+`redeem_asset`, `invest_asset`, `calculate_asset_redemption_tax`, `SendOrder`,
+`search_web`, `confirm_boleta`, etc.  Code executors: `service_pre_processor`,
+`service_post_processor`, `document_intelligence`, `pix_validate`, etc.
+
+Lista completa em `/tools` na UI (com "Usado por N agents" em cada linha).
 
 ### MCP Servers Registry
 

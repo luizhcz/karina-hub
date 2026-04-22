@@ -43,6 +43,7 @@ public class MyDomainFunctions
 - Return type must be `string` or `Task<string>`
 - Use `[Description]` on the method AND on every parameter — this becomes the LLM prompt
 - Keep descriptions objective; the LLM uses them to decide when and how to call the tool
+- **Naming:** the method name AND the registered name must be in **English, `snake_case`** (ex: `search_asset`, `get_asset_position`, `calculate_tax`). Descriptions remain in **Portuguese** — that's the user-facing language. Consistency with OpenAI/Azure conventions keeps the LLM on the happy path.
 
 ### Step 2 — Register it in Program.cs
 

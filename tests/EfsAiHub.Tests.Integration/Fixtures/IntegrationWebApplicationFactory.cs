@@ -113,16 +113,16 @@ public sealed class IntegrationWebApplicationFactory : WebApplicationFactory<Pro
             {
                 var registry = new FunctionToolRegistry();
 
-                registry.Register("buscar_ativo",
+                registry.Register("search_asset",
                     AIFunctionFactory.Create(
                         (Func<string, int, Task<string>>)((q, _) => Task.FromResult(
                             """[{"ticker":"PETR4","name":"Petrobras PN","exchange":"BVMF"}]""")),
-                        new AIFunctionFactoryOptions { Name = "buscar_ativo" }));
+                        new AIFunctionFactoryOptions { Name = "search_asset" }));
 
-                registry.Register("ObterPosicaoCliente",
+                registry.Register("get_asset_position",
                     AIFunctionFactory.Create(
                         (Func<string, string, Task<string>>)((accountId, ticker) => Task.FromResult("[]")),
-                        new AIFunctionFactoryOptions { Name = "ObterPosicaoCliente" }));
+                        new AIFunctionFactoryOptions { Name = "get_asset_position" }));
 
                 registry.Register("SendOrder",
                     AIFunctionFactory.Create(

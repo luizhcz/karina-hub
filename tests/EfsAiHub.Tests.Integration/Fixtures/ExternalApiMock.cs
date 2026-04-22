@@ -6,7 +6,7 @@ namespace EfsAiHub.Tests.Integration.Fixtures;
 
 /// <summary>
 /// WireMock server simulating the external financial API
-/// (buscar_ativo, ObterPosicaoCliente and /ativos endpoints).
+/// (search_asset, get_asset_position and /ativos endpoints).
 /// </summary>
 public sealed class ExternalApiMock : IDisposable
 {

@@ -11,7 +11,7 @@ public class AgentVersionSnapshotTests
         Instructions = "Você é um assistente de investimentos.",
         Tools =
         [
-            new AgentToolDefinition { Type = "function", Name = "buscar_ativo" }
+            new AgentToolDefinition { Type = "function", Name = "search_asset" }
         ],
     };
 
@@ -44,7 +44,7 @@ public class AgentVersionSnapshotTests
         var version = AgentVersion.FromDefinition(def, revision: 1, promptContent: null, promptVersionId: null);
 
         version.ToolFingerprints.Should().HaveCount(1);
-        version.ToolFingerprints[0].Name.Should().Be("buscar_ativo");
+        version.ToolFingerprints[0].Name.Should().Be("search_asset");
     }
 
     [Fact]
