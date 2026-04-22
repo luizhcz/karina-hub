@@ -45,7 +45,7 @@ function ResolveModal({ interaction, onClose, onResolved }: ResolveModalProps) {
     resolveInteraction.mutate(
       {
         id: interaction.interactionId,
-        body: { response: response.trim(), approved },
+        body: { resolution: response.trim(), approved },
       },
       {
         onSuccess: () => {
@@ -231,7 +231,7 @@ export function HitlPendingPage() {
     resolveInteraction.mutate(
       {
         id: cancelTarget.interactionId,
-        body: { response: 'Cancelado pelo operador', approved: false },
+        body: { resolution: 'Cancelado pelo operador', approved: false },
       },
       {
         onSuccess: () => {

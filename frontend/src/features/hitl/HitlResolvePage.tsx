@@ -45,7 +45,7 @@ export function HitlResolvePage() {
     resolveInteraction.mutate(
       {
         id,
-        body: { response: response.trim(), approved },
+        body: { resolution: response.trim(), approved },
       },
       {
         onSuccess: () => {
