@@ -10,12 +10,13 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-efs_ai_hub}
       POSTGRES_USER: ${POSTGRES_USER:-efs_ai_hub}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    # max_connections=300 necessário: pools do backend somam ~570 (general=500, sse=50, reporting=20)
-    # e o default de 100 estoura sob carga (30 streams SSE + workflows concorrentes → PostgresException 53300)
+    # max_connections=500 acomoda load tests 500-1000 VUs (pools somam 380: general=350
+    # + sse=10 + reporting=20, com folga pra superuser/admin queries). Antes default=100
+    # estourava com 30 streams SSE sob PostgresException 53300 "too many clients".
     command:
       - postgres
       - -c
-      - max_connections=300
+      - max_connections=500
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
