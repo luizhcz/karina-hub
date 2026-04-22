@@ -1,11 +1,9 @@
-using EfsAiHub.Core.Abstractions.Persistence;
-
 namespace EfsAiHub.Core.Abstractions.Conversations;
 
 /// <summary>
 /// Thread de chat entre um usuário e um workflow conversacional.
 /// </summary>
-public class ConversationSession : IProjectScoped
+public class ConversationSession
 {
     public string ProjectId { get; init; } = "default";
     public required string ConversationId { get; init; }

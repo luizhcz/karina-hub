@@ -74,7 +74,7 @@ public class WorkflowRunnerService
         EfsAiHub.Core.Agents.Execution.AccountGuardMode guardMode,
         IReadOnlyDictionary<string, string>? agentNames,
         OrchestrationMode orchestrationMode,
-        List<EfsAiHub.Core.Agents.Enrichment.EnrichmentRule>? enrichmentRules,
+        IReadOnlyList<EfsAiHub.Core.Agents.Enrichment.EnrichmentRule>? enrichmentRules,
         CancellationToken ct)
     {
         using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
@@ -162,7 +162,7 @@ public class WorkflowRunnerService
             AgentVersions: new System.Collections.Concurrent.ConcurrentDictionary<string, string>(),
             UpdateSharedState: updateSharedState,
             ConversationId: conversationId,
-            EnrichmentRules: enrichmentRules?.AsReadOnly());
+            EnrichmentRules: enrichmentRules);
 
         try
         {

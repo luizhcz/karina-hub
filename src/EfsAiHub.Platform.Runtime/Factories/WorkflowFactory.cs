@@ -407,7 +407,7 @@ public partial class WorkflowFactory : IWorkflowFactory
     /// Os bridge nodes são adicionados ao bindingMap para que sejam registrados no builder.
     /// </summary>
     private List<WorkflowEdge> InjectInputSourceBridges(
-        List<WorkflowEdge> edges,
+        IReadOnlyList<WorkflowEdge> edges,
         Dictionary<string, ExecutorBinding> bindingMap,
         string workflowId)
     {

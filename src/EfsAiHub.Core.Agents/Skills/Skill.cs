@@ -2,7 +2,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using EfsAiHub.Core.Agents;
-using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Core.Agents.Skills;
 
@@ -14,7 +13,7 @@ namespace EfsAiHub.Core.Agents.Skills;
 /// Regra: Skill contém AgentToolDefinition (reuso do shape), NÃO duplica impl de tool.
 /// O registry global resolve a implementação via <see cref="Application.Interfaces.IFunctionToolRegistry"/>.
 /// </summary>
-public sealed class Skill : IProjectScoped
+public sealed class Skill
 {
     public required string Id { get; init; }
     public required string Name { get; init; }

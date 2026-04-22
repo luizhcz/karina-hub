@@ -237,22 +237,21 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
             ?? throw new KeyNotFoundException($"Workflow '{sourceWorkflowId}' não encontrado.");
 
         // Gera novo ID; atribui ao projeto atual; visibilidade "project" por padrão.
-        var cloned = new WorkflowDefinition
-        {
-            Id = newId ?? $"{source.Id}-clone-{Guid.NewGuid().ToString("N")[..8]}",
-            Name = $"{source.Name} (clone)",
-            Description = source.Description,
-            Version = source.Version,
-            OrchestrationMode = source.OrchestrationMode,
-            Agents = source.Agents,
-            Executors = source.Executors,
-            Edges = source.Edges,
-            RoutingRules = source.RoutingRules,
-            Configuration = source.Configuration,
-            Metadata = new Dictionary<string, string>(source.Metadata),
-            Visibility = "project",
-            ProjectId = _projectAccessor.Current.ProjectId
-        };
+        // Create() valida invariantes — lança DomainException se o source estiver inconsistente.
+        var cloned = WorkflowDefinition.Create(
+            id: newId ?? $"{source.Id}-clone-{Guid.NewGuid().ToString("N")[..8]}",
+            name: $"{source.Name} (clone)",
+            orchestrationMode: source.OrchestrationMode,
+            agents: source.Agents,
+            edges: source.Edges,
+            executors: source.Executors,
+            routingRules: source.RoutingRules,
+            configuration: source.Configuration,
+            metadata: new Dictionary<string, string>(source.Metadata),
+            projectId: _projectAccessor.Current.ProjectId,
+            visibility: "project",
+            description: source.Description,
+            version: source.Version);
 
         var (isValid, errors) = await ValidateAsync(cloned, ct);
         if (!isValid)

@@ -1,10 +1,10 @@
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Exceptions;
 using EfsAiHub.Core.Agents.Skills;
-using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Core.Agents;
 
-public class AgentDefinition : IProjectScoped
+public class AgentDefinition
 {
     public string ProjectId { get; set; } = "default";
     public required string Id { get; init; }
@@ -19,9 +19,9 @@ public class AgentDefinition : IProjectScoped
     public AgentProviderConfig Provider { get; init; } = new();
 
     public string? Instructions { get; init; }
-    public List<AgentToolDefinition> Tools { get; init; } = [];
+    public IReadOnlyList<AgentToolDefinition> Tools { get; init; } = [];
     public AgentStructuredOutputDefinition? StructuredOutput { get; init; }
-    public List<AgentMiddlewareConfig> Middlewares { get; init; } = [];
+    public IReadOnlyList<AgentMiddlewareConfig> Middlewares { get; init; } = [];
 
     /// <summary>
     /// Item 9 — provider de fallback para circuit breaker. Null = sem failover (throw CircuitOpenException).
@@ -40,11 +40,71 @@ public class AgentDefinition : IProjectScoped
     /// Resolvidas pelo AgentFactory antes de BuildAgentOptions: tools mescladas às tools flat
     /// existentes e addenda concatenados ao prompt final.
     /// </summary>
-    public List<SkillRef> SkillRefs { get; init; } = [];
+    public IReadOnlyList<SkillRef> SkillRefs { get; init; } = [];
 
-    public Dictionary<string, string> Metadata { get; init; } = [];
+    public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Factory method validante. Única forma correta de construir em código imperativo.
+    /// Para deserialização, use <c>new AgentDefinition { ... }</c> + <see cref="EnsureInvariants"/>.
+    /// </summary>
+    /// <exception cref="DomainException">Se alguma invariante for violada.</exception>
+    public static AgentDefinition Create(
+        string id,
+        string name,
+        AgentModelConfig model,
+        string? instructions = null,
+        string? description = null,
+        AgentProviderConfig? provider = null,
+        IReadOnlyList<AgentToolDefinition>? tools = null,
+        IReadOnlyList<AgentMiddlewareConfig>? middlewares = null,
+        IReadOnlyList<SkillRef>? skillRefs = null,
+        AgentStructuredOutputDefinition? structuredOutput = null,
+        AgentProviderConfig? fallbackProvider = null,
+        ResiliencePolicy? resilience = null,
+        AgentCostBudget? costBudget = null,
+        IReadOnlyDictionary<string, string>? metadata = null,
+        string projectId = "default")
+    {
+        var agent = new AgentDefinition
+        {
+            Id = id,
+            Name = name,
+            Model = model,
+            Instructions = instructions,
+            Description = description,
+            Provider = provider ?? new(),
+            Tools = tools ?? [],
+            Middlewares = middlewares ?? [],
+            SkillRefs = skillRefs ?? [],
+            StructuredOutput = structuredOutput,
+            FallbackProvider = fallbackProvider,
+            Resilience = resilience,
+            CostBudget = costBudget,
+            Metadata = metadata ?? new Dictionary<string, string>(),
+            ProjectId = projectId
+        };
+        agent.EnsureInvariants();
+        return agent;
+    }
+
+    /// <summary>
+    /// Valida invariantes e lança <see cref="DomainException"/> se violadas. Idempotente.
+    /// </summary>
+    /// <exception cref="DomainException">Se alguma invariante for violada.</exception>
+    public void EnsureInvariants()
+    {
+        if (string.IsNullOrWhiteSpace(Id))
+            throw new DomainException("AgentDefinition.Id é obrigatório.");
+        if (string.IsNullOrWhiteSpace(Name))
+            throw new DomainException("AgentDefinition.Name é obrigatório.");
+        if (Model is null || string.IsNullOrWhiteSpace(Model.DeploymentName))
+            throw new DomainException("AgentDefinition.Model.DeploymentName é obrigatório.");
+        if (Model.Temperature is < 0 or > 2)
+            throw new DomainException("AgentDefinition.Model.Temperature deve estar em [0, 2] quando presente.");
+    }
 }
 
 public class AgentProviderConfig

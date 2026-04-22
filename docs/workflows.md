@@ -46,23 +46,28 @@ src/EfsAiHub.Core.Orchestration/Workflows/WorkflowDefinition.cs
 ```
 
 ```csharp
-public class WorkflowDefinition : IProjectScoped
+public class WorkflowDefinition
 {
     public string ProjectId { get; set; } = "default";
     public required string Id { get; init; }
     public required string Name { get; init; }
     public string? Description { get; init; }
-    public string Version { get; set; } = "1.0.0";
+    public string Version { get; init; } = "1.0.0";
     public required OrchestrationMode OrchestrationMode { get; init; }
-    public required List<WorkflowAgentReference> Agents { get; init; }
-    public List<WorkflowExecutorStep> Executors { get; init; } = [];
-    public List<WorkflowEdge> Edges { get; init; } = [];
-    public List<RoutingRule> RoutingRules { get; init; } = [];
+    public required IReadOnlyList<WorkflowAgentReference> Agents { get; init; }
+    public IReadOnlyList<WorkflowExecutorStep> Executors { get; init; } = [];
+    public IReadOnlyList<WorkflowEdge> Edges { get; init; } = [];
+    public IReadOnlyList<RoutingRule> RoutingRules { get; init; } = [];
     public WorkflowConfiguration Configuration { get; init; } = new();
-    public Dictionary<string, string> Metadata { get; init; } = [];
-    public string Visibility { get; set; } = "project";
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
+    public string Visibility { get; init; } = "project";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    /// Factory validante — lança DomainException se invariantes forem violadas.
+    public static WorkflowDefinition Create(/* parâmetros nomeados */ );
+    /// Revalidação explícita — idempotente; callers de persistência chamam após deserialize.
+    public void EnsureInvariants();
 }
 ```
 
@@ -70,10 +75,29 @@ public class WorkflowDefinition : IProjectScoped
 
 | Princípio | Como se aplica |
 |-----------|---------------|
-| **IProjectScoped** | Todo workflow pertence a um projeto; query filters isolam dados |
+| **Isolamento por projeto** | Todo workflow tem `ProjectId`; query filters no DbContext isolam por projeto |
 | **Composabilidade** | 5 modos de orquestração configuráveis sem código |
 | **Declarativo** | HITL, budget, routing, enrichment — tudo via JSON, não deploy |
 | **Versionamento** | Append-only snapshots com ContentHash SHA-256 |
+| **Invariantes protegidas** | `Create()` valida no construtor; deserialize pode chamar `EnsureInvariants()` |
+
+### Construção validada
+
+Duas entradas para construir um `WorkflowDefinition`:
+
+1. **Código imperativo** (controllers, application services, clones) — use `WorkflowDefinition.Create(...)`. O factory lança `DomainException` (mapeada para `HTTP 400`) se alguma regra de negócio for violada.
+2. **Deserialização JSON** (repositórios lendo do Postgres) — use `JsonSerializer.Deserialize<WorkflowDefinition>(json, JsonDefaults.Domain)` normalmente. Chame `EnsureInvariants()` explicitamente após o mapeamento se quiser revalidar.
+
+**Invariantes atualmente protegidas:**
+
+- `Id` e `Name` não podem ser vazios.
+- Modos `Sequential`, `Concurrent`, `Handoff`, `GroupChat` exigem `Agents.Count >= 1`.
+- Modo `Graph` exige `Edges.Count >= 1`.
+- Em modo `Graph`, cada `Edge.From`/`Edge.To` deve referenciar um `AgentId` ou `Executor.Id` existente na definição.
+
+Analogamente:
+- `Project.Create(...)` valida `Id`/`TenantId`/`Name` não-vazios + `Budget` não-negativo.
+- `AgentDefinition.Create(...)` valida `Id`/`Name`/`Model.DeploymentName` não-vazios + `Temperature` em `[0, 2]` quando presente.
 
 ---
 

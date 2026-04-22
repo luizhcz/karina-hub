@@ -1,10 +1,10 @@
+using EfsAiHub.Core.Abstractions.Exceptions;
 using EfsAiHub.Core.Agents.Enrichment;
 using EfsAiHub.Core.Orchestration.Enums;
-using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Core.Orchestration.Workflows;
 
-public class WorkflowDefinition : IProjectScoped
+public class WorkflowDefinition
 {
     public string ProjectId { get; set; } = "default";
     public required string Id { get; init; }
@@ -12,24 +12,24 @@ public class WorkflowDefinition : IProjectScoped
     public string? Description { get; init; }
     public string Version { get; init; } = "1.0.0";
     public required OrchestrationMode OrchestrationMode { get; init; }
-    public required List<WorkflowAgentReference> Agents { get; init; }
+    public required IReadOnlyList<WorkflowAgentReference> Agents { get; init; }
 
     /// <summary>
     /// Passos de código puro (sem LLM) para o modo Graph.
     /// Cada item referencia uma função registrada em ICodeExecutorRegistry.
     /// </summary>
-    public List<WorkflowExecutorStep> Executors { get; init; } = [];
+    public IReadOnlyList<WorkflowExecutorStep> Executors { get; init; } = [];
 
-    public List<WorkflowEdge> Edges { get; init; } = [];
+    public IReadOnlyList<WorkflowEdge> Edges { get; init; } = [];
 
     /// <summary>
     /// Fase 7 — Regras de roteamento declarativas consumidas pelo
     /// <c>IEscalationRouter</c> quando um agente emite <c>AgentEscalationSignal</c>.
     /// </summary>
-    public List<RoutingRule> RoutingRules { get; init; } = [];
+    public IReadOnlyList<RoutingRule> RoutingRules { get; init; } = [];
 
     public WorkflowConfiguration Configuration { get; init; } = new();
-    public Dictionary<string, string> Metadata { get; init; } = [];
+    public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
 
     /// <summary>
     /// "project" (default) — visível apenas dentro do projeto atual.
@@ -39,6 +39,92 @@ public class WorkflowDefinition : IProjectScoped
 
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Factory method validante — única forma correta de construir um <see cref="WorkflowDefinition"/>
+    /// com invariantes protegidas em código imperativo (controllers, application services, clones).
+    /// Para deserialização JSON vinda de persistência (repositórios), use
+    /// <c>new WorkflowDefinition { ... }</c> e chame <see cref="EnsureInvariants"/> explicitamente
+    /// após o mapeamento se quiser validar.
+    /// </summary>
+    /// <exception cref="DomainException">Se alguma invariante for violada.</exception>
+    public static WorkflowDefinition Create(
+        string id,
+        string name,
+        OrchestrationMode orchestrationMode,
+        IReadOnlyList<WorkflowAgentReference> agents,
+        IReadOnlyList<WorkflowEdge>? edges = null,
+        IReadOnlyList<WorkflowExecutorStep>? executors = null,
+        IReadOnlyList<RoutingRule>? routingRules = null,
+        WorkflowConfiguration? configuration = null,
+        IReadOnlyDictionary<string, string>? metadata = null,
+        string projectId = "default",
+        string visibility = "project",
+        string? description = null,
+        string version = "1.0.0")
+    {
+        var def = new WorkflowDefinition
+        {
+            Id = id,
+            Name = name,
+            Description = description,
+            Version = version,
+            OrchestrationMode = orchestrationMode,
+            Agents = agents,
+            Edges = edges ?? [],
+            Executors = executors ?? [],
+            RoutingRules = routingRules ?? [],
+            Configuration = configuration ?? new(),
+            Metadata = metadata ?? new Dictionary<string, string>(),
+            Visibility = visibility,
+            ProjectId = projectId
+        };
+        def.EnsureInvariants();
+        return def;
+    }
+
+    /// <summary>
+    /// Valida invariantes do agregado e lança <see cref="DomainException"/> se violadas.
+    /// Idempotente — chamar múltiplas vezes é seguro. Chamado automaticamente por <see cref="Create"/>;
+    /// callers de deserialização podem invocar para revalidar após carregar do banco.
+    /// </summary>
+    /// <exception cref="DomainException">Se alguma invariante for violada.</exception>
+    public void EnsureInvariants()
+    {
+        if (string.IsNullOrWhiteSpace(Id))
+            throw new DomainException("WorkflowDefinition.Id é obrigatório.");
+        if (string.IsNullOrWhiteSpace(Name))
+            throw new DomainException("WorkflowDefinition.Name é obrigatório.");
+
+        // Modos não-Graph exigem ao menos 1 agente
+        if (OrchestrationMode != OrchestrationMode.Graph && Agents.Count == 0)
+            throw new DomainException(
+                $"Modo {OrchestrationMode} exige ao menos um agente em Agents.");
+
+        // Modo Graph exige ao menos 1 edge
+        if (OrchestrationMode == OrchestrationMode.Graph && Edges.Count == 0)
+            throw new DomainException("Modo Graph exige ao menos uma edge em Edges.");
+
+        // Edges do Graph devem referenciar agentes/executores existentes.
+        // Bridges automáticas (__bridge_*__) são injetadas pelo runtime, aqui são só a definição.
+        if (OrchestrationMode == OrchestrationMode.Graph)
+        {
+            var agentIds = new HashSet<string>(Agents.Select(a => a.AgentId), StringComparer.OrdinalIgnoreCase);
+            var execIds = new HashSet<string>(Executors.Select(e => e.Id), StringComparer.OrdinalIgnoreCase);
+            bool Exists(string? id) =>
+                id is not null && (agentIds.Contains(id) || execIds.Contains(id));
+
+            foreach (var edge in Edges)
+            {
+                if (edge.From is { Length: > 0 } from && !Exists(from))
+                    throw new DomainException(
+                        $"Edge referencia node de origem inexistente: '{from}'.");
+                if (edge.To is { Length: > 0 } to && !Exists(to))
+                    throw new DomainException(
+                        $"Edge referencia node de destino inexistente: '{to}'.");
+            }
+        }
+    }
 }
 
 public class WorkflowAgentReference
@@ -181,7 +267,7 @@ public class WorkflowConfiguration
     /// Quando definido, sobrescreve a auto-detecção de end nodes baseada em arestas.
     /// Necessário quando há feedback loops (ex: post-processor → agente em caso de erro).
     /// </summary>
-    public List<string>? OutputNodes { get; init; }
+    public IReadOnlyList<string>? OutputNodes { get; init; }
 
     /// <summary>
     /// Limite de execuções simultâneas para este workflow.
@@ -196,5 +282,5 @@ public class WorkflowConfiguration
     /// Cada regra faz match por <c>response_type</c> e aplica disclaimers determinísticos
     /// e/ou defaults extraídos do contexto. Null = nenhum enrichment configurado.
     /// </summary>
-    public List<EnrichmentRule>? EnrichmentRules { get; init; }
+    public IReadOnlyList<EnrichmentRule>? EnrichmentRules { get; init; }
 }

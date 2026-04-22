@@ -51,18 +51,18 @@ public class ProjectsController : ControllerBase
             return BadRequest("Name is required.");
 
         var tenantId = _tenantAccessor.Current.TenantId;
-        var project = new Project
-        {
-            Id = Guid.NewGuid().ToString("N"),
-            Name = request.Name,
-            TenantId = tenantId,
-            Description = request.Description,
-            Settings = MapSettings(request.Settings),
-            LlmConfig = MapLlmConfig(request.LlmConfig),
-            Budget = request.Budget.HasValue
+        // Create() valida invariantes de domínio — lança DomainException (mapeado para 400)
+        // se Id/TenantId/Name vazios ou budget com valores negativos.
+        var project = Project.Create(
+            id: Guid.NewGuid().ToString("N"),
+            name: request.Name,
+            tenantId: tenantId,
+            description: request.Description,
+            settings: MapSettings(request.Settings),
+            llmConfig: MapLlmConfig(request.LlmConfig),
+            budget: request.Budget.HasValue
                 ? JsonDocument.Parse(request.Budget.Value.GetRawText())
-                : null
-        };
+                : null);
 
         await _repo.CreateAsync(project, ct);
         return CreatedAtAction(nameof(GetById), new { id = project.Id }, ProjectResponse.From(project));

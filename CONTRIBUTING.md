@@ -287,6 +287,30 @@ See `src/EfsAiHub.Host.Api/AtivoExecutorSetup.cs` for a real example of this pat
 
 ---
 
+## Domain entities — `Create()` + `EnsureInvariants()`
+
+Entities in the core domain (`WorkflowDefinition`, `Project`, `AgentDefinition`) protect their invariants through two entry points:
+
+1. **Imperative construction** (controllers, application services, clones): always use `Create(...)`. It runs `EnsureInvariants()` automatically and throws `DomainException` if any rule is violated.
+2. **Deserialization from storage** (repositories reading from Postgres JSONB): use `JsonSerializer.Deserialize<T>(json, JsonDefaults.Domain)` as usual. Then call `entity.EnsureInvariants()` explicitly if you want to revalidate the stored state.
+
+`DomainException` is mapped to HTTP 400 by `GlobalExceptionMiddleware` — client receives a clean message when a rule is violated at the API boundary.
+
+Example:
+```csharp
+// Controller receiving a new workflow
+var wf = WorkflowDefinition.Create(
+    id: request.Id,
+    name: request.Name,
+    orchestrationMode: request.Mode,
+    agents: request.Agents,
+    edges: request.Edges);   // throws DomainException → 400 if invalid
+```
+
+Collections on these entities are exposed as `IReadOnlyList<T>` / `IReadOnlyDictionary<K,V>` to prevent post-construction mutation. If you need to modify, construct a new entity via `Create`.
+
+---
+
 ## Workflow event handlers (internal extension point)
 
 Some framework events (from `Microsoft.Agents.AI.Workflows`) are routed through `WorkflowRunnerService.HandleEventAsync`. When a specific event type needs non-trivial logic, extract it into a dedicated handler class in `src/EfsAiHub.Host.Worker/Services/EventHandlers/`.

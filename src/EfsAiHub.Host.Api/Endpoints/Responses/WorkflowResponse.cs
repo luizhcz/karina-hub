@@ -9,11 +9,11 @@ public class WorkflowResponse
     public string? Description { get; init; }
     public required string Version { get; init; }
     public required OrchestrationMode OrchestrationMode { get; init; }
-    public required List<WorkflowAgentReference> Agents { get; init; }
-    public List<WorkflowExecutorStep> Executors { get; init; } = [];
-    public List<WorkflowEdge> Edges { get; init; } = [];
+    public required IReadOnlyList<WorkflowAgentReference> Agents { get; init; }
+    public IReadOnlyList<WorkflowExecutorStep> Executors { get; init; } = [];
+    public IReadOnlyList<WorkflowEdge> Edges { get; init; } = [];
     public WorkflowConfiguration Configuration { get; init; } = new();
-    public Dictionary<string, string> Metadata { get; init; } = [];
+    public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 

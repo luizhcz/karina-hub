@@ -11,9 +11,9 @@ public class AgentResponse
     public required AgentModelConfig Model { get; init; }
     public AgentProviderConfig Provider { get; init; } = new();
     public string? Instructions { get; init; }
-    public List<AgentToolDefinition> Tools { get; init; } = [];
+    public IReadOnlyList<AgentToolDefinition> Tools { get; init; } = [];
     public AgentStructuredOutputDefinition? StructuredOutput { get; init; }
-    public List<AgentMiddlewareConfig> Middlewares { get; init; } = [];
+    public IReadOnlyList<AgentMiddlewareConfig> Middlewares { get; init; } = [];
 
     /// <summary>Fase 2.</summary>
     public ResiliencePolicy? Resilience { get; init; }
@@ -22,9 +22,9 @@ public class AgentResponse
     public AgentCostBudget? CostBudget { get; init; }
 
     /// <summary>Fase 3.</summary>
-    public List<SkillRef>? SkillRefs { get; init; }
+    public IReadOnlyList<SkillRef>? SkillRefs { get; init; }
 
-    public Dictionary<string, string> Metadata { get; init; } = [];
+    public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 

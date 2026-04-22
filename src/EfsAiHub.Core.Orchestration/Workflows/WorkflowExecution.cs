@@ -4,7 +4,7 @@ using EfsAiHub.Core.Orchestration.Enums;
 
 namespace EfsAiHub.Core.Orchestration.Workflows;
 
-public class WorkflowExecution : EfsAiHub.Core.Abstractions.Persistence.IProjectScoped
+public class WorkflowExecution
 {
     public required string ExecutionId { get; init; }
     public required string WorkflowId { get; init; }
