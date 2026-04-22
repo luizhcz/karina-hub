@@ -30,7 +30,7 @@ const adminItems: NavItem[] = [
   { label: 'Projetos', path: '/projects', icon: '📁' },
   { label: 'Config', path: '/config', icon: '⚙' },
   { label: 'Audit Admin', path: '/audit/admin', icon: '🛡' },
-  { label: 'Background', path: '/background', icon: '⏳' },
+  { label: 'Background Svc', path: '/background', icon: '⏳' },
 ]
 
 function NavGroup({ title, items, collapsed }: { title: string; items: NavItem[]; collapsed: boolean }) {

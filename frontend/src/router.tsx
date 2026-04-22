@@ -65,7 +65,6 @@ import { ProjectEditPage } from './features/projects/ProjectEditPage'
 import { ProjectStatsPage } from './features/projects/ProjectStatsPage'
 import { ConfigPage } from './features/config/ConfigPage'
 import { BackgroundJobsPage } from './features/background/BackgroundJobsPage'
-import { NewJobPage } from './features/background/NewJobPage'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -147,7 +146,6 @@ export const router = createBrowserRouter([
       { path: 'projects/:id/stats', element: <ProjectStatsPage /> },
       { path: 'config', element: <ConfigPage /> },
       { path: 'background', element: <BackgroundJobsPage /> },
-      { path: 'background/new', element: <NewJobPage /> },
 
       // 404
           { path: '*', element: <NotFound /> },

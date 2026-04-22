@@ -1,162 +1,75 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router'
 import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '../../shared/data/DataTable'
 import { Card } from '../../shared/ui/Card'
 import { Badge } from '../../shared/ui/Badge'
 import { Button } from '../../shared/ui/Button'
-import { StatusPill } from '../../shared/data/StatusPill'
-import { ConfirmDialog } from '../../shared/ui/ConfirmDialog'
+import { PageLoader } from '../../shared/ui/LoadingSpinner'
+import { ErrorCard } from '../../shared/ui/ErrorCard'
 import { EmptyState } from '../../shared/ui/EmptyState'
-import { formatDuration } from '../../shared/utils/formatters'
+import { useBackgroundServices } from '../../api/backgroundServices'
+import type { BackgroundServiceInfo } from '../../api/backgroundServices'
 
-type JobStatus = 'Pending' | 'Running' | 'Completed' | 'Failed'
-type JobType = 'CleanupOldExecutions' | 'RecalculatePricing' | 'ExportReport' | 'ReindexSearch'
-
-interface BackgroundJob {
-  jobId: string
-  type: JobType
-  status: JobStatus
-  createdAt: string
-  completedAt?: string
-  errorMessage?: string
-  metadata?: Record<string, string>
+// OneTime roda uma vez no startup (ex: DatabaseBootstrap); Continuous é long-running
+// (timer, listener LISTEN/NOTIFY ou channel cleanup). Cor segue a paleta do Badge.
+const LIFECYCLE_COLOR: Record<string, 'green' | 'blue' | 'gray'> = {
+  OneTime: 'blue',
+  Continuous: 'green',
 }
 
-const TYPE_COLORS: Record<JobType, 'blue' | 'purple' | 'green' | 'yellow'> = {
-  CleanupOldExecutions: 'blue',
-  RecalculatePricing: 'purple',
-  ExportReport: 'green',
-  ReindexSearch: 'yellow',
+function formatInterval(seconds?: number): string {
+  if (seconds == null) return '—'
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}min`
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h`
+  return `${Math.round(seconds / 86400)}d`
 }
-
-const INITIAL_JOBS: BackgroundJob[] = [
-  {
-    jobId: crypto.randomUUID(),
-    type: 'CleanupOldExecutions',
-    status: 'Completed',
-    createdAt: new Date(Date.now() - 3600000).toISOString(),
-    completedAt: new Date(Date.now() - 3550000).toISOString(),
-  },
-  {
-    jobId: crypto.randomUUID(),
-    type: 'RecalculatePricing',
-    status: 'Failed',
-    createdAt: new Date(Date.now() - 7200000).toISOString(),
-    completedAt: new Date(Date.now() - 7100000).toISOString(),
-    errorMessage: 'Pricing API unavailable',
-  },
-]
-
-let jobsStore: BackgroundJob[] = INITIAL_JOBS
 
 export function BackgroundJobsPage() {
-  const navigate = useNavigate()
-  const [jobs, setJobs] = useState<BackgroundJob[]>(jobsStore)
-  const [cancelId, setCancelId] = useState<string | null>(null)
-  const [cancelling, setCancelling] = useState(false)
+  const { data, isLoading, error, refetch } = useBackgroundServices()
 
-  const refresh = useCallback(() => {
-    setJobs([...jobsStore])
-  }, [])
+  if (isLoading) return <PageLoader />
+  if (error) return <ErrorCard message="Erro ao carregar background services" onRetry={refetch} />
 
-  useEffect(() => {
-    const hasActive = jobs.some((j) => j.status === 'Running' || j.status === 'Pending')
-    if (!hasActive) return
-    const id = setInterval(refresh, 15000)
-    return () => clearInterval(id)
-  }, [jobs, refresh])
+  const items = data?.items ?? []
 
-  const handleCancel = () => {
-    if (!cancelId) return
-    setCancelling(true)
-    setTimeout(() => {
-      jobsStore = jobsStore.map((j) =>
-        j.jobId === cancelId
-          ? { ...j, status: 'Failed' as JobStatus, completedAt: new Date().toISOString(), errorMessage: 'Cancelado pelo usuário' }
-          : j
-      )
-      setJobs([...jobsStore])
-      setCancelId(null)
-      setCancelling(false)
-    }, 500)
-  }
-
-  const handleRetry = (id: string) => {
-    jobsStore = jobsStore.map((j) =>
-      j.jobId === id ? { ...j, status: 'Pending' as JobStatus, completedAt: undefined, errorMessage: undefined } : j
-    )
-    setJobs([...jobsStore])
-  }
-
-  const columns: ColumnDef<BackgroundJob, unknown>[] = [
+  const columns: ColumnDef<BackgroundServiceInfo, unknown>[] = [
     {
-      accessorKey: 'jobId',
-      header: 'Job ID',
+      accessorKey: 'name',
+      header: 'Nome',
       cell: ({ getValue }) => (
-        <span className="font-mono text-xs text-text-secondary">{String(getValue()).slice(0, 14)}…</span>
+        <span className="font-semibold text-text-primary">{String(getValue())}</span>
       ),
     },
     {
-      accessorKey: 'type',
-      header: 'Tipo',
-      cell: ({ getValue }) => {
-        const v = getValue() as JobType
-        return <Badge variant={TYPE_COLORS[v] ?? 'gray'}>{v}</Badge>
-      },
-    },
-    {
-      accessorKey: 'status',
-      header: 'Status',
-      cell: ({ getValue }) => {
-        const v = getValue() as string
-        return <StatusPill status={v as 'Pending' | 'Running' | 'Completed' | 'Failed'} />
-      },
-    },
-    {
-      accessorKey: 'createdAt',
-      header: 'Criado em',
+      accessorKey: 'description',
+      header: 'Descrição',
       cell: ({ getValue }) => (
-        <span className="text-xs text-text-muted">{new Date(String(getValue())).toLocaleString('pt-BR')}</span>
+        <span className="text-sm text-text-secondary">{(getValue() as string) ?? '—'}</span>
       ),
     },
     {
-      accessorKey: 'completedAt',
-      header: 'Concluído em',
+      accessorKey: 'lifecycle',
+      header: 'Ciclo',
       cell: ({ getValue }) => {
-        const v = getValue() as string | undefined
-        return <span className="text-xs text-text-muted">{v ? new Date(v).toLocaleString('pt-BR') : '—'}</span>
+        const v = String(getValue())
+        return <Badge variant={LIFECYCLE_COLOR[v] ?? 'gray'}>{v}</Badge>
       },
     },
     {
-      id: 'duration',
-      header: 'Duração',
-      cell: ({ row }) => {
-        const start = new Date(row.original.createdAt).getTime()
-        const end = row.original.completedAt ? new Date(row.original.completedAt).getTime() : null
-        return <span className="text-xs text-text-muted">{end ? formatDuration(end - start) : '—'}</span>
-      },
+      accessorKey: 'intervalSeconds',
+      header: 'Intervalo',
+      cell: ({ getValue }) => (
+        <span className="text-xs text-text-muted font-mono">
+          {formatInterval(getValue() as number | undefined)}
+        </span>
+      ),
     },
     {
-      id: 'actions',
-      header: 'Ações',
-      cell: ({ row }) => {
-        const j = row.original
-        return (
-          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-            {(j.status === 'Pending' || j.status === 'Running') && (
-              <Button variant="danger" size="sm" onClick={() => setCancelId(j.jobId)}>
-                Cancelar
-              </Button>
-            )}
-            {j.status === 'Failed' && (
-              <Button variant="secondary" size="sm" onClick={() => handleRetry(j.jobId)}>
-                Retry
-              </Button>
-            )}
-          </div>
-        )
-      },
+      accessorKey: 'typeName',
+      header: 'Classe',
+      cell: ({ getValue }) => (
+        <span className="font-mono text-xs text-text-dimmed">{String(getValue())}</span>
+      ),
     },
   ]
 
@@ -164,63 +77,47 @@ export function BackgroundJobsPage() {
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">Background Jobs</h1>
+          <h1 className="text-2xl font-bold text-text-primary">Background Services</h1>
           <p className="text-sm text-text-muted mt-1">
-            {jobs.filter((j) => j.status === 'Running' || j.status === 'Pending').length} job(s) ativo(s)
-            · auto-refresh a cada 15s quando há jobs ativos
+            IHostedService registrados no <code className="text-xs bg-bg-tertiary px-1 py-0.5 rounded">BackgroundServiceRegistry</code>.
+            Rodam automaticamente no processo backend — leitura apenas, não são disparáveis pela UI.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={refresh}>Atualizar</Button>
-          <Button onClick={() => navigate('/background/new')}>Novo Job</Button>
-        </div>
+        <Button variant="secondary" size="sm" onClick={() => refetch()}>Atualizar</Button>
       </div>
 
       <Card padding={false}>
-        {jobs.length === 0 ? (
+        {items.length === 0 ? (
           <EmptyState
-            title="Nenhum job registrado"
-            description="Crie um job em background para executar tarefas assíncronas."
-            action={<Button onClick={() => navigate('/background/new')}>Novo Job</Button>}
+            title="Nenhum serviço registrado"
+            description="O BackgroundServiceRegistry está vazio. Verifique AddBackgroundServiceRegistry() no startup."
           />
         ) : (
           <DataTable
-            data={jobs}
+            data={items}
             columns={columns}
-            searchPlaceholder="Buscar job..."
+            searchPlaceholder="Buscar serviço..."
           />
         )}
       </Card>
 
-      {jobs.some((j) => j.status === 'Failed' && j.errorMessage) && (
-        <Card title="Erros Recentes">
-          <div className="flex flex-col gap-2">
-            {jobs
-              .filter((j) => j.status === 'Failed' && j.errorMessage)
-              .slice(0, 5)
-              .map((j) => (
-                <div
-                  key={j.jobId}
-                  className="flex items-start gap-3 p-3 bg-red-500/5 border border-red-500/20 rounded-lg"
-                >
-                  <Badge variant="red">{j.type}</Badge>
-                  <p className="text-xs text-red-300 flex-1">{j.errorMessage}</p>
-                </div>
-              ))}
-          </div>
-        </Card>
-      )}
-
-      <ConfirmDialog
-        open={cancelId !== null}
-        onClose={() => setCancelId(null)}
-        onConfirm={handleCancel}
-        title="Cancelar Job"
-        message="Tem certeza que deseja cancelar este job? Tarefas em andamento serão interrompidas."
-        confirmLabel="Cancelar Job"
-        variant="danger"
-        loading={cancelling}
-      />
+      <Card title="Referência">
+        <ul className="text-xs text-text-muted space-y-2 leading-relaxed">
+          <li>
+            <strong className="text-text-secondary">OneTime</strong>: executa uma vez no startup
+            (ex: <code>DatabaseBootstrap</code> limpa execuções órfãs após restart).
+          </li>
+          <li>
+            <strong className="text-text-secondary">Continuous</strong>: long-running — timer periódico
+            (ex: <code>AuditRetention</code> a cada 24h) ou listener reativo
+            (ex: <code>CrossNodeCoordinator</code> via LISTEN/NOTIFY).
+          </li>
+          <li>
+            Observabilidade: métricas de execução (contadores, duração) são emitidas via OpenTelemetry —
+            dashboards de tracing/metrics dão a visão de saúde em tempo real.
+          </li>
+        </ul>
+      </Card>
     </div>
   )
 }
