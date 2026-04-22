@@ -17,6 +17,19 @@ export function getIdentityHeaders(): Record<string, string> {
   return headers
 }
 
+/**
+ * Erro padronizado de chamada à API do backend.
+ *
+ * O backend retorna payload JSON `{ error: "mensagem" }` em erros conhecidos:
+ * - 400 DomainException (invariante de domínio violada) — mensagem técnica da regra
+ * - 402 BudgetExceededException (teto diário atingido)
+ * - 403 DefaultProjectGuard ou permissão
+ * - 404 recurso não encontrado (ou HITL CAS perdido em `/resolve`)
+ * - 409 conflict (ex: versionamento otimista)
+ * - 429 rate limit por projeto
+ *
+ * Em qualquer outro status ou body malformado, `message` vira `HTTP {status}`.
+ */
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -25,6 +38,40 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Status codes em que o backend emite payload `{ error: string }` pelo
+ * `GlobalExceptionMiddleware` ou handlers equivalentes. Safe para tentar `res.clone().json()`.
+ */
+const STATUS_WITH_ERROR_BODY: ReadonlySet<number> = new Set([400, 402, 403, 404, 409, 429])
+
+/**
+ * Tenta extrair `{ error: string }` do body da Response. Nunca throws — retorna o fallback
+ * se o body não for JSON válido ou se o campo não existir.
+ */
+async function extractErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await res.clone().json()) as { error?: unknown; message?: unknown } | null
+    if (body && typeof body === 'object') {
+      if (typeof body.error === 'string' && body.error.length > 0) return body.error
+      if (typeof body.message === 'string' && body.message.length > 0) return body.message
+    }
+    return fallback
+  } catch {
+    return fallback
+  }
+}
+
+/**
+ * Wrapper universal sobre `fetch` que:
+ * - injeta headers de identidade (tenant/project/account) via `getIdentityHeaders()`.
+ * - converte statuses de erro conhecidos em `ApiError` com mensagem legível do backend
+ *   (extraída de `{ error }` ou `{ message }` no body JSON).
+ * - retorna 204 como `undefined`.
+ * - retorna JSON parseado para 2xx.
+ *
+ * Callers de mutation (TanStack Query) recebem `ApiError.message` já com a mensagem real
+ * do backend, prontas para exibir em toast sem tradução adicional.
+ */
 export async function safeFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const identityHeaders = getIdentityHeaders()
   const merged: Record<string, string> = {
@@ -33,15 +80,11 @@ export async function safeFetch<T>(url: string, init?: RequestInit): Promise<T> 
   }
   const res = await fetch(url, { ...init, headers: merged })
   if (!res.ok) {
-    if (res.status === 403) {
-      try {
-        const body = await res.clone().json() as { error?: string }
-        throw new ApiError(403, body.error ?? 'Acesso negado')
-      } catch (e) {
-        if (e instanceof ApiError) throw e
-      }
-    }
-    throw new ApiError(res.status, `HTTP ${res.status}`)
+    const fallback = `HTTP ${res.status}`
+    const message = STATUS_WITH_ERROR_BODY.has(res.status)
+      ? await extractErrorMessage(res, fallback)
+      : fallback
+    throw new ApiError(res.status, message)
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>

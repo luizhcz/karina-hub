@@ -311,6 +311,28 @@ Collections on these entities are exposed as `IReadOnlyList<T>` / `IReadOnlyDict
 
 ---
 
+## Error handling pattern (frontend ↔ backend)
+
+The backend's `GlobalExceptionMiddleware` maps known exceptions to HTTP statuses with a JSON body `{ error: "mensagem" }`:
+
+| Status | Exception | Meaning |
+|---|---|---|
+| 400 | `DomainException` | Invariante de domínio violada (Create() rejeitou) |
+| 400 | `ArgumentException` | Argumento inválido |
+| 402 | `BudgetExceededException` | Teto diário de custo/tokens atingido |
+| 403 | `DefaultProjectGuard` / `AdminGateMiddleware` | Permissão negada |
+| 404 | `KeyNotFoundException` | Recurso não encontrado (ou HITL já resolvido por race) |
+| 429 | `ProjectRateLimitMiddleware` | Rate limit por projeto |
+| 503 | `CircuitOpenException` | Provider LLM indisponível |
+
+The frontend's `safeFetch()` in [frontend/src/api/client.ts](frontend/src/api/client.ts) automatically extracts `{ error }` from any status in `STATUS_WITH_ERROR_BODY` and wraps it in an `ApiError(status, message)`. Callers (TanStack Query mutations) can display `error.message` directly in toasts without translation — the message is already user-facing (when the backend author wrote it that way) or technical (when it's a domain rule violation).
+
+**Contract for new backend endpoints:** when throwing a custom exception that should surface to the user, ensure it's mapped in `GlobalExceptionMiddleware` switch OR returns an `IActionResult` with `{ error: "..." }` body. Never expose stack traces in 5xx responses.
+
+**Contract for new frontend callers:** always use `safeFetch` / `get` / `post` / `put` / `del` from `api/client.ts` — never raw `fetch`. Use `ApiError.status` to differentiate UX for 404 (race), 429 (rate limit) etc.
+
+---
+
 ## Workflow event handlers (internal extension point)
 
 Some framework events (from `Microsoft.Agents.AI.Workflows`) are routed through `WorkflowRunnerService.HandleEventAsync`. When a specific event type needs non-trivial logic, extract it into a dedicated handler class in `src/EfsAiHub.Host.Worker/Services/EventHandlers/`.
