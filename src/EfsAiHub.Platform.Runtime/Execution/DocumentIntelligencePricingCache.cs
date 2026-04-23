@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Events;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Infra.Persistence.Cache;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,18 +31,25 @@ public interface IDocumentIntelligencePricingCache
     Task InvalidateAsync(string? modelId = null, string? provider = null);
 }
 
-public sealed class DocumentIntelligencePricingCache : IDocumentIntelligencePricingCache
+public sealed class DocumentIntelligencePricingCache : IDocumentIntelligencePricingCache, IDisposable
 {
+    /// <summary>Identificador no <see cref="ICacheInvalidationBus"/> (F2).</summary>
+    public const string CacheName = "di-pricing";
+
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan ErrorTtl = TimeSpan.FromSeconds(30);
     private const string RedisKeyPrefix = "di-pricing:";
 
     private readonly IServiceProvider _sp;
     private readonly IEfsRedisCache _redis;
+    private readonly ICacheInvalidationBus _invalidationBus;
     private readonly ILogger<DocumentIntelligencePricingCache> _logger;
 
     private readonly ConcurrentDictionary<string, (DocumentIntelligencePricing? Value, DateTime ExpiresAt)> _local =
         new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly IDisposable _invalidationSubscription;
+    private bool _disposed;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -52,11 +60,26 @@ public sealed class DocumentIntelligencePricingCache : IDocumentIntelligencePric
     public DocumentIntelligencePricingCache(
         IServiceProvider sp,
         IEfsRedisCache redis,
+        ICacheInvalidationBus invalidationBus,
         ILogger<DocumentIntelligencePricingCache> logger)
     {
         _sp = sp;
         _redis = redis;
+        _invalidationBus = invalidationBus;
         _logger = logger;
+
+        _invalidationSubscription = _invalidationBus.Subscribe(CacheName, key =>
+        {
+            _local.TryRemove(key, out _);
+            return Task.CompletedTask;
+        });
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _invalidationSubscription.Dispose();
     }
 
     public async ValueTask<DocumentIntelligencePricing?> GetAsync(
@@ -122,6 +145,7 @@ public sealed class DocumentIntelligencePricingCache : IDocumentIntelligencePric
             _local.TryRemove(key, out _);
             try { await _redis.RemoveAsync($"{RedisKeyPrefix}{key}"); }
             catch (Exception ex) { _logger.LogWarning(ex, "[DocIntelPricingCache] Redis invalidate failed for '{Key}'.", key); }
+            await _invalidationBus.PublishInvalidateAsync(CacheName, key);
         }
         else
         {
@@ -132,6 +156,7 @@ public sealed class DocumentIntelligencePricingCache : IDocumentIntelligencePric
             {
                 try { await _redis.RemoveAsync($"{RedisKeyPrefix}{k}"); }
                 catch (Exception ex) { _logger.LogDebug(ex, "[DocIntelPricingCache] Best-effort Redis remove failed for '{Key}'.", k); }
+                await _invalidationBus.PublishInvalidateAsync(CacheName, k);
             }
         }
     }

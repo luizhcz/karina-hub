@@ -78,6 +78,48 @@ consistência retroativa.
 
 ---
 
+### CACHE-INV-1 — Métricas de invalidação cross-pod
+
+**Origem:** Review F2 (N1).
+
+**Contexto:** `ICacheInvalidationBus` não emite métricas. Sem
+`cache.invalidation.published/received/echo_filtered`, troubleshoot de
+stale cross-pod em produção depende só de log scraping.
+
+**Trabalho:** registrar 3 counters em `MetricsRegistry` e emitir no
+`PgCacheInvalidationBus` (publish) + no handler wrapper (received/
+echo_filtered).
+
+**Esforço estimado:** 1h.
+
+---
+
+### CACHE-INV-2 — Integration test cross-pod real
+
+**Origem:** Review F2 (N2).
+
+**Contexto:** Hoje o smoke F2 depende de `pg_notify` manual em execução
+humana. Integration test com `Testcontainers.PostgreSQL` + 2 instâncias
+do `PgCacheInvalidationBus` (com `SourcePodId` diferente via ctor
+parametrizável) simularia dois pods no mesmo processo.
+
+**Esforço estimado:** 3h.
+
+---
+
+### CACHE-INV-3 — Paralelizar flush-all com `Task.WhenAll`
+
+**Origem:** Review F2 (N4).
+
+**Contexto:** `ModelPricingCache.InvalidateAsync(null)` e
+`PersonaPromptTemplateCache.InvalidateAsync(null)` chamam
+`PublishInvalidateAsync` num loop sequencial — N roundtrips PG. Flush
+é raro mas paralelização é quase grátis.
+
+**Esforço estimado:** 30min.
+
+---
+
 ### PERSONA-OBS-5 — Cachear `UserIdentity` resolvido em `HttpContext.Items`
 
 **Origem:** Review F1.

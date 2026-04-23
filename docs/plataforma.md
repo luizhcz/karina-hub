@@ -910,12 +910,13 @@ Mantém estado da conversa entre turnos com gerenciamento automático de histór
 src/EfsAiHub.Infra.Messaging/PgCrossNodeBus.cs
 ```
 
-Dois canais PostgreSQL LISTEN/NOTIFY:
+Três canais PostgreSQL LISTEN/NOTIFY:
 
 | Canal | Payload | Propósito |
 |-------|---------|-----------|
 | `efs_exec_cancel` | `{ executionId }` | Cancelar execução em outro pod |
 | `efs_hitl_resolved` | `{ interactionId, resolution, approved }` | Propagar resolução HITL |
+| `efs_cache_invalidate` | `{ cacheName, key, sourcePodId }` | **F2** — invalidar L1 cross-pod (persona, pricing). Ver [ADR 002](adr/002-cache-invalidation-cross-pod.md). |
 
 **Retry:** 2 tentativas por publish, 500ms entre retries.
 

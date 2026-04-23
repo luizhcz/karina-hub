@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Events;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Infra.Persistence.Cache;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,18 +30,25 @@ public interface IModelPricingCache
     Task InvalidateAsync(string? modelId = null);
 }
 
-public sealed class ModelPricingCache : IModelPricingCache
+public sealed class ModelPricingCache : IModelPricingCache, IDisposable
 {
+    /// <summary>Identificador no <see cref="ICacheInvalidationBus"/> (F2).</summary>
+    public const string CacheName = "model-pricing";
+
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan ErrorTtl = TimeSpan.FromSeconds(30);
     private const string RedisKeyPrefix = "pricing:";
 
     private readonly IServiceProvider _sp;
     private readonly IEfsRedisCache _redis;
+    private readonly ICacheInvalidationBus _invalidationBus;
     private readonly ILogger<ModelPricingCache> _logger;
 
     // Local in-memory cache for hot-path (avoids Redis roundtrip on every token tracking call)
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (ModelPricing? Value, DateTime ExpiresAt)> _local = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly IDisposable _invalidationSubscription;
+    private bool _disposed;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -48,11 +56,29 @@ public sealed class ModelPricingCache : IModelPricingCache
         PropertyNameCaseInsensitive = true
     };
 
-    public ModelPricingCache(IServiceProvider sp, IEfsRedisCache redis, ILogger<ModelPricingCache> logger)
+    public ModelPricingCache(
+        IServiceProvider sp,
+        IEfsRedisCache redis,
+        ICacheInvalidationBus invalidationBus,
+        ILogger<ModelPricingCache> logger)
     {
         _sp = sp;
         _redis = redis;
+        _invalidationBus = invalidationBus;
         _logger = logger;
+
+        _invalidationSubscription = _invalidationBus.Subscribe(CacheName, key =>
+        {
+            _local.TryRemove(key, out _);
+            return Task.CompletedTask;
+        });
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _invalidationSubscription.Dispose();
     }
 
     public async ValueTask<ModelPricing?> GetAsync(string modelId, CancellationToken ct = default)
@@ -125,6 +151,7 @@ public sealed class ModelPricingCache : IModelPricingCache
             _local.TryRemove(modelId, out _);
             try { await _redis.RemoveAsync($"{RedisKeyPrefix}{modelId}"); }
             catch (Exception ex) { _logger.LogWarning(ex, "[ModelPricingCache] Redis invalidate failed for '{Model}'.", modelId); }
+            await _invalidationBus.PublishInvalidateAsync(CacheName, modelId);
         }
         else
         {
@@ -135,6 +162,7 @@ public sealed class ModelPricingCache : IModelPricingCache
             {
                 try { await _redis.RemoveAsync($"{RedisKeyPrefix}{key}"); }
                 catch (Exception ex) { _logger.LogDebug(ex, "[ModelPricingCache] Best-effort Redis remove failed for '{Key}'.", key); }
+                await _invalidationBus.PublishInvalidateAsync(CacheName, key);
             }
         }
     }

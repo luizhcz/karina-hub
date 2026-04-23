@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Abstractions.Events;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Core.Orchestration.Coordination;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,6 +23,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<PgNotifyDispatcher>());
         services.AddSingleton<IWorkflowEventBus, PgEventBus>();
         services.AddSingleton<ICrossNodeBus, PgCrossNodeBus>();
+        services.AddSingleton<ICacheInvalidationBus, PgCacheInvalidationBus>();
         return services;
     }
 }

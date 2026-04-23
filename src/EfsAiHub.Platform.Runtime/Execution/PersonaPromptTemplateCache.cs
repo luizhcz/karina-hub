@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Events;
 using EfsAiHub.Core.Abstractions.Identity.Persona;
 using EfsAiHub.Infra.Persistence.Cache;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,6 +28,9 @@ public interface IPersonaPromptTemplateCache
 
 public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache, IDisposable
 {
+    /// <summary>Identificador do cache no <see cref="ICacheInvalidationBus"/> (F2).</summary>
+    public const string CacheName = "persona-tpl";
+
     private static readonly TimeSpan L1Ttl = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan L2Ttl = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan NegativeTtl = TimeSpan.FromSeconds(30);
@@ -35,12 +39,14 @@ public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache, ID
 
     private readonly IServiceProvider _sp;
     private readonly IEfsRedisCache _redis;
+    private readonly ICacheInvalidationBus _invalidationBus;
     private readonly ILogger<PersonaPromptTemplateCache> _logger;
 
     private readonly ConcurrentDictionary<string, (PersonaPromptTemplate? Value, DateTime ExpiresAt)> _local =
         new(StringComparer.Ordinal);
 
     private readonly Timer _sweepTimer;
+    private readonly IDisposable _invalidationSubscription;
     private bool _disposed;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -52,15 +58,26 @@ public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache, ID
     public PersonaPromptTemplateCache(
         IServiceProvider sp,
         IEfsRedisCache redis,
+        ICacheInvalidationBus invalidationBus,
         ILogger<PersonaPromptTemplateCache> logger)
     {
         _sp = sp;
         _redis = redis;
+        _invalidationBus = invalidationBus;
         _logger = logger;
 
         // Sweep background de entries expiradas — evita growth unbounded do L1
         // em pods de longa duração. Roda a cada 30s (metade do TTL mais curto).
         _sweepTimer = new Timer(_ => SweepExpired(), null, SweepInterval, SweepInterval);
+
+        // Subscribe em invalidações cross-pod. Echo do próprio pod é filtrado
+        // pelo bus — aqui só recebemos eventos de OUTROS pods.
+        _invalidationSubscription = _invalidationBus.Subscribe(CacheName, key =>
+        {
+            _local.TryRemove(key, out _);
+            _logger.LogDebug("[PersonaTemplateCache] L1 invalidado cross-pod para scope={Scope}.", key);
+            return Task.CompletedTask;
+        });
     }
 
     public async ValueTask<PersonaPromptTemplate?> GetByScopeAsync(string scope, CancellationToken ct = default)
@@ -138,6 +155,9 @@ public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache, ID
             {
                 _logger.LogDebug(ex, "[PersonaTemplateCache] Invalidate L2 falhou.");
             }
+
+            // Cross-pod: outros pods limpam L1 deles. Best-effort.
+            await _invalidationBus.PublishInvalidateAsync(CacheName, scope);
             return;
         }
 
@@ -150,6 +170,7 @@ public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache, ID
             {
                 _logger.LogDebug(ex, "[PersonaTemplateCache] Flush L2 falhou para scope={Scope}.", k);
             }
+            await _invalidationBus.PublishInvalidateAsync(CacheName, k);
         }
     }
 
@@ -178,6 +199,7 @@ public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache, ID
         if (_disposed) return;
         _disposed = true;
         _sweepTimer.Dispose();
+        _invalidationSubscription.Dispose();
     }
 
     // Redis (StackExchange.Redis) não expõe exception base própria útil — whitelist

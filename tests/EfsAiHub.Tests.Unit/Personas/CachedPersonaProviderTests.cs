@@ -88,6 +88,18 @@ public class CachedPersonaProviderTests
         public HttpClient CreateClient(string name) => new(_handler, disposeHandler: false);
     }
 
+    // Fake do bus de invalidation — noop. Testes não exercitam cross-pod;
+    // cenário cross-pod real é coberto em integration tests.
+    private sealed class NoopInvalidationBus : EfsAiHub.Core.Abstractions.Events.ICacheInvalidationBus
+    {
+        public string SourcePodId => "test-pod";
+        public Task PublishInvalidateAsync(string cacheName, string key, CancellationToken ct = default)
+            => Task.CompletedTask;
+        public IDisposable Subscribe(string cacheName, Func<string, Task> handler) => new NoopDisposable();
+
+        private sealed class NoopDisposable : IDisposable { public void Dispose() { } }
+    }
+
     private static (CachedPersonaProvider cache, InMemoryRedisCache redis, StubHandler handler)
         Build(Func<HttpRequestMessage, HttpResponseMessage> respond, TaskCompletionSource? gate = null)
     {
@@ -102,7 +114,7 @@ public class CachedPersonaProviderTests
             new SingleClientFactory(handler), opts, NullLogger<HttpPersonaProvider>.Instance);
         var redis = new InMemoryRedisCache();
         var cache = new CachedPersonaProvider(
-            inner, redis, opts, NullLogger<CachedPersonaProvider>.Instance);
+            inner, redis, new NoopInvalidationBus(), opts, NullLogger<CachedPersonaProvider>.Instance);
         return (cache, redis, handler);
     }
 

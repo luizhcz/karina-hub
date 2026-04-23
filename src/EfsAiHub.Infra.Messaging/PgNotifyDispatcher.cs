@@ -33,12 +33,20 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
     /// <summary>Canal global onde PgEventBus.PublishAsync emite NOTIFY.</summary>
     public const string ChannelName = "wf_events";
 
+    /// <summary>Canal dedicado a invalidações de cache cross-pod (F2).</summary>
+    public const string CacheInvalidateChannel = "efs_cache_invalidate";
+
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<PgNotifyDispatcher> _logger;
 
     // executionId → lista de writers que devem receber eventos dessa execution.
     // Múltiplos subscribers da mesma execution (ex: duas abas do frontend) é caso de uso real.
     private readonly ConcurrentDictionary<string, List<ChannelWriter<WorkflowEventEnvelope>>> _subscribers = new();
+
+    // cacheName → lista de handlers. Handler assinatura: (key, sourcePodId) — o
+    // sourcePodId é exposto pro bus de cache filtrar echo próprio. Dispatcher
+    // não julga: só repassa.
+    private readonly ConcurrentDictionary<string, List<Func<string, string, Task>>> _cacheInvalidateHandlers = new();
 
     private NpgsqlConnection? _conn;
     private Task? _listenLoop;
@@ -165,6 +173,12 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
                     w.TryComplete();
         _subscribers.Clear();
 
+        // F2: zera também os handlers de cache invalidation. Após esse ponto,
+        // NOTIFY tardios caem no early-return do OnCacheInvalidateNotification.
+        foreach (var (_, list) in _cacheInvalidateHandlers)
+            lock (list) list.Clear();
+        _cacheInvalidateHandlers.Clear();
+
         await _connMutex.WaitAsync(cancellationToken);
         try
         {
@@ -206,7 +220,9 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
             _conn.Notification += OnNotification;
 
             await using var cmd = _conn.CreateCommand();
-            cmd.CommandText = $"LISTEN {ChannelName}";
+            // LISTEN em ambos os canais na mesma conn — Postgres aceita
+            // múltiplos LISTEN numa sessão sem custo extra.
+            cmd.CommandText = $"LISTEN {ChannelName}; LISTEN {CacheInvalidateChannel}";
             await cmd.ExecuteNonQueryAsync(ct);
         }
         catch (Exception ex)
@@ -275,6 +291,13 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
         // Handler roda na thread do Npgsql — evitar trabalho pesado.
         try
         {
+            if (string.Equals(args.Channel, CacheInvalidateChannel, StringComparison.Ordinal))
+            {
+                OnCacheInvalidateNotification(args.Payload);
+                return;
+            }
+
+            // Canal default: workflow events.
             var env = JsonSerializer.Deserialize<WorkflowEventEnvelope>(args.Payload);
             if (env is null) return;
 
@@ -290,5 +313,100 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
         {
             _logger.LogDebug(ex, "[PgNotifyDispatcher] Mensagem NOTIFY malformada ignorada.");
         }
+    }
+
+    // ── Cache invalidation (F2) ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Subscription do canal <c>efs_cache_invalidate</c> — filtragem por
+    /// <c>cacheName</c> acontece aqui. Handler recebe a key invalidada.
+    /// Filtragem de echo do próprio pod é feita pelo publisher (via
+    /// <c>sourcePodId</c>), não aqui.
+    /// </summary>
+    public IDisposable SubscribeCacheInvalidate(string cacheName, Func<string, string, Task> handler)
+    {
+        var list = _cacheInvalidateHandlers.GetOrAdd(cacheName,
+            _ => new List<Func<string, string, Task>>());
+        lock (list) list.Add(handler);
+
+        return new CacheInvalidateSubscription(this, cacheName, handler);
+    }
+
+    private void RemoveCacheInvalidateHandler(string cacheName, Func<string, string, Task> handler)
+    {
+        if (_cacheInvalidateHandlers.TryGetValue(cacheName, out var list))
+        {
+            lock (list)
+            {
+                list.Remove(handler);
+                if (list.Count == 0)
+                    _cacheInvalidateHandlers.TryRemove(cacheName, out _);
+            }
+        }
+    }
+
+    private void OnCacheInvalidateNotification(string payload)
+    {
+        // Shutdown window: NOTIFY pendentes podem chegar depois que
+        // StopAsync zerou os handlers. Não enfileirar tasks órfãs.
+        if (Volatile.Read(ref _stopped) == 1) return;
+
+        var evt = JsonSerializer.Deserialize<CacheInvalidatePayload>(payload);
+        if (evt is null || string.IsNullOrEmpty(evt.CacheName)) return;
+        if (!_cacheInvalidateHandlers.TryGetValue(evt.CacheName, out var list)) return;
+
+        // Snapshot da list dentro do lock, execução fora — handlers não devem
+        // bloquear o NOTIFY thread do Npgsql. Fire-and-forget é OK porque
+        // handler típico só limpa L1 local (rápido).
+        Func<string, string, Task>[] snapshot;
+        lock (list) snapshot = list.ToArray();
+
+        foreach (var h in snapshot)
+        {
+            _ = Task.Run(async () =>
+            {
+                try { await h(evt.Key, evt.SourcePodId); }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex,
+                        "[PgNotifyDispatcher] Cache invalidate handler falhou para cacheName={Cache}.",
+                        evt.CacheName);
+                }
+            });
+        }
+    }
+
+    private sealed class CacheInvalidateSubscription : IDisposable
+    {
+        private readonly PgNotifyDispatcher _dispatcher;
+        private readonly string _cacheName;
+        private readonly Func<string, string, Task> _handler;
+        private bool _disposed;
+
+        public CacheInvalidateSubscription(
+            PgNotifyDispatcher dispatcher, string cacheName, Func<string, string, Task> handler)
+        {
+            _dispatcher = dispatcher;
+            _cacheName = cacheName;
+            _handler = handler;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _dispatcher.RemoveCacheInvalidateHandler(_cacheName, _handler);
+        }
+    }
+
+    /// <summary>
+    /// Payload enviado via pg_notify no canal <c>efs_cache_invalidate</c>.
+    /// Formato estável (compat cross-pod) — renomear campo = breaking change.
+    /// </summary>
+    internal sealed class CacheInvalidatePayload
+    {
+        public string CacheName { get; set; } = "";
+        public string Key { get; set; } = "";
+        public string SourcePodId { get; set; } = "";
     }
 }

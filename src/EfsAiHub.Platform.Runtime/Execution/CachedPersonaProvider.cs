@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Events;
 using EfsAiHub.Core.Abstractions.Identity.Persona;
 using EfsAiHub.Infra.LlmProviders.Personas;
 using EfsAiHub.Infra.LlmProviders.Personas.Options;
@@ -33,6 +34,9 @@ namespace EfsAiHub.Platform.Runtime.Execution;
 /// </summary>
 public sealed class CachedPersonaProvider : IPersonaProvider, IDisposable
 {
+    /// <summary>Identificador do cache no <see cref="ICacheInvalidationBus"/> (F2).</summary>
+    public const string CacheName = "persona";
+
     private const string RedisKeyPrefix = "persona:";
 
     // Sweep intervalo: metade do TTL L1 é uma heurística razoável — garante
@@ -41,6 +45,7 @@ public sealed class CachedPersonaProvider : IPersonaProvider, IDisposable
 
     private readonly HttpPersonaProvider _inner;
     private readonly IEfsRedisCache _redis;
+    private readonly ICacheInvalidationBus _invalidationBus;
     private readonly PersonaApiOptions _options;
     private readonly ILogger<CachedPersonaProvider> _logger;
 
@@ -54,6 +59,7 @@ public sealed class CachedPersonaProvider : IPersonaProvider, IDisposable
         new(StringComparer.Ordinal);
 
     private readonly Timer _sweepTimer;
+    private readonly IDisposable _invalidationSubscription;
     private bool _disposed;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -65,16 +71,27 @@ public sealed class CachedPersonaProvider : IPersonaProvider, IDisposable
     public CachedPersonaProvider(
         HttpPersonaProvider inner,
         IEfsRedisCache redis,
+        ICacheInvalidationBus invalidationBus,
         IOptions<PersonaApiOptions> options,
         ILogger<CachedPersonaProvider> logger)
     {
         _inner = inner;
         _redis = redis;
+        _invalidationBus = invalidationBus;
         _options = options.Value;
         _logger = logger;
 
         // Timer com due=SweepInterval pra não bloquear a primeira request do pod.
         _sweepTimer = new Timer(_ => SweepExpired(), null, SweepInterval, SweepInterval);
+
+        // Cross-pod invalidation (F2): quando admin invalidar em outro pod,
+        // limpamos L1 daqui também.
+        _invalidationSubscription = _invalidationBus.Subscribe(CacheName, key =>
+        {
+            _local.TryRemove(key, out _);
+            _inFlight.TryRemove(key, out _);
+            return Task.CompletedTask;
+        });
     }
 
     public async Task<UserPersona> ResolveAsync(
@@ -190,6 +207,9 @@ public sealed class CachedPersonaProvider : IPersonaProvider, IDisposable
         {
             _logger.LogDebug(ex, "[PersonaCache] Invalidate L2 falhou para key={Key}.", key);
         }
+
+        // Cross-pod: broadcast da invalidação. Outros pods limpam L1 deles.
+        await _invalidationBus.PublishInvalidateAsync(CacheName, key).ConfigureAwait(false);
     }
 
     private void StoreLocal(string key, UserPersona persona, DateTime now)
@@ -223,6 +243,7 @@ public sealed class CachedPersonaProvider : IPersonaProvider, IDisposable
         if (_disposed) return;
         _disposed = true;
         _sweepTimer.Dispose();
+        _invalidationSubscription.Dispose();
     }
 
     // Redis (StackExchange.Redis) não tem exceção base próxima — usamos um
