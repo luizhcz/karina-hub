@@ -20,8 +20,16 @@ public static class ChatTurnContextMapper
     /// Tenta expandir um ChatTurnContext serializado em mensagens separadas para o LLM.
     /// Usado no Graph+Chat mode (single-agent) — sem o JSON blob como system message.
     /// Retorna null se o input não for um ChatTurnContext válido com metadata.
+    ///
+    /// <paramref name="userReinforcement"/>: quando não-null, é anexado à última
+    /// mensagem do usuário (trailing). Usado para reforço curto de persona
+    /// (combate lost-in-the-middle). Só opera em chamadas com ChatTurnContext
+    /// expandido — inputs crus recebem o mesmo tratamento no caller.
     /// </summary>
-    public static List<AiChatMessage>? TryExpand(string? rawInput, JsonSerializerOptions? opts = null)
+    public static List<AiChatMessage>? TryExpand(
+        string? rawInput,
+        string? userReinforcement = null,
+        JsonSerializerOptions? opts = null)
     {
         if (string.IsNullOrWhiteSpace(rawInput) || rawInput[0] != '{')
             return null;
@@ -40,7 +48,7 @@ public static class ChatTurnContextMapper
         if (ctx is null || ctx.Metadata.Count == 0)
             return null;
 
-        return BuildMessages(ctx);
+        return BuildMessages(ctx, userReinforcement);
     }
 
     /// <summary>
@@ -72,7 +80,7 @@ public static class ChatTurnContextMapper
         }
     }
 
-    private static List<AiChatMessage> BuildMessages(ChatTurnContext ctx)
+    private static List<AiChatMessage> BuildMessages(ChatTurnContext ctx, string? userReinforcement = null)
     {
         var messages = new List<AiChatMessage>();
 
@@ -116,8 +124,12 @@ public static class ChatTurnContextMapper
             messages.Add(new(role, content));
         }
 
-        // 4. Mensagem atual do usuário
-        messages.Add(new(ChatRole.User, ctx.Message.Content));
+        // 4. Mensagem atual do usuário (opcionalmente com reforço curto de persona
+        //    no fim — last-token bias ancora o LLM na personalização).
+        var userContent = string.IsNullOrWhiteSpace(userReinforcement)
+            ? ctx.Message.Content
+            : $"{ctx.Message.Content}\n\n{userReinforcement}";
+        messages.Add(new(ChatRole.User, userContent));
 
         return messages;
     }

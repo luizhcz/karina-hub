@@ -32,6 +32,7 @@
     <ProjectReference Include="..\EfsAiHub.Platform.Guards\EfsAiHub.Platform.Guards.csproj" />
     <ProjectReference Include="..\EfsAiHub.Infra.Observability\EfsAiHub.Infra.Observability.csproj" />
     <ProjectReference Include="..\EfsAiHub.Infra.Persistence\EfsAiHub.Infra.Persistence.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Infra.LlmProviders\EfsAiHub.Infra.LlmProviders.csproj" />
   </ItemGroup>
 
 </Project>

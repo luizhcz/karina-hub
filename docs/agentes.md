@@ -1475,6 +1475,100 @@ PUT /api/agents/classificador-fato-relevante
 
 ---
 
+## 24. Personalização por Usuário (Persona)
+
+Cada usuário autenticado pode ter uma **Persona** resolvida automaticamente a partir do UserId do header. A persona personaliza o prompt do agente sem alterar o prompt store — nenhuma combinação N×M de prompts por segmento.
+
+### Campos canônicos
+
+| Campo | Descrição | Usado por |
+|---|---|---|
+| `DisplayName` | Nome exibível ("João Silva") | `## Persona` no system message |
+| `Segment` | `varejo \| corporativo \| institucional \| private` | `TonePolicyTable` lookup |
+| `RiskProfile` | `conservador \| moderado \| agressivo` | `TonePolicyTable` lookup |
+| `AdvisorId` | ID do assessor responsável | `## Persona` (rastreabilidade) |
+
+### Fluxo de resolução
+
+1. `UserIdentityResolver` extrai `UserId` + `UserType` do header.
+2. `PersonaResolutionMiddleware` chama `PersonaResolutionService` → `IPersonaProvider`.
+3. Provider real (`HttpPersonaProvider`) consulta API externa com fallback silencioso para `UserPersona.Anonymous` em qualquer erro (contrato: nunca lança).
+4. Decorator `CachedPersonaProvider`: L1 in-memory (60s) → Redis (5min) → API.
+5. `IPersonaContextAccessor.Current` populado no scope HTTP.
+6. `WorkflowRunnerService` resolve novamente no worker (workflows schedule/webhook sem HTTP) e passa ao `ExecutionContext.Persona`.
+7. `AgentFactory` chama `IPersonaPromptComposer` → `SystemMessageBuilder` concatena prompt base + bloco de persona.
+
+### Estrutura das mensagens enviadas ao LLM
+
+```
+SystemMessage (única, com Markdown sections):
+=============================================
+<Instructions do agente — invariante, compõe o prefixo cacheável do OpenAI>
+
+## Persona do cliente
+- Segment: private
+- Risk profile: conservador
+- Display name: João Silva
+- Advisor: A123
+
+## Tone Policy
+Formal e técnico. Sugestões somente de renda fixa grau de investimento...
+=============================================
+
+SystemMessage (sessão metadata existente)
+AssistantMessages[] (histórico)
+UserMessage: <msg atual>
+
+[persona.segment=private, persona.risk=conservador]
+```
+
+**Por que 1 system message unificada** (e não 2 separadas): docs OpenAI oficiais recomendam instruction única com seções internas; cache de prompt é por prefixo exato até primeiro token divergente — colocar persona **depois** do prompt base preserva ~90% de desconto em cache hit com gpt-5.x.
+
+**Por que Markdown e não XML**: GPT-5 Prompting Guide oficial OpenAI (ago/2025) favorece Markdown headers. GPT-5 respeita ambos mas Markdown é idiomático na stack.
+
+**Por que reforço curto no user message**: combate lost-in-the-middle (Liu et al. 2024). Apenas ~15 tokens ancoram o "last-token bias" sem inflar cada turno.
+
+### `TonePolicyTable` — policies por `(Segment × RiskProfile)`
+
+Tabela hardcoded em `src/EfsAiHub.Platform.Runtime/Personalization/TonePolicyTable.cs`. 4 segments × 3 risk profiles = 12 linhas auditáveis.
+
+Adicionar novo segment ou perfil = 1 linha na tabela + PR com revisão (compliance-friendly: texto exato que orienta recomendações financeiras fica em arquivo C# reviewable).
+
+### Fallback silencioso
+
+Qualquer ponto onde persona não resolve cai em `UserPersona.Anonymous` e o agente usa só o prompt base. Comportamento idêntico ao pré-feature.
+
+Configuração em `appsettings.json`:
+```json
+"Persona": {
+  "BaseUrl": "https://persona-api.example.com",
+  "ApiKey": "<secret>",
+  "AuthScheme": "Bearer",
+  "TimeoutSeconds": 3,
+  "CacheTtlMinutes": 5,
+  "LocalCacheTtlSeconds": 60,
+  "Disabled": false
+}
+```
+
+`Disabled: true` (default em dev) desliga a chamada — todas personas ficam Anonymous.
+
+### Observabilidade
+
+- Métrica `persona.resolution.duration_ms` (Histogram, tag `outcome=cache_hit_l1|cache_hit_l2|api_hit|fallback`)
+- Métrica `persona.resolution.failures` (Counter) — API indisponível
+- Métrica `persona.prompt.compose.chars` (Histogram) — detecta inchaço acidental
+- Endpoint admin: `GET /api/admin/personas/{userId}` (debug) e `POST /api/admin/personas/{userId}/invalidate` (LGPD/refresh)
+
+### Não-objetivos (backlog)
+
+- Prompt variants por segment (explosão combinatória — rejeitado)
+- Template engine (Scriban/Handlebars — rejeitado como "linguagem paralela")
+- Frontend admin de personas (API externa é fonte de verdade)
+- Integração com role `developer` da OpenAI (espera suporte formal em `Microsoft.Agents.AI`)
+
+---
+
 ## Apêndice: Diagrama de Relacionamentos
 
 ```

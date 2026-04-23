@@ -30,7 +30,10 @@ public sealed record WorkflowRunnerCollaborators(
     NodePersistenceService NodePersistence,
     IEngineCheckpointAdapter CheckpointAdapter,
     EventHandlers.AgentHandoffEventHandler AgentHandoffHandler,
-    EfsAiHub.Core.Abstractions.AgUi.IAgUiSharedStateWriter? SharedStateWriter = null);
+    EfsAiHub.Core.Abstractions.AgUi.IAgUiSharedStateWriter? SharedStateWriter = null,
+    // Opcional: se registrado, runner resolve Persona a partir do UserId e passa
+    // pro ExecutionContext. Null desabilita personalização (fallback ao prompt base).
+    EfsAiHub.Core.Abstractions.Identity.Persona.IPersonaProvider? PersonaProvider = null);
 
 public class WorkflowRunnerService
 {
@@ -44,6 +47,7 @@ public class WorkflowRunnerService
     private readonly IEngineCheckpointAdapter _checkpointAdapter;
     private readonly EventHandlers.AgentHandoffEventHandler _agentHandoffHandler;
     private readonly EfsAiHub.Core.Abstractions.AgUi.IAgUiSharedStateWriter? _sharedStateWriter;
+    private readonly EfsAiHub.Core.Abstractions.Identity.Persona.IPersonaProvider? _personaProvider;
     private readonly ILogger<WorkflowRunnerService> _logger;
 
     public WorkflowRunnerService(
@@ -61,6 +65,7 @@ public class WorkflowRunnerService
         _checkpointAdapter = collaborators.CheckpointAdapter;
         _agentHandoffHandler = collaborators.AgentHandoffHandler;
         _sharedStateWriter = collaborators.SharedStateWriter;
+        _personaProvider = collaborators.PersonaProvider;
         _logger = logger;
     }
 
@@ -104,16 +109,31 @@ public class WorkflowRunnerService
         await using var nodeTracker = new NodeStateTracker();
 
         // Extrai userId do ChatTurnContext (se Chat mode) para AccountGuard em tool calls.
+        // Também reaproveita o mesmo userId para resolver Persona (personalização de prompts).
         string? guardUserId = null;
-        if (guardMode != EfsAiHub.Core.Agents.Execution.AccountGuardMode.None && !string.IsNullOrEmpty(execution.Input))
+        string? guardUserType = null;
+        if (!string.IsNullOrEmpty(execution.Input))
         {
             try
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(execution.Input);
                 if (doc.RootElement.TryGetProperty("userId", out var uidEl))
                     guardUserId = uidEl.GetString();
+                // userType vem via metadata["userType"] no payload do ChatTurnContext
+                if (doc.RootElement.TryGetProperty("metadata", out var metaEl)
+                    && metaEl.ValueKind == JsonValueKind.Object
+                    && metaEl.TryGetProperty("userType", out var utEl))
+                    guardUserType = utEl.GetString();
             }
-            catch { /* Input não é ChatTurnContext — guard fica sem userId e não bloqueia nada */ }
+            catch { /* Input não é ChatTurnContext — fica anonymous */ }
+        }
+
+        // Resolução de Persona (silent fallback — contrato nunca lança)
+        EfsAiHub.Core.Abstractions.Identity.Persona.UserPersona? persona = null;
+        if (_personaProvider is not null && !string.IsNullOrWhiteSpace(guardUserId))
+        {
+            persona = await _personaProvider.ResolveAsync(
+                guardUserId, guardUserType ?? "cliente", ct);
         }
 
         // Extrai conversationId da metadata (Chat executions) para shared state
@@ -162,7 +182,8 @@ public class WorkflowRunnerService
             AgentVersions: new System.Collections.Concurrent.ConcurrentDictionary<string, string>(),
             UpdateSharedState: updateSharedState,
             ConversationId: conversationId,
-            EnrichmentRules: enrichmentRules);
+            EnrichmentRules: enrichmentRules,
+            Persona: persona);
 
         try
         {
@@ -292,15 +313,28 @@ public class WorkflowRunnerService
         await using var nodeTracker = new NodeStateTracker();
 
         string? guardUserId = null;
-        if (guardMode != EfsAiHub.Core.Agents.Execution.AccountGuardMode.None && !string.IsNullOrEmpty(execution.Input))
+        string? guardUserType = null;
+        if (!string.IsNullOrEmpty(execution.Input))
         {
             try
             {
                 using var doc = JsonDocument.Parse(execution.Input);
                 if (doc.RootElement.TryGetProperty("userId", out var uidEl))
                     guardUserId = uidEl.GetString();
+                if (doc.RootElement.TryGetProperty("metadata", out var metaEl)
+                    && metaEl.ValueKind == JsonValueKind.Object
+                    && metaEl.TryGetProperty("userType", out var utEl))
+                    guardUserType = utEl.GetString();
             }
             catch { }
+        }
+
+        // Resolve Persona também no resume — fallback silencioso via provider.
+        EfsAiHub.Core.Abstractions.Identity.Persona.UserPersona? resumePersona = null;
+        if (_personaProvider is not null && !string.IsNullOrWhiteSpace(guardUserId))
+        {
+            resumePersona = await _personaProvider.ResolveAsync(
+                guardUserId, guardUserType ?? "cliente", ct);
         }
 
         // Extrai conversationId da metadata (Chat executions) para shared state
@@ -344,7 +378,9 @@ public class WorkflowRunnerService
             GuardMode: guardMode,
             AgentVersions: new System.Collections.Concurrent.ConcurrentDictionary<string, string>(),
             UpdateSharedState: resumeUpdateState,
-            ConversationId: resumeConversationId);
+            ConversationId: resumeConversationId,
+            EnrichmentRules: null,
+            Persona: resumePersona);
 
         try
         {

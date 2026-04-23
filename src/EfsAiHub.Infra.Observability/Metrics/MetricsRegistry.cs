@@ -204,4 +204,30 @@ public static class MetricsRegistry
     public static readonly Counter<long> EventBusSubscribeSetupErrors =
         _meter.CreateCounter<long>("eventbus.subscribe.setup_errors",
             description: "Erros durante o setup do subscriber (open/listen/replay). Tag: phase");
+
+    // ── Persona Resolution ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Latência da resolução de persona, com tag <c>outcome</c> =
+    /// cache_hit_l1 | cache_hit_l2 | api_hit | fallback.
+    /// </summary>
+    public static readonly Histogram<double> PersonaResolutionDurationMs =
+        _meter.CreateHistogram<double>("persona.resolution.duration_ms", unit: "ms",
+            description: "Latência da resolução de persona. Tag: outcome=cache_hit_l1|cache_hit_l2|api_hit|fallback");
+
+    /// <summary>
+    /// Conta falhas da API externa que caíram em fallback Anonymous.
+    /// Spike indica indisponibilidade do provider de persona.
+    /// </summary>
+    public static readonly Counter<long> PersonaResolutionFailures =
+        _meter.CreateCounter<long>("persona.resolution.failures",
+            description: "Falhas na resolução de persona que caíram para fallback Anonymous.");
+
+    /// <summary>
+    /// Tamanho em caracteres do system block de persona composto — detecta inchaço
+    /// acidental (ex: tone_policy crescendo). Proxy para tokens (~4 chars/token).
+    /// </summary>
+    public static readonly Histogram<double> PersonaPromptComposeChars =
+        _meter.CreateHistogram<double>("persona.prompt.compose.chars",
+            description: "Tamanho (chars) do bloco de persona inserido no system message.");
 }

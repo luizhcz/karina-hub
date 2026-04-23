@@ -1,11 +1,12 @@
 using System.Diagnostics;
-using EfsAiHub.Platform.Runtime.Interfaces;
+using EfsAiHub.Core.Abstractions.AgUi;
 using EfsAiHub.Core.Abstractions.Conversations;
+using EfsAiHub.Core.Abstractions.Identity.Persona;
+using EfsAiHub.Core.Abstractions.Projects;
 using EfsAiHub.Core.Agents.Skills;
 using EfsAiHub.Platform.Runtime.Execution;
+using EfsAiHub.Platform.Runtime.Interfaces;
 using EfsAiHub.Platform.Runtime.Resilience;
-using EfsAiHub.Core.Abstractions.AgUi;
-using EfsAiHub.Core.Abstractions.Projects;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
@@ -33,6 +34,11 @@ public class AgentFactory : IAgentFactory
     private readonly IAgUiTokenSink? _agUiTokenSink;
     private readonly IProjectRepository? _projectRepo;
     private readonly IAgentVersionRepository? _agentVersionRepo;
+    // Persona personalization — opcionais por design: agents que rodam sem
+    // persona (Anonymous) ou ambientes que não configuraram o Persona API
+    // ficam com null e o factory cai no prompt base puro.
+    private readonly IPersonaPromptComposer? _personaComposer;
+    private readonly ISystemMessageBuilder _systemMessageBuilder;
 
     public AgentFactory(
         IEnumerable<ILlmClientProvider> providers,
@@ -50,7 +56,9 @@ public class AgentFactory : IAgentFactory
         LlmCircuitBreaker? circuitBreaker = null,
         IAgUiTokenSink? agUiTokenSink = null,
         IProjectRepository? projectRepo = null,
-        IAgentVersionRepository? agentVersionRepo = null)
+        IAgentVersionRepository? agentVersionRepo = null,
+        IPersonaPromptComposer? personaComposer = null,
+        ISystemMessageBuilder? systemMessageBuilder = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
@@ -68,6 +76,8 @@ public class AgentFactory : IAgentFactory
         _agUiTokenSink = agUiTokenSink;
         _projectRepo = projectRepo;
         _agentVersionRepo = agentVersionRepo;
+        _personaComposer = personaComposer;
+        _systemMessageBuilder = systemMessageBuilder ?? new SystemMessageBuilder();
     }
 
     public async Task<ExecutableWorkflow> CreateAgentAsync(AgentDefinition definition, CancellationToken ct = default)
@@ -150,17 +160,34 @@ public class AgentFactory : IAgentFactory
         return async (input, cancellationToken) =>
         {
             var messages = new List<Microsoft.Extensions.AI.ChatMessage>();
-            if (!string.IsNullOrWhiteSpace(instructions))
-                messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.System, instructions));
+
+            // Persona: resolvida lazy a partir do ExecutionContext corrente
+            // (AsyncLocal). Anonymous ou null → composer retorna Empty e o system
+            // message cai para o prompt base invariante sem custo adicional.
+            // Mantendo a ordem instructions → persona preserva prefixo cacheável
+            // do OpenAI (docs oficiais: prompt caching exige prefix exato estável).
+            var persona = EfsAiHub.Core.Orchestration.Executors.DelegateExecutor.Current.Value?.Persona;
+            var composedPersona = _personaComposer?.Compose(persona) ?? ComposedPersonaPrompt.Empty;
+
+            var systemMessage = _systemMessageBuilder.Build(instructions ?? string.Empty, composedPersona);
+            if (!string.IsNullOrWhiteSpace(systemMessage))
+                messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.System, systemMessage));
 
             // Tentar expandir ChatTurnContext em mensagens separadas (Graph+Chat mode).
             // Se o input for ChatTurnContext JSON, expande history + metadata + mensagem atual.
             // Senão, usa o input como mensagem User única (comportamento original).
-            var expanded = ChatTurnContextMapper.TryExpand(input);
+            // O reforço de persona (≤15 tokens) é anexado à última user message pelo
+            // ChatTurnContextMapper quando há expansão; em inputs crus o factory append aqui.
+            var expanded = ChatTurnContextMapper.TryExpand(input, composedPersona.UserReinforcement);
             if (expanded is not null)
                 messages.AddRange(expanded);
             else
-                messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, input));
+            {
+                var userText = composedPersona.UserReinforcement is null
+                    ? input
+                    : $"{input}\n\n{composedPersona.UserReinforcement}";
+                messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, userText));
+            }
 
             var sw = Stopwatch.StartNew();
             var response = await chatClient.GetResponseAsync(messages, chatOptions, cancellationToken);

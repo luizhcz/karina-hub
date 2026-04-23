@@ -15,6 +15,7 @@ public static class WebApplicationExtensions
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.TenantMiddleware>();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.ProjectMiddleware>();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.DefaultProjectGuard>();
+        app.UseMiddleware<EfsAiHub.Host.Api.Middleware.Identity.PersonaResolutionMiddleware>();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.ProjectRateLimitMiddleware>();
         app.UseAuthorization();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.AdminGateMiddleware>();

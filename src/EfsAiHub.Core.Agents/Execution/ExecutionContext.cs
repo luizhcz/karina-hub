@@ -1,8 +1,9 @@
 using System.Collections.Concurrent;
-using EfsAiHub.Core.Agents.Signals;
+using EfsAiHub.Core.Abstractions.Execution;
+using EfsAiHub.Core.Abstractions.Identity.Persona;
 using EfsAiHub.Core.Agents.Enrichment;
 using EfsAiHub.Core.Agents.Knowledge;
-using EfsAiHub.Core.Abstractions.Execution;
+using EfsAiHub.Core.Agents.Signals;
 
 namespace EfsAiHub.Core.Agents.Execution;
 
@@ -41,7 +42,12 @@ public sealed record ExecutionContext(
     string? ConversationId = null,
     // Regras declarativas de enrichment do workflow — consumidas pelo GenericEnricher executor.
     // Populadas pelo WorkflowRunnerService a partir de WorkflowConfiguration.EnrichmentRules.
-    IReadOnlyList<EnrichmentRule>? EnrichmentRules = null);
+    IReadOnlyList<EnrichmentRule>? EnrichmentRules = null,
+    // Persona do usuário para personalização de prompts. Resolvida pelo
+    // PersonaResolutionMiddleware (chat) ou WorkflowRunnerService (standalone).
+    // Null = sem personalização (fluxo anterior à feature). AgentFactory/SystemMessageBuilder
+    // lidam com null e caem no prompt base invariante.
+    UserPersona? Persona = null);
 
 /// <summary>
 /// Modo de proteção de conta aplicado a tool calls de uma execução:

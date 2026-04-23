@@ -23,6 +23,18 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
 
 // ── Configuração strongly-typed ──────────────────────────────────────────────
 builder.Services.AddLlmProviders(builder.Configuration);
+builder.Services.AddPersonaResolution(builder.Configuration);
+// Registra o decorator de cache e o PromptComposer/SystemMessageBuilder usados pelo AgentFactory.
+// CachedPersonaProvider decora HttpPersonaProvider (já registrado em AddPersonaResolution).
+// IPersonaProvider pro consumidor final = CachedPersonaProvider.
+builder.Services.AddSingleton<EfsAiHub.Platform.Runtime.Execution.CachedPersonaProvider>();
+builder.Services.AddSingleton<EfsAiHub.Core.Abstractions.Identity.Persona.IPersonaProvider>(
+    sp => sp.GetRequiredService<EfsAiHub.Platform.Runtime.Execution.CachedPersonaProvider>());
+builder.Services.AddSingleton<EfsAiHub.Core.Abstractions.Identity.Persona.IPersonaPromptComposer,
+    EfsAiHub.Platform.Runtime.Personalization.PersonaPromptComposer>();
+builder.Services.AddSingleton<EfsAiHub.Platform.Runtime.Factories.ISystemMessageBuilder,
+    EfsAiHub.Platform.Runtime.Factories.SystemMessageBuilder>();
+builder.Services.AddScoped<EfsAiHub.Host.Api.Services.PersonaResolutionService>();
 builder.Services.Configure<WorkflowEngineOptions>(
     builder.Configuration.GetSection(WorkflowEngineOptions.SectionName));
 builder.Services.Configure<ObservabilityOptions>(
