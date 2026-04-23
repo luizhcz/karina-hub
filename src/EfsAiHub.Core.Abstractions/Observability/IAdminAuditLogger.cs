@@ -67,6 +67,13 @@ public static class AdminAuditActions
     public const string Create = "create";
     public const string Update = "update";
     public const string Delete = "delete";
+
+    /// <summary>
+    /// Leitura administrativa de recurso sensível. Uso seletivo — NÃO
+    /// instrumentar todos os GETs (overhead). Começou pela feature persona
+    /// (LGPD art. 37 pede trilha de consulta).
+    /// </summary>
+    public const string Read = "read";
 }
 
 public static class AdminAuditResources

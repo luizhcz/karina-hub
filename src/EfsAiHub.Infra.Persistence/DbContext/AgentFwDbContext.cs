@@ -161,6 +161,7 @@ internal class LlmTokenUsageRow
     public int InputTokens { get; set; }
     public int OutputTokens { get; set; }
     public int TotalTokens { get; set; }
+    public int CachedTokens { get; set; }
     public double DurationMs { get; set; }
     public string? PromptVersionId { get; set; }
     public string? AgentVersionId { get; set; }
@@ -580,6 +581,7 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.AgentVersionId).HasMaxLength(64);
             b.Property(e => e.OutputContent).HasColumnType("text");
             b.Property(e => e.RetryCount).HasDefaultValue(0);
+            b.Property(e => e.CachedTokens).HasDefaultValue(0);
             b.Property(e => e.CreatedAt).IsRequired();
             b.HasIndex(e => e.AgentId);
             b.HasIndex(e => e.ExecutionId);

@@ -50,6 +50,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
         using var activity = ActivitySources.LlmCallSource.StartActivity("LLMCall");
         activity?.SetTag("agent.id", _agentId);
         activity?.SetTag("model.id", _modelId);
+        activity.SetPersonaTags(DelegateExecutor.Current.Value?.Persona);
 
         var sw = Stopwatch.StartNew();
         var response = await base.GetResponseAsync(messages, options, cancellationToken);
@@ -76,6 +77,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
         using var activity = ActivitySources.LlmCallSource.StartActivity("LLMCall.Streaming");
         activity?.SetTag("agent.id", _agentId);
         activity?.SetTag("model.id", _modelId);
+        activity.SetPersonaTags(DelegateExecutor.Current.Value?.Persona);
 
         var sw = Stopwatch.StartNew();
         UsageDetails? lastUsage = null;
@@ -131,10 +133,15 @@ public class TokenTrackingChatClient : DelegatingChatClient
         var inputTokens = (int)(usage?.InputTokenCount ?? 0);
         var outputTokens = (int)(usage?.OutputTokenCount ?? 0);
         var totalTokens = (int)(usage?.TotalTokenCount ?? inputTokens + outputTokens);
+        // Propriedade tipada em Microsoft.Extensions.AI.Abstractions 10.5.0;
+        // mapeada do OpenAI via InputTokenDetails.CachedTokenCount. Ver ADR 000.
+        // É SUBSET de inputTokens (não somar de novo no total).
+        var cachedTokens = (int)(usage?.CachedInputTokenCount ?? 0);
 
         activity?.SetTag("tokens.input", inputTokens);
         activity?.SetTag("tokens.output", outputTokens);
         activity?.SetTag("tokens.total", totalTokens);
+        activity?.SetTag("tokens.cached", cachedTokens);
         activity?.SetTag("duration.ms", durationMs);
 
         if (totalTokens <= 0) return;
@@ -191,6 +198,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
             InputTokens = inputTokens,
             OutputTokens = outputTokens,
             TotalTokens = totalTokens,
+            CachedTokens = cachedTokens,
             DurationMs = durationMs,
             PromptVersionId = promptVersionId,
             OutputContent = outputContent,

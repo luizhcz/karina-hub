@@ -1,4 +1,5 @@
 using EfsAiHub.Core.Abstractions.Identity.Persona;
+using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Runtime.Execution;
 
 namespace EfsAiHub.Platform.Runtime.Personalization;
@@ -38,6 +39,10 @@ public sealed class PersonaPromptComposer : IPersonaPromptComposer
         var rendered = PersonaTemplateRenderer.Render(template.Template, persona);
         if (string.IsNullOrWhiteSpace(rendered))
             return ComposedPersonaPrompt.Empty;
+
+        // Observability: inchaço no template se reflete aqui — histogram detecta.
+        MetricsRegistry.PersonaPromptComposeChars.Record(rendered.Length,
+            new KeyValuePair<string, object?>("user_type", persona.UserType));
 
         return new ComposedPersonaPrompt(
             SystemSection: rendered,

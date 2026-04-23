@@ -1479,7 +1479,13 @@ PUT /api/agents/classificador-fato-relevante
 
 Cada usuário autenticado pode ter uma **Persona** resolvida automaticamente a partir do UserId do header. A persona personaliza o prompt do agente sem alterar o prompt store — nenhuma combinação N×M de prompts por segmento.
 
-### Campos canônicos
+> **Atualização pós-MVP:** o modelo canônico agora é **discriminado** em
+> `ClientPersona` (cliente final) e `AdminPersona` (assessor/gestor/consultor/padrão),
+> com shapes distintos espelhando os dois endpoints da API externa.
+> Ver `src/EfsAiHub.Core.Abstractions/Identity/Persona/UserPersona.cs` para o
+> modelo corrente. Os campos listados abaixo são históricos.
+
+### Campos históricos (pré-redesenho cliente/admin)
 
 | Campo | Descrição | Usado por |
 |---|---|---|
@@ -1487,6 +1493,28 @@ Cada usuário autenticado pode ter uma **Persona** resolvida automaticamente a p
 | `Segment` | `varejo \| corporativo \| institucional \| private` | `TonePolicyTable` lookup |
 | `RiskProfile` | `conservador \| moderado \| agressivo` | `TonePolicyTable` lookup |
 | `AdvisorId` | ID do assessor responsável | `## Persona` (rastreabilidade) |
+
+### Campos correntes
+
+**ClientPersona:** `ClientName`, `SuitabilityLevel`, `SuitabilityDescription`,
+`BusinessSegment`, `Country`, `IsOffshore`.
+
+**AdminPersona:** `Username`, `PartnerType` (DEFAULT|CONSULTOR|GESTOR|ADVISORS),
+`Segments[]`, `Institutions[]`, `IsInternal`, `IsWm`, `IsMaster`, `IsBroker`.
+
+### OpenAI prompt caching (F1)
+
+O bloco de persona é inserido **depois** das instructions do agente no system
+message — garante prefixo invariante, que é o que o cache da OpenAI chaveia.
+Com gpt-5.x, cache hit significa ~10% do custo full em input tokens
+(75-90% off).
+
+- **Medir**: coluna `CachedTokens` em `aihub.llm_token_usage` (via
+  `UsageDetails.CachedInputTokenCount`). Ver [docs/observabilidade.md](observabilidade.md)
+  e [ADR 000](adr/000-opensdk-shape.md).
+- **Não controlamos `prompt_cache_key`** ainda (bloqueio no SDK —
+  [openai-dotnet#641](https://github.com/openai/openai-dotnet/issues/641)).
+  Mitigação: prefixo invariante garante cache hit provável, não garantido.
 
 ### Fluxo de resolução
 

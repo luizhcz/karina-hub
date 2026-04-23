@@ -10,6 +10,14 @@ public class LlmTokenUsage
     public int InputTokens { get; set; }
     public int OutputTokens { get; set; }
     public int TotalTokens { get; set; }
+
+    /// <summary>
+    /// Tokens de input que bateram no cache da OpenAI (prompt caching). 0 se
+    /// não houve cache hit ou se o modelo não suporta. Capturado via
+    /// <c>UsageDetails.CachedInputTokenCount</c> em <c>TokenTrackingChatClient</c>.
+    /// Incluído em <see cref="InputTokens"/> (não é aditivo).
+    /// </summary>
+    public int CachedTokens { get; set; }
     public double DurationMs { get; set; }
     public string? PromptVersionId { get; set; }
     public string? AgentVersionId { get; set; }

@@ -49,3 +49,47 @@ pode tornar prioritário.
 **Esforço estimado:** 1d.
 
 ---
+
+### PERSONA-OBS-3 — Testes unitários de `ActivityExtensions.SetPersonaTags`
+
+**Origem:** Review F1.
+
+**Contexto:** Helper novo em `src/EfsAiHub.Infra.Observability/Tracing/
+ActivityExtensions.cs`. Testável via `ActivityListener` in-memory;
+cobre early-return em null/Anonymous, determinismo do hash, tags por
+subtipo (ClientPersona vs AdminPersona), garantia de não vazar PII
+(ClientName/Username/etc não aparecem como tag).
+
+**Esforço estimado:** 2h.
+
+---
+
+### PERSONA-OBS-4 — Semântica de `ResourceId="*"` em read audit de collection
+
+**Origem:** Review F1.
+
+**Contexto:** `PersonaPromptTemplatesAdminController.GetAll` grava
+`admin_audit_log` com `ResourceId = "*"`. Dashboards que filtram por
+ID específico vão misturar esses eventos. Alternativas: `ResourceType
+= persona_prompt_template_collection` ou `ResourceId = ""`.
+
+**Esforço estimado:** 30min + migration de dados históricos se quiser
+consistência retroativa.
+
+---
+
+### PERSONA-OBS-5 — Cachear `UserIdentity` resolvido em `HttpContext.Items`
+
+**Origem:** Review F1.
+
+**Contexto:** `AdminAuditContext.Build` chama `UserIdentityResolver.
+TryResolve(headers)` a cada GET. Em endpoints com loop/polling da UI,
+são ~1-3ms redundantes. Fix: resolver uma vez no middleware e guardar
+em `HttpContext.Items["identity"]`.
+
+**Gatilho:** reclamação de latência em dashboards ou instrumentação
+mostrando p99 alto em endpoints admin.
+
+**Esforço estimado:** 2h.
+
+---

@@ -42,6 +42,14 @@ public class PersonasAdminController : ControllerBase
         CancellationToken ct = default)
     {
         var persona = await _provider.ResolveAsync(userId, userType, ct);
+
+        // LGPD art. 37 — trilha de consulta de dados pessoais. Resource id
+        // é composta (userType:userId) pra permitir filtragem por tipo.
+        await _audit.RecordAsync(_auditContext.Build(
+            AdminAuditActions.Read,
+            AdminAuditResources.PersonaCache,
+            $"{userType}:{userId}"), ct);
+
         return Ok(persona);
     }
 

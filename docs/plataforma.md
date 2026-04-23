@@ -1008,7 +1008,7 @@ src/EfsAiHub.Infra.Persistence/DbContext/AgentFwDbContext.cs
 | `chat_messages` | MessageId | ConversationId, StructuredOutput JSONB |
 | `human_interactions` | InteractionId | Status, ExecutionId |
 | `agent_sessions` | SessionId | ExpiresAt index |
-| `llm_token_usage` | Id (auto) | Particionada mensalmente |
+| `llm_token_usage` | Id (auto) | Particionada mensalmente; coluna `CachedTokens` (F1) captura prompt cache hits |
 | `tool_invocations` | Id (auto) | Particionada mensalmente |
 | `model_pricing` | Id (auto) | numeric(20,10) para precisão de preço |
 | `background_response_jobs` | JobId | IdempotencyKey partial unique index |

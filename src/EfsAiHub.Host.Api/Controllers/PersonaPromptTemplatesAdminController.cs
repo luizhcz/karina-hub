@@ -42,6 +42,14 @@ public class PersonaPromptTemplatesAdminController : ControllerBase
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
         var items = await _repo.GetAllAsync(ct);
+
+        // Read audit: consulta de templates é trilha auditável (LGPD +
+        // compliance de prompt engineering — quem viu o que).
+        await _audit.RecordAsync(_auditContext.Build(
+            AdminAuditActions.Read,
+            AdminAuditResources.PersonaPromptTemplate,
+            "*"), ct);
+
         // Incluímos as duas listas de placeholders (cliente vs admin) pra UI
         // renderizar o conjunto correto baseado no userType do template editado.
         return Ok(new
@@ -62,7 +70,14 @@ public class PersonaPromptTemplatesAdminController : ControllerBase
     public async Task<IActionResult> GetById(int id, CancellationToken ct)
     {
         var item = await _repo.GetByIdAsync(id, ct);
-        return item is null ? NotFound() : Ok(item);
+        if (item is null) return NotFound();
+
+        await _audit.RecordAsync(_auditContext.Build(
+            AdminAuditActions.Read,
+            AdminAuditResources.PersonaPromptTemplate,
+            id.ToString()), ct);
+
+        return Ok(item);
     }
 
     [HttpPost]
