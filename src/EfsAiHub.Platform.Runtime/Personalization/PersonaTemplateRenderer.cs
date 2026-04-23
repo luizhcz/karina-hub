@@ -25,10 +25,12 @@ namespace EfsAiHub.Platform.Runtime.Personalization;
 /// </summary>
 public static class PersonaTemplateRenderer
 {
-    // Regex único: chaves duplas + identificador word-chars. Não pegamos
-    // chaves aninhadas — não suportamos, escopo é string replace literal.
+    // Chaves duplas + whitespace opcional + identificador word-chars + whitespace
+    // opcional + chaves duplas. Aceita {{segment}} e {{ segment }} — tolera
+    // indentação acidental do admin sem virar typo literal no output.
+    // Não pegamos chaves aninhadas — escopo é string replace literal.
     private static readonly Regex PlaceholderPattern =
-        new(@"\{\{(\w+)\}\}", RegexOptions.Compiled);
+        new(@"\{\{\s*(\w+)\s*\}\}", RegexOptions.Compiled);
 
     /// <summary>
     /// Aplica o template à persona. Retorna null se <paramref name="template"/>

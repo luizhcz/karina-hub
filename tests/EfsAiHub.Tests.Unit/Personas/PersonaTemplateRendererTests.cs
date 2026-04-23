@@ -158,6 +158,19 @@ public class PersonaTemplateRendererTests
     }
 
     [Fact]
+    public void Render_WhitespaceInsideBraces_IsSubstituted()
+    {
+        // {{ segment }} com espaços não é erro — regex tolera indentação acidental.
+        // Importante pra admin não ver typo literal porque digitou com espaço.
+        var persona = MakeClient(segment: "private");
+
+        var result = PersonaTemplateRenderer.Render(
+            "A={{business_segment}} B={{ business_segment }} C={{  business_segment  }}", persona);
+
+        result.Should().Be("A=private B=private C=private");
+    }
+
+    [Fact]
     public void Render_Client_AdminPlaceholders_LeftIntact()
     {
         // Placeholder de admin num template aplicado a cliente não resolve —

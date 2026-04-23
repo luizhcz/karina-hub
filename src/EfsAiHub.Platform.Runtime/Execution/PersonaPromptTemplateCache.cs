@@ -25,11 +25,12 @@ public interface IPersonaPromptTemplateCache
     Task InvalidateAsync(string? scope = null);
 }
 
-public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache
+public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache, IDisposable
 {
     private static readonly TimeSpan L1Ttl = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan L2Ttl = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan NegativeTtl = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan SweepInterval = TimeSpan.FromSeconds(30);
     private const string RedisKeyPrefix = "persona-tpl:";
 
     private readonly IServiceProvider _sp;
@@ -38,6 +39,9 @@ public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache
 
     private readonly ConcurrentDictionary<string, (PersonaPromptTemplate? Value, DateTime ExpiresAt)> _local =
         new(StringComparer.Ordinal);
+
+    private readonly Timer _sweepTimer;
+    private bool _disposed;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -53,6 +57,10 @@ public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache
         _sp = sp;
         _redis = redis;
         _logger = logger;
+
+        // Sweep background de entries expiradas — evita growth unbounded do L1
+        // em pods de longa duração. Roda a cada 30s (metade do TTL mais curto).
+        _sweepTimer = new Timer(_ => SweepExpired(), null, SweepInterval, SweepInterval);
     }
 
     public async ValueTask<PersonaPromptTemplate?> GetByScopeAsync(string scope, CancellationToken ct = default)
@@ -76,7 +84,14 @@ public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache
                 return parsed;
             }
         }
-        catch (Exception ex)
+        catch (JsonException ex)
+        {
+            // Payload corrompido no Redis: loga warning (não debug) porque
+            // indica schema drift ou dados ruins — refetch do PG.
+            _logger.LogWarning(ex,
+                "[PersonaTemplateCache] L2 payload inválido pra scope={Scope}; refetch do PG.", scope);
+        }
+        catch (Exception ex) when (IsRedisTransient(ex))
         {
             _logger.LogDebug(ex, "[PersonaTemplateCache] Redis falhou para scope={Scope}; caindo pra PG.", scope);
         }
@@ -95,15 +110,18 @@ public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache
                 var json = fresh is null ? "null" : JsonSerializer.Serialize(fresh, JsonOpts);
                 await _redis.SetStringAsync(RedisKeyPrefix + scope, json, fresh is null ? NegativeTtl : L2Ttl);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (IsRedisTransient(ex))
             {
                 _logger.LogDebug(ex, "[PersonaTemplateCache] Redis write falhou pra scope={Scope}.", scope);
             }
 
             return fresh;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsPgTransient(ex))
         {
+            // Só engolimos falhas de transport do PG (timeout, conexão caída).
+            // Bugs lógicos (NullRef, ArgumentException) propagam — não podem
+            // virar "template ausente" silencioso.
             _logger.LogWarning(ex, "[PersonaTemplateCache] PG fallback falhou pra scope={Scope}.", scope);
             _local[scope] = (null, now + NegativeTtl);
             return null;
@@ -116,7 +134,10 @@ public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache
         {
             _local.TryRemove(scope, out _);
             try { await _redis.RemoveAsync(RedisKeyPrefix + scope); }
-            catch (Exception ex) { _logger.LogDebug(ex, "[PersonaTemplateCache] Invalidate L2 falhou."); }
+            catch (Exception ex) when (IsRedisTransient(ex))
+            {
+                _logger.LogDebug(ex, "[PersonaTemplateCache] Invalidate L2 falhou.");
+            }
             return;
         }
 
@@ -125,7 +146,51 @@ public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache
         foreach (var k in keys)
         {
             try { await _redis.RemoveAsync(RedisKeyPrefix + k); }
-            catch { /* best effort */ }
+            catch (Exception ex) when (IsRedisTransient(ex))
+            {
+                _logger.LogDebug(ex, "[PersonaTemplateCache] Flush L2 falhou para scope={Scope}.", k);
+            }
         }
     }
+
+    /// <summary>
+    /// Remove entries expiradas do L1. Roda em background via <see cref="_sweepTimer"/>.
+    /// O(N) sobre o dict; aceitável porque sweep é raro (30s) e o dict é bounded
+    /// por scopes ativos em ≤60s (TTL positive) ou ≤30s (negative).
+    /// </summary>
+    private void SweepExpired()
+    {
+        if (_disposed) return;
+        var now = DateTime.UtcNow;
+        var removed = 0;
+        foreach (var kv in _local)
+        {
+            if (kv.Value.ExpiresAt <= now && _local.TryRemove(kv.Key, out _))
+                removed++;
+        }
+        if (removed > 0)
+            _logger.LogDebug("[PersonaTemplateCache] Sweep removeu {Removed} entries (size={Size}).",
+                removed, _local.Count);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _sweepTimer.Dispose();
+    }
+
+    // Redis (StackExchange.Redis) não expõe exception base própria útil — whitelist
+    // por exclusão. JsonException e OperationCanceledException não são transport,
+    // não devem virar "Redis flaky".
+    private static bool IsRedisTransient(Exception ex) =>
+        ex is not JsonException && ex is not OperationCanceledException;
+
+    // PG (Npgsql) + EF Core lançam tipicamente DbException / TimeoutException
+    // em transport. Bugs lógicos (ArgumentException, NullRef, InvalidOperationException)
+    // NÃO são transport — devem propagar pra 500. OperationCanceledException
+    // também propaga: cancelamento do caller não é "PG flaky".
+    private static bool IsPgTransient(Exception ex) =>
+        ex is TimeoutException
+        || ex is System.Data.Common.DbException;
 }

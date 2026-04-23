@@ -28,17 +28,16 @@
 -- Lógica condicional por perfil é delegada ao LLM — o template lista as
 -- políticas por combinação em linguagem natural, sem template engine.
 --
--- Executar APÓS schema.sql. Idempotente: ON CONFLICT (Scope) DO NOTHING
--- preserva customizações feitas via UI.
+-- Executar APÓS schema.sql. Totalmente idempotente: ON CONFLICT (Scope)
+-- DO NOTHING preserva customizações feitas via UI. Rodar N vezes não apaga
+-- nem sobrescreve nada.
+--
+-- Para ambientes que tinham o scope legado 'global' (schema antigo):
+-- rodar db/migration_persona_scope_rename.sql ANTES deste seed, uma única
+-- vez. Ambientes novos podem ignorar a migration.
 -- =============================================================================
 
 SET search_path TO aihub;
-
--- Migração one-shot: remove o scope legado 'global' (schema anterior sem
--- userType no scope). Re-seeds abaixo criam 'global:cliente' + 'global:admin'.
--- Se o admin já customizou templates por UI, essas customizações foram
--- registradas no admin_audit_log — podem ser recriadas manualmente pela UI.
-DELETE FROM aihub.persona_prompt_templates WHERE "Scope" = 'global';
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- global:cliente — investidor final

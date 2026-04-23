@@ -47,6 +47,10 @@ public sealed class HttpPersonaProvider : IPersonaProvider
 
         // 1 tentativa + 1 retry rápido. Sem Polly (evita dep). Mais que isso
         // contamina p95 do chat; API mal-comportada vira fallback Anonymous.
+        //
+        // Catches específicos: só exceptions de transport/schema/cancel viram
+        // fallback Anonymous. Outras (NullRef, ArgumentException, etc.) propagam
+        // — são bugs lógicos que não devem ser silenciados como "API instável".
         for (var attempt = 1; attempt <= 2; attempt++)
         {
             try
@@ -60,15 +64,26 @@ public sealed class HttpPersonaProvider : IPersonaProvider
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
+                // Cancelamento do caller — propaga silencioso sem log nem retry.
                 return UserPersonaFactory.Anonymous(userId, userType);
             }
-            catch (Exception ex) when (attempt == 1)
+            catch (System.Text.Json.JsonException ex)
+            {
+                // Schema drift / payload inválido: retry é desperdício (o payload
+                // seguinte tende a ser idêntico). Fallback direto + log warning
+                // pra evidenciar drift — admin precisa ver isso.
+                _logger.LogWarning(ex,
+                    "[PersonaApi] Payload inválido para user={UserId} ({UserType}). Fallback Anonymous sem retry.",
+                    userId, userType);
+                return UserPersonaFactory.Anonymous(userId, userType);
+            }
+            catch (Exception ex) when (IsTransientTransport(ex) && attempt == 1)
             {
                 _logger.LogDebug(ex,
                     "[PersonaApi] Falha transiente na tentativa 1 para user={UserId} ({UserType}). Retentando…",
                     userId, userType);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (IsTransientTransport(ex))
             {
                 _logger.LogWarning(ex,
                     "[PersonaApi] Persona não resolvida para user={UserId} ({UserType}). Fallback Anonymous.",
@@ -78,6 +93,16 @@ public sealed class HttpPersonaProvider : IPersonaProvider
 
         return UserPersonaFactory.Anonymous(userId, userType);
     }
+
+    /// <summary>
+    /// Falhas de transport que justificam retry: rede/DNS/TLS e timeout do HttpClient.
+    /// JsonException NÃO entra aqui — é tratada separadamente sem retry (linha acima).
+    /// Bugs lógicos (NullRef, ArgumentException, etc.) propagam pro middleware global
+    /// como 500 ao invés de ser silenciados como "API instável".
+    /// </summary>
+    private static bool IsTransientTransport(Exception ex) => ex is
+        HttpRequestException           // falha de rede / DNS / TLS
+        or TaskCanceledException;      // timeout do HttpClient (!ct.IsCancellationRequested)
 
     private async Task<UserPersona> FetchClientAsync(string userId, CancellationToken ct)
     {
