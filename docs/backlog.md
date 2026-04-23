@@ -107,6 +107,83 @@ parametrizável) simularia dois pods no mesmo processo.
 
 ---
 
+### TENANCY-STRICT-FILTER — Remover tolerância a `ProjectId == null`
+
+**Origem:** Review F4 (ressalva obrigatória atenuada).
+
+**Contexto:** `HasQueryFilter` em `NodeExecutionRow` e `LlmTokenUsageRow`
+hoje inclui `|| e.ProjectId == null` para tolerar rows legadas pré-F4.
+Efeito colateral: callers que omitem `metadata["projectId"]` também
+geram rows null que viram visíveis cross-project. Hoje mitigado
+por log warning no `WorkflowRunnerService` + writer que popula via
+`DelegateExecutor`. Plano: backfill das rows antigas + enforcement
+estrito no trigger + remover a cláusula null.
+
+**Passos:**
+1. Script de backfill: `UPDATE llm_token_usage SET "ProjectId" = 'default' WHERE "ProjectId" IS NULL;` (e mesmo para node_executions), executado em janela de manutenção.
+2. Adicionar validação no `WorkflowsController.Trigger`/`Sandbox` rejeitando request sem `projectId`.
+3. Remover `|| e.ProjectId == null` dos `HasQueryFilter`.
+4. Tornar coluna `ProjectId` `NOT NULL` com `DEFAULT 'default'`.
+
+**Gatilho:** após o warning log parar de aparecer na telemetria (indica que ninguém está mais gerando rows null).
+
+**Esforço estimado:** 4h incluindo migration de backfill.
+
+---
+
+### TENANCY-RLS — Ativar Postgres Row-Level Security como defense-in-depth
+
+**Origem:** [ADR 003](adr/003-project-as-tenancy-boundary.md) + plano F4.
+
+**Contexto:** Hoje isolamento multi-tenant é enforçado em camada de
+aplicação via `HasQueryFilter` (EF) + `WHERE ProjectId` nos repos
+raw-SQL auditados. Se alguma query esquecer o filter ou uma conexão
+direta for aberta, o boundary é quebrado. RLS no Postgres (policies
+`USING (ProjectId = current_setting('app.project_id', true))`) trava
+isso no motor do DB.
+
+**Trabalho:** ver [docs/multi-tenant-rls.md](multi-tenant-rls.md).
+
+**Gatilho:** requisito SOC2/ISO27001, ou primeiro incidente de
+vazamento cross-project em audit.
+
+**Esforço estimado:** 2-3d.
+
+---
+
+### TENANCY-SQL-AUDIT — Completar auditoria dos repos raw-SQL
+
+**Origem:** F4 ([docs/multi-tenant-inventory.md](multi-tenant-inventory.md)).
+
+**Contexto:** F4 auditou repos críticos (LlmTokenUsage, Conversation,
+NodeExecution, PersonaPromptTemplate). Outros (`PgBackgroundResponseRepository`,
+`PgAgentVersionRepository`, `PgSkillVersionRepository`,
+`PgExecutionAnalyticsRepository`, `PgDocumentIntelligenceUsageQueries`)
+não foram auditados pro escopo não estourar.
+
+**Trabalho:** revisar cada um; queries de leitura user-scoped ganham
+`WHERE "ProjectId" = @projectId`; admin-only documentadas explicitamente.
+
+**Esforço estimado:** 1d.
+
+---
+
+### TENANCY-ISOLATION-TESTS — Integration test cross-project
+
+**Origem:** F4 (planejado, não executado).
+
+**Contexto:** Não há hoje teste automatizado que garanta isolamento
+cross-project (ex: ProjectA cria conversa, ProjectB lê e confirma que
+não vê). Incidente de vazamento passaria no CI.
+
+**Trabalho:** em `tests/EfsAiHub.Tests.Integration/`, spinar
+`WebApplicationFactory` com 2 headers diferentes + asserts cross-read.
+Fixture precisa aceitar override de `x-efs-project-id`.
+
+**Esforço estimado:** 3h.
+
+---
+
 ### HOUSEKEEPING-1 — Injetar ILogger em `UserPersonaFactory.Anonymous`
 
 **Origem:** Review F3 (N1).

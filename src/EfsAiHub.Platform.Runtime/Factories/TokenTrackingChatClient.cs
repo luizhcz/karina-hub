@@ -199,6 +199,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
             OutputTokens = outputTokens,
             TotalTokens = totalTokens,
             CachedTokens = cachedTokens,
+            ProjectId = ctx?.ProjectId,
             DurationMs = durationMs,
             PromptVersionId = promptVersionId,
             OutputContent = outputContent,

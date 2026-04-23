@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EfsAiHub.Core.Orchestration.Executors;
 using Microsoft.EntityFrameworkCore;
 
 namespace EfsAiHub.Infra.Persistence.Postgres;
@@ -33,7 +34,11 @@ public class PgNodeExecutionRepository : INodeExecutionRepository
             {
                 ExecutionId = record.ExecutionId,
                 NodeId = record.NodeId,
-                Data = data
+                Data = data,
+                // F4: propaga ProjectId do ExecutionContext ambiente (AsyncLocal).
+                // Null se execução tiver sido triggered sem projectId no metadata —
+                // HasQueryFilter tolera mas é débito conhecido (ver backlog TENANCY-*).
+                ProjectId = DelegateExecutor.Current.Value?.ProjectId,
             });
         else
             existing.Data = data;

@@ -92,7 +92,7 @@ public class PersonaPromptTemplatesAdminController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Template))
             return BadRequest(new { error = "Template é obrigatório." });
         if (!IsValidScope(request.Scope))
-            return BadRequest(new { error = "Scope inválido. Use 'global:cliente', 'global:admin', 'agent:{agentId}:cliente' ou 'agent:{agentId}:admin'." });
+            return BadRequest(new { error = "Scope inválido. Formatos aceitos: 'global:{userType}', 'agent:{agentId}:{userType}', 'project:{projectId}:{userType}' ou 'project:{projectId}:agent:{agentId}:{userType}' (userType ∈ {cliente, admin})." });
 
         var existing = await _repo.GetByScopeAsync(request.Scope, ct);
         var action = existing is null ? AdminAuditActions.Create : AdminAuditActions.Update;
@@ -181,16 +181,51 @@ public class PersonaPromptTemplatesAdminController : ControllerBase
 
     private static bool IsValidScope(string scope)
     {
+        // Níveis aceitos (match com cadeia do PersonaPromptComposer — ADR 003):
+        //   global:{userType}
+        //   agent:{agentId}:{userType}
+        //   project:{projectId}:{userType}
+        //   project:{projectId}:agent:{agentId}:{userType}
         if (scope == PersonaPromptTemplate.GlobalScope("cliente")) return true;
         if (scope == PersonaPromptTemplate.GlobalScope("admin")) return true;
-        // agent:{id}:{userType} — id não vazio, userType ∈ {cliente, admin}
-        if (!scope.StartsWith("agent:", StringComparison.Ordinal)) return false;
-        var rest = scope.AsSpan("agent:".Length);
-        var lastColon = rest.LastIndexOf(':');
-        if (lastColon <= 0) return false;
-        var agentId = rest[..lastColon];
-        var userType = rest[(lastColon + 1)..];
-        if (agentId.IsEmpty) return false;
-        return userType.SequenceEqual("cliente") || userType.SequenceEqual("admin");
+
+        if (scope.StartsWith("project:", StringComparison.Ordinal))
+        {
+            // project:{projectId}[:agent:{agentId}]:{userType}
+            var rest = scope.AsSpan("project:".Length);
+            var firstColon = rest.IndexOf(':');
+            if (firstColon <= 0) return false;
+            var projectId = rest[..firstColon];
+            var afterProject = rest[(firstColon + 1)..];
+            if (projectId.IsEmpty) return false;
+
+            // Variante "project:{pid}:agent:{aid}:{userType}"
+            if (afterProject.StartsWith("agent:"))
+            {
+                var agentRest = afterProject["agent:".Length..];
+                var lastColon = agentRest.LastIndexOf(':');
+                if (lastColon <= 0) return false;
+                var agentId = agentRest[..lastColon];
+                var ut = agentRest[(lastColon + 1)..];
+                if (agentId.IsEmpty) return false;
+                return ut.SequenceEqual("cliente") || ut.SequenceEqual("admin");
+            }
+
+            // Variante "project:{pid}:{userType}"
+            return afterProject.SequenceEqual("cliente") || afterProject.SequenceEqual("admin");
+        }
+
+        if (scope.StartsWith("agent:", StringComparison.Ordinal))
+        {
+            var rest = scope.AsSpan("agent:".Length);
+            var lastColon = rest.LastIndexOf(':');
+            if (lastColon <= 0) return false;
+            var agentId = rest[..lastColon];
+            var userType = rest[(lastColon + 1)..];
+            if (agentId.IsEmpty) return false;
+            return userType.SequenceEqual("cliente") || userType.SequenceEqual("admin");
+        }
+
+        return false;
     }
 }

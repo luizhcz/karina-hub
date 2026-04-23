@@ -46,6 +46,32 @@ public sealed class PersonaPromptTemplate
     /// <summary>Override por agente + userType.</summary>
     public static string AgentScope(string agentId, string userType)
         => $"agent:{agentId}:{userType}";
+
+    // F4: Scopes project-aware — override mais específico que o global e por
+    // agente. ProjectId foi escolhido (ADR 003) em vez de TenantId paralelo,
+    // porque Project já é o boundary de isolamento no repo. Cadeia completa
+    // no composer:
+    //
+    //   1. project:{projectId}:agent:{agentId}:{userType}  (mais específico)
+    //   2. project:{projectId}:{userType}
+    //   3. agent:{agentId}:{userType}
+    //   4. global:{userType}
+    //   5. null (persona fica sem bloco)
+
+    /// <summary>Scope global por project — override do <c>global:{userType}</c>.</summary>
+    public static string ProjectGlobalScope(string projectId, string userType)
+        => $"project:{projectId}:{userType}";
+
+    /// <summary>Scope por agente + project + userType — nível mais específico.</summary>
+    public static string ProjectAgentScope(string projectId, string agentId, string userType)
+        => $"project:{projectId}:agent:{agentId}:{userType}";
+
+    /// <summary>
+    /// Identifica se o scope é project-aware. Usado por UI admin pra separar
+    /// scopes globais de per-project.
+    /// </summary>
+    public static bool IsProjectScoped(string scope) =>
+        scope.StartsWith("project:", StringComparison.Ordinal);
 }
 
 /// <summary>

@@ -139,6 +139,7 @@ internal class NodeExecutionRow
     public string ExecutionId { get; set; } = "";
     public string NodeId { get; set; } = "";
     public string Data { get; set; } = "{}";
+    public string? ProjectId { get; set; }
 }
 
 internal class AtivoRow
@@ -167,6 +168,7 @@ internal class LlmTokenUsageRow
     public string? AgentVersionId { get; set; }
     public string? OutputContent { get; set; }
     public int RetryCount { get; set; }
+    public string? ProjectId { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
@@ -552,8 +554,14 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.ExecutionId).HasMaxLength(128).IsRequired();
             b.Property(e => e.NodeId).HasMaxLength(256).IsRequired();
             b.Property(e => e.Data).HasColumnType("text").IsRequired();
+            b.Property(e => e.ProjectId).HasMaxLength(128);
             b.HasIndex(e => new { e.ExecutionId, e.NodeId }).IsUnique();
             b.HasIndex(e => e.ExecutionId);
+            // F4: tolerância ao null em rows legadas (pré-F4). Débito
+            // conhecido (ver backlog TENANCY-STRICT-FILTER): callers que
+            // omitem projectId também passam. Remover o `|| == null`
+            // após backfill de rows antigas + enforcement no trigger.
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId || e.ProjectId == null);
         });
 
         // ── AtivoRow ─────────────────────────────────────────────────────────
@@ -582,10 +590,16 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.OutputContent).HasColumnType("text");
             b.Property(e => e.RetryCount).HasDefaultValue(0);
             b.Property(e => e.CachedTokens).HasDefaultValue(0);
+            b.Property(e => e.ProjectId).HasMaxLength(128);
             b.Property(e => e.CreatedAt).IsRequired();
             b.HasIndex(e => e.AgentId);
             b.HasIndex(e => e.ExecutionId);
             b.HasIndex(e => e.CreatedAt);
+            // F4: mesma tolerância e mesmo débito que NodeExecutionRow — rows
+            // pré-F4 e execuções sem projectId no metadata ficam com null e
+            // passam. Analytics globais (GetAllAgentsSummaryAsync,
+            // GetThroughputAsync) usam SQL raw e ignoram esse filter.
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId || e.ProjectId == null);
         });
 
         // ── ToolInvocationRow ────────────────────────────────────────────────

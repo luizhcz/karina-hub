@@ -47,7 +47,11 @@ public sealed record ExecutionContext(
     // PersonaResolutionMiddleware (chat) ou WorkflowRunnerService (standalone).
     // Null = sem personalização (fluxo anterior à feature). AgentFactory/SystemMessageBuilder
     // lidam com null e caem no prompt base invariante.
-    UserPersona? Persona = null);
+    UserPersona? Persona = null,
+    // F4 — ProjectId do caller. Propagado pro TokenTrackingChatClient gravar
+    // em llm_token_usage + usado pelo PersonaPromptComposer pra montar scope
+    // project-aware. Null preserva compat com execuções pré-F4.
+    string? ProjectId = null);
 
 /// <summary>
 /// Modo de proteção de conta aplicado a tool calls de uma execução:

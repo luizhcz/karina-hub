@@ -166,12 +166,14 @@ public class AgentFactory : IAgentFactory
             // message cai para o prompt base invariante sem custo adicional.
             // Mantendo a ordem instructions → persona preserva prefixo cacheável
             // do OpenAI (docs oficiais: prompt caching exige prefix exato estável).
-            var persona = EfsAiHub.Core.Orchestration.Executors.DelegateExecutor.Current.Value?.Persona;
-            // agentId permite override por agente no template (scope "agent:{id}")
-            // com fallback pro "global" se não houver override cadastrado.
+            var execCtx = EfsAiHub.Core.Orchestration.Executors.DelegateExecutor.Current.Value;
+            var persona = execCtx?.Persona;
+            var projectId = execCtx?.ProjectId;
+            // Cadeia de 5 níveis no composer (F4): project:{pid}:agent:{aid}:{userType}
+            // → project:{pid}:{userType} → agent:{aid}:{userType} → global:{userType} → null.
             var composedPersona = _personaComposer is null
                 ? ComposedPersonaPrompt.Empty
-                : await _personaComposer.ComposeAsync(persona, agentId, cancellationToken);
+                : await _personaComposer.ComposeAsync(persona, agentId, projectId, cancellationToken);
 
             var systemMessage = _systemMessageBuilder.Build(instructions ?? string.Empty, composedPersona);
             if (!string.IsNullOrWhiteSpace(systemMessage))

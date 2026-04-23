@@ -119,7 +119,10 @@ public partial class ConversationService
         {
             ["conversationId"] = conversation.ConversationId,
             ["userId"] = conversation.UserId,
-            ["userType"] = conversation.UserType ?? ""
+            ["userType"] = conversation.UserType ?? "",
+            // F4: ProjectId do scope atual flui pro worker via metadata;
+            // lido em WorkflowRunnerService e posto em ExecutionContext.ProjectId.
+            ["projectId"] = conversation.ProjectId
         };
 
         if (!string.IsNullOrEmpty(conversation.LastActiveAgentId))

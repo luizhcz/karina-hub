@@ -18,6 +18,13 @@ public class LlmTokenUsage
     /// Incluído em <see cref="InputTokens"/> (não é aditivo).
     /// </summary>
     public int CachedTokens { get; set; }
+
+    /// <summary>
+    /// Project que originou a chamada LLM. Nullable pra compat com rows
+    /// pré-F4; writers novos populam via <c>IProjectContextAccessor</c>.
+    /// Permite analytics cross-project e HasQueryFilter no DbContext.
+    /// </summary>
+    public string? ProjectId { get; set; }
     public double DurationMs { get; set; }
     public string? PromptVersionId { get; set; }
     public string? AgentVersionId { get; set; }

@@ -128,6 +128,22 @@ public class WorkflowRunnerService
             catch { /* Input não é ChatTurnContext — fica anonymous */ }
         }
 
+        // F4: ProjectId flui pelo metadata do workflow. Chat mode popula via
+        // ConversationService + enqueue; scheduled/webhook que não passe
+        // "projectId" no metadata resultam em null — HasQueryFilter tolera
+        // (`|| e.ProjectId == null`) mas as rows ficam visíveis a qualquer
+        // project, o que é débito conhecido. Logar warning pra troubleshoot.
+        string? projectId = null;
+        execution.Metadata?.TryGetValue("projectId", out projectId);
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+            _logger.LogWarning(
+                "[WorkflowRunner] Execução '{ExecutionId}' iniciada SEM projectId no metadata. " +
+                "Escritas em node_executions/llm_token_usage ficarão com ProjectId=null e passarão " +
+                "pelo filter tolerante. Corrigir o caller a incluir metadata[\"projectId\"].",
+                execution.ExecutionId);
+        }
+
         // Resolução de Persona (silent fallback — contrato nunca lança)
         EfsAiHub.Core.Abstractions.Identity.Persona.UserPersona? persona = null;
         if (_personaProvider is not null && !string.IsNullOrWhiteSpace(guardUserId))
@@ -183,7 +199,8 @@ public class WorkflowRunnerService
             UpdateSharedState: updateSharedState,
             ConversationId: conversationId,
             EnrichmentRules: enrichmentRules,
-            Persona: persona);
+            Persona: persona,
+            ProjectId: projectId);
 
         try
         {

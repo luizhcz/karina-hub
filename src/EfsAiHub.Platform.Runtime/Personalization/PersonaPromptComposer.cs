@@ -7,8 +7,17 @@ namespace EfsAiHub.Platform.Runtime.Personalization;
 /// <summary>
 /// Implementação default do <see cref="IPersonaPromptComposer"/>.
 ///
-/// Resolve template (cache L1 → Redis → PG) na cadeia:
-///   <c>agent:{agentId}:{userType}</c> → <c>global:{userType}</c> → null.
+/// Resolve template (cache L1 → Redis → PG) na cadeia de 5 níveis (F4 /
+/// ADR 003):
+///   1. <c>project:{projectId}:agent:{agentId}:{userType}</c>  (mais específico)
+///   2. <c>project:{projectId}:{userType}</c>
+///   3. <c>agent:{agentId}:{userType}</c>
+///   4. <c>global:{userType}</c>
+///   5. null (persona fica sem bloco)
+///
+/// ProjectId foi escolhido como boundary de isolamento em vez de TenantId
+/// porque já é enforced em 6 entidades via <c>HasQueryFilter</c>, e projects
+/// já pertencem a tenants via <c>projects.tenant_id</c>. Ver ADR 003.
 ///
 /// Renderização é <see cref="PersonaTemplateRenderer"/> — pure function,
 /// delega a cada subtipo (<see cref="ClientPersona"/> / <see cref="AdminPersona"/>)
@@ -27,12 +36,13 @@ public sealed class PersonaPromptComposer : IPersonaPromptComposer
     public async Task<ComposedPersonaPrompt> ComposeAsync(
         UserPersona? persona,
         string? agentId,
+        string? projectId = null,
         CancellationToken ct = default)
     {
         if (persona is null || persona.IsAnonymous)
             return ComposedPersonaPrompt.Empty;
 
-        var template = await ResolveTemplateAsync(agentId, persona.UserType, ct);
+        var template = await ResolveTemplateAsync(agentId, persona.UserType, projectId, ct);
         if (template is null)
             return ComposedPersonaPrompt.Empty;
 
@@ -50,12 +60,28 @@ public sealed class PersonaPromptComposer : IPersonaPromptComposer
     }
 
     private async Task<PersonaPromptTemplate?> ResolveTemplateAsync(
-        string? agentId, string userType, CancellationToken ct)
+        string? agentId, string userType, string? projectId, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(agentId))
+        var hasAgent = !string.IsNullOrWhiteSpace(agentId);
+        var hasProject = !string.IsNullOrWhiteSpace(projectId);
+
+        // Cadeia de 5 níveis (mais específico → mais genérico).
+        if (hasProject && hasAgent)
+        {
+            var projectAgent = await _cache.GetByScopeAsync(
+                PersonaPromptTemplate.ProjectAgentScope(projectId!, agentId!, userType), ct);
+            if (projectAgent is not null) return projectAgent;
+        }
+        if (hasProject)
+        {
+            var projectGlobal = await _cache.GetByScopeAsync(
+                PersonaPromptTemplate.ProjectGlobalScope(projectId!, userType), ct);
+            if (projectGlobal is not null) return projectGlobal;
+        }
+        if (hasAgent)
         {
             var agentScoped = await _cache.GetByScopeAsync(
-                PersonaPromptTemplate.AgentScope(agentId, userType), ct);
+                PersonaPromptTemplate.AgentScope(agentId!, userType), ct);
             if (agentScoped is not null) return agentScoped;
         }
         return await _cache.GetByScopeAsync(

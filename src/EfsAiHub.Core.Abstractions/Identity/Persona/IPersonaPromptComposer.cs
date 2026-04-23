@@ -8,9 +8,13 @@ namespace EfsAiHub.Core.Abstractions.Identity.Persona;
 ///    (≤15 tokens) anexado ao fim da user message — combate lost-in-the-middle.
 ///
 /// Template usado vem de <see cref="IPersonaPromptTemplateRepository"/>:
-/// lookup <c>agent:{agentId}:{userType}</c> → fallback <c>global:{userType}</c>
-/// → null (persona fica sem bloco). Interface garante DIP + testabilidade do
-/// AgentFactory.
+/// cadeia de fallback 5 níveis (F4 / ADR 003):
+///   1. <c>project:{projectId}:agent:{agentId}:{userType}</c>  (mais específico)
+///   2. <c>project:{projectId}:{userType}</c>
+///   3. <c>agent:{agentId}:{userType}</c>
+///   4. <c>global:{userType}</c>
+///   5. null (persona fica sem bloco)
+/// Interface garante DIP + testabilidade do AgentFactory.
 ///
 /// Assíncrono porque o template é resolvido via cache (L1 sync + L2 Redis
 /// async). Método síncrono forçaria sync-over-async no hot path.
@@ -20,6 +24,7 @@ public interface IPersonaPromptComposer
     Task<ComposedPersonaPrompt> ComposeAsync(
         UserPersona? persona,
         string? agentId,
+        string? projectId = null,
         CancellationToken ct = default);
 }
 
