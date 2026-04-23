@@ -184,6 +184,75 @@ Fixture precisa aceitar override de `x-efs-project-id`.
 
 ---
 
+### PERSONA-VER-1 — Rejeitar rollback pra ActiveVersionId corrente
+
+**Origem:** Review F5 (nice-to-have).
+
+**Contexto:** `RollbackAsync` hoje aceita rollback pra version que já
+é ativa e cria nova version duplicada (polui histórico). UI já esconde
+o botão; só reproduzível via API direta.
+
+**Trabalho:** `RollbackAsync` devolve null ou erro específico quando
+`targetVersionId == template.ActiveVersionId`. Controller traduz em
+400 com mensagem clara.
+
+**Esforço estimado:** 15min.
+
+---
+
+### PERSONA-VER-2 — Padronizar `/rollback` para body JSON + ChangeReason custom
+
+**Origem:** Review F5 (nice-to-have — unifica 2 itens).
+
+**Contexto:** Hoje o endpoint usa querystring `?versionId=...`,
+inconsistente com `AgentsController` que usa body `[FromBody]
+RollbackAgentRequest`. Além disso, o `ChangeReason` é hardcoded como
+`"rollback to {versionId}"` — admin não pode passar "rollback por
+regressão X em produção".
+
+**Trabalho:** criar DTO `PersonaPromptTemplateRollbackRequest` com
+`VersionId Guid` + `ChangeReason string?`. Controller aceita no body
+e propaga o reason pro repository (que já tem o parâmetro).
+
+**Esforço estimado:** 30min + update no frontend (`rollbackPersonaTemplate`).
+
+---
+
+### PERSONA-VER-3 — Adicionar `AdminAuditActions.Rollback`
+
+**Origem:** Review F5 (nice-to-have).
+
+**Contexto:** Hoje o rollback grava `action='update'` no audit log com
+ResourceId composto `{id}:rollback:{versionId}`. Filtragem por tipo
+de ação (dashboard "quantos rollbacks por semana") exige LIKE na string.
+
+**Trabalho:** adicionar constante `AdminAuditActions.Rollback = "rollback"`
+e trocar o `Build(...)` do endpoint pra usar. Update em dashboards
+que agregam por Action (nenhum hoje).
+
+**Esforço estimado:** 10min.
+
+---
+
+### PERSONA-VER-RETENTION — Policy de retenção para versions antigas
+
+**Origem:** [ADR 004](adr/004-persona-template-versioning.md) — seção
+Negative consequences.
+
+**Contexto:** `persona_prompt_template_versions` é append-only; cada
+edit + rollback gera linha. Em tenant com churn alto de templates, a
+tabela cresce indefinidamente. Hoje N templates × M edits = NM rows.
+
+**Trabalho:** policy configurável (ex: manter últimas 100 versions
+por template, compactar o resto em resumo). Job de retention no Host.Worker.
+
+**Gatilho:** alguma consulta em dashboard admin ficar lenta ou
+tamanho da tabela passar de X GB.
+
+**Esforço estimado:** 1d.
+
+---
+
 ### HOUSEKEEPING-1 — Injetar ILogger em `UserPersonaFactory.Anonymous`
 
 **Origem:** Review F3 (N1).

@@ -156,6 +156,13 @@ export function PersonaTemplateEditPage() {
         <Badge variant={userType === 'cliente' ? 'blue' : 'purple'}>
           userType: {userType}
         </Badge>
+        {!isNew && existingQuery.data && (
+          <div className="ml-auto">
+            <Link to={`/admin/persona-templates/${existingQuery.data.id}/versions`}>
+              <Button variant="secondary" size="sm">Histórico de versões</Button>
+            </Link>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

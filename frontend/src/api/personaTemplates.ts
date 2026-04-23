@@ -18,6 +18,25 @@ export interface PersonaPromptTemplate {
   createdAt: string
   updatedAt: string
   updatedBy: string | null
+  /** F5: aponta pra version ativa no histórico. */
+  activeVersionId: string | null
+}
+
+/** F5: uma entrada no histórico append-only de versions de um template. */
+export interface PersonaPromptTemplateVersion {
+  id: number
+  templateId: number
+  versionId: string
+  template: string
+  createdAt: string
+  createdBy: string | null
+  changeReason: string | null
+}
+
+export interface PersonaPromptTemplateVersionsResponse {
+  template: PersonaPromptTemplate
+  versions: PersonaPromptTemplateVersion[]
+  activeVersionId: string | null
 }
 
 export interface PersonaPromptTemplateListResponse {
@@ -104,6 +123,15 @@ export const deletePersonaTemplate = (id: number) =>
 export const previewPersonaTemplate = (body: PersonaPromptTemplatePreviewRequest) =>
   post<PersonaPromptTemplatePreviewResponse>('/admin/persona-templates/preview', body)
 
+// F5 — versionamento
+export const getPersonaTemplateVersions = (id: number) =>
+  get<PersonaPromptTemplateVersionsResponse>(`/admin/persona-templates/${id}/versions`)
+
+export const rollbackPersonaTemplate = (id: number, versionId: string) =>
+  post<PersonaPromptTemplate>(
+    `/admin/persona-templates/${id}/rollback?versionId=${encodeURIComponent(versionId)}`,
+  )
+
 // ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function usePersonaTemplates() {
@@ -138,6 +166,36 @@ export function useDeletePersonaTemplate() {
     mutationFn: deletePersonaTemplate,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: PERSONA_TEMPLATE_KEYS.all })
+    },
+  })
+}
+
+// F5 — versionamento + rollback
+
+export const PERSONA_TEMPLATE_VERSION_KEYS = {
+  list: (templateId: number) => ['persona-templates', templateId, 'versions'] as const,
+}
+
+export function usePersonaTemplateVersions(templateId: number | undefined) {
+  return useQuery({
+    queryKey:
+      templateId !== undefined
+        ? PERSONA_TEMPLATE_VERSION_KEYS.list(templateId)
+        : ['persona-templates', 'versions', 'none'],
+    queryFn: () => getPersonaTemplateVersions(templateId as number),
+    enabled: templateId !== undefined && Number.isFinite(templateId),
+  })
+}
+
+export function useRollbackPersonaTemplate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, versionId }: { id: number; versionId: string }) =>
+      rollbackPersonaTemplate(id, versionId),
+    onSuccess: (rolled) => {
+      qc.invalidateQueries({ queryKey: PERSONA_TEMPLATE_KEYS.all })
+      qc.invalidateQueries({ queryKey: PERSONA_TEMPLATE_KEYS.detail(rolled.id) })
+      qc.invalidateQueries({ queryKey: PERSONA_TEMPLATE_VERSION_KEYS.list(rolled.id) })
     },
   })
 }

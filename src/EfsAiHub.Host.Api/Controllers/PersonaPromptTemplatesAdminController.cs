@@ -106,7 +106,12 @@ public class PersonaPromptTemplatesAdminController : ControllerBase
             // UpdatedBy fica null — actor já é gravado no admin_audit_log pelo
             // AdminAuditLogger. Evita duplicar info em 2 fontes.
             UpdatedBy = null,
-        }, ct);
+        },
+        // F5: CreatedBy da version fica null pelo mesmo motivo — actor
+        // real da mudança vive no admin_audit_log com ResourceId={template.Id}.
+        createdBy: null,
+        changeReason: null,
+        ct: ct);
 
         await _cache.InvalidateAsync(saved.Scope);
 
@@ -140,6 +145,57 @@ public class PersonaPromptTemplatesAdminController : ControllerBase
             payloadBefore: AdminAuditContext.Snapshot(existing)), ct);
 
         return NoContent();
+    }
+
+    // ── F5: versionamento + rollback ─────────────────────────────────────
+
+    [HttpGet("{id:int}/versions")]
+    [SwaggerOperation(Summary = "Lista o histórico de versões do template (mais recente primeiro)")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetVersions(int id, CancellationToken ct)
+    {
+        var template = await _repo.GetByIdAsync(id, ct);
+        if (template is null) return NotFound();
+
+        var versions = await _repo.GetVersionsAsync(id, ct);
+
+        await _audit.RecordAsync(_auditContext.Build(
+            AdminAuditActions.Read,
+            AdminAuditResources.PersonaPromptTemplate,
+            $"{id}:versions"), ct);
+
+        return Ok(new { template, versions, activeVersionId = template.ActiveVersionId });
+    }
+
+    [HttpPost("{id:int}/rollback")]
+    [SwaggerOperation(Summary = "Rollback pra uma version específica — cria nova version (append-only) com o conteúdo da alvo")]
+    [ProducesResponseType(typeof(PersonaPromptTemplate), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Rollback(
+        int id,
+        [FromQuery] Guid versionId,
+        CancellationToken ct)
+    {
+        var before = await _repo.GetByIdAsync(id, ct);
+        if (before is null) return NotFound();
+
+        var rolled = await _repo.RollbackAsync(id, versionId, createdBy: null, ct);
+        if (rolled is null)
+            return NotFound(new { error = $"VersionId '{versionId}' não pertence ao template #{id}." });
+
+        await _cache.InvalidateAsync(rolled.Scope);
+
+        // Action customizada "rollback" ainda não está em AdminAuditActions;
+        // usar Update e gravar VersionId alvo em ChangeReason via payloadAfter.
+        await _audit.RecordAsync(_auditContext.Build(
+            AdminAuditActions.Update,
+            AdminAuditResources.PersonaPromptTemplate,
+            $"{id}:rollback:{versionId}",
+            payloadBefore: AdminAuditContext.Snapshot(before),
+            payloadAfter: AdminAuditContext.Snapshot(rolled)), ct);
+
+        return Ok(rolled);
     }
 
     [HttpPost("preview")]

@@ -37,6 +37,14 @@ public sealed class PersonaPromptTemplate
     public string? UpdatedBy { get; set; }
 
     /// <summary>
+    /// Aponta pra <see cref="PersonaPromptTemplateVersion.VersionId"/> ativa
+    /// em <c>aihub.persona_prompt_template_versions</c>. F5 — cada UPDATE
+    /// via API cria nova version + move esse ponteiro na mesma transação.
+    /// Nullable em rows pré-F5 até backfill migrar.
+    /// </summary>
+    public Guid? ActiveVersionId { get; set; }
+
+    /// <summary>
     /// Scope global para um userType específico. Recomendação: sempre cadastrar
     /// <c>global:cliente</c> + <c>global:admin</c> em produção pra nenhum fluxo
     /// cair no fallback null.

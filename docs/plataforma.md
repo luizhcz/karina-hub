@@ -1010,7 +1010,8 @@ src/EfsAiHub.Infra.Persistence/DbContext/AgentFwDbContext.cs
 | `human_interactions` | InteractionId | Status, ExecutionId |
 | `agent_sessions` | SessionId | ExpiresAt index |
 | `llm_token_usage` | Id (auto) | Particionada mensalmente; coluna `CachedTokens` (F1) captura prompt cache hits |
-| `persona_prompt_templates` | Id (auto) | `UX_persona_prompt_templates_Scope` unique; `CHECK template_length` ≤ 50000 chars (F3) |
+| `persona_prompt_templates` | Id (auto) | `UX_persona_prompt_templates_Scope` unique; `CHECK template_length` ≤ 50000 chars (F3); `ActiveVersionId UUID` aponta pra version ativa (F5) |
+| `persona_prompt_template_versions` | Id (auto) | F5 — append-only; FK `TemplateId` com ON DELETE CASCADE; UNIQUE(`VersionId`); índice `(TemplateId, CreatedAt DESC)` |
 | `tool_invocations` | Id (auto) | Particionada mensalmente |
 | `model_pricing` | Id (auto) | numeric(20,10) para precisão de preço |
 | `background_response_jobs` | JobId | IdempotencyKey partial unique index |

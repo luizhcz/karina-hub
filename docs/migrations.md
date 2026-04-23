@@ -24,7 +24,8 @@ Pré-requisito: `db/schema.sql` já aplicado pelo menos uma vez.
 | 2026-04-23   | `migration_llm_token_usage_cached.sql`             | F1 — coluna `CachedTokens INT NOT NULL DEFAULT 0` em `llm_token_usage` pra capturar prompt caching do OpenAI. Ver [ADR 000](adr/000-opensdk-shape.md). |
 | 2026-04-23   | `migration_composite_indexes.sql` (revisada)       | F3 — adicionado guard `DO $$ IF EXISTS columns THEN …` ao índice de `SequenceId` (coluna que nunca foi criada no schema corrente). Permite `apply.sh` rodar clean em ambientes novos. |
 | 2026-04-23   | `migration_persona_template_length.sql`            | F3 — CHECK constraint `LENGTH("Template") <= 50000` em `persona_prompt_templates`. Protege contra admin salvando payload enorme via curl. |
-| **2026-04-23** | **`migration_project_id_columns.sql`**            | **F4 — adiciona coluna `ProjectId VARCHAR(128) NULL` em `node_executions` e `llm_token_usage`; índices compostos `(ProjectId, ...)`. Também limpa coluna `TenantId` dessas tabelas + `conversations` (pivot abortado, ver [ADR 003](adr/003-project-as-tenancy-boundary.md)).** |
+| 2026-04-23   | `migration_project_id_columns.sql`                 | F4 — adiciona coluna `ProjectId VARCHAR(128) NULL` em `node_executions` e `llm_token_usage`; índices compostos `(ProjectId, ...)`. Também limpa coluna `TenantId` dessas tabelas + `conversations` (pivot abortado, ver [ADR 003](adr/003-project-as-tenancy-boundary.md)). |
+| **2026-04-23** | **`migration_persona_template_versions.sql`**     | **F5 — cria tabela `persona_prompt_template_versions` (append-only) + coluna `ActiveVersionId UUID NULL` em `persona_prompt_templates` + backfill de uma version inicial pra cada template existente.** |
 
 ---
 
