@@ -715,29 +715,23 @@ Registrado como `document_intelligence` no `ICodeExecutorRegistry`. Fluxo de exe
 
 1. **Resolve source** → download (blobUrl) ou decode base64 (bytes)
 2. **Validação local** — verifica magic bytes `%PDF` e tamanho máximo (`MaxFileSizeBytes`, padrão 50 MB)
-3. **SHA-256 hash** — calcula hash do conteúdo para cache
+3. **SHA-256 hash** — calcula hash do conteúdo para cache (inclui `outputFormat` no `features_hash`)
 4. **Cache check** — busca no PostgreSQL (ExtractionCacheEntry) + Redis (content armazenado)
 5. **Semaphore gate** — controla concorrência (1 requisição por vez, configurable via `GateWaitTimeoutSeconds`)
-6. **Azure DI call** — `AnalyzeAsync` (URL) ou `AnalyzeBytesAsync` (bytes direto) com timeout configurável
-7. **Redis storage** — armazena resultado gzipado (`:full`), content plain text (`:content`), e metadados (`:meta`)
+6. **Azure DI call** — `AnalyzeAsync` (URL) ou `AnalyzeBytesAsync` (bytes direto) com timeout configurável. `OutputContentFormat` passado pro SDK conforme `request.outputFormat` (default `markdown`).
+7. **Redis storage** — armazena resultado gzipado (`:full`), content no formato escolhido (`:content`), e metadados (`:meta`). Cache key (`di:v2:{sha}:{model}:{format}`) inclui format para não confundir markdown com plain text.
 8. **Cache upsert** — persiste entrada no PostgreSQL para futuras consultas
-9. **Cost tracking** — estima custo por modelo × páginas e integra com `ExecutionBudget`
+9. **Cost tracking** — resolve preço por página consultando `aihub.document_intelligence_pricing` (via cache em memória + Redis + Postgres, ver §20.2). Fallback hardcoded se DB vazio. Integra com `ExecutionBudget`.
 
 Características:
+- **Output em markdown por default** desde 2026 — entrega tabelas/headers prontos para o LLM consumir. Flag `outputFormat: "text"` reverte para plain text se algum caller precisar.
 - **Dois modos de envio**: URL (Azure DI faz download) ou bytes (upload direto via `Base64Source`)
-- **Cache em 3 camadas**: Redis `:full` (gzip), `:content` (plain text), `:meta` (JSON metadados)
+- **Cache em 3 camadas**: Redis `:full` (gzip), `:content` (markdown ou text), `:meta` (JSON metadados)
 - **Autenticação dual**: API Key ou Managed Identity (configurável via `UseManagedIdentity`)
-- **Content no output**: o texto extraído é incluído no output do executor para ser consumido por agentes downstream
 
-### Estimativa de custo
+### Pricing
 
-| Modelo | Custo/página |
-|--------|-------------|
-| `prebuilt-read` | US$ 0,0015 |
-| `prebuilt-layout` | US$ 0,01 |
-| `prebuilt-invoice` | US$ 0,01 |
-| `prebuilt-receipt` | US$ 0,01 |
-| Outros | US$ 0,01 |
+Tabela dedicada `aihub.document_intelligence_pricing` — ver [§20.2](#202-pricing-document-intelligence) para detalhes e seed oficial.
 
 ### Configuração
 
@@ -1115,6 +1109,30 @@ Métricas (meter `EfsAiHub.Api`):
 Oráculo reproduzível em `scripts/load/atendimento_cliente_burst.js` (k6). Rodar com `./scripts/load/run_burst.sh`. Threshold `turn2_success >= 29` em 30 VUs × 2 turnos. Baseline pós-fix disponível em `scripts/load/baselines/burst-2turns-postfix.html`. Se o teste regredir, o primeiro sinal é `NpgsqlOperationInProgressException` no log do backend.
 
 Testes de integração em `tests/EfsAiHub.Tests.Integration/Messaging/PgEventBusLifecycleTests.cs` cobrem resubscribe em rajada, cancel precoce e subscribers concorrentes.
+
+---
+
+## 20.2. Pricing Document Intelligence
+
+Provider **Azure AI Document Intelligence** cobra **por página processada** (não por token). Tabela dedicada `aihub.document_intelligence_pricing` mantém a tarifa vigente:
+
+| Modelo | Preço por 1.000 páginas (USD) | Uso |
+|---|---|---|
+| `prebuilt-layout` | $10.00 | Padrão do executor `document_intelligence` — entrega markdown com tabelas/headers |
+| `prebuilt-read` | $1.50 | OCR puro (mais barato, sem estrutura) |
+| `prebuilt-invoice` | $10.00 | Notas fiscais |
+| `prebuilt-receipt` | $10.00 | Recibos |
+| `prebuilt-idDocument` | $10.00 | Documentos de identidade |
+
+Valores em [db/seed_document_intelligence_pricing.sql](../db/seed_document_intelligence_pricing.sql). Azure pay-as-you-go tem paridade com OpenAI direct (confirmado em Microsoft Learn Q&A).
+
+**Atualizar preço em produção**: inserir nova linha com `EffectiveFrom` posterior — o runtime lê a entrada vigente mais recente. O cache in-memory (+Redis, TTL 5min) é invalidado automaticamente pelo `DocumentIntelligenceAdminController` em upserts.
+
+**Add-ons não incluídos** (decisão consciente): high-res OCR (+$6/1k), query fields (+$10/1k). Se algum workflow precisar, modelar como features separadas (backlog DI-1).
+
+**Fonte em runtime**: `DocumentIntelligenceFunctions.ResolveCostAsync` consulta `IDocumentIntelligencePricingCache` (→ Redis → PG). Fallback hardcoded com os mesmos valores do seed, pra extração não falhar em ambiente sem seed aplicado.
+
+**Visualização**: `/api/admin/document-intelligence/{usage,jobs,pricing}` e tela `/costs/document-intelligence` (+ `/costs/document-intelligence/pricing` para CRUD admin).
 
 ---
 

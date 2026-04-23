@@ -40,9 +40,11 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
         Uri sourceUri,
         string model,
         string[]? features,
+        string outputFormat,
         CancellationToken ct)
     {
         var options = new AnalyzeDocumentOptions(model, sourceUri);
+        ApplyOutputFormat(options, outputFormat);
         return await AnalyzeCoreAsync(options, ct);
     }
 
@@ -50,10 +52,21 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
         byte[] content,
         string model,
         string[]? features,
+        string outputFormat,
         CancellationToken ct)
     {
         var options = new AnalyzeDocumentOptions(model, BinaryData.FromBytes(content));
+        ApplyOutputFormat(options, outputFormat);
         return await AnalyzeCoreAsync(options, ct);
+    }
+
+    // Aplica o OutputContentFormat do SDK. Markdown entrega tabelas/headers
+    // renderizados, bem mais fácil pro LLM consumir.
+    private static void ApplyOutputFormat(AnalyzeDocumentOptions options, string outputFormat)
+    {
+        options.OutputContentFormat = outputFormat?.Equals("text", StringComparison.OrdinalIgnoreCase) == true
+            ? DocumentContentFormat.Text
+            : DocumentContentFormat.Markdown;
     }
 
     private async Task<DiAnalyzeResult> AnalyzeCoreAsync(

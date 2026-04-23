@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Azure;
+using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Agents.DocumentIntelligence;
 using EfsAiHub.Core.Orchestration.Executors;
+using EfsAiHub.Platform.Runtime.Execution;
 using EfsAiHub.Platform.Runtime.Functions;
 using EfsAiHub.Platform.Runtime.Options;
 using EfsAiHub.Infra.Persistence.Cache;
@@ -18,6 +20,7 @@ public class DocumentIntelligenceFunctionsTests
     private readonly IDocumentIntelligenceService _diService = Substitute.For<IDocumentIntelligenceService>();
     private readonly IEfsRedisCache _redis = Substitute.For<IEfsRedisCache>();
     private readonly IDatabase _redisDb = Substitute.For<IDatabase>();
+    private readonly IDocumentIntelligencePricingCache _pricingCache = Substitute.For<IDocumentIntelligencePricingCache>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
 
     private readonly DocumentIntelligenceOptions _options = new()
@@ -33,6 +36,9 @@ public class DocumentIntelligenceFunctionsTests
     {
         _redis.Database.Returns(_redisDb);
         _redis.BuildKey(Arg.Any<string>()).Returns(ci => "prefix:" + ci.Arg<string>());
+        // Default pricing cache: retorna null → executor cai no fallback hardcoded.
+        _pricingCache.GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult<DocumentIntelligencePricing?>(null));
 
         var opts = Substitute.For<IOptions<DocumentIntelligenceOptions>>();
         opts.Value.Returns(_options);
@@ -41,6 +47,7 @@ public class DocumentIntelligenceFunctionsTests
             _repo,
             _diService,
             _redis,
+            _pricingCache,
             opts,
             NullLogger<DocumentIntelligenceFunctions>.Instance,
             _httpClientFactory);
@@ -120,9 +127,9 @@ public class DocumentIntelligenceFunctionsTests
             PrimaryLanguage: "pt",
             DurationMs: 500);
 
-        _diService.AnalyzeAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<CancellationToken>())
+        _diService.AnalyzeAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(diResult);
-        _diService.AnalyzeBytesAsync(Arg.Any<byte[]>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<CancellationToken>())
+        _diService.AnalyzeBytesAsync(Arg.Any<byte[]>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(diResult);
     }
 
@@ -143,7 +150,7 @@ public class DocumentIntelligenceFunctionsTests
         doc.RootElement.GetProperty("cached").GetBoolean().Should().BeFalse();
         doc.RootElement.GetProperty("pageCount").GetInt32().Should().Be(1);
 
-        await _diService.Received(1).AnalyzeBytesAsync(Arg.Any<byte[]>(), "prebuilt-layout", null, Arg.Any<CancellationToken>());
+        await _diService.Received(1).AnalyzeBytesAsync(Arg.Any<byte[]>(), "prebuilt-layout", null, Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _repo.Received(1).InsertJobAsync(Arg.Any<ExtractionJob>(), Arg.Any<CancellationToken>());
         await _repo.Received(1).UpdateJobAsync(Arg.Any<ExtractionJob>(), Arg.Any<CancellationToken>());
     }
@@ -163,8 +170,8 @@ public class DocumentIntelligenceFunctionsTests
         doc.RootElement.GetProperty("status").GetString().Should().Be("cached");
         doc.RootElement.GetProperty("cached").GetBoolean().Should().BeTrue();
 
-        await _diService.DidNotReceive().AnalyzeAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<CancellationToken>());
-        await _diService.DidNotReceive().AnalyzeBytesAsync(Arg.Any<byte[]>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<CancellationToken>());
+        await _diService.DidNotReceive().AnalyzeAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _diService.DidNotReceive().AnalyzeBytesAsync(Arg.Any<byte[]>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -182,7 +189,7 @@ public class DocumentIntelligenceFunctionsTests
         opts.Value.Returns(tinyLimitOptions);
 
         var sut = new DocumentIntelligenceFunctions(
-            _repo, _diService, _redis, opts,
+            _repo, _diService, _redis, _pricingCache, opts,
             NullLogger<DocumentIntelligenceFunctions>.Instance, _httpClientFactory);
 
         var result = await sut.ExecuteAsync(BuildInput(), CancellationToken.None);
@@ -211,7 +218,7 @@ public class DocumentIntelligenceFunctionsTests
     {
         SetupExecutionContext();
         _redis.ExistsAsync(Arg.Any<string>()).Returns(false);
-        _diService.AnalyzeBytesAsync(Arg.Any<byte[]>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<CancellationToken>())
+        _diService.AnalyzeBytesAsync(Arg.Any<byte[]>(), Arg.Any<string>(), Arg.Any<string[]?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns<DiAnalyzeResult>(_ => throw new RequestFailedException(500, "Internal Server Error"));
 
         var sut = Build();

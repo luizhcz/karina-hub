@@ -5,7 +5,8 @@ const TABS = [
   { key: '/costs', label: 'Overview' },
   { key: '/costs/workflows', label: 'Por Workflow' },
   { key: '/costs/projects', label: 'Por Projeto' },
-  { key: '/costs/pricing', label: 'Pricing' },
+  { key: '/costs/pricing', label: 'Pricing LLM' },
+  { key: '/costs/document-intelligence', label: 'Document Intelligence' },
   { key: '/costs/model-catalog', label: 'Catálogo de Modelos' },
 ]
 

@@ -56,6 +56,8 @@ import { AdminAuditPage } from './features/audit/AdminAuditPage'
 import { CostLayout } from './features/costs/CostLayout'
 import { CostDashboardPage } from './features/costs/CostDashboardPage'
 import { ModelPricingPage } from './features/costs/ModelPricingPage'
+import { DocumentIntelligenceCostPage } from './features/costs/DocumentIntelligenceCostPage'
+import { DocumentIntelligencePricingPage } from './features/costs/DocumentIntelligencePricingPage'
 import { ModelCatalogPage } from './features/costs/ModelCatalogPage'
 import { WorkflowCostPage } from './features/costs/WorkflowCostPage'
 import { ProjectCostPage } from './features/costs/ProjectCostPage'
@@ -145,6 +147,8 @@ export const router = createBrowserRouter([
           { path: 'workflows', element: <WorkflowCostPage /> },
           { path: 'projects', element: <ProjectCostPage /> },
           { path: 'pricing', element: <ModelPricingPage /> },
+          { path: 'document-intelligence', element: <DocumentIntelligenceCostPage /> },
+          { path: 'document-intelligence/pricing', element: <DocumentIntelligencePricingPage /> },
           { path: 'model-catalog', element: <ModelCatalogPage /> },
         ],
       },

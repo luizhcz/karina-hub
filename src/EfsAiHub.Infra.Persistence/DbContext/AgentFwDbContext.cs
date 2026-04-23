@@ -182,6 +182,18 @@ internal class ModelPricingRow
     public DateTime CreatedAt { get; set; }
 }
 
+internal class DocumentIntelligencePricingRow
+{
+    public int Id { get; set; }
+    public string ModelId { get; set; } = "";   // prebuilt-layout, prebuilt-read, ...
+    public string Provider { get; set; } = "";  // AZUREAI
+    public decimal PricePerPage { get; set; }
+    public string Currency { get; set; } = "USD";
+    public DateTime EffectiveFrom { get; set; }
+    public DateTime? EffectiveTo { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
 internal class ToolInvocationRow
 {
     public long Id { get; set; }
@@ -302,6 +314,7 @@ public class AgentFwDbContext : DbContext
     internal DbSet<LlmTokenUsageRow> LlmTokenUsages => Set<LlmTokenUsageRow>();
     internal DbSet<ToolInvocationRow> ToolInvocations => Set<ToolInvocationRow>();
     internal DbSet<ModelPricingRow> ModelPricings => Set<ModelPricingRow>();
+    internal DbSet<DocumentIntelligencePricingRow> DocumentIntelligencePricings => Set<DocumentIntelligencePricingRow>();
     internal DbSet<WorkflowCheckpointRow> WorkflowCheckpoints => Set<WorkflowCheckpointRow>();
     internal DbSet<HumanInteractionRow> HumanInteractions => Set<HumanInteractionRow>();
     internal DbSet<AgentSessionRow> AgentSessions => Set<AgentSessionRow>();
@@ -588,6 +601,21 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.Provider).HasMaxLength(64).IsRequired();
             b.Property(e => e.PricePerInputToken).HasColumnType("numeric(20,10)").IsRequired();
             b.Property(e => e.PricePerOutputToken).HasColumnType("numeric(20,10)").IsRequired();
+            b.Property(e => e.Currency).HasMaxLength(3).HasDefaultValue("USD");
+            b.Property(e => e.EffectiveFrom).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.HasIndex(e => e.ModelId);
+        });
+
+        // ── DocumentIntelligencePricingRow ──────────────────────────────────
+        modelBuilder.Entity<DocumentIntelligencePricingRow>(b =>
+        {
+            b.ToTable("document_intelligence_pricing");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).ValueGeneratedOnAdd();
+            b.Property(e => e.ModelId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Provider).HasMaxLength(64).IsRequired();
+            b.Property(e => e.PricePerPage).HasColumnType("numeric(20,10)").IsRequired();
             b.Property(e => e.Currency).HasMaxLength(3).HasDefaultValue("USD");
             b.Property(e => e.EffectiveFrom).IsRequired();
             b.Property(e => e.CreatedAt).IsRequired();

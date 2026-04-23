@@ -188,6 +188,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWorkflowDefinitionRepository, PgWorkflowDefinitionRepository>();
         services.AddSingleton<IAgentVersionRepository, PgAgentVersionRepository>();
         services.AddSingleton<EfsAiHub.Platform.Runtime.Execution.IModelPricingCache, EfsAiHub.Platform.Runtime.Execution.ModelPricingCache>();
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Execution.IDocumentIntelligencePricingCache, EfsAiHub.Platform.Runtime.Execution.DocumentIntelligencePricingCache>();
         services.AddSingleton<EfsAiHub.Core.Agents.Skills.ISkillVersionRepository, PgSkillVersionRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.Skills.ISkillRepository, PgSkillRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.Services.ISkillResolver, EfsAiHub.Core.Agents.Services.SkillResolver>();
@@ -202,6 +203,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ILlmTokenUsageRepository, PgLlmTokenUsageRepository>();
         services.AddSingleton<IToolInvocationRepository, PgToolInvocationRepository>();
         services.AddSingleton<IModelPricingRepository, PgModelPricingRepository>();
+        services.AddSingleton<IDocumentIntelligencePricingRepository, PgDocumentIntelligencePricingRepository>();
+        services.AddSingleton<IDocumentIntelligenceUsageQueries, PgDocumentIntelligenceUsageQueries>();
         services.AddSingleton<IWorkflowEventRepository, PgWorkflowEventRepository>();
         services.AddSingleton<IExecutionAnalyticsRepository, PgExecutionAnalyticsRepository>();
         services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger, PgAdminAuditLogRepository>();

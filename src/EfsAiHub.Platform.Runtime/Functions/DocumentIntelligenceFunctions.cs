@@ -1,12 +1,14 @@
 using System.IO.Compression;
 using System.Text.Json;
 using Azure;
+using EfsAiHub.Core.Abstractions.Hashing;
+using EfsAiHub.Core.Abstractions.Observability;
+using EfsAiHub.Core.Abstractions.Persistence;
 using EfsAiHub.Core.Agents.DocumentIntelligence;
 using EfsAiHub.Core.Orchestration.Executors;
-using EfsAiHub.Platform.Runtime.Options;
 using EfsAiHub.Infra.Persistence.Cache;
-using EfsAiHub.Core.Abstractions.Persistence;
-using EfsAiHub.Core.Abstractions.Hashing;
+using EfsAiHub.Platform.Runtime.Execution;
+using EfsAiHub.Platform.Runtime.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
@@ -24,9 +26,24 @@ public class DocumentIntelligenceFunctions
     private static readonly SemaphoreSlim _gate = new(1, 1);
     private static int _queueDepth;
 
+    // Fallback hardcoded caso o DB de pricing esteja vazio (novo ambiente,
+    // seed não aplicado). Valores batem com seed_document_intelligence_pricing.sql.
+    // Usado para não quebrar extração em ambientes sem seed.
+    private static readonly Dictionary<string, decimal> FallbackPricePerPage = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["prebuilt-read"] = 0.0015m,
+        ["prebuilt-layout"] = 0.01m,
+        ["prebuilt-invoice"] = 0.01m,
+        ["prebuilt-receipt"] = 0.01m,
+        ["prebuilt-idDocument"] = 0.01m,
+    };
+
+    private const string DiProvider = "AZUREAI";
+
     private readonly IDocumentExtractionRepository _repo;
     private readonly IDocumentIntelligenceService _diService;
     private readonly IEfsRedisCache _redis;
+    private readonly IDocumentIntelligencePricingCache _pricingCache;
     private readonly DocumentIntelligenceOptions _options;
     private readonly ILogger<DocumentIntelligenceFunctions> _logger;
     private readonly HttpClient _httpClient;
@@ -35,6 +52,7 @@ public class DocumentIntelligenceFunctions
         IDocumentExtractionRepository repo,
         IDocumentIntelligenceService diService,
         IEfsRedisCache redis,
+        IDocumentIntelligencePricingCache pricingCache,
         IOptions<DocumentIntelligenceOptions> options,
         ILogger<DocumentIntelligenceFunctions> logger,
         IHttpClientFactory httpClientFactory)
@@ -42,6 +60,7 @@ public class DocumentIntelligenceFunctions
         _repo = repo;
         _diService = diService;
         _redis = redis;
+        _pricingCache = pricingCache;
         _options = options.Value;
         _logger = logger;
         _httpClient = httpClientFactory.CreateClient();
@@ -51,6 +70,11 @@ public class DocumentIntelligenceFunctions
     {
         var request = JsonSerializer.Deserialize<ExtractionRequest>(input, JsonDefaults.CaseInsensitive)
             ?? throw new InvalidOperationException("Input JSON inválido para ExtractionRequest.");
+
+        // Normaliza format: aceita qualquer case, default markdown.
+        var outputFormat = request.OutputFormat?.Equals("text", StringComparison.OrdinalIgnoreCase) == true
+            ? "text"
+            : "markdown";
 
         var ctx = DelegateExecutor.Current.Value;
         var jobId = Guid.NewGuid();
@@ -114,9 +138,12 @@ public class DocumentIntelligenceFunctions
             var sha256 = ContentHashCalculator.ComputeFromBytes(pdfBytes);
             job.ContentSha256 = sha256;
 
-            var featuresHash = request.Features is { Length: > 0 }
-                ? ContentHashCalculator.ComputeFromString(string.Join(",", request.Features.OrderBy(f => f)))
-                : "none";
+            // features_hash incorpora outputFormat: muda de markdown pra text
+            // invalida cache corretamente (conteúdo realmente diferente).
+            var featuresHash = ContentHashCalculator.ComputeFromString(
+                (request.Features is { Length: > 0 }
+                    ? string.Join(",", request.Features.OrderBy(f => f))
+                    : "none") + "|fmt=" + outputFormat);
             job.FeaturesHash = featuresHash;
 
             await _repo.InsertEventAsync(new ExtractionEvent(jobId, "source_validated", JsonSerializer.Serialize(new { sha256, sourceType = job.SourceType })), ct);
@@ -190,15 +217,16 @@ public class DocumentIntelligenceFunctions
                 await _repo.InsertEventAsync(new ExtractionEvent(jobId, "di_submitted"), ct);
 
                 var result = sourceUri is not null
-                    ? await _diService.AnalyzeAsync(sourceUri, request.Model, request.Features, timeoutCts.Token)
-                    : await _diService.AnalyzeBytesAsync(pdfBytes, request.Model, request.Features, timeoutCts.Token);
+                    ? await _diService.AnalyzeAsync(sourceUri, request.Model, request.Features, outputFormat, timeoutCts.Token)
+                    : await _diService.AnalyzeBytesAsync(pdfBytes, request.Model, request.Features, outputFormat, timeoutCts.Token);
 
                 job.OperationId = result.OperationId;
                 await _repo.InsertEventAsync(new ExtractionEvent(jobId, "di_succeeded",
                     JsonSerializer.Serialize(new { operationId = result.OperationId, pages = result.PageCount, durationMs = result.DurationMs })), ct);
 
                 // 7. Store in Redis (gzip full + meta)
-                var resultRef = $"di:v1:{sha256}:{request.Model}";
+                // v2 key inclui outputFormat — cache antigo v1 fica órfão (TTL limpa).
+                var resultRef = $"di:v2:{sha256}:{request.Model}:{outputFormat}";
                 var fullKey = _redis.BuildKey(resultRef + ":full");
                 var gzipped = GzipCompress(result.RawJson);
                 var ttl = TimeSpan.FromDays(_options.CacheTtlDays);
@@ -220,8 +248,9 @@ public class DocumentIntelligenceFunctions
                 await _repo.UpsertCacheAsync(new ExtractionCacheEntry(
                     sha256, request.Model, featuresHash, resultRef, result.PageCount, DateTime.UtcNow.Add(ttl)), ct);
 
-                // 9. Cost + budget integration
-                var costUsd = EstimateCost(request.Model, result.PageCount);
+                // 9. Cost + budget integration — preço vem do DB (cache in-memory → Redis → PG).
+                // Se tabela document_intelligence_pricing estiver vazia, cai no fallback hardcoded.
+                var costUsd = await ResolveCostAsync(request.Model, result.PageCount, ct);
                 ctx?.Budget.AddCost(costUsd);
 
                 job.CostUsd = costUsd;
@@ -337,14 +366,25 @@ public class DocumentIntelligenceFunctions
         }, JsonDefaults.CaseInsensitive);
     }
 
-    private static decimal EstimateCost(string model, int pages) => model switch
+    // Resolve o preço por página via cache (→ Redis → PG). Fallback para valores
+    // hardcoded se o DB estiver vazio. Garante que extração nunca falha por
+    // ausência de seed de pricing.
+    private async Task<decimal> ResolveCostAsync(string model, int pages, CancellationToken ct)
     {
-        "prebuilt-read"    => pages * 0.0015m,
-        "prebuilt-layout"  => pages * 0.01m,
-        "prebuilt-invoice" => pages * 0.01m,
-        "prebuilt-receipt" => pages * 0.01m,
-        _                  => pages * 0.01m,
-    };
+        if (pages <= 0) return 0m;
+
+        var pricing = await _pricingCache.GetAsync(model, DiProvider, ct);
+        if (pricing is not null)
+            return pricing.PricePerPage * pages;
+
+        // Fallback — loga warning pra visibilidade; valor bate com o seed oficial.
+        var fallback = FallbackPricePerPage.TryGetValue(model, out var price) ? price : 0.01m;
+        _logger.LogWarning(
+            "[DocIntel] Pricing não encontrado no DB para '{Model}' (provider={Provider}). " +
+            "Usando fallback hardcoded ${Fallback}/pág. Rode seed_document_intelligence_pricing.sql.",
+            model, DiProvider, fallback);
+        return fallback * pages;
+    }
 
     private static byte[] GzipCompress(string text)
     {

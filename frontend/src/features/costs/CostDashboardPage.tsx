@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { Link } from 'react-router'
 import { useTokenSummary, useThroughput } from '../../api/token-usage'
 import { useModelPricings } from '../../api/pricing'
+import { useDocumentIntelligenceUsage } from '../../api/documentIntelligence'
 import { Card } from '../../shared/ui/Card'
 import { MetricCard } from '../../shared/data/MetricCard'
 import { TimeRangeSelector } from '../../shared/data/TimeRangeSelector'
@@ -33,6 +34,7 @@ export function CostDashboardPage() {
   const tokenSummary = useTokenSummary({ from })
   const throughput = useThroughput({ from })
   const pricings = useModelPricings()
+  const diUsage = useDocumentIntelligenceUsage(from)
 
   if (tokenSummary.isLoading) return <PageLoader />
   if (tokenSummary.error) return <ErrorCard message="Erro ao carregar dados de custo" onRetry={tokenSummary.refetch} />
@@ -87,6 +89,38 @@ export function CostDashboardPage() {
         <MetricCard label="Total Calls" value={formatNumber(summary?.totalCalls ?? 0)} />
         <MetricCard label="Custo / Call" value={`$${avgPerCall.toFixed(6)}`} sub="estimativa" />
       </div>
+
+      {/* Document Intelligence — provider separado (cobrança por página, não por token) */}
+      <Card title="Document Intelligence">
+        <div className="flex items-center justify-between gap-4">
+          <div className="grid grid-cols-3 gap-6 flex-1">
+            <div>
+              <div className="text-xs text-text-muted mb-1">Custo no período</div>
+              <div className="text-2xl font-semibold text-text-primary">
+                ${(diUsage.data?.summary.totalCostUsd ?? 0).toFixed(4)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-text-muted mb-1">Páginas</div>
+              <div className="text-2xl font-semibold text-text-primary">
+                {formatNumber(diUsage.data?.summary.totalPages ?? 0)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-text-muted mb-1">Jobs</div>
+              <div className="text-2xl font-semibold text-text-primary">
+                {formatNumber(diUsage.data?.summary.totalJobs ?? 0)}
+                <span className="text-sm font-normal text-text-muted ml-2">
+                  ({diUsage.data?.summary.cachedJobs ?? 0} cacheados)
+                </span>
+              </div>
+            </div>
+          </div>
+          <Link to="/costs/document-intelligence">
+            <Button variant="secondary" size="sm">Ver detalhes</Button>
+          </Link>
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card title="Tokens por Período">
