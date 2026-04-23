@@ -20,8 +20,9 @@ message como mitigação best-effort.
 
 **Trabalho:** quando o SDK expuser `prompt_cache_key` nativamente,
 popular o campo em `ChatOptions` no `ChatOptionsBuilder.BuildCoreOptions`
-com valor estável `hash(tenantId + agentId)` pra forçar stickiness de
-shard.
+com valor estável `hash(projectId + agentId)` pra forçar stickiness de
+shard (ver [ADR 003](adr/003-project-as-tenancy-boundary.md): project
+é o boundary de isolamento, não tenant).
 
 **Gatilho:** release do `OpenAI` SDK que feche o issue #641 (esperado
 2.11.x ou 3.x). Monitorar changelog.
@@ -300,6 +301,41 @@ vira no-op. Um typo em config carregada no boot passa despercebido.
 é raro mas paralelização é quase grátis.
 
 **Esforço estimado:** 30min.
+
+---
+
+### CHAT-TURN-1 — `ChatTurnContextMapperTests.Build_ModoHandoff_ExpandeContexto` vermelho
+
+**Origem:** Descoberto durante review F5.5 (teste orthogonal, pré-existente).
+
+**Contexto:** `ChatTurnContextMapperTests.Build_ModoHandoff_ExpandeContexto`
+espera que `Build(json, OrchestrationMode.Handoff)` retorne > 2
+messages (system(metadata) + user(message) + system(json blob)) mas
+recebe apenas 2 — ou o mapper regrediu, ou o teste ficou desatualizado
+vs mudança no contrato do modo Handoff. Todos os outros testes do
+mapper passam. Bug isolado, não toca F5.5.
+
+**Trabalho:** investigar `ChatTurnContextMapper.Build(..., Handoff)` em
+`src/EfsAiHub.Platform.Runtime/` e decidir se o bug é no produto
+(regressão) ou no teste (contrato mudou). Corrigir conforme.
+
+**Esforço estimado:** 1h (investigação + fix).
+
+---
+
+### PERSONA-SEC-1 — Validar `agent:{aid}` scope contra project do agent
+
+**Origem:** Review F5.5 (nice-to-have).
+
+**Contexto:** `IsScopeAccessibleByCurrentProject` hoje libera qualquer
+scope `agent:{aid}:{userType}` sem checar se o `aid` pertence ao
+project corrente. Mitigação atual: admin precisaria adivinhar o
+`agentId` exato de outro project pra explorar. Defense-in-depth seria
+consultar `AgentDefinitionRow` (já tem `HasQueryFilter` por project) —
+se o agent não é visível pelo project atual, o template agent-scoped
+vinculado também não deveria ser.
+
+**Esforço estimado:** 2h (query + testes integration).
 
 ---
 

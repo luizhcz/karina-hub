@@ -125,6 +125,55 @@ public class PersonaPromptComposerTests
     }
 
     [Fact]
+    public async Task Compose_Client_ProjectAgentScopeWinsOverAll()
+    {
+        // F4 cadeia de 5 níveis — project:{pid}:agent:{aid}:{ut} é o mais específico
+        // e deve ganhar sobre project:{pid}:{ut}, agent:{aid}:{ut} e global:{ut}.
+        var cache = new StubCache();
+        cache.Store["global:cliente"] = Tpl("global:cliente", "GLOBAL");
+        cache.Store["agent:at:cliente"] = Tpl("agent:at:cliente", "AGENT");
+        cache.Store["project:pA:cliente"] = Tpl("project:pA:cliente", "PROJECT");
+        cache.Store["project:pA:agent:at:cliente"] =
+            Tpl("project:pA:agent:at:cliente", "PROJECT_AGENT");
+        var composer = new PersonaPromptComposer(cache);
+
+        var result = await composer.ComposeAsync(MakeClient(), agentId: "at", projectId: "pA");
+
+        result.SystemSection.Should().Be("PROJECT_AGENT");
+    }
+
+    [Fact]
+    public async Task Compose_Client_ProjectScopeWinsOverAgentWhenNoProjectAgent()
+    {
+        // Sem project:{pid}:agent, cai pra project:{pid}:{ut} antes de
+        // agent:{aid}:{ut} ou global:{ut}.
+        var cache = new StubCache();
+        cache.Store["global:cliente"] = Tpl("global:cliente", "GLOBAL");
+        cache.Store["agent:at:cliente"] = Tpl("agent:at:cliente", "AGENT");
+        cache.Store["project:pA:cliente"] = Tpl("project:pA:cliente", "PROJECT");
+        var composer = new PersonaPromptComposer(cache);
+
+        var result = await composer.ComposeAsync(MakeClient(), agentId: "at", projectId: "pA");
+
+        result.SystemSection.Should().Be("PROJECT");
+    }
+
+    [Fact]
+    public async Task Compose_Client_ProjectScopeIgnoredWhenProjectIdNull()
+    {
+        // projectId null → composer pula níveis 1 e 2 da cadeia (project-aware)
+        // e vai direto pra agent/global. Garante retrocompat pré-F4.
+        var cache = new StubCache();
+        cache.Store["project:pA:cliente"] = Tpl("project:pA:cliente", "PROJECT");
+        cache.Store["global:cliente"] = Tpl("global:cliente", "GLOBAL");
+        var composer = new PersonaPromptComposer(cache);
+
+        var result = await composer.ComposeAsync(MakeClient(), agentId: null, projectId: null);
+
+        result.SystemSection.Should().Be("GLOBAL");
+    }
+
+    [Fact]
     public async Task Compose_Client_AdminScopedTemplateIsIgnoredForClientUser()
     {
         // Scope paralelo (admin) não contamina cliente.

@@ -234,6 +234,7 @@ CREATE TABLE IF NOT EXISTS aihub.node_executions (
     "ExecutionId" VARCHAR(128) NOT NULL,
     "NodeId"      VARCHAR(256) NOT NULL,
     "Data"        TEXT         NOT NULL,
+    "ProjectId"   VARCHAR(128) NULL,  -- F4 — boundary de isolamento (ADR 003)
     CONSTRAINT "PK_node_executions" PRIMARY KEY ("RowId")
 );
 
@@ -242,6 +243,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS "IX_node_executions_ExecutionId_NodeId"
 
 CREATE INDEX IF NOT EXISTS "IX_node_executions_ExecutionId"
     ON aihub.node_executions ("ExecutionId");
+
+CREATE INDEX IF NOT EXISTS ix_node_executions_project_exec
+    ON aihub.node_executions ("ProjectId", "ExecutionId");
 
 -- =============================================================================
 -- 8. CHECKPOINTS DE WORKFLOW
@@ -441,10 +445,13 @@ CREATE TABLE IF NOT EXISTS aihub.llm_token_usage (
     "InputTokens"     INTEGER          NOT NULL,
     "OutputTokens"    INTEGER          NOT NULL,
     "TotalTokens"     INTEGER          NOT NULL,
+    "CachedTokens"    INTEGER          NOT NULL DEFAULT 0,  -- F1 — OpenAI prompt cache hits
     "DurationMs"      DOUBLE PRECISION NOT NULL,
     "PromptVersionId" VARCHAR(128)     NULL,
+    "AgentVersionId"  VARCHAR(64)      NULL,  -- rastreia snapshot do agente na execução
     "OutputContent"   TEXT             NULL,
     "RetryCount"      INTEGER          NOT NULL DEFAULT 0,
+    "ProjectId"       VARCHAR(128)     NULL,  -- F4 — boundary de isolamento (ADR 003)
     "CreatedAt"       TIMESTAMPTZ      NOT NULL,
     CONSTRAINT "PK_llm_token_usage" PRIMARY KEY ("Id")
 );
@@ -457,6 +464,9 @@ CREATE INDEX IF NOT EXISTS "IX_llm_token_usage_ExecutionId"
 
 CREATE INDEX IF NOT EXISTS "IX_llm_token_usage_CreatedAt"
     ON aihub.llm_token_usage ("CreatedAt");
+
+CREATE INDEX IF NOT EXISTS ix_llm_token_usage_project_created
+    ON aihub.llm_token_usage ("ProjectId", "CreatedAt" DESC);
 
 -- =============================================================================
 -- 15. OBSERVABILIDADE — INVOCAÇÕES DE TOOLS
@@ -651,14 +661,34 @@ CREATE TABLE IF NOT EXISTS aihub.document_extraction_cache (
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS aihub.persona_prompt_templates (
-    "Id"         SERIAL PRIMARY KEY,
-    "Scope"      VARCHAR(128) NOT NULL,
-    "Name"       VARCHAR(128) NOT NULL,
-    "Template"   TEXT NOT NULL,
-    "CreatedAt"  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    "UpdatedAt"  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    "UpdatedBy"  VARCHAR(128) NULL
+    "Id"              SERIAL PRIMARY KEY,
+    "Scope"           VARCHAR(128) NOT NULL,
+    "Name"            VARCHAR(128) NOT NULL,
+    "Template"        TEXT NOT NULL,
+    "CreatedAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "UpdatedAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "UpdatedBy"       VARCHAR(128) NULL,
+    "ActiveVersionId" UUID NULL,  -- F5 — aponta pra version ativa em persona_prompt_template_versions
+    CONSTRAINT template_length CHECK (LENGTH("Template") <= 50000)  -- F3
 );
+
+-- F5 — histórico append-only de versions.
+CREATE TABLE IF NOT EXISTS aihub.persona_prompt_template_versions (
+    "Id"             SERIAL PRIMARY KEY,
+    "TemplateId"     INT NOT NULL REFERENCES aihub.persona_prompt_templates("Id") ON DELETE CASCADE,
+    "VersionId"      UUID NOT NULL DEFAULT gen_random_uuid(),
+    "Template"       TEXT NOT NULL,
+    "CreatedAt"      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "CreatedBy"      VARCHAR(128) NULL,
+    "ChangeReason"   VARCHAR(512) NULL,
+    CONSTRAINT template_length_version CHECK (LENGTH("Template") <= 50000)
+);
+
+CREATE INDEX IF NOT EXISTS ix_ptv_template_created
+    ON aihub.persona_prompt_template_versions("TemplateId", "CreatedAt" DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_ptv_version_id
+    ON aihub.persona_prompt_template_versions("VersionId");
 
 -- UNIQUE(Scope): 1 template ativo por scope. Conflitos de escrita concorrente
 -- resolvidos no controller via upsert.

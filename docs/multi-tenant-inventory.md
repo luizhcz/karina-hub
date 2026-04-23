@@ -37,7 +37,7 @@ Lista completa dos `Pg*Repository.cs` e estado de filtragem por project.
 | `PgAdminAuditLogRepository`              | 2       | ✓ opcional        | `QueryAsync` aceita `ProjectId`/`TenantId` no filtro. |
 | `PgBackgroundResponseRepository`         | ?       | ⚠️ não auditado   | Follow-up. |
 | `PgLlmTokenUsageRepository`              | 4       | ✓ via EF          | Operações EF herdam `HasQueryFilter`. Raw SQL em `GetAllAgentsSummaryAsync`, `GetThroughputAsync` e similares são **admin-only** (bypass intencional). |
-| `PgPersonaPromptTemplateRepository`      | 4       | N/A               | Templates são global/agent/project-scoped **via Scope string**, não coluna. |
+| `PgPersonaPromptTemplateRepository`      | 4 + versões | F5.5 via controller | Templates são global/agent/project-scoped **via Scope string**, não coluna. `PersonaPromptTemplateVersionRow` (F5) também não tem `HasQueryFilter` próprio (FK CASCADE herda isolamento do pai). **Enforcement real**: `PersonaPromptTemplatesAdminController.IsScopeAccessibleByCurrentProject` valida scope contra project corrente em todos os endpoints (`GetById`, `GetVersions`, `Rollback`, `Delete`, `Upsert`). Admin do project A recebe 404 ao enumerar IDs do project B. Ver F5.5 no changelog. |
 | `PgAgentVersionRepository`               | 3       | ⚠️ não auditado   | Follow-up. |
 | `PgSkillVersionRepository`               | 3       | ⚠️ não auditado   | Follow-up. |
 | `PgAgentDefinitionRepository`            | ?       | ✓ via EF          | Herda filter de `AgentDefinitionRow`. |

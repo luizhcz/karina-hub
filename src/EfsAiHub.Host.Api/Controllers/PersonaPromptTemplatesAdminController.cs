@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Identity.Persona;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Host.Api.Models.Requests;
@@ -24,24 +25,66 @@ public class PersonaPromptTemplatesAdminController : ControllerBase
     private readonly IPersonaPromptTemplateCache _cache;
     private readonly IAdminAuditLogger _audit;
     private readonly AdminAuditContext _auditContext;
+    private readonly IProjectContextAccessor _projectAccessor;
 
     public PersonaPromptTemplatesAdminController(
         IPersonaPromptTemplateRepository repo,
         IPersonaPromptTemplateCache cache,
         IAdminAuditLogger audit,
-        AdminAuditContext auditContext)
+        AdminAuditContext auditContext,
+        IProjectContextAccessor projectAccessor)
     {
         _repo = repo;
         _cache = cache;
         _audit = audit;
         _auditContext = auditContext;
+        _projectAccessor = projectAccessor;
+    }
+
+    /// <summary>
+    /// F5.5 — valida se o <paramref name="scope"/> do template pode ser acessado
+    /// pelo project corrente. Retorna true quando:
+    /// <list type="bullet">
+    ///   <item>Scope é <c>global:*</c> (cross-project por design).</item>
+    ///   <item>Scope é <c>agent:*</c> (cross-project por design — mesmo agent
+    ///     pode ser referenciado em múltiplos projects; lookup do owner do
+    ///     agent fica como enforcement futuro via HasQueryFilter que já existe
+    ///     em AgentDefinitionRow).</item>
+    ///   <item>Scope é <c>project:{currentProjectId}:*</c>.</item>
+    /// </list>
+    /// Retorna false quando scope é <c>project:{otherProjectId}:*</c> — admin
+    /// do project A tentando enumerar template do project B.
+    /// </summary>
+    private bool IsScopeAccessibleByCurrentProject(string scope)
+    {
+        var currentProject = _projectAccessor.Current.ProjectId;
+
+        if (scope.StartsWith("global:", StringComparison.Ordinal)) return true;
+        if (scope.StartsWith("agent:", StringComparison.Ordinal)) return true;
+
+        if (scope.StartsWith("project:", StringComparison.Ordinal))
+        {
+            // Extrai {pid} entre "project:" e o próximo ':'.
+            var rest = scope.AsSpan("project:".Length);
+            var colon = rest.IndexOf(':');
+            if (colon <= 0) return false;
+            var scopeProjectId = rest[..colon];
+            return scopeProjectId.SequenceEqual(currentProject);
+        }
+
+        // Scopes malformados (não deveriam ter passado na validação do upsert).
+        return false;
     }
 
     [HttpGet]
     [SwaggerOperation(Summary = "Lista todos os templates cadastrados")]
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
-        var items = await _repo.GetAllAsync(ct);
+        var all = await _repo.GetAllAsync(ct);
+        // F5.5: filtra em memória por scope acessível ao project corrente.
+        // Scopes cross-project (global, agent) sempre aparecem; scopes
+        // project-aware só aparecem pro project dono.
+        var items = all.Where(t => IsScopeAccessibleByCurrentProject(t.Scope)).ToList();
 
         // Read audit: consulta de templates é trilha auditável (LGPD +
         // compliance de prompt engineering — quem viu o que).
@@ -72,6 +115,11 @@ public class PersonaPromptTemplatesAdminController : ControllerBase
         var item = await _repo.GetByIdAsync(id, ct);
         if (item is null) return NotFound();
 
+        // F5.5: cross-project enumeration guard — admin do project A não pode
+        // ler template cujo scope é do project B. Return 404 (não 403) pra não
+        // vazar existência do recurso.
+        if (!IsScopeAccessibleByCurrentProject(item.Scope)) return NotFound();
+
         await _audit.RecordAsync(_auditContext.Build(
             AdminAuditActions.Read,
             AdminAuditResources.PersonaPromptTemplate,
@@ -93,6 +141,10 @@ public class PersonaPromptTemplatesAdminController : ControllerBase
             return BadRequest(new { error = "Template é obrigatório." });
         if (!IsValidScope(request.Scope))
             return BadRequest(new { error = "Scope inválido. Formatos aceitos: 'global:{userType}', 'agent:{agentId}:{userType}', 'project:{projectId}:{userType}' ou 'project:{projectId}:agent:{agentId}:{userType}' (userType ∈ {cliente, admin})." });
+
+        // F5.5: impede admin de criar template com scope de outro project.
+        if (!IsScopeAccessibleByCurrentProject(request.Scope))
+            return BadRequest(new { error = $"Scope '{request.Scope}' não é acessível pelo project corrente." });
 
         var existing = await _repo.GetByScopeAsync(request.Scope, ct);
         var action = existing is null ? AdminAuditActions.Create : AdminAuditActions.Update;
@@ -132,11 +184,16 @@ public class PersonaPromptTemplatesAdminController : ControllerBase
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
         var existing = await _repo.GetByIdAsync(id, ct);
+        if (existing is null) return NotFound();
+
+        // F5.5: cross-project guard — admin do project A não pode deletar
+        // template do project B.
+        if (!IsScopeAccessibleByCurrentProject(existing.Scope)) return NotFound();
+
         var deleted = await _repo.DeleteAsync(id, ct);
         if (!deleted) return NotFound();
 
-        if (existing is not null)
-            await _cache.InvalidateAsync(existing.Scope);
+        await _cache.InvalidateAsync(existing.Scope);
 
         await _audit.RecordAsync(_auditContext.Build(
             AdminAuditActions.Delete,
@@ -157,6 +214,10 @@ public class PersonaPromptTemplatesAdminController : ControllerBase
     {
         var template = await _repo.GetByIdAsync(id, ct);
         if (template is null) return NotFound();
+
+        // F5.5: cross-project guard — evita vazar histórico de template de
+        // outro project via enumeração de IDs.
+        if (!IsScopeAccessibleByCurrentProject(template.Scope)) return NotFound();
 
         var versions = await _repo.GetVersionsAsync(id, ct);
 
@@ -179,6 +240,10 @@ public class PersonaPromptTemplatesAdminController : ControllerBase
     {
         var before = await _repo.GetByIdAsync(id, ct);
         if (before is null) return NotFound();
+
+        // F5.5: cross-project guard — impede rollback cross-project de um
+        // template que o admin corrente não gerencia.
+        if (!IsScopeAccessibleByCurrentProject(before.Scope)) return NotFound();
 
         var rolled = await _repo.RollbackAsync(id, versionId, createdBy: null, ct);
         if (rolled is null)
