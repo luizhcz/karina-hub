@@ -1,5 +1,11 @@
 import { useState } from 'react'
-import { usePersona, useInvalidatePersona, type UserType } from '../../api/personas'
+import {
+  usePersona,
+  useInvalidatePersona,
+  type UserType,
+  type ClientPersona,
+  type AdminPersona,
+} from '../../api/personas'
 import { Card } from '../../shared/ui/Card'
 import { Input } from '../../shared/ui/Input'
 import { Select } from '../../shared/ui/Select'
@@ -12,12 +18,12 @@ import { JsonViewer } from '../../shared/data/JsonViewer'
 
 const USER_TYPE_OPTIONS: { value: UserType; label: string }[] = [
   { value: 'cliente', label: 'Cliente' },
-  { value: 'assessor', label: 'Assessor' },
+  { value: 'admin', label: 'Admin' },
 ]
 
 export function PersonasAdminPage() {
-  // Inputs (controlled). Consulta só dispara no clique do botão —
-  // evitamos bombardear a API externa a cada keystroke.
+  // Inputs controlled. Consulta só dispara no clique do botão — não bombardear
+  // a API externa a cada keystroke.
   const [userIdDraft, setUserIdDraft] = useState('')
   const [userTypeDraft, setUserTypeDraft] = useState<UserType>('cliente')
 
@@ -39,7 +45,6 @@ export function PersonasAdminPage() {
     if (!applied) return
     try {
       await invalidate.mutateAsync(applied)
-      // força refetch imediato com dado fresco da API externa
       await query.refetch()
     } finally {
       setInvalidateOpen(false)
@@ -53,8 +58,8 @@ export function PersonasAdminPage() {
       <div>
         <h1 className="text-2xl font-bold text-text-primary">Personas — Debug & Cache</h1>
         <p className="text-sm text-text-muted mt-1">
-          Resolve a persona de um usuário (passa pelo cache L1 → Redis → API externa) e permite
-          invalidação manual do cache para LGPD ou sincronização pós-mudança no CRM.
+          Resolve a persona (cliente ou admin) de um usuário passando pelo cache
+          (L1 → Redis → API externa). Permite invalidação manual para LGPD/CRM.
         </p>
       </div>
 
@@ -84,20 +89,18 @@ export function PersonasAdminPage() {
           </Button>
         </div>
         <p className="text-xs text-text-muted mt-3">
-          A chamada passa pelo cache normal — primeira consulta de um userId novo bate na API
-          externa, subsequentes retornam do Redis em ~1ms.
+          Cliente vai no endpoint <code className="font-mono">/personas/clientes/{'{userId}'}</code>,
+          Admin vai no <code className="font-mono">/personas/admins/{'{userId}'}</code>.
         </p>
       </Card>
 
-      {/* Estado inicial */}
       {applied === null && (
         <EmptyState
           title="Nenhuma persona consultada"
-          description="Informe o UserId acima e clique em Consultar para ver a persona resolvida."
+          description="Informe o UserId e clique em Consultar."
         />
       )}
 
-      {/* Erro */}
       {applied !== null && query.isError && (
         <ErrorCard
           message={`Falha ao consultar persona: ${(query.error as Error)?.message ?? 'erro desconhecido'}`}
@@ -105,34 +108,13 @@ export function PersonasAdminPage() {
         />
       )}
 
-      {/* Resultado */}
       {persona && (
         <Card title="Persona resolvida">
-          <div className="flex items-center gap-2 mb-4 flex-wrap">
-            <Badge variant={persona.segment ? 'blue' : 'gray'}>
-              {persona.segment ? `Segment: ${persona.segment}` : 'Sem segment'}
-            </Badge>
-            <Badge variant={persona.riskProfile ? 'green' : 'gray'}>
-              {persona.riskProfile ? `Risk: ${persona.riskProfile}` : 'Sem risk'}
-            </Badge>
-            {persona.displayName ? (
-              <Badge variant="purple">{persona.displayName}</Badge>
-            ) : (
-              <Badge variant="yellow">Anonymous</Badge>
-            )}
-            {persona.advisorId && (
-              <Badge variant="gray">Advisor: {persona.advisorId}</Badge>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <FieldRow label="User ID" value={persona.userId} mono />
-            <FieldRow label="User Type" value={persona.userType} />
-            <FieldRow label="Display Name" value={persona.displayName} />
-            <FieldRow label="Segment" value={persona.segment} />
-            <FieldRow label="Risk Profile" value={persona.riskProfile} />
-            <FieldRow label="Advisor ID" value={persona.advisorId} />
-          </div>
+          {persona.userType === 'cliente' ? (
+            <ClientPersonaView persona={persona} />
+          ) : (
+            <AdminPersonaView persona={persona} />
+          )}
 
           <details className="mb-4">
             <summary className="cursor-pointer text-xs text-text-muted hover:text-text-primary">
@@ -164,7 +146,7 @@ export function PersonasAdminPage() {
         title="Invalidar cache da persona?"
         message={
           applied
-            ? `Remove a entrada L1 (in-memory) e L2 (Redis) para ${applied.userType}:${applied.userId}. A próxima consulta bate direto na API externa.`
+            ? `Remove a entrada L1 (in-memory) e L2 (Redis) para ${applied.userType}:${applied.userId}. Próxima consulta bate direto na API externa.`
             : ''
         }
         confirmLabel="Invalidar"
@@ -176,8 +158,63 @@ export function PersonasAdminPage() {
   )
 }
 
-// Row simples label/valor — evita repetir markup em 6 linhas similares.
-// Value null vira "—" cinza (null object pattern no display, consistente com Anonymous).
+// ── Views por tipo ───────────────────────────────────────────────────────────
+
+function ClientPersonaView({ persona }: { persona: ClientPersona }) {
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <Badge variant="blue">Cliente</Badge>
+        {persona.businessSegment && (
+          <Badge variant="purple">Segmento: {persona.businessSegment}</Badge>
+        )}
+        {persona.suitabilityLevel && (
+          <Badge variant="green">Suitability: {persona.suitabilityLevel}</Badge>
+        )}
+        {persona.country && <Badge variant="gray">{persona.country}</Badge>}
+        {persona.isOffshore && <Badge variant="yellow">Offshore</Badge>}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <FieldRow label="User ID" value={persona.userId} mono />
+        <FieldRow label="Client Name" value={persona.clientName} />
+        <FieldRow label="Suitability Level" value={persona.suitabilityLevel} />
+        <FieldRow label="Business Segment" value={persona.businessSegment} />
+        <FieldRow label="Country" value={persona.country} />
+        <FieldRow label="Is Offshore" value={persona.isOffshore ? 'sim' : 'não'} />
+        <div className="md:col-span-2">
+          <FieldRow label="Suitability Description" value={persona.suitabilityDescription} />
+        </div>
+      </div>
+    </>
+  )
+}
+
+function AdminPersonaView({ persona }: { persona: AdminPersona }) {
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <Badge variant="purple">Admin</Badge>
+        {persona.partnerType && <Badge variant="blue">{persona.partnerType}</Badge>}
+        {persona.isInternal && <Badge variant="green">Interno</Badge>}
+        {persona.isWm && <Badge variant="purple">WM</Badge>}
+        {persona.isMaster && <Badge variant="yellow">Master</Badge>}
+        {persona.isBroker && <Badge variant="gray">Broker</Badge>}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <FieldRow label="User ID" value={persona.userId} mono />
+        <FieldRow label="Username" value={persona.username} />
+        <FieldRow label="Partner Type" value={persona.partnerType} />
+        <FieldRow label="Segments" value={persona.segments.join(', ') || null} />
+        <FieldRow label="Institutions" value={persona.institutions.join(', ') || null} />
+        <FieldRow label="Is Internal" value={persona.isInternal ? 'sim' : 'não'} />
+        <FieldRow label="Is WM" value={persona.isWm ? 'sim' : 'não'} />
+        <FieldRow label="Is Master" value={persona.isMaster ? 'sim' : 'não'} />
+        <FieldRow label="Is Broker" value={persona.isBroker ? 'sim' : 'não'} />
+      </div>
+    </>
+  )
+}
+
 function FieldRow({ label, value, mono }: { label: string; value: string | null; mono?: boolean }) {
   return (
     <div className="flex flex-col gap-1">

@@ -4,8 +4,11 @@ namespace EfsAiHub.Host.Api.Services;
 /// Resolve identidade do usuário a partir dos headers HTTP.
 /// Suporta dois modos de identificação:
 ///   - x-efs-account → userId com userType "cliente"
-///   - x-efs-user-profile-id → userId com userType "assessor"
+///   - x-efs-user-profile-id → userId com userType "admin"
 /// Exatamente um header deve estar presente.
+///
+/// Nota: "admin" cobre assessor, gestor, consultor e padrão — o sub-tipo
+/// real vem no campo <c>partnerType</c> da <c>AdminPersona</c>.
 /// </summary>
 public class UserIdentityResolver
 {
@@ -43,6 +46,6 @@ public class UserIdentityResolver
         errorMessage = null;
         return hasAccount
             ? new UserIdentity(account!, "cliente")
-            : new UserIdentity(profileId!, "assessor");
+            : new UserIdentity(profileId!, "admin");
     }
 }

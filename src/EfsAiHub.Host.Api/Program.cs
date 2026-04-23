@@ -32,6 +32,10 @@ builder.Services.AddSingleton<EfsAiHub.Core.Abstractions.Identity.Persona.IPerso
     sp => sp.GetRequiredService<EfsAiHub.Platform.Runtime.Execution.CachedPersonaProvider>());
 builder.Services.AddSingleton<EfsAiHub.Core.Abstractions.Identity.Persona.IPersonaPromptComposer,
     EfsAiHub.Platform.Runtime.Personalization.PersonaPromptComposer>();
+builder.Services.AddSingleton<EfsAiHub.Core.Abstractions.Identity.Persona.IPersonaPromptTemplateRepository,
+    EfsAiHub.Infra.Persistence.Postgres.PgPersonaPromptTemplateRepository>();
+builder.Services.AddSingleton<EfsAiHub.Platform.Runtime.Execution.IPersonaPromptTemplateCache,
+    EfsAiHub.Platform.Runtime.Execution.PersonaPromptTemplateCache>();
 builder.Services.AddSingleton<EfsAiHub.Platform.Runtime.Factories.ISystemMessageBuilder,
     EfsAiHub.Platform.Runtime.Factories.SystemMessageBuilder>();
 builder.Services.AddScoped<EfsAiHub.Host.Api.Services.PersonaResolutionService>();

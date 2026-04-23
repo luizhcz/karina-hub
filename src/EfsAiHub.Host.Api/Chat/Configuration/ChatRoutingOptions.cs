@@ -6,7 +6,7 @@ public class ChatRoutingOptions
 
     /// <summary>
     /// Mapeamento de userType → workflowId padrão.
-    /// Ex: { "cliente": "atendimento-cliente", "assessor": "atendimento-assessor" }
+    /// Ex: { "cliente": "atendimento-cliente", "admin": "atendimento-admin" }
     /// </summary>
     public Dictionary<string, string> DefaultWorkflows { get; set; } = [];
 }

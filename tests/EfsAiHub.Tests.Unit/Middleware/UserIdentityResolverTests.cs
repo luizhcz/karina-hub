@@ -28,13 +28,13 @@ public class UserIdentityResolverTests
     }
 
     [Fact]
-    public void ProfileId_ResolveAssessor()
+    public void ProfileId_ResolveAdmin()
     {
         var identity = _resolver.TryResolve(Headers(profileId: "p-9999"), out var error);
 
         identity.Should().NotBeNull();
         identity!.UserId.Should().Be("p-9999");
-        identity.UserType.Should().Be("assessor");
+        identity.UserType.Should().Be("admin");
         error.Should().BeNull();
     }
 

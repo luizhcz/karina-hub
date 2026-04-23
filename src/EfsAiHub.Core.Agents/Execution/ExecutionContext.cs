@@ -54,13 +54,13 @@ public sealed record ExecutionContext(
 ///   None                — sem enforcement
 ///   ClientLocked        — tools sensíveis têm 'conta'/'account' sobrescritos pelo userId da sessão;
 ///                         SendOrder rejeita boletas com account divergente
-///   AssessorLogOnly     — divergências são logadas como anomalia (assessor opera múltiplas contas)
+///   AdminLogOnly        — divergências são logadas como anomalia (admin opera múltiplas contas)
 /// </summary>
 public enum AccountGuardMode
 {
     None,
     ClientLocked,
-    AssessorLogOnly
+    AdminLogOnly
 }
 
 /// <summary>

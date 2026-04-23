@@ -2,7 +2,7 @@ namespace EfsAiHub.Core.Abstractions.Identity;
 
 /// <summary>
 /// Contexto de usuário resolvido por requisição. UserType classifica a origem
-/// da identificação (ex.: "cliente", "assessor") preservando a semântica
+/// da identificação (ex.: "cliente", "admin") preservando a semântica
 /// atual dos headers x-efs-account / x-efs-user-profile-id.
 /// </summary>
 public sealed class UserContext

@@ -17,10 +17,12 @@ namespace EfsAiHub.Platform.Runtime.Execution;
 ///
 /// Responsabilidade ÚNICA: caching. Política de recovery mora no provider HTTP
 /// a jusante. O decorator não engole exceções — se o provider contratualmente
-/// nunca lança, não precisa try/catch aqui (mantém decorator limpo).
+/// nunca lança, não precisa try/catch aqui.
 ///
-/// Mesmo padrão de <see cref="ModelPricingCache"/> — duplicação controlada
-/// é aceita por ora (YAGNI abstrair cache genérico).
+/// Polimorfismo na deserialização: a chave Redis já carrega o <c>userType</c>,
+/// então escolhemos o subtipo concreto (<see cref="ClientPersona"/> vs
+/// <see cref="AdminPersona"/>) baseado nele — evita precisar de
+/// <c>[JsonDerivedType]</c> na base abstrata.
 /// </summary>
 public sealed class CachedPersonaProvider : IPersonaProvider
 {
@@ -58,7 +60,7 @@ public sealed class CachedPersonaProvider : IPersonaProvider
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(userId))
-            return UserPersona.AnonymousInstance;
+            return UserPersonaFactory.Anonymous(userId ?? "", userType);
 
         var key = CompositeKey(userId, userType);
         var now = DateTime.UtcNow;
@@ -73,7 +75,7 @@ public sealed class CachedPersonaProvider : IPersonaProvider
             var cached = await _redis.GetStringAsync(RedisKeyPrefix + key);
             if (cached is not null)
             {
-                var persona = JsonSerializer.Deserialize<UserPersona>(cached, JsonOpts);
+                var persona = Deserialize(cached, userType);
                 if (persona is not null)
                 {
                     StoreLocal(key, persona, now);
@@ -94,7 +96,7 @@ public sealed class CachedPersonaProvider : IPersonaProvider
         // Populate L2 + L1. Falha em Redis é logada mas não afeta caller.
         try
         {
-            var json = JsonSerializer.Serialize(fresh, JsonOpts);
+            var json = Serialize(fresh);
             await _redis.SetStringAsync(
                 RedisKeyPrefix + key,
                 json,
@@ -133,4 +135,18 @@ public sealed class CachedPersonaProvider : IPersonaProvider
 
     private static string CompositeKey(string userId, string userType)
         => $"{userType}:{userId}";
+
+    private static string Serialize(UserPersona persona) => persona switch
+    {
+        ClientPersona c => JsonSerializer.Serialize(c, JsonOpts),
+        AdminPersona a => JsonSerializer.Serialize(a, JsonOpts),
+        _ => "{}",
+    };
+
+    private static UserPersona? Deserialize(string json, string userType) => userType switch
+    {
+        UserPersonaFactory.ClienteUserType => JsonSerializer.Deserialize<ClientPersona>(json, JsonOpts),
+        UserPersonaFactory.AdminUserType => JsonSerializer.Deserialize<AdminPersona>(json, JsonOpts),
+        _ => null,
+    };
 }

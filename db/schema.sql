@@ -639,5 +639,32 @@ CREATE TABLE IF NOT EXISTS aihub.document_extraction_cache (
 );
 
 -- =============================================================================
+-- 20. PERSONA PROMPT TEMPLATES — texto que compõe o bloco de persona no
+--     system message do LLM. Placeholders {{segment}}, {{risk_profile}}, etc
+--     são substituídos em runtime pelo PersonaPromptComposer.
+--
+--     Scope: 'global' (default aplicado a todos os agentes) ou 'agent:{agentId}'
+--     (override específico). Lookup do runtime: agent-specific → global → null.
+--
+--     Update in-place (sem versionamento de linha): UPDATE substitui o template.
+--     Auditoria de mudanças via admin_audit_log (resource_type='persona_prompt_template').
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.persona_prompt_templates (
+    "Id"         SERIAL PRIMARY KEY,
+    "Scope"      VARCHAR(128) NOT NULL,
+    "Name"       VARCHAR(128) NOT NULL,
+    "Template"   TEXT NOT NULL,
+    "CreatedAt"  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "UpdatedAt"  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "UpdatedBy"  VARCHAR(128) NULL
+);
+
+-- UNIQUE(Scope): 1 template ativo por scope. Conflitos de escrita concorrente
+-- resolvidos no controller via upsert.
+CREATE UNIQUE INDEX IF NOT EXISTS "UX_persona_prompt_templates_Scope"
+    ON aihub.persona_prompt_templates ("Scope");
+
+-- =============================================================================
 -- FIM DO SCHEMA
 -- =============================================================================

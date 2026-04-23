@@ -105,9 +105,9 @@ public sealed class TrackedAIFunction : AIFunction
                         "[AccountGuard] Tool '{Tool}' agente '{Agent}' — parâmetro '{Param}' reescrito de '{Orig}' para '{Expected}' (ClientLocked).",
                         Name, _agentId, paramName, asString, ctx.UserId);
                     break;
-                case EfsAiHub.Core.Agents.Execution.AccountGuardMode.AssessorLogOnly:
+                case EfsAiHub.Core.Agents.Execution.AccountGuardMode.AdminLogOnly:
                     _logger.LogInformation(
-                        "[AccountGuard] Tool '{Tool}' agente '{Agent}' — '{Param}'='{Value}' difere de userId da sessão '{Expected}' (AssessorLogOnly).",
+                        "[AccountGuard] Tool '{Tool}' agente '{Agent}' — '{Param}'='{Value}' difere de userId da sessão '{Expected}' (AdminLogOnly).",
                         Name, _agentId, paramName, asString, ctx.UserId);
                     break;
             }

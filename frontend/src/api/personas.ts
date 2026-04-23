@@ -3,21 +3,43 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-/**
- * UserPersona resolvida pelo HttpPersonaProvider (API externa) com cache
- * Redis (5min) + in-memory (60s). Fonte de verdade é externa — este client
- * só consulta e invalida.
- */
-export interface UserPersona {
+export type UserType = 'cliente' | 'admin'
+
+/** Campos comuns a toda persona. */
+interface BasePersona {
   userId: string
-  userType: string
-  displayName: string | null
-  segment: string | null
-  riskProfile: string | null
-  advisorId: string | null
+  userType: UserType
 }
 
-export type UserType = 'cliente' | 'assessor'
+/** Persona de cliente final (investidor). */
+export interface ClientPersona extends BasePersona {
+  userType: 'cliente'
+  clientName: string | null
+  suitabilityLevel: string | null
+  suitabilityDescription: string | null
+  businessSegment: string | null
+  country: string | null
+  isOffshore: boolean
+}
+
+/** Persona de admin (assessor/gestor/consultor/padrão). */
+export interface AdminPersona extends BasePersona {
+  userType: 'admin'
+  username: string | null
+  partnerType: string | null
+  segments: string[]
+  institutions: string[]
+  isInternal: boolean
+  isWm: boolean
+  isMaster: boolean
+  isBroker: boolean
+}
+
+/**
+ * Union discriminada por <c>userType</c>. Consumidores da UI devem narrow
+ * via `persona.userType === 'cliente'` antes de acessar campos específicos.
+ */
+export type UserPersona = ClientPersona | AdminPersona
 
 // ── Query Keys ───────────────────────────────────────────────────────────────
 

@@ -15,6 +15,19 @@ public sealed class PersonaApiOptions
     public string? ApiKey { get; init; }
     public string AuthScheme { get; init; } = "Bearer";
 
+    /// <summary>
+    /// Path relativo ao <see cref="BaseUrl"/> para resolver um cliente. Receberá
+    /// <c>{userId}</c> apenso no final. Default espelha convenção REST — se a API
+    /// real usar outro caminho, sobrescrever via config (<c>Persona:ClientPath</c>).
+    /// </summary>
+    public string ClientPath { get; init; } = "personas/clientes";
+
+    /// <summary>
+    /// Path relativo ao <see cref="BaseUrl"/> para resolver um admin
+    /// (assessor/gestor/consultor/padrão). Default: <c>personas/admins</c>.
+    /// </summary>
+    public string AdminPath { get; init; } = "personas/admins";
+
     /// <summary>Timeout por chamada HTTP. Default 3s — não inflar.</summary>
     public int TimeoutSeconds { get; init; } = 3;
 

@@ -79,4 +79,5 @@ public static class AdminAuditResources
     public const string McpServer = "mcp_server";
     public const string DocumentIntelligencePricing = "document_intelligence_pricing";
     public const string PersonaCache = "persona_cache";
+    public const string PersonaPromptTemplate = "persona_prompt_template";
 }

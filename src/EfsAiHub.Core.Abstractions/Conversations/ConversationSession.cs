@@ -11,7 +11,7 @@ public class ConversationSession
     /// <summary>Identificador externo do usuário (vem do header x-efs-account ou x-efs-user-profile-id).</summary>
     public required string UserId { get; init; }
 
-    /// <summary>"cliente" ou "assessor" — derivado do header de autenticação usado.</summary>
+    /// <summary>"cliente" ou "admin" — derivado do header de autenticação usado.</summary>
     public string? UserType { get; init; }
 
     /// <summary>Workflow que processa as mensagens desta conversa.</summary>

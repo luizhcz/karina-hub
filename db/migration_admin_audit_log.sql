@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS aihub.admin_audit_log (
     "TenantId"      VARCHAR(128) NULL,
     "ProjectId"     VARCHAR(128) NULL,
     "ActorUserId"   VARCHAR(128) NOT NULL,                 -- x-efs-account / x-efs-user-profile-id
-    "ActorUserType" VARCHAR(32)  NULL,                     -- 'cliente' | 'assessor'
+    "ActorUserType" VARCHAR(32)  NULL,                     -- 'cliente' | 'admin'
     "Action"        VARCHAR(32)  NOT NULL,                 -- create | update | delete
     "ResourceType"  VARCHAR(64)  NOT NULL,                 -- project | agent | workflow | skill | model_pricing
     "ResourceId"    VARCHAR(128) NOT NULL,

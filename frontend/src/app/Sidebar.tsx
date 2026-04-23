@@ -30,6 +30,7 @@ const adminItems: NavItem[] = [
   { label: 'Custos', path: '/costs', icon: '💰' },
   { label: 'Projetos', path: '/projects', icon: '📁' },
   { label: 'Personas', path: '/admin/personas', icon: '👤' },
+  { label: 'Persona Templates', path: '/admin/persona-templates', icon: '📝' },
   { label: 'Config', path: '/config', icon: '⚙' },
   { label: 'Audit Admin', path: '/audit/admin', icon: '🛡' },
   { label: 'Background Svc', path: '/background', icon: '⏳' },

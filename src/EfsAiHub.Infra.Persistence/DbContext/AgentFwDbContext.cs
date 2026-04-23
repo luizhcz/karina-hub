@@ -194,6 +194,17 @@ internal class DocumentIntelligencePricingRow
     public DateTime CreatedAt { get; set; }
 }
 
+internal class PersonaPromptTemplateRow
+{
+    public int Id { get; set; }
+    public string Scope { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Template { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public string? UpdatedBy { get; set; }
+}
+
 internal class ToolInvocationRow
 {
     public long Id { get; set; }
@@ -315,6 +326,7 @@ public class AgentFwDbContext : DbContext
     internal DbSet<ToolInvocationRow> ToolInvocations => Set<ToolInvocationRow>();
     internal DbSet<ModelPricingRow> ModelPricings => Set<ModelPricingRow>();
     internal DbSet<DocumentIntelligencePricingRow> DocumentIntelligencePricings => Set<DocumentIntelligencePricingRow>();
+    internal DbSet<PersonaPromptTemplateRow> PersonaPromptTemplates => Set<PersonaPromptTemplateRow>();
     internal DbSet<WorkflowCheckpointRow> WorkflowCheckpoints => Set<WorkflowCheckpointRow>();
     internal DbSet<HumanInteractionRow> HumanInteractions => Set<HumanInteractionRow>();
     internal DbSet<AgentSessionRow> AgentSessions => Set<AgentSessionRow>();
@@ -620,6 +632,21 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.EffectiveFrom).IsRequired();
             b.Property(e => e.CreatedAt).IsRequired();
             b.HasIndex(e => e.ModelId);
+        });
+
+        // ── PersonaPromptTemplateRow ────────────────────────────────────────
+        modelBuilder.Entity<PersonaPromptTemplateRow>(b =>
+        {
+            b.ToTable("persona_prompt_templates");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).ValueGeneratedOnAdd();
+            b.Property(e => e.Scope).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Name).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Template).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.Property(e => e.UpdatedBy).HasMaxLength(128);
+            b.HasIndex(e => e.Scope).IsUnique();
         });
 
         // ── WorkflowCheckpointRow ────────────────────────────────────────────

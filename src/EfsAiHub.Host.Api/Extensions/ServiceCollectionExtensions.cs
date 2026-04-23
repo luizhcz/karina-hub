@@ -28,7 +28,7 @@ public static class ServiceCollectionExtensions
                 (inner, agentId, settings, _) =>
                     new EfsAiHub.Platform.Runtime.Middlewares.AccountGuardChatClient(inner, agentId, settings, logger),
                 label: "Account Guard",
-                description: "Controla o acesso a operações sensíveis de conta. Pode bloquear chamadas (ClientLocked) ou apenas logar (AssessorLogOnly).",
+                description: "Controla o acesso a operações sensíveis de conta. Pode bloquear chamadas (ClientLocked) ou apenas logar (AdminLogOnly).",
                 settings:
                 [
                     new MiddlewareSettingDef
@@ -39,7 +39,7 @@ public static class ServiceCollectionExtensions
                         Options =
                         [
                             new MiddlewareSettingOption { Value = "ClientLocked", Label = "Client Locked" },
-                            new MiddlewareSettingOption { Value = "AssessorLogOnly", Label = "Assessor Log Only" },
+                            new MiddlewareSettingOption { Value = "AdminLogOnly", Label = "Admin Log Only" },
                         ],
                         DefaultValue = "ClientLocked",
                     },

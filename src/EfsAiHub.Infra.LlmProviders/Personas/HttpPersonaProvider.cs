@@ -9,13 +9,14 @@ using Microsoft.Extensions.Options;
 namespace EfsAiHub.Infra.LlmProviders.Personas;
 
 /// <summary>
-/// Implementação HTTP do <see cref="IPersonaProvider"/>. Consome API externa
-/// configurada em <see cref="PersonaApiOptions"/>.
+/// Implementação HTTP do <see cref="IPersonaProvider"/>. Faz branch por
+/// <c>userType</c> e consome dois endpoints distintos — cada um retorna
+/// um shape específico (cliente vs admin). Config em <see cref="PersonaApiOptions"/>.
 ///
 /// Contrato crítico: NUNCA lança. Qualquer falha (timeout, 404, 5xx, rede)
-/// retorna <see cref="UserPersona.Anonymous"/> + log warning + métrica.
-/// Política de recovery mora aqui (camada de transport), não em decorators
-/// de cache a jusante.
+/// retorna <see cref="UserPersonaFactory.Anonymous"/> do tipo correto +
+/// log warning. Política de recovery mora aqui (camada de transport), não
+/// em decorators de cache.
 /// </summary>
 public sealed class HttpPersonaProvider : IPersonaProvider
 {
@@ -39,44 +40,99 @@ public sealed class HttpPersonaProvider : IPersonaProvider
         CancellationToken ct = default)
     {
         if (_options.Disabled || string.IsNullOrWhiteSpace(_options.BaseUrl))
-            return UserPersona.Anonymous(userId, userType);
+            return UserPersonaFactory.Anonymous(userId, userType);
 
         if (string.IsNullOrWhiteSpace(userId))
-            return UserPersona.AnonymousInstance;
+            return UserPersonaFactory.Anonymous(userId ?? "", userType);
 
-        // 1 tentativa + 1 retry rápido — sem Polly pra não adicionar dep.
-        // Mais que isso contamina p95 do chat; API externa mal comportada vira fallback.
+        // 1 tentativa + 1 retry rápido. Sem Polly (evita dep). Mais que isso
+        // contamina p95 do chat; API mal-comportada vira fallback Anonymous.
         for (var attempt = 1; attempt <= 2; attempt++)
         {
             try
             {
-                return await FetchAsync(userId, userType, ct).ConfigureAwait(false);
+                return userType switch
+                {
+                    UserPersonaFactory.ClienteUserType => await FetchClientAsync(userId, ct).ConfigureAwait(false),
+                    UserPersonaFactory.AdminUserType => await FetchAdminAsync(userId, ct).ConfigureAwait(false),
+                    _ => UserPersonaFactory.Anonymous(userId, userType),
+                };
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                // Cancelamento de usuário — propaga silencioso sem log.
-                return UserPersona.Anonymous(userId, userType);
+                return UserPersonaFactory.Anonymous(userId, userType);
             }
             catch (Exception ex) when (attempt == 1)
             {
                 _logger.LogDebug(ex,
-                    "[PersonaApi] Falha transiente na tentativa 1 para user={UserId}. Retentando…",
-                    userId);
+                    "[PersonaApi] Falha transiente na tentativa 1 para user={UserId} ({UserType}). Retentando…",
+                    userId, userType);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "[PersonaApi] Persona não resolvida para user={UserId}. Fallback Anonymous.",
-                    userId);
+                    "[PersonaApi] Persona não resolvida para user={UserId} ({UserType}). Fallback Anonymous.",
+                    userId, userType);
             }
         }
 
-        return UserPersona.Anonymous(userId, userType);
+        return UserPersonaFactory.Anonymous(userId, userType);
     }
 
-    private async Task<UserPersona> FetchAsync(string userId, string userType, CancellationToken ct)
+    private async Task<UserPersona> FetchClientAsync(string userId, CancellationToken ct)
     {
-        using var client = _httpFactory.CreateClient(nameof(HttpPersonaProvider));
+        using var client = BuildHttpClient();
+        var path = $"{_options.ClientPath.TrimEnd('/')}/{Uri.EscapeDataString(userId)}";
+        using var response = await client.GetAsync(path, ct).ConfigureAwait(false);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return ClientPersona.Anonymous(userId);
+
+        response.EnsureSuccessStatusCode();
+
+        var dto = await response.Content.ReadFromJsonAsync<ClientPersonaDto>(cancellationToken: ct).ConfigureAwait(false);
+        if (dto is null) return ClientPersona.Anonymous(userId);
+
+        return new ClientPersona(
+            UserId: userId,
+            ClientName: dto.ClientName,
+            SuitabilityLevel: dto.SuitabilityLevel,
+            SuitabilityDescription: dto.SuitabilityDescription,
+            BusinessSegment: dto.BusinessSegment,
+            Country: dto.Country,
+            IsOffshore: dto.IsOffshore ?? false);
+    }
+
+    private async Task<UserPersona> FetchAdminAsync(string userId, CancellationToken ct)
+    {
+        using var client = BuildHttpClient();
+        var path = $"{_options.AdminPath.TrimEnd('/')}/{Uri.EscapeDataString(userId)}";
+        using var response = await client.GetAsync(path, ct).ConfigureAwait(false);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return AdminPersona.Anonymous(userId);
+
+        response.EnsureSuccessStatusCode();
+
+        var dto = await response.Content.ReadFromJsonAsync<AdminPersonaDto>(cancellationToken: ct).ConfigureAwait(false);
+        if (dto is null) return AdminPersona.Anonymous(userId);
+
+        // Listas null → empty (contrato: IReadOnlyList nunca null no record).
+        return new AdminPersona(
+            UserId: userId,
+            Username: dto.Username,
+            PartnerType: dto.PartnerType,
+            Segments: dto.Segments ?? Array.Empty<string>(),
+            Institutions: dto.Institutions ?? Array.Empty<string>(),
+            IsInternal: dto.IsInternal ?? false,
+            IsWm: dto.IsWm ?? false,
+            IsMaster: dto.IsMaster ?? false,
+            IsBroker: dto.IsBroker ?? false);
+    }
+
+    private HttpClient BuildHttpClient()
+    {
+        var client = _httpFactory.CreateClient(nameof(HttpPersonaProvider));
         client.BaseAddress ??= new Uri(_options.BaseUrl);
         client.Timeout = TimeSpan.FromSeconds(_options.TimeoutSeconds);
 
@@ -84,33 +140,26 @@ public sealed class HttpPersonaProvider : IPersonaProvider
             client.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue(_options.AuthScheme, _options.ApiKey);
 
-        // Endpoint default assumido: GET {BaseUrl}/personas/{userId}?userType=X.
-        // Se a API real expuser rota/contrato diferente, ajustar aqui + em PersonaApiDto.
-        var path = $"personas/{Uri.EscapeDataString(userId)}?userType={Uri.EscapeDataString(userType)}";
-        using var response = await client.GetAsync(path, ct).ConfigureAwait(false);
-
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-            return UserPersona.Anonymous(userId, userType);
-
-        response.EnsureSuccessStatusCode();
-
-        var dto = await response.Content.ReadFromJsonAsync<PersonaApiDto>(cancellationToken: ct).ConfigureAwait(false);
-        if (dto is null) return UserPersona.Anonymous(userId, userType);
-
-        return new UserPersona(
-            UserId: userId,
-            UserType: userType,
-            DisplayName: dto.DisplayName,
-            Segment: dto.Segment,
-            RiskProfile: dto.RiskProfile,
-            AdvisorId: dto.AdvisorId);
+        return client;
     }
 
-    // DTO espelha o payload da API externa. Mapeamento snake_case ↔ PascalCase
-    // cobre convenção comum REST. Se API real usar outro formato, ajustar aqui.
-    private sealed record PersonaApiDto(
-        [property: JsonPropertyName("display_name")] string? DisplayName,
-        [property: JsonPropertyName("segment")] string? Segment,
-        [property: JsonPropertyName("risk_profile")] string? RiskProfile,
-        [property: JsonPropertyName("advisor_id")] string? AdvisorId);
+    // DTOs espelham o payload camelCase da API externa. Campos nullable
+    // porque API pode vir parcial (ex: admin novo sem institutions ainda).
+    private sealed record ClientPersonaDto(
+        [property: JsonPropertyName("clientName")] string? ClientName,
+        [property: JsonPropertyName("suitabilityLevel")] string? SuitabilityLevel,
+        [property: JsonPropertyName("suitabilityDescription")] string? SuitabilityDescription,
+        [property: JsonPropertyName("businessSegment")] string? BusinessSegment,
+        [property: JsonPropertyName("country")] string? Country,
+        [property: JsonPropertyName("isOffshore")] bool? IsOffshore);
+
+    private sealed record AdminPersonaDto(
+        [property: JsonPropertyName("username")] string? Username,
+        [property: JsonPropertyName("partnerType")] string? PartnerType,
+        [property: JsonPropertyName("segments")] IReadOnlyList<string>? Segments,
+        [property: JsonPropertyName("institutions")] IReadOnlyList<string>? Institutions,
+        [property: JsonPropertyName("isInternal")] bool? IsInternal,
+        [property: JsonPropertyName("isWM")] bool? IsWm,
+        [property: JsonPropertyName("isMaster")] bool? IsMaster,
+        [property: JsonPropertyName("isBroker")] bool? IsBroker);
 }

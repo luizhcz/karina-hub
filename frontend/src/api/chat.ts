@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type UserType = 'cliente' | 'assessor'
+export type UserType = 'cliente' | 'admin'
 
 export interface ConversationSession {
   conversationId: string

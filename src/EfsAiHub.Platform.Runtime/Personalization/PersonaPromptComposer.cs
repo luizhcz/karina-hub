@@ -1,71 +1,92 @@
-using System.Text;
 using EfsAiHub.Core.Abstractions.Identity.Persona;
+using EfsAiHub.Platform.Runtime.Execution;
 
 namespace EfsAiHub.Platform.Runtime.Personalization;
 
 /// <summary>
-/// Implementação default do <see cref="IPersonaPromptComposer"/>. Compõe:
-///  - <see cref="ComposedPersonaPrompt.SystemSection"/>: seção Markdown com persona
-///    + tone_policy — concatenada ao final do system message do agente.
-///  - <see cref="ComposedPersonaPrompt.UserReinforcement"/>: 1 linha curta
-///    (≤15 tokens) anexada à user message corrente — combate lost-in-the-middle.
+/// Implementação default do <see cref="IPersonaPromptComposer"/>.
 ///
-/// Pura e sem I/O — fácil de testar isoladamente.
-/// Ordem das seções (Persona → Tone Policy) definida para que o cache de prefixo
-/// do OpenAI preserve o prompt base invariante acima desta seção.
+/// Resolve template (cache L1 → Redis → PG) na cadeia:
+///   <c>agent:{agentId}:{userType}</c> → <c>global:{userType}</c> → null.
+///
+/// Renderização é <see cref="PersonaTemplateRenderer"/> — pure function,
+/// delega a cada subtipo (<see cref="ClientPersona"/> / <see cref="AdminPersona"/>)
+/// o mapeamento placeholder → valor via <see cref="UserPersona.GetPlaceholderValue"/>.
+///
+/// O <see cref="ComposedPersonaPrompt.UserReinforcement"/> é montado em C#
+/// (hardcoded ≤15 tokens por tipo) — não entra no template porque é invariante
+/// de design (ancoragem de last-token bias precisa ser enxuta).
 /// </summary>
 public sealed class PersonaPromptComposer : IPersonaPromptComposer
 {
-    public ComposedPersonaPrompt Compose(UserPersona? persona)
+    private readonly IPersonaPromptTemplateCache _cache;
+
+    public PersonaPromptComposer(IPersonaPromptTemplateCache cache) => _cache = cache;
+
+    public async Task<ComposedPersonaPrompt> ComposeAsync(
+        UserPersona? persona,
+        string? agentId,
+        CancellationToken ct = default)
     {
         if (persona is null || persona.IsAnonymous)
             return ComposedPersonaPrompt.Empty;
 
-        var tonePolicy = TonePolicyTable.Lookup(persona.Segment, persona.RiskProfile);
+        var template = await ResolveTemplateAsync(agentId, persona.UserType, ct);
+        if (template is null)
+            return ComposedPersonaPrompt.Empty;
+
+        var rendered = PersonaTemplateRenderer.Render(template.Template, persona);
+        if (string.IsNullOrWhiteSpace(rendered))
+            return ComposedPersonaPrompt.Empty;
 
         return new ComposedPersonaPrompt(
-            SystemSection: BuildSystemSection(persona, tonePolicy),
+            SystemSection: rendered,
             UserReinforcement: BuildUserReinforcement(persona));
     }
 
-    private static string BuildSystemSection(UserPersona persona, string? tonePolicy)
+    private async Task<PersonaPromptTemplate?> ResolveTemplateAsync(
+        string? agentId, string userType, CancellationToken ct)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine(PersonaPromptSections.PersonaHeader);
-        AppendField(sb, PersonaPromptSections.FieldSegment, persona.Segment);
-        AppendField(sb, PersonaPromptSections.FieldRiskProfile, persona.RiskProfile);
-        AppendField(sb, PersonaPromptSections.FieldDisplayName, persona.DisplayName);
-        AppendField(sb, PersonaPromptSections.FieldAdvisor, persona.AdvisorId);
-
-        if (!string.IsNullOrWhiteSpace(tonePolicy))
+        if (!string.IsNullOrWhiteSpace(agentId))
         {
-            sb.AppendLine();
-            sb.AppendLine(PersonaPromptSections.TonePolicyHeader);
-            sb.Append(tonePolicy);
+            var agentScoped = await _cache.GetByScopeAsync(
+                PersonaPromptTemplate.AgentScope(agentId, userType), ct);
+            if (agentScoped is not null) return agentScoped;
         }
-
-        return sb.ToString();
+        return await _cache.GetByScopeAsync(
+            PersonaPromptTemplate.GlobalScope(userType), ct);
     }
 
-    private static void AppendField(StringBuilder sb, string label, string? value)
+    // ≤15 tokens. Conteúdo varia por subtipo — pra cliente ancora suitability+segment
+    // (o que mais influencia tom de recomendação); pra admin ancora partnerType
+    // (decide capacidades e tom da resposta).
+    private static string? BuildUserReinforcement(UserPersona persona) => persona switch
     {
-        if (string.IsNullOrWhiteSpace(value)) return;
-        sb.Append("- ").Append(label).Append(": ").AppendLine(value);
-    }
+        ClientPersona c => BuildClientReinforcement(c),
+        AdminPersona a => BuildAdminReinforcement(a),
+        _ => null,
+    };
 
-    // Reinforcement minimalista. Apenas 2 campos (segment+risk) — suficiente pra
-    // ancorar last-token bias sem inflar cada turn com >100 tokens redundantes.
-    private static string? BuildUserReinforcement(UserPersona persona)
+    private static string? BuildClientReinforcement(ClientPersona c)
     {
-        if (string.IsNullOrWhiteSpace(persona.Segment) && string.IsNullOrWhiteSpace(persona.RiskProfile))
-            return null;
+        var hasSuitability = !string.IsNullOrWhiteSpace(c.SuitabilityLevel);
+        var hasSegment = !string.IsNullOrWhiteSpace(c.BusinessSegment);
+        if (!hasSuitability && !hasSegment) return null;
 
         var parts = new List<string>(2);
-        if (!string.IsNullOrWhiteSpace(persona.Segment))
-            parts.Add($"persona.segment={persona.Segment}");
-        if (!string.IsNullOrWhiteSpace(persona.RiskProfile))
-            parts.Add($"persona.risk={persona.RiskProfile}");
+        if (hasSuitability) parts.Add($"persona.suitability={c.SuitabilityLevel}");
+        if (hasSegment) parts.Add($"persona.segment={c.BusinessSegment}");
+        return $"[{string.Join(", ", parts)}]";
+    }
 
+    private static string? BuildAdminReinforcement(AdminPersona a)
+    {
+        var hasPartner = !string.IsNullOrWhiteSpace(a.PartnerType);
+        if (!hasPartner && !a.IsWm) return null;
+
+        var parts = new List<string>(2);
+        if (hasPartner) parts.Add($"persona.partner={a.PartnerType}");
+        if (a.IsWm) parts.Add("persona.wm=sim");
         return $"[{string.Join(", ", parts)}]";
     }
 }

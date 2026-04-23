@@ -69,6 +69,8 @@ import { ConfigPage } from './features/config/ConfigPage'
 import { BackgroundJobsPage } from './features/background/BackgroundJobsPage'
 import { McpServersListPage } from './features/mcp/McpServersListPage'
 import { PersonasAdminPage } from './features/admin/PersonasAdminPage'
+import { PersonaTemplatesListPage } from './features/admin/PersonaTemplatesListPage'
+import { PersonaTemplateEditPage } from './features/admin/PersonaTemplateEditPage'
 import { McpServerCreatePage } from './features/mcp/McpServerCreatePage'
 import { McpServerEditPage } from './features/mcp/McpServerEditPage'
 
@@ -160,6 +162,9 @@ export const router = createBrowserRouter([
       { path: 'config', element: <ConfigPage /> },
       { path: 'background', element: <BackgroundJobsPage /> },
       { path: 'admin/personas', element: <PersonasAdminPage /> },
+      { path: 'admin/persona-templates', element: <PersonaTemplatesListPage /> },
+      { path: 'admin/persona-templates/new', element: <PersonaTemplateEditPage /> },
+      { path: 'admin/persona-templates/:id', element: <PersonaTemplateEditPage /> },
 
       // 404
           { path: '*', element: <NotFound /> },
