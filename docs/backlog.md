@@ -107,6 +107,43 @@ parametrizável) simularia dois pods no mesmo processo.
 
 ---
 
+### HOUSEKEEPING-1 — Injetar ILogger em `UserPersonaFactory.Anonymous`
+
+**Origem:** Review F3 (N1).
+
+**Contexto:** Hoje o fallback silencioso só emite `Activity.AddEvent` —
+se o caller não está sob span (background worker, startup), o evento
+vira no-op. Um typo em config carregada no boot passa despercebido.
+
+**Trabalho:** static delegate configurável ao registrar DI (`UserPersonaFactory.OnUnknownUserType = logger.LogWarning`) OU overload da factory que aceita `ILogger?`.
+
+**Esforço estimado:** 1h.
+
+---
+
+### HOUSEKEEPING-2 — Preflight de `psql` no `db/apply.sh`
+
+**Origem:** Review F3 (N2).
+
+**Contexto:** DX ruim quando `psql` não está no PATH — mensagem atual
+é o erro bash padrão. Adicionar guard explícito no topo do script.
+
+**Trabalho:** `command -v psql >/dev/null || { echo "psql não encontrado no PATH"; exit 127; }`.
+
+**Esforço estimado:** 5min.
+
+---
+
+### HOUSEKEEPING-3 — Testar `\r\n` no renderer (Windows line endings)
+
+**Origem:** Review F3 (N4).
+
+**Contexto:** Teste atual cobre `\n` e `\t`. Editores Windows podem exportar com `\r\n` — a regex `\s*` cobre mas não está travado em teste.
+
+**Esforço estimado:** 5min.
+
+---
+
 ### CACHE-INV-3 — Paralelizar flush-all com `Task.WhenAll`
 
 **Origem:** Review F2 (N4).

@@ -1,9 +1,16 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace EfsAiHub.Host.Api.Models.Requests;
 
 public record PersonaPromptTemplateUpsertRequest
 {
     public required string Scope { get; init; }
     public required string Name { get; init; }
+
+    // Limite coerente com o CHECK constraint em aihub.persona_prompt_templates
+    // (migration_persona_template_length.sql). Falha de validação devolve 400
+    // antes de chegar no DB.
+    [MaxLength(50000)]
     public required string Template { get; init; }
 }
 

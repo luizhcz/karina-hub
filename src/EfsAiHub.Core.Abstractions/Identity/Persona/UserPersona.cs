@@ -134,10 +134,28 @@ public static class UserPersonaFactory
     public const string ClienteUserType = "cliente";
     public const string AdminUserType = "admin";
 
-    public static UserPersona Anonymous(string userId, string userType) => userType switch
+    /// <summary>
+    /// Quando <paramref name="userType"/> não bate nem com <see cref="ClienteUserType"/>
+    /// nem com <see cref="AdminUserType"/>, cai em <see cref="ClientPersona.Anonymous"/>
+    /// como fallback conservador — e dispara um Activity event
+    /// <c>persona.unknown_user_type</c> no span corrente (se existir). Em runtime
+    /// com OTel coletando, admin vê sinal de bug upstream (header malformado,
+    /// valor inesperado vindo da persona API, typo em config).
+    /// </summary>
+    public static UserPersona Anonymous(string userId, string userType)
     {
-        ClienteUserType => ClientPersona.Anonymous(userId),
-        AdminUserType => AdminPersona.Anonymous(userId),
-        _ => ClientPersona.Anonymous(userId), // fallback conservador
-    };
+        switch (userType)
+        {
+            case ClienteUserType: return ClientPersona.Anonymous(userId);
+            case AdminUserType: return AdminPersona.Anonymous(userId);
+            default:
+                System.Diagnostics.Activity.Current?.AddEvent(new System.Diagnostics.ActivityEvent(
+                    "persona.unknown_user_type",
+                    tags: new System.Diagnostics.ActivityTagsCollection
+                    {
+                        ["persona.user_type"] = userType ?? "",
+                    }));
+                return ClientPersona.Anonymous(userId);
+        }
+    }
 }

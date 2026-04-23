@@ -21,18 +21,17 @@ Pré-requisito: `db/schema.sql` já aplicado pelo menos uma vez.
 | 2025-xx-xx   | `migration_rename_tools_pt_en.sql`                  | Rename de tools PT→EN. |
 | 2025-xx-xx   | `migration_seed_agent_prompt_versions.sql`          | Seed inicial de versões de prompt. |
 | 2026-04-23   | `migration_persona_scope_rename.sql`                | Rename de scope `global` → `global:cliente`/`global:admin`. One-shot. |
-| **2026-04-23** | **`migration_llm_token_usage_cached.sql`**         | **F1 — coluna `CachedTokens INT NOT NULL DEFAULT 0` em `llm_token_usage` pra capturar prompt caching do OpenAI. Ver [ADR 000](adr/000-opensdk-shape.md).** |
+| 2026-04-23   | `migration_llm_token_usage_cached.sql`             | F1 — coluna `CachedTokens INT NOT NULL DEFAULT 0` em `llm_token_usage` pra capturar prompt caching do OpenAI. Ver [ADR 000](adr/000-opensdk-shape.md). |
+| 2026-04-23   | `migration_composite_indexes.sql` (revisada)       | F3 — adicionado guard `DO $$ IF EXISTS columns THEN …` ao índice de `SequenceId` (coluna que nunca foi criada no schema corrente). Permite `apply.sh` rodar clean em ambientes novos. |
+| **2026-04-23** | **`migration_persona_template_length.sql`**       | **F3 — CHECK constraint `LENGTH("Template") <= 50000` em `persona_prompt_templates`. Protege contra admin salvando payload enorme via curl.** |
 
 ---
 
 ## Ordem de aplicação (novo ambiente)
 
-1. `db/schema.sql`
-2. Todas as `db/migration_*.sql` em ordem alfabética (ou cronológica — as datas nos nomes são ordenação robusta)
-3. Todas as `db/seed_*.sql` em ordem alfabética
-
-Quando `db/apply.sh` for introduzido (Fase 3 do roadmap persona), usar
-esse script ao invés de `psql` manual.
+Use o wrapper `db/apply.sh` (introduzido na F3). Ele ordena schema →
+migrations → seeds alfabeticamente e para no primeiro erro. Ver
+[docs/deploy.md](deploy.md) para detalhes.
 
 ---
 

@@ -171,6 +171,20 @@ public class PersonaTemplateRendererTests
     }
 
     [Fact]
+    public void Render_WhitespaceIncludingNewlinesAndTabs_IsSubstituted()
+    {
+        // F3: \s* cobre espaço, tab e quebra de linha. Templates multiline
+        // formatados (ex: export de editor) não viram typo literal acidental.
+        var persona = MakeClient(segment: "private");
+
+        var result = PersonaTemplateRenderer.Render(
+            "A={{\nbusiness_segment\n}} B={{\tbusiness_segment\t}} C={{\n  business_segment  \n}}",
+            persona);
+
+        result.Should().Be("A=private B=private C=private");
+    }
+
+    [Fact]
     public void Render_Client_AdminPlaceholders_LeftIntact()
     {
         // Placeholder de admin num template aplicado a cliente não resolve —
