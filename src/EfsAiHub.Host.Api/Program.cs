@@ -95,6 +95,10 @@ builder.Services.AddControllers()
     {
         o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         o.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        // UnsafeRelaxedJsonEscaping mantém "ã", "ç", "õ" legíveis nos payloads
+        // JSON (default escapa pra ã etc.). "Unsafe" refere-se apenas a
+        // output direto em HTML sem escape — JSON puro em API é seguro.
+        o.JsonSerializerOptions.Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
     });
 
 builder.Services.AddEndpointsApiExplorer();
