@@ -68,6 +68,7 @@ import { ProjectStatsPage } from './features/projects/ProjectStatsPage'
 import { ConfigPage } from './features/config/ConfigPage'
 import { BackgroundJobsPage } from './features/background/BackgroundJobsPage'
 import { McpServersListPage } from './features/mcp/McpServersListPage'
+import { PersonasAdminPage } from './features/admin/PersonasAdminPage'
 import { McpServerCreatePage } from './features/mcp/McpServerCreatePage'
 import { McpServerEditPage } from './features/mcp/McpServerEditPage'
 
@@ -158,6 +159,7 @@ export const router = createBrowserRouter([
       { path: 'projects/:id/stats', element: <ProjectStatsPage /> },
       { path: 'config', element: <ConfigPage /> },
       { path: 'background', element: <BackgroundJobsPage /> },
+      { path: 'admin/personas', element: <PersonasAdminPage /> },
 
       // 404
           { path: '*', element: <NotFound /> },
