@@ -34,7 +34,12 @@ public sealed class PersonaPromptTemplate
 
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; set; }
-    public string? UpdatedBy { get; set; }
+
+    // F9: coluna UpdatedBy foi deprecada no domínio. Actor canônico vive em
+    // admin_audit_log (via IAdminAuditLogger). Coluna no DB fica pra drop
+    // numa release subsequente após confirmar zero read no app (migration
+    // db/migration_persona_templates_drop_updatedby.sql preparada, não
+    // aplicada).
 
     /// <summary>
     /// Aponta pra <see cref="PersonaPromptTemplateVersion.VersionId"/> ativa

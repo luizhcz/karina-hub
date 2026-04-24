@@ -29,6 +29,7 @@ Pré-requisito: `db/schema.sql` já aplicado pelo menos uma vez.
 | 2026-04-23 | `migration_project_id_backfill.sql`                | F5.5 — backfill de rows legadas pré-F4 com `ProjectId IS NULL` (13640 `node_executions` + 8190 `llm_token_usage`) pra `'default'`. Idempotente. Precede remoção do `\|\| ProjectId == null` no `HasQueryFilter` (backlog TENANCY-STRICT-FILTER). |
 | **2026-04-23** | **`migration_persona_experiments.sql`**           | **F6 — cria tabela `persona_prompt_experiments` com UNIQUE parcial `(ProjectId, Scope) WHERE EndedAt IS NULL` garantindo 1 experiment ativo por scope. Ver [ADR 005](adr/005-persona-ab-testing.md).** |
 | **2026-04-23** | **`migration_llm_token_usage_experiment.sql`**    | **F6 — adiciona `ExperimentId INT NULL` + `ExperimentVariant CHAR(1) NULL CHECK IN ('A','B')` em `llm_token_usage` + índice parcial em `ExperimentId IS NOT NULL` pra aggregate por variant. Habilita dashboard de resultados.** |
+| **(pendente)** | **`migration_persona_templates_drop_updatedby.sql`** | **F9 — DROP da coluna `UpdatedBy` de `persona_prompt_templates`. NÃO aplicar na mesma release que remove o UpdatedBy do código; só depois de ≥ 1 deploy cycle validando app ignorando a coluna. Ver [ADR 008](adr/008-persona-updatedby-deprecation.md).** |
 
 ---
 

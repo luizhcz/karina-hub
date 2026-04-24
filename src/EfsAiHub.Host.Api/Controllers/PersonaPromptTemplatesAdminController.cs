@@ -155,9 +155,7 @@ public class PersonaPromptTemplatesAdminController : ControllerBase
             Scope = request.Scope,
             Name = request.Name,
             Template = request.Template,
-            // UpdatedBy fica null — actor já é gravado no admin_audit_log pelo
-            // AdminAuditLogger. Evita duplicar info em 2 fontes.
-            UpdatedBy = null,
+            // F9: UpdatedBy removido do domínio — actor vem do admin_audit_log.
         },
         // F5: CreatedBy da version fica null pelo mesmo motivo — actor
         // real da mudança vive no admin_audit_log com ResourceId={template.Id}.

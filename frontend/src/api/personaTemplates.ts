@@ -17,7 +17,7 @@ export interface PersonaPromptTemplate {
   template: string
   createdAt: string
   updatedAt: string
-  updatedBy: string | null
+  // F9: updatedBy removido — actor canônico vive em admin_audit_log.
   /** F5: aponta pra version ativa no histórico. */
   activeVersionId: string | null
 }

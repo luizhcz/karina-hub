@@ -65,7 +65,6 @@ public class PgPersonaPromptTemplateRepository : IPersonaPromptTemplateRepositor
             existing.Name = template.Name;
             existing.Template = template.Template;
             existing.UpdatedAt = now;
-            existing.UpdatedBy = template.UpdatedBy;
             row = existing;
         }
         else
@@ -78,7 +77,6 @@ public class PgPersonaPromptTemplateRepository : IPersonaPromptTemplateRepositor
                 Template = template.Template,
                 CreatedAt = template.CreatedAt == default ? now : template.CreatedAt,
                 UpdatedAt = now,
-                UpdatedBy = template.UpdatedBy,
             };
             ctx.PersonaPromptTemplates.Add(row);
             await ctx.SaveChangesAsync(ct); // gera Id
@@ -171,7 +169,6 @@ public class PgPersonaPromptTemplateRepository : IPersonaPromptTemplateRepositor
 
         template.Template = target.Template;
         template.UpdatedAt = now;
-        template.UpdatedBy = createdBy;
         template.ActiveVersionId = newVersion.VersionId;
 
         await ctx.SaveChangesAsync(ct);
@@ -187,7 +184,6 @@ public class PgPersonaPromptTemplateRepository : IPersonaPromptTemplateRepositor
         Template = row.Template,
         CreatedAt = row.CreatedAt,
         UpdatedAt = row.UpdatedAt,
-        UpdatedBy = row.UpdatedBy,
         ActiveVersionId = row.ActiveVersionId,
     };
 

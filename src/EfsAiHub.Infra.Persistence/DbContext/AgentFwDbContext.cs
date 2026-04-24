@@ -208,7 +208,10 @@ internal class PersonaPromptTemplateRow
     public string Template { get; set; } = "";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
-    public string? UpdatedBy { get; set; }
+    // F9: UpdatedBy removido da entity. Coluna ainda existe no DB; EF ignora
+    // colunas que não estão mapeadas (forward-compat OK). Drop fica na
+    // migration db/migration_persona_templates_drop_updatedby.sql (não
+    // aplicada até próxima release validar app ignorando).
     public Guid? ActiveVersionId { get; set; }
 }
 
@@ -697,7 +700,7 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.Template).IsRequired();
             b.Property(e => e.CreatedAt).IsRequired();
             b.Property(e => e.UpdatedAt).IsRequired();
-            b.Property(e => e.UpdatedBy).HasMaxLength(128);
+            // F9: b.Property(e => e.UpdatedBy).HasMaxLength(128); removido.
             b.Property(e => e.ActiveVersionId);
             b.HasIndex(e => e.Scope).IsUnique();
         });
