@@ -40,7 +40,7 @@ public sealed class IntegrationWebApplicationFactory : WebApplicationFactory<Pro
         await using var conn = new NpgsqlConnection(_postgres.GetConnectionString());
         await conn.OpenAsync();
 
-        var schemaSql = await File.ReadAllTextAsync(FindSiblingFile("schema.sql"));
+        var schemaSql = await File.ReadAllTextAsync(FindSiblingFile("schemas.sql"));
         await using (var cmd = new NpgsqlCommand(schemaSql, conn))
             await cmd.ExecuteNonQueryAsync();
 

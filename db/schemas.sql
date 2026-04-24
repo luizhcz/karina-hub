@@ -734,3 +734,13 @@ CREATE INDEX IF NOT EXISTS ix_llm_token_usage_experiment
 -- =============================================================================
 -- FIM DO SCHEMA
 -- =============================================================================
+
+-- =============================================================================
+-- Deprecação F9: coluna UpdatedBy em persona_prompt_templates
+--
+-- Actor canônico vive em admin_audit_log (via IAdminAuditLogger). Coluna
+-- não é mais lida nem escrita pelo app (ver ADR 008). DROP idempotente:
+-- em ambiente novo o CREATE TABLE já não cria; em ambiente com coluna
+-- legada, DROP IF EXISTS remove.
+-- =============================================================================
+ALTER TABLE aihub.persona_prompt_templates DROP COLUMN IF EXISTS "UpdatedBy";
