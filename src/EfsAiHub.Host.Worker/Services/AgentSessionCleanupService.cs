@@ -29,8 +29,8 @@ public class AgentSessionCleanupService(
                 var now = DateTime.UtcNow;
                 var cutoff = now.Subtract(EventAuditRetention);
 
-                // ── Batched DELETE: agent_sessions ────────────────────────────
-                // Deleta em lotes de 500 com pausa entre batches para ceder I/O ao Chat Path.
+                // Batched DELETE em agent_sessions: lotes de 500 com pausa entre batches
+                // para ceder I/O ao Chat Path.
                 int totalSessions = 0, batch;
                 do
                 {
@@ -50,7 +50,7 @@ public class AgentSessionCleanupService(
                 }
                 while (batch == 500 && !stoppingToken.IsCancellationRequested);
 
-                // ── Batched DELETE: workflow_event_audit ──────────────────────
+                // Batched DELETE em workflow_event_audit.
                 int totalEvents = 0;
                 do
                 {
@@ -70,7 +70,7 @@ public class AgentSessionCleanupService(
                 }
                 while (batch == 500 && !stoppingToken.IsCancellationRequested);
 
-                // ── Batched DELETE: document_extraction_cache ───────────────
+                // Batched DELETE em document_extraction_cache.
                 int totalCache = 0;
                 do
                 {

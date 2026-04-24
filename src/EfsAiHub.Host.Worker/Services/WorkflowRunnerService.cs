@@ -105,7 +105,6 @@ public class WorkflowRunnerService
         MetricsRegistry.WorkflowsTriggered.Add(1, workflowTag);
         MetricsRegistry.ActiveExecutions.Add(1, workflowTag);
 
-        // ── Estado de rastreamento por nó ─────────────────────────────────────
         await using var nodeTracker = new NodeStateTracker();
 
         // Extrai userId do ChatTurnContext (se Chat mode) para AccountGuard em tool calls.
@@ -128,7 +127,7 @@ public class WorkflowRunnerService
             catch { /* Input não é ChatTurnContext — fica anonymous */ }
         }
 
-        // F4: ProjectId flui pelo metadata do workflow. Chat mode popula via
+        // ProjectId flui pelo metadata do workflow. Chat mode popula via
         // ConversationService + enqueue; scheduled/webhook que não passe
         // "projectId" no metadata resultam em null — HasQueryFilter tolera
         // (`|| e.ProjectId == null`) mas as rows ficam visíveis a qualquer
@@ -287,7 +286,7 @@ public class WorkflowRunnerService
                     break;
             }
 
-            // Fix #A5/A: em estados terminais, libera o índice em memória do checkpoint adapter
+            // Em estados terminais, libera o índice em memória do checkpoint adapter
             // e deleta o checkpoint persistido. Paused NÃO evita (precisa retomar depois).
             if (execution.Status is WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Cancelled)
             {
@@ -443,7 +442,7 @@ public class WorkflowRunnerService
             DelegateExecutor.Current.Value = null;
             MetricsRegistry.ActiveExecutions.Add(-1, workflowTag);
 
-            // Fix #A5/A: evict em estados terminais também no ResumeAsync.
+            // Evict em estados terminais também no ResumeAsync.
             if (execution.Status is WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Cancelled)
             {
                 try { await _checkpointAdapter.EvictSessionAsync(execution.ExecutionId, deletePersistent: true, CancellationToken.None); }
@@ -581,8 +580,8 @@ public class WorkflowRunnerService
                 break;
         }
 
-        // When WithCancellation(token) exits the loop without throwing, check if cancellation
-        // was requested. If so, propagate it so RunAsync.catch(OperationCanceledException) handles it.
+        // Se o WithCancellation(token) sair do loop sem lançar, propaga cancelamento explícito
+        // para que RunAsync.catch(OperationCanceledException) trate o caso.
         if (token.IsCancellationRequested &&
             execution.Status is not WorkflowStatus.Completed and not WorkflowStatus.Failed and not WorkflowStatus.Cancelled)
         {
@@ -712,8 +711,8 @@ public class WorkflowRunnerService
                 break;
 
             case WorkflowErrorEvent errorEvt:
-                // When ct is already cancelled, the framework converts OperationCanceledException
-                // into a WorkflowErrorEvent. Route to MarkCancelledAsync to emit RUN_ERROR CANCELLED.
+                // Quando o ct já está cancelado, o framework converte OperationCanceledException
+                // em WorkflowErrorEvent. Roteia para MarkCancelledAsync para emitir RUN_ERROR CANCELLED.
                 if (ct.IsCancellationRequested)
                     await _failureWriter.MarkCancelledAsync(execution, isTimeout: false);
                 else if (IsHitlRejectionError(errorEvt.Data?.ToString()))

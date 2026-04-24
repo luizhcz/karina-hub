@@ -53,8 +53,6 @@ public interface IHumanInteractionService
     /// </summary>
     Task ExpireForExecutionAsync(string executionId);
 
-    // ── Métodos de recovery (startup / HitlRecoveryService) ─────────────────
-
     /// <summary>
     /// Carrega interações com Status=Pending do banco na inicialização do processo.
     /// </summary>

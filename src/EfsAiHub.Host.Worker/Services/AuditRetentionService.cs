@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 namespace EfsAiHub.Host.Worker.Services;
 
 /// <summary>
-/// Fix #A5 parte B — job diário que dropa partições antigas das tabelas de telemetria
+/// Job diário que dropa partições antigas das tabelas de telemetria
 /// e deleta checkpoints órfãos. Assume o esquema particionado mensal do script
 /// <c>sprint3_partition_telemetry.sql</c> (workflow_event_audit, tool_invocations,
 /// llm_token_usage). Idempotente: consultas em pg_inherits/pg_class.

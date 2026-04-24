@@ -52,7 +52,6 @@ public sealed class TokenUsagePersistenceService : BackgroundService, ITokenUsag
         {
             var batch = new List<LlmTokenUsage>(MaxBatchSize) { item };
 
-            // Drena até MaxBatchSize itens se disponíveis
             while (batch.Count < MaxBatchSize && _channel.Reader.TryRead(out var extra))
                 batch.Add(extra);
 

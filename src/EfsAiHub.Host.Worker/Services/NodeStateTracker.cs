@@ -21,8 +21,6 @@ public sealed class NodeStateTracker : IAsyncDisposable
 
     public string? CurrentAgentId { get; set; }
 
-    // ── Acesso ao estado ────────────────────────────────────────────────────
-
     public NodeExecutionRecord? GetRecord(string nodeId) =>
         _nodeState.TryGetValue(nodeId, out var r) ? r : null;
 
@@ -30,8 +28,6 @@ public sealed class NodeStateTracker : IAsyncDisposable
 
     public bool TryGetRecord(string nodeId, out NodeExecutionRecord record) =>
         _nodeState.TryGetValue(nodeId, out record!);
-
-    // ── Mutações ────────────────────────────────────────────────────────────
 
     public void SetRecord(string nodeId, NodeExecutionRecord record) =>
         _nodeState[nodeId] = record;
@@ -92,8 +88,6 @@ public sealed class NodeStateTracker : IAsyncDisposable
         _agentSpans.Remove(agentId);
         return true;
     }
-
-    // ── IAsyncDisposable — finaliza spans órfãos ────────────────────────────
 
     public ValueTask DisposeAsync()
     {

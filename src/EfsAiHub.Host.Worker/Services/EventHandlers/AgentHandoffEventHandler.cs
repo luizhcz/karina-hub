@@ -60,7 +60,7 @@ public sealed class AgentHandoffEventHandler
             await StartNewAgentAsync(execution, nodeTracker, agentId, agentNames);
         }
 
-        // Fix #A3: acumula tokens em StringBuilder do tracker (sem string concat O(N²)
+        // Acumula tokens em StringBuilder do tracker (sem string concat O(N²)
         // e sem SetNodeAsync inline no hot path). O output é materializado e persistido
         // ao encerrar o agente (handoff ou fim do workflow).
         if (agentId is not null)
