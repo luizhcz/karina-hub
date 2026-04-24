@@ -128,6 +128,15 @@ public class PgPersonaPromptTemplateRepository : IPersonaPromptTemplateRepositor
         return rows.Select(MapVersion).ToList();
     }
 
+    public async Task<PersonaPromptTemplateVersion?> GetVersionByIdAsync(
+        Guid versionId, CancellationToken ct = default)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        var row = await ctx.PersonaPromptTemplateVersions.AsNoTracking()
+            .FirstOrDefaultAsync(v => v.VersionId == versionId, ct);
+        return row is null ? null : MapVersion(row);
+    }
+
     public async Task<PersonaPromptTemplate?> RollbackAsync(
         int templateId,
         Guid targetVersionId,

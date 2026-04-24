@@ -158,7 +158,36 @@ GROUP BY 1 ORDER BY 1;
 SELECT "ActorUserId", COUNT(*) AS reads_last_24h
 FROM aihub.admin_audit_log
 WHERE "Action" = 'read'
-  AND "ResourceType" IN ('persona_cache','persona_prompt_template')
+  AND "ResourceType" IN ('persona_cache','persona_prompt_template','persona_prompt_experiment')
   AND "Timestamp" > now() - INTERVAL '24 hours'
 GROUP BY 1 ORDER BY 2 DESC;
 ```
+
+### F6 — Assignments de variant em experiments ativos
+
+Duas fontes:
+
+- **Métrica em tempo real** `persona.experiment.assignments` com tags
+  `experiment_id` + `variant` — incrementa no composer a cada bucketing.
+- **Histórico persistido** em `llm_token_usage` (batch writer, latência
+  de segundos):
+
+```sql
+SELECT "ExperimentId",
+       "ExperimentVariant",
+       COUNT(*)            AS samples,
+       AVG("TotalTokens")  AS avg_tokens,
+       AVG("DurationMs")   AS avg_ms,
+       AVG("CachedTokens") AS avg_cached
+FROM aihub.llm_token_usage
+WHERE "ExperimentId" IS NOT NULL
+  AND "CreatedAt" > now() - INTERVAL '7 days'
+GROUP BY 1, 2
+ORDER BY 1, 2;
+```
+
+**Alerta pra dashboard**: `persona.experiment.orphaned_variants > 0`
+indica experiment apontando pra uma version que foi deletada direto no
+DB. Composer degrada pro `ActiveVersionId` do template pai, mas a
+variant não recebe mais samples — corrigir apontamento ou encerrar o
+experiment.

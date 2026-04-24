@@ -189,6 +189,17 @@ public class TokenTrackingChatClient : DelegatingChatClient
 
         var promptVersionId = ctx?.PromptVersions.GetValueOrDefault(_agentId);
 
+        // F6 — experiment binding. Composer grava quando bucketing acontece;
+        // aqui só copiamos pra persistir em llm_token_usage pra análise.
+        int? experimentId = null;
+        char? experimentVariant = null;
+        if (ctx?.ExperimentAssignments is { } assignments
+            && assignments.TryGetValue(_agentId, out var assignment))
+        {
+            experimentId = assignment.ExperimentId;
+            experimentVariant = assignment.Variant;
+        }
+
         _usageWriter.TryWrite(new LlmTokenUsage
         {
             AgentId = _agentId,
@@ -203,7 +214,9 @@ public class TokenTrackingChatClient : DelegatingChatClient
             DurationMs = durationMs,
             PromptVersionId = promptVersionId,
             OutputContent = outputContent,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            ExperimentId = experimentId,
+            ExperimentVariant = experimentVariant,
         });
     }
 }

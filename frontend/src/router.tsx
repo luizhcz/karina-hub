@@ -72,6 +72,7 @@ import { PersonasAdminPage } from './features/admin/PersonasAdminPage'
 import { PersonaTemplatesListPage } from './features/admin/PersonaTemplatesListPage'
 import { PersonaTemplateEditPage } from './features/admin/PersonaTemplateEditPage'
 import { PersonaTemplateVersionsPage } from './features/admin/PersonaTemplateVersionsPage'
+import { PersonaExperimentsPage } from './features/admin/PersonaExperimentsPage'
 import { McpServerCreatePage } from './features/mcp/McpServerCreatePage'
 import { McpServerEditPage } from './features/mcp/McpServerEditPage'
 
@@ -167,6 +168,7 @@ export const router = createBrowserRouter([
       { path: 'admin/persona-templates/new', element: <PersonaTemplateEditPage /> },
       { path: 'admin/persona-templates/:id', element: <PersonaTemplateEditPage /> },
       { path: 'admin/persona-templates/:id/versions', element: <PersonaTemplateVersionsPage /> },
+      { path: 'admin/persona-experiments', element: <PersonaExperimentsPage /> },
 
       // 404
           { path: '*', element: <NotFound /> },

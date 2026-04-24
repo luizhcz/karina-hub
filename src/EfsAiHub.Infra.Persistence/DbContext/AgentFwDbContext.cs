@@ -170,6 +170,9 @@ internal class LlmTokenUsageRow
     public int RetryCount { get; set; }
     public string? ProjectId { get; set; }
     public DateTime CreatedAt { get; set; }
+    // F6 — binding de outcome por variant (A/B).
+    public int? ExperimentId { get; set; }
+    public string? ExperimentVariant { get; set; }  // 'A' | 'B' | null
 }
 
 internal class ModelPricingRow
@@ -218,6 +221,21 @@ internal class PersonaPromptTemplateVersionRow
     public DateTime CreatedAt { get; set; }
     public string? CreatedBy { get; set; }
     public string? ChangeReason { get; set; }
+}
+
+internal class PersonaPromptExperimentRow
+{
+    public int Id { get; set; }
+    public string ProjectId { get; set; } = "";
+    public string Scope { get; set; } = "";
+    public string Name { get; set; } = "";
+    public Guid VariantAVersionId { get; set; }
+    public Guid VariantBVersionId { get; set; }
+    public int TrafficSplitB { get; set; }
+    public string Metric { get; set; } = "";
+    public DateTime StartedAt { get; set; }
+    public DateTime? EndedAt { get; set; }
+    public string? CreatedBy { get; set; }
 }
 
 internal class ToolInvocationRow
@@ -343,6 +361,7 @@ public class AgentFwDbContext : DbContext
     internal DbSet<DocumentIntelligencePricingRow> DocumentIntelligencePricings => Set<DocumentIntelligencePricingRow>();
     internal DbSet<PersonaPromptTemplateRow> PersonaPromptTemplates => Set<PersonaPromptTemplateRow>();
     internal DbSet<PersonaPromptTemplateVersionRow> PersonaPromptTemplateVersions => Set<PersonaPromptTemplateVersionRow>();
+    internal DbSet<PersonaPromptExperimentRow> PersonaPromptExperiments => Set<PersonaPromptExperimentRow>();
     internal DbSet<WorkflowCheckpointRow> WorkflowCheckpoints => Set<WorkflowCheckpointRow>();
     internal DbSet<HumanInteractionRow> HumanInteractions => Set<HumanInteractionRow>();
     internal DbSet<AgentSessionRow> AgentSessions => Set<AgentSessionRow>();
@@ -605,9 +624,13 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.CachedTokens).HasDefaultValue(0);
             b.Property(e => e.ProjectId).HasMaxLength(128);
             b.Property(e => e.CreatedAt).IsRequired();
+            // F6 — binding de outcome por experiment A/B.
+            b.Property(e => e.ExperimentId);
+            b.Property(e => e.ExperimentVariant).HasMaxLength(1);
             b.HasIndex(e => e.AgentId);
             b.HasIndex(e => e.ExecutionId);
             b.HasIndex(e => e.CreatedAt);
+            b.HasIndex(e => e.ExperimentId);
             // F4: mesma tolerância e mesmo débito que NodeExecutionRow — rows
             // pré-F4 e execuções sem projectId no metadata ficam com null e
             // passam. Analytics globais (GetAllAgentsSummaryAsync,
@@ -693,6 +716,28 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.ChangeReason).HasMaxLength(512);
             b.HasIndex(e => new { e.TemplateId, e.CreatedAt });
             b.HasIndex(e => e.VersionId).IsUnique();
+        });
+
+        // ── PersonaPromptExperimentRow (F6) ─────────────────────────────────
+        // Isolamento por project é garantido pelo Repo ao filtrar por
+        // ProjectId nas queries — não usamos HasQueryFilter porque o composer
+        // precisa consultar experiments em contexto hot path com ProjectId
+        // explícito, sem depender de AsyncLocal nesse caminho.
+        modelBuilder.Entity<PersonaPromptExperimentRow>(b =>
+        {
+            b.ToTable("persona_prompt_experiments");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).ValueGeneratedOnAdd();
+            b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Scope).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Name).HasMaxLength(128).IsRequired();
+            b.Property(e => e.VariantAVersionId).IsRequired();
+            b.Property(e => e.VariantBVersionId).IsRequired();
+            b.Property(e => e.TrafficSplitB).IsRequired();
+            b.Property(e => e.Metric).HasMaxLength(64).IsRequired();
+            b.Property(e => e.StartedAt).IsRequired();
+            b.Property(e => e.CreatedBy).HasMaxLength(128);
+            b.HasIndex(e => new { e.ProjectId, e.StartedAt });
         });
 
         // ── WorkflowCheckpointRow ────────────────────────────────────────────

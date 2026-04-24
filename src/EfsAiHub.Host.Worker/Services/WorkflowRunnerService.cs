@@ -200,7 +200,8 @@ public class WorkflowRunnerService
             ConversationId: conversationId,
             EnrichmentRules: enrichmentRules,
             Persona: persona,
-            ProjectId: projectId);
+            ProjectId: projectId,
+            ExperimentAssignments: new System.Collections.Concurrent.ConcurrentDictionary<string, EfsAiHub.Core.Abstractions.Identity.Persona.ExperimentAssignment>());
 
         try
         {
@@ -397,7 +398,8 @@ public class WorkflowRunnerService
             UpdateSharedState: resumeUpdateState,
             ConversationId: resumeConversationId,
             EnrichmentRules: null,
-            Persona: resumePersona);
+            Persona: resumePersona,
+            ExperimentAssignments: new System.Collections.Concurrent.ConcurrentDictionary<string, EfsAiHub.Core.Abstractions.Identity.Persona.ExperimentAssignment>());
 
         try
         {

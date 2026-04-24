@@ -31,4 +31,16 @@ public class LlmTokenUsage
     public string? OutputContent { get; set; }
     public int RetryCount { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// F6 — id do experiment A/B ativo quando essa LLM call rodou. Null = não
+    /// participou de experiment. Permite agregar métricas por variant.
+    /// </summary>
+    public int? ExperimentId { get; set; }
+
+    /// <summary>
+    /// F6 — variant ('A'/'B') atribuída via bucketing determinístico por userId.
+    /// Null quando <see cref="ExperimentId"/> é null.
+    /// </summary>
+    public char? ExperimentVariant { get; set; }
 }

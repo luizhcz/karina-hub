@@ -28,7 +28,9 @@ public class PgLlmTokenUsageRepository : ILlmTokenUsageRepository
             AgentVersionId = usage.AgentVersionId,
             OutputContent = usage.OutputContent,
             RetryCount = usage.RetryCount,
-            CreatedAt = usage.CreatedAt
+            CreatedAt = usage.CreatedAt,
+            ExperimentId = usage.ExperimentId,
+            ExperimentVariant = usage.ExperimentVariant?.ToString()
         });
         await db.SaveChangesAsync(ct);
     }
@@ -294,6 +296,8 @@ public class PgLlmTokenUsageRepository : ILlmTokenUsageRepository
         AgentVersionId = row.AgentVersionId,
         OutputContent = row.OutputContent,
         RetryCount = row.RetryCount,
-        CreatedAt = row.CreatedAt
+        CreatedAt = row.CreatedAt,
+        ExperimentId = row.ExperimentId,
+        ExperimentVariant = row.ExperimentVariant is { Length: > 0 } ev ? ev[0] : null
     };
 }

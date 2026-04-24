@@ -44,3 +44,20 @@ public record PersonaAdminPreviewSample(
     bool IsWm,
     bool IsMaster,
     bool IsBroker);
+
+/// <summary>
+/// F6 — cria um experiment A/B pra um scope de template.
+/// </summary>
+public record PersonaPromptExperimentCreateRequest
+{
+    public required string Scope { get; init; }
+    public required string Name { get; init; }
+    public required Guid VariantAVersionId { get; init; }
+    public required Guid VariantBVersionId { get; init; }
+
+    [Range(0, 100)]
+    public required int TrafficSplitB { get; init; }
+
+    /// <summary>cost_usd | total_tokens | hitl_approved | custom string.</summary>
+    public required string Metric { get; init; }
+}

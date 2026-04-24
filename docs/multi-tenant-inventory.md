@@ -45,6 +45,7 @@ Lista completa dos `Pg*Repository.cs` e estado de filtragem por project.
 | `PgModelCatalogRepository`               | 4       | N/A               | Catálogo é global por design. |
 | `PgDocumentIntelligenceUsageQueries`     | 4       | ⚠️ não auditado   | Follow-up. |
 | `PgExecutionAnalyticsRepository`         | 3       | ⚠️ não auditado   | Follow-up. |
+| `PgPersonaPromptExperimentRepository`    | 4       | ✓ via EF          | F6. `GetByProjectAsync` filtra explicitamente por `ProjectId`; `GetActiveAsync(projectId, scope)` idem. Controller `PersonaExperimentsAdminController` nunca aceita experiment de outro project (guard por `ProjectId` em GetById/End/Delete). Resultado agregado (`GetResultsAsync`) via raw SQL em `llm_token_usage` — ignora o `HasQueryFilter` já que admin-only. |
 
 ---
 

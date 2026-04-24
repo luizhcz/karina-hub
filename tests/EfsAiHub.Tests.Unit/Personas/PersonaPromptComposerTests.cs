@@ -310,4 +310,228 @@ public class PersonaPromptComposerTests
 
         result.SystemSection.Should().Be("segs=[]");
     }
+
+    // ── F6: A/B testing via experiments ──────────────────────────────────────
+
+    private sealed class StubExperimentRepo : IPersonaPromptExperimentRepository
+    {
+        public Dictionary<(string projectId, string scope), PersonaPromptExperiment> Active { get; } = new();
+
+        public Task<PersonaPromptExperiment?> GetActiveAsync(
+            string projectId, string scope, CancellationToken ct = default)
+            => Task.FromResult(Active.TryGetValue((projectId, scope), out var x) ? x : null);
+
+        public Task<PersonaPromptExperiment?> GetByIdAsync(int id, CancellationToken ct = default)
+            => throw new NotImplementedException();
+
+        public Task<IReadOnlyList<PersonaPromptExperiment>> GetByProjectAsync(
+            string projectId, CancellationToken ct = default)
+            => throw new NotImplementedException();
+
+        public Task<PersonaPromptExperiment> CreateAsync(
+            PersonaPromptExperiment experiment, CancellationToken ct = default)
+            => throw new NotImplementedException();
+
+        public Task<bool> EndAsync(int id, CancellationToken ct = default)
+            => throw new NotImplementedException();
+
+        public Task<bool> DeleteAsync(int id, CancellationToken ct = default)
+            => throw new NotImplementedException();
+
+        public Task<IReadOnlyList<ExperimentVariantResult>> GetResultsAsync(
+            int experimentId, CancellationToken ct = default)
+            => throw new NotImplementedException();
+    }
+
+    private sealed class StubTemplateRepo : IPersonaPromptTemplateRepository
+    {
+        public Dictionary<Guid, PersonaPromptTemplateVersion> Versions { get; } = new();
+
+        public Task<PersonaPromptTemplateVersion?> GetVersionByIdAsync(
+            Guid versionId, CancellationToken ct = default)
+            => Task.FromResult(Versions.TryGetValue(versionId, out var v) ? v : null);
+
+        // Resto não é usado pelo composer.
+        public Task<PersonaPromptTemplate?> GetByScopeAsync(string scope, CancellationToken ct = default) => Task.FromResult<PersonaPromptTemplate?>(null);
+        public Task<PersonaPromptTemplate?> GetByIdAsync(int id, CancellationToken ct = default) => Task.FromResult<PersonaPromptTemplate?>(null);
+        public Task<IReadOnlyList<PersonaPromptTemplate>> GetAllAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<PersonaPromptTemplate>>(Array.Empty<PersonaPromptTemplate>());
+        public Task<PersonaPromptTemplate> UpsertAsync(PersonaPromptTemplate template, string? createdBy = null, string? changeReason = null, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> DeleteAsync(int id, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<IReadOnlyList<PersonaPromptTemplateVersion>> GetVersionsAsync(int templateId, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<PersonaPromptTemplateVersion>>(Array.Empty<PersonaPromptTemplateVersion>());
+        public Task<PersonaPromptTemplate?> RollbackAsync(int templateId, Guid targetVersionId, string? createdBy = null, CancellationToken ct = default) => Task.FromResult<PersonaPromptTemplate?>(null);
+    }
+
+    [Fact]
+    public async Task Compose_Experiment_UsesVariantVersionContent()
+    {
+        // Template ActiveVersion tem conteúdo "ACTIVE". Experiment ativo aponta
+        // pra variant A com conteúdo "VARIANT_A" e B com "VARIANT_B". Com split=0
+        // (100% pra A), composer deve renderizar VARIANT_A — NÃO ACTIVE.
+        var scope = "project:p1:cliente";
+        var cache = new StubCache();
+        cache.Store[scope] = Tpl(scope, "ACTIVE content");
+        var variantA = Guid.NewGuid();
+        var variantB = Guid.NewGuid();
+        var templateRepo = new StubTemplateRepo();
+        templateRepo.Versions[variantA] = new PersonaPromptTemplateVersion
+        {
+            Id = 1, TemplateId = 1, VersionId = variantA,
+            Template = "VARIANT_A content",
+            CreatedAt = DateTime.UtcNow,
+        };
+        templateRepo.Versions[variantB] = new PersonaPromptTemplateVersion
+        {
+            Id = 2, TemplateId = 1, VersionId = variantB,
+            Template = "VARIANT_B content",
+            CreatedAt = DateTime.UtcNow,
+        };
+        var experiments = new StubExperimentRepo();
+        experiments.Active[("p1", scope)] = new PersonaPromptExperiment
+        {
+            Id = 42, ProjectId = "p1", Scope = scope, Name = "x",
+            VariantAVersionId = variantA,
+            VariantBVersionId = variantB,
+            TrafficSplitB = 0, // 100% pra A
+            Metric = "cost_usd",
+            StartedAt = DateTime.UtcNow,
+        };
+
+        var composer = new PersonaPromptComposer(cache, experiments, templateRepo);
+
+        var result = await composer.ComposeAsync(MakeClient(), agentId: null, projectId: "p1");
+
+        result.SystemSection.Should().Be("VARIANT_A content");
+        result.SystemSection.Should().NotContain("ACTIVE");
+    }
+
+    [Fact]
+    public async Task Compose_Experiment_Split100ForcesVariantB()
+    {
+        var scope = "project:p1:cliente";
+        var cache = new StubCache();
+        cache.Store[scope] = Tpl(scope, "ACTIVE");
+        var variantA = Guid.NewGuid();
+        var variantB = Guid.NewGuid();
+        var templateRepo = new StubTemplateRepo();
+        templateRepo.Versions[variantA] = new PersonaPromptTemplateVersion
+        { Id = 1, TemplateId = 1, VersionId = variantA, Template = "A", CreatedAt = DateTime.UtcNow };
+        templateRepo.Versions[variantB] = new PersonaPromptTemplateVersion
+        { Id = 2, TemplateId = 1, VersionId = variantB, Template = "B", CreatedAt = DateTime.UtcNow };
+        var experiments = new StubExperimentRepo();
+        experiments.Active[("p1", scope)] = new PersonaPromptExperiment
+        {
+            Id = 42, ProjectId = "p1", Scope = scope, Name = "x",
+            VariantAVersionId = variantA, VariantBVersionId = variantB,
+            TrafficSplitB = 100, // 100% pra B
+            Metric = "cost_usd", StartedAt = DateTime.UtcNow,
+        };
+
+        var composer = new PersonaPromptComposer(cache, experiments, templateRepo);
+
+        var result = await composer.ComposeAsync(MakeClient(), agentId: null, projectId: "p1");
+
+        result.SystemSection.Should().Be("B");
+    }
+
+    [Fact]
+    public async Task Compose_Experiment_OrphanedVariant_DegradeParaActiveVersion()
+    {
+        // VersionId do experiment não existe no templateRepo → composer degrada
+        // pro template corrente (ACTIVE) em vez de explodir. Comportamento
+        // documentado no ADR 005; garantido aqui pra não regredir.
+        var scope = "project:p1:cliente";
+        var cache = new StubCache();
+        cache.Store[scope] = Tpl(scope, "ACTIVE_FALLBACK");
+        var orphanA = Guid.NewGuid();
+        var orphanB = Guid.NewGuid();
+        var templateRepo = new StubTemplateRepo(); // vazio — nenhum version registrado
+        var experiments = new StubExperimentRepo();
+        experiments.Active[("p1", scope)] = new PersonaPromptExperiment
+        {
+            Id = 77, ProjectId = "p1", Scope = scope, Name = "orphan-test",
+            VariantAVersionId = orphanA, VariantBVersionId = orphanB,
+            TrafficSplitB = 50, Metric = "cost_usd", StartedAt = DateTime.UtcNow,
+        };
+
+        var composer = new PersonaPromptComposer(cache, experiments, templateRepo);
+        var result = await composer.ComposeAsync(MakeClient(), agentId: null, projectId: "p1");
+
+        result.SystemSection.Should().Be("ACTIVE_FALLBACK");
+    }
+
+    [Fact]
+    public async Task Compose_Experiment_WithoutProjectId_Skipped()
+    {
+        // Sem projectId no contexto, experiment não é consultado — template
+        // ativo é usado normalmente. Garante compat pré-F4 / system contexts.
+        var cache = new StubCache();
+        cache.Store["global:cliente"] = Tpl("global:cliente", "GLOBAL_ACTIVE");
+        var experiments = new StubExperimentRepo();
+        // Poluir o repo — não deveria ser consultado.
+        experiments.Active[("", "global:cliente")] = new PersonaPromptExperiment
+        {
+            Id = 1, ProjectId = "", Scope = "global:cliente", Name = "poison",
+            VariantAVersionId = Guid.NewGuid(), VariantBVersionId = Guid.NewGuid(),
+            TrafficSplitB = 50, Metric = "x", StartedAt = DateTime.UtcNow,
+        };
+
+        var composer = new PersonaPromptComposer(cache, experiments, new StubTemplateRepo());
+
+        var result = await composer.ComposeAsync(MakeClient(), agentId: null, projectId: null);
+
+        result.SystemSection.Should().Be("GLOBAL_ACTIVE");
+    }
+
+    [Fact]
+    public void AssignVariant_Split50_DistribuicaoAprox50_50()
+    {
+        // Bucketing determinístico: 200 userIds distintos com split 50% devem
+        // distribuir ~50/50 (±10% = range [90, 110] pra A e B).
+        int countA = 0, countB = 0;
+        for (int i = 0; i < 200; i++)
+        {
+            var variant = ExperimentAssignment.AssignVariant(
+                userId: $"user-{i}", experimentId: 1, trafficSplitB: 50);
+            if (variant == 'A') countA++;
+            else if (variant == 'B') countB++;
+        }
+
+        countA.Should().BeInRange(80, 120, because: "split 50 com 200 amostras");
+        countB.Should().BeInRange(80, 120, because: "split 50 com 200 amostras");
+        (countA + countB).Should().Be(200);
+    }
+
+    [Fact]
+    public void AssignVariant_MesmoUserId_SempreMesmaVariant()
+    {
+        // Sticky assignment: retries/multi-turn não alternam variant.
+        const string userId = "stable-user";
+        const int expId = 42;
+        var v1 = ExperimentAssignment.AssignVariant(userId, expId, trafficSplitB: 50);
+        for (int i = 0; i < 10; i++)
+        {
+            ExperimentAssignment.AssignVariant(userId, expId, trafficSplitB: 50)
+                .Should().Be(v1);
+        }
+    }
+
+    [Fact]
+    public void AssignVariant_Split0_SempreA()
+    {
+        for (int i = 0; i < 50; i++)
+        {
+            ExperimentAssignment.AssignVariant($"u-{i}", 1, trafficSplitB: 0)
+                .Should().Be('A');
+        }
+    }
+
+    [Fact]
+    public void AssignVariant_Split100_SempreB()
+    {
+        for (int i = 0; i < 50; i++)
+        {
+            ExperimentAssignment.AssignVariant($"u-{i}", 1, trafficSplitB: 100)
+                .Should().Be('B');
+        }
+    }
 }

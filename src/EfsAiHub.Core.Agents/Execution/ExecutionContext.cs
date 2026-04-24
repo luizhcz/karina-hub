@@ -51,7 +51,13 @@ public sealed record ExecutionContext(
     // F4 — ProjectId do caller. Propagado pro TokenTrackingChatClient gravar
     // em llm_token_usage + usado pelo PersonaPromptComposer pra montar scope
     // project-aware. Null preserva compat com execuções pré-F4.
-    string? ProjectId = null);
+    string? ProjectId = null,
+    // F6 — assignments de experiment A/B por agentId. Composer resolve o
+    // experiment ativo pro (projectId, scope) do agent + faz bucketing
+    // determinístico por userId, e grava aqui. TokenTrackingChatClient lê
+    // pra persistir ExperimentId + Variant em llm_token_usage. Null quando
+    // nenhum agent dessa execução participou de experiment.
+    ConcurrentDictionary<string, ExperimentAssignment>? ExperimentAssignments = null);
 
 /// <summary>
 /// Modo de proteção de conta aplicado a tool calls de uma execução:

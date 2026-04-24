@@ -696,5 +696,41 @@ CREATE UNIQUE INDEX IF NOT EXISTS "UX_persona_prompt_templates_Scope"
     ON aihub.persona_prompt_templates ("Scope");
 
 -- =============================================================================
+-- F6 — A/B testing de templates (persona_prompt_experiments)
+-- Ver docs/adr/005-persona-ab-testing.md e db/migration_persona_experiments.sql
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.persona_prompt_experiments (
+    "Id"                 SERIAL PRIMARY KEY,
+    "ProjectId"          VARCHAR(128) NOT NULL,
+    "Scope"              VARCHAR(128) NOT NULL,
+    "Name"               VARCHAR(128) NOT NULL,
+    "VariantAVersionId"  UUID NOT NULL,
+    "VariantBVersionId"  UUID NOT NULL,
+    "TrafficSplitB"      INT NOT NULL CHECK ("TrafficSplitB" BETWEEN 0 AND 100),
+    "Metric"             VARCHAR(64) NOT NULL,
+    "StartedAt"          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "EndedAt"            TIMESTAMPTZ NULL,
+    "CreatedBy"          VARCHAR(128) NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_persona_experiments_active
+    ON aihub.persona_prompt_experiments("ProjectId", "Scope")
+    WHERE "EndedAt" IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_persona_experiments_project
+    ON aihub.persona_prompt_experiments("ProjectId", "StartedAt" DESC);
+
+-- F6 — outcome binding: llm_token_usage guarda experiment + variant.
+ALTER TABLE aihub.llm_token_usage
+    ADD COLUMN IF NOT EXISTS "ExperimentId" INT NULL,
+    ADD COLUMN IF NOT EXISTS "ExperimentVariant" CHAR(1) NULL
+        CHECK ("ExperimentVariant" IN ('A', 'B'));
+
+CREATE INDEX IF NOT EXISTS ix_llm_token_usage_experiment
+    ON aihub.llm_token_usage("ExperimentId")
+    WHERE "ExperimentId" IS NOT NULL;
+
+-- =============================================================================
 -- FIM DO SCHEMA
 -- =============================================================================

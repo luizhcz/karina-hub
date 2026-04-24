@@ -44,4 +44,12 @@ public interface IPersonaPromptTemplateRepository
         Guid targetVersionId,
         string? createdBy = null,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// F6 — lookup direto de uma version pelo seu <see cref="PersonaPromptTemplateVersion.VersionId"/>.
+    /// Usado pelo composer quando um experiment A/B aponta pra uma version
+    /// específica (snapshot imutável — independe da ActiveVersionId corrente).
+    /// </summary>
+    Task<PersonaPromptTemplateVersion?> GetVersionByIdAsync(
+        Guid versionId, CancellationToken ct = default);
 }

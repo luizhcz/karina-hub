@@ -230,4 +230,25 @@ public static class MetricsRegistry
     public static readonly Histogram<double> PersonaPromptComposeChars =
         _meter.CreateHistogram<double>("persona.prompt.compose.chars",
             description: "Tamanho (chars) do bloco de persona inserido no system message.");
+
+    /// <summary>
+    /// F6 — incrementa cada vez que o composer atribui uma variant (A/B) a um
+    /// usuário sob experiment ativo. Tag <c>variant</c>. Permite ver a taxa
+    /// de assignments em tempo real sem esperar o batch writer do
+    /// <c>llm_token_usage</c>.
+    /// </summary>
+    public static readonly Counter<long> PersonaExperimentAssignments =
+        _meter.CreateCounter<long>("persona.experiment.assignments",
+            description: "Assignments de variant em experiments A/B de persona. Tags: experiment_id, variant.");
+
+    /// <summary>
+    /// F6 — incrementa quando o composer encontra um experiment ativo apontando
+    /// pra <see cref="EfsAiHub.Core.Abstractions.Identity.Persona.PersonaPromptTemplateVersion.VersionId"/>
+    /// que não existe mais (version deletada direto no DB). Composer degrada
+    /// pro ActiveVersionId do template pai — sinalizar pra alertar admin que
+    /// o experiment virou zumbi.
+    /// </summary>
+    public static readonly Counter<long> PersonaExperimentOrphanedVariants =
+        _meter.CreateCounter<long>("persona.experiment.orphaned_variants",
+            description: "Experiments cuja variant aponta pra VersionId órfã. Tags: experiment_id.");
 }
