@@ -2,11 +2,10 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AppProviders } from './providers'
 import './index.css'
-// F8 — inicializa i18n antes de qualquer render. Side-effect import: o
-// módulo roda i18n.init() na importação.
+// Inicializa i18n antes do render — side-effect import roda i18n.init()
 import './i18n'
 
-// Force Monaco to use local node_modules instead of CDN (cdn.jsdelivr.net)
+// Força Monaco a usar node_modules local (evita baixar do cdn.jsdelivr.net)
 import loader from '@monaco-editor/loader'
 import * as monaco from 'monaco-editor'
 loader.config({ monaco })

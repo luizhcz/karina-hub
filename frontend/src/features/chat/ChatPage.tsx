@@ -35,7 +35,6 @@ export function ChatPage() {
 
   return (
     <div className="flex flex-col gap-8 max-w-2xl mx-auto">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-text-primary">Nova Conversa</h1>
         <p className="text-sm text-text-muted mt-1">
@@ -43,7 +42,6 @@ export function ChatPage() {
         </p>
       </div>
 
-      {/* Form */}
       <Card title="Configurar Conversa">
         <div className="flex flex-col gap-4">
           <Select
@@ -80,7 +78,6 @@ export function ChatPage() {
         </div>
       </Card>
 
-      {/* Recent conversations */}
       <div className="flex flex-col gap-4">
         <h2 className="text-lg font-semibold text-text-primary">Conversas Recentes</h2>
 

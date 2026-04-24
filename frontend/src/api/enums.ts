@@ -1,7 +1,6 @@
 import { get } from './client'
 import { useQuery } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface EnumsResponse {
   orchestrationModes: string[]
@@ -12,17 +11,14 @@ export interface EnumsResponse {
   middlewarePhases: string[]
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   enums: ['enums'] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const getEnums = () => get<EnumsResponse>('/enums')
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useEnums() {
   return useQuery({

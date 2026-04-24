@@ -20,7 +20,6 @@ export type {
   FunctionToolInfo,
 } from '../../api/tools'
 
-// ── Form-specific types ──────────────────────────────────────────────────────
 
 export interface AgentFormValues {
   id: string

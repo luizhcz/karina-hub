@@ -55,7 +55,6 @@ export function AgentPromptsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <Link to="/agents">
           <Button variant="ghost" size="sm">
@@ -73,7 +72,6 @@ export function AgentPromptsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Versions list */}
         <Card title="Versoes" padding={false} className="lg:col-span-1">
           <div className="divide-y divide-border-primary max-h-[600px] overflow-y-auto">
             {(!versions || versions.length === 0) && (
@@ -122,7 +120,6 @@ export function AgentPromptsPage() {
           </div>
         </Card>
 
-        {/* Editor */}
         <Card title="Editor" className="lg:col-span-2">
           <div className="flex flex-col gap-4">
             <div className="flex gap-3 items-end">
@@ -166,7 +163,6 @@ export function AgentPromptsPage() {
         </Card>
       </div>
 
-      {/* Activate confirmation */}
       <ConfirmDialog
         open={!!activateTarget}
         onClose={() => setActivateTarget(null)}
@@ -184,7 +180,6 @@ export function AgentPromptsPage() {
         loading={setMasterMutation.isPending}
       />
 
-      {/* Delete confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}

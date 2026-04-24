@@ -1,7 +1,6 @@
 import { get, post, del } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface DocumentIntelligencePricing {
   id: number
@@ -70,7 +69,6 @@ export interface DocumentIntelligenceJobsResponse {
   items: DocumentIntelligenceJobSummary[]
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const DI_KEYS = {
   pricingAll: ['di-pricing'] as const,
@@ -80,7 +78,6 @@ export const DI_KEYS = {
     ['di-jobs', from ?? 'default', to ?? 'default', limit ?? 50] as const,
 }
 
-// ── Pricing (CRUD) ───────────────────────────────────────────────────────────
 
 interface DocumentIntelligencePricingPage {
   items: DocumentIntelligencePricing[]
@@ -106,7 +103,6 @@ export const createDocumentIntelligencePricing = (body: CreateDocumentIntelligen
 export const deleteDocumentIntelligencePricing = (id: number) =>
   del(`/admin/document-intelligence/pricing/${id}`)
 
-// ── Usage (read-only) ────────────────────────────────────────────────────────
 
 export const getDocumentIntelligenceUsage = (from?: string, to?: string) =>
   get<DocumentIntelligenceUsageResponse>('/admin/document-intelligence/usage', {
@@ -121,7 +117,6 @@ export const getDocumentIntelligenceJobs = (from?: string, to?: string, limit: n
     limit,
   })
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useDocumentIntelligencePricings() {
   return useQuery({ queryKey: DI_KEYS.pricingAll, queryFn: getDocumentIntelligencePricings })

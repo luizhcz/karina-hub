@@ -29,7 +29,6 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-// ── Waterfall ─────────────────────────────────────────────────────────────────
 
 function pct(ms: number, total: number) {
   return total > 0 ? Math.min((ms / total) * 100, 100) : 0
@@ -53,7 +52,6 @@ function TimeRuler({ totalMs }: { totalMs: number }) {
           {timeLabel(t * totalMs)}
         </span>
       ))}
-      {/* Tick lines */}
       {ticks.map((t) => (
         <span
           key={`line-${t}`}
@@ -81,7 +79,6 @@ function SpanRow({ label, sublabel, leftPct, widthPct, color, durationMs, indent
 
   return (
     <div className="flex items-center gap-2 py-0.5 group">
-      {/* Label */}
       <div className={`flex-none w-[180px] flex items-center gap-1.5 ${indent ? 'pl-5' : ''}`}>
         {indent && <span className="text-border-primary text-xs">└</span>}
         <div className="min-w-0">
@@ -95,13 +92,11 @@ function SpanRow({ label, sublabel, leftPct, widthPct, color, durationMs, indent
         )}
       </div>
 
-      {/* Bar track */}
       <div className="flex-1 relative h-5">
         <div
           className={`absolute top-1 h-3 rounded-sm ${color} opacity-80 transition-all`}
           style={{ left: `${leftPct}%`, width: `${safeWidth}%` }}
         />
-        {/* Duration label on hover */}
         <div
           className="absolute top-1 h-3 flex items-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"
           style={{ left: `calc(${leftPct}% + ${safeWidth}% + 4px)` }}
@@ -141,7 +136,6 @@ function Waterfall({
     <div className="font-mono">
       <TimeRuler totalMs={totalMs} />
 
-      {/* Vertical grid lines */}
       <div className="relative">
         <div className="absolute inset-y-0 left-[180px] right-0 pointer-events-none">
           {[0.25, 0.5, 0.75].map((t) => (
@@ -153,7 +147,6 @@ function Waterfall({
           ))}
         </div>
 
-        {/* Rows */}
         <div className="flex flex-col">
           {sortedNodes.map((node) => {
             const nodeStart = node.startedAt ? new Date(node.startedAt).getTime() : t0
@@ -209,7 +202,6 @@ function Waterfall({
         </div>
       </div>
 
-      {/* Legend */}
       <div className="flex gap-4 mt-3 pt-3 border-t border-border-primary/30 flex-wrap">
         {[
           { color: 'bg-emerald-500', label: 'Node completed' },
@@ -228,7 +220,6 @@ function Waterfall({
   )
 }
 
-// ── Event log ─────────────────────────────────────────────────────────────────
 
 function EventTypeChip({ type }: { type: string }) {
   const color =
@@ -245,7 +236,6 @@ function EventTypeChip({ type }: { type: string }) {
   )
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
 
 export function TracingDetailPage() {
   const { traceId } = useParams<{ traceId: string }>()
@@ -264,7 +254,6 @@ export function TracingDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-start gap-4">
         <Link to="/tracing">
           <Button variant="ghost" size="sm">← Voltar</Button>
@@ -278,7 +267,6 @@ export function TracingDetailPage() {
         </div>
       </div>
 
-      {/* Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: 'Duração total', value: formatDuration(totalMs) },
@@ -293,7 +281,6 @@ export function TracingDetailPage() {
         ))}
       </div>
 
-      {/* Waterfall */}
       <Card title="Trace Waterfall">
         {nodes.length === 0 ? (
           <EmptyState
@@ -309,7 +296,6 @@ export function TracingDetailPage() {
         )}
       </Card>
 
-      {/* Tool invocations */}
       {tools.length > 0 && (
         <Card title={`Tool Invocations (${tools.length})`} padding={false}>
           <div className="divide-y divide-border-primary/40">
@@ -345,7 +331,6 @@ export function TracingDetailPage() {
         </Card>
       )}
 
-      {/* Event log */}
       <Card title={`Event Log (${events.length})`} padding={false}>
         {events.length === 0 ? (
           <EmptyState title="Sem eventos" description="Nenhum evento auditado." />
@@ -377,7 +362,6 @@ export function TracingDetailPage() {
         )}
       </Card>
 
-      {/* Error */}
       {execution.errorMessage && (
         <Card title="Erro">
           <pre className="text-xs text-red-400 whitespace-pre-wrap break-all font-mono">

@@ -14,7 +14,6 @@ import { EmptyState } from '../../shared/ui/EmptyState'
 import { useToolUsage } from './useToolUsage'
 import { UsedByBadge } from './components/UsedByBadge'
 
-// ── Modal que mostra schema completo + fingerprint ────────────────────────────
 
 function SchemaModal({
   open,
@@ -53,7 +52,6 @@ function SchemaModal({
   )
 }
 
-// ── Middleware card ───────────────────────────────────────────────────────────
 
 // Cor do badge por phase. Pre/Post/Both cada um reforça semanticamente
 // onde o middleware roda na pipeline LLM.
@@ -76,7 +74,6 @@ function MiddlewareCard({
   return (
     <Card>
       <div className="flex flex-col gap-3">
-        {/* Header: nome + phase */}
         <div className="flex items-start justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <span className="font-mono text-lg font-semibold text-text-primary">
@@ -102,7 +99,6 @@ function MiddlewareCard({
           <p className="text-xs text-text-muted leading-relaxed">{middleware.description}</p>
         )}
 
-        {/* Settings */}
         <div>
           <p className="text-xs font-medium text-text-muted uppercase tracking-wide mb-2">
             Configurações ({settings.length})
@@ -156,7 +152,6 @@ function MiddlewareCard({
   )
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
 
 export function ToolsListPage() {
   const { data: funcs, isLoading, error, refetch } = useFunctions()
@@ -266,7 +261,6 @@ export function ToolsListPage() {
         </p>
       </div>
 
-      {/* Function Tools */}
       <div className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
           Function Tools ({functionTools.length})
@@ -288,7 +282,6 @@ export function ToolsListPage() {
         </Card>
       </div>
 
-      {/* Code Executors */}
       <div className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
           Code Executors ({codeExecutors.length})

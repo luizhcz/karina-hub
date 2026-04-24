@@ -25,7 +25,6 @@ const TABS = [
   { key: "error", label: "Error" },
 ]
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function calcDuration(exec: WorkflowExecution): string {
   if (!exec.completedAt) {
@@ -47,7 +46,6 @@ function statusBadgeVariant(status: WorkflowExecution['status']): 'green' | 'red
   }
 }
 
-// ── Timeline ──────────────────────────────────────────────────────────────────
 
 interface TimelineProps {
   events: ExecutionEventRecord[]
@@ -86,7 +84,6 @@ function EventTimeline({ events }: TimelineProps) {
   )
 }
 
-// ── Events Table ──────────────────────────────────────────────────────────────
 
 interface EventsTableProps {
   events: ExecutionEventRecord[]
@@ -129,7 +126,6 @@ function EventsTable({ events }: EventsTableProps) {
   )
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
 
 export function ExecutionDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -174,7 +170,6 @@ export function ExecutionDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex flex-col gap-2">
           <button
@@ -212,7 +207,6 @@ export function ExecutionDetailPage() {
         </div>
       </div>
 
-      {/* Metrics grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MetricCard label="Duração" value={calcDuration(exec)} />
         <MetricCard
@@ -231,10 +225,8 @@ export function ExecutionDetailPage() {
         />
       </div>
 
-      {/* Tabs */}
       <Tabs items={TABS} active={activeTab} onChange={setActiveTab} />
 
-      {/* Tab Content */}
       {activeTab === 'overview' && (
         <Card title="Timeline de Eventos">
           <EventTimeline events={events} />
@@ -299,7 +291,6 @@ export function ExecutionDetailPage() {
         )
       )}
 
-      {/* Cancel confirm */}
       <ConfirmDialog
         open={showCancelConfirm}
         onClose={() => setShowCancelConfirm(false)}

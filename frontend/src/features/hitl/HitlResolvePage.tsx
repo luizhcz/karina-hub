@@ -16,7 +16,6 @@ import {
 import { ApiError } from '../../api/client'
 import { useUserStore } from '../../stores/user'
 
-// ── Status helpers ────────────────────────────────────────────────────────────
 
 function statusVariant(status: HumanInteraction['status']): 'yellow' | 'green' | 'red' {
   switch (status) {
@@ -26,7 +25,6 @@ function statusVariant(status: HumanInteraction['status']): 'yellow' | 'green' |
   }
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
 
 export function HitlResolvePage() {
   const { id } = useParams<{ id: string }>()
@@ -86,7 +84,6 @@ export function HitlResolvePage() {
 
   return (
     <div className="flex flex-col gap-6 max-w-2xl mx-auto">
-      {/* Back nav */}
       <button
         onClick={() => navigate(-1)}
         className="text-xs text-text-muted hover:text-text-secondary flex items-center gap-1 self-start"
@@ -94,7 +91,6 @@ export function HitlResolvePage() {
         ← Voltar
       </button>
 
-      {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-2">
           <h1 className="text-xl font-bold text-text-primary">Interação HITL</h1>
@@ -105,7 +101,6 @@ export function HitlResolvePage() {
         </div>
       </div>
 
-      {/* Info */}
       <Card title="Informações">
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -144,23 +139,19 @@ export function HitlResolvePage() {
         </div>
       </Card>
 
-      {/* Prompt */}
       <Card title="Prompt">
         <p className="text-sm text-text-primary leading-relaxed">{interaction.prompt}</p>
       </Card>
 
-      {/* Context */}
       {interaction.context && (
         <Card title="Contexto">
           <p className="text-sm text-text-secondary leading-relaxed">{interaction.context}</p>
         </Card>
       )}
 
-      {/* Resolution action or result */}
       {isPending ? (
         <Card title="Resolver Interação">
           <div className="flex flex-col gap-4">
-            {/* Decision */}
             <div className="flex flex-col gap-2">
               <p className="text-xs text-text-muted">Decisão</p>
               <div className="flex gap-2">

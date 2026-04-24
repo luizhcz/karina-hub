@@ -19,7 +19,6 @@ import type { AgentDef } from '../../../api/agents'
 import { PROVIDER_OPTIONS, CATALOG_TO_PROVIDER } from '../../../constants/providers'
 import { RESPONSE_FORMAT_OPTIONS, AGENT_DEFAULTS } from '../../../constants/agent'
 
-// ── Zod Schema ───────────────────────────────────────────────────────────────
 
 export const agentFormSchema = z.object({
   id: z.string().min(1, 'ID is required'),
@@ -67,7 +66,6 @@ export const agentFormSchema = z.object({
   }).optional().default({}),
 })
 
-// ── Default values ───────────────────────────────────────────────────────────
 
 const defaultValues: AgentFormValues = {
   id: '',
@@ -87,7 +85,6 @@ const defaultValues: AgentFormValues = {
   budget: { maxTokensPerExecution: 0, maxCostUsd: 0 },
 }
 
-// ── Convert AgentDef → form values ──────────────────────────────────────────
 
 export function agentToFormValues(agent: AgentDef): AgentFormValues {
   return {
@@ -142,7 +139,6 @@ export function agentToFormValues(agent: AgentDef): AgentFormValues {
   }
 }
 
-// ── Section Components ──────────────────────────────────────────────────────
 
 function IdentitySection({ isEdit }: { isEdit: boolean }) {
   const { register, formState: { errors } } = useFormContext<AgentFormValues>()
@@ -567,7 +563,6 @@ function BudgetSection() {
   )
 }
 
-// ── Main AgentForm ──────────────────────────────────────────────────────────
 
 interface AgentFormProps {
   initialValues?: AgentDef

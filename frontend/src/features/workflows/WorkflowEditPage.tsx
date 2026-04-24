@@ -139,7 +139,6 @@ export function WorkflowEditPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-center gap-3 flex-wrap">
         <Link to="/workflows">
           <Button variant="ghost" size="sm">
@@ -161,7 +160,6 @@ export function WorkflowEditPage() {
           </p>
         </div>
 
-        {/* Sub-page navigation */}
         <div className="flex items-center gap-2">
           <Button
             variant="secondary"
@@ -204,7 +202,6 @@ export function WorkflowEditPage() {
         </div>
       </div>
 
-      {/* Form */}
       <WorkflowForm
         initialValues={workflow}
         onSubmit={handleSubmit}
@@ -212,7 +209,6 @@ export function WorkflowEditPage() {
         isEdit
       />
 
-      {/* Error */}
       {updateMutation.error && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-400">
           Erro ao salvar workflow: {(updateMutation.error as Error).message}

@@ -42,7 +42,6 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Badge de usuário */}
         <div className="flex items-center gap-2 text-xs">
           <div className="w-7 h-7 rounded-full bg-accent-blue/20 border border-accent-blue/40 flex items-center justify-center text-accent-blue font-semibold">
             {userId.charAt(0).toUpperCase()}
@@ -53,7 +52,6 @@ export function Header() {
           </div>
         </div>
 
-        {/* Botão sair */}
         <button
           onClick={handleLogout}
           className="text-xs text-text-muted hover:text-red-400 border border-border-secondary hover:border-red-400/40 rounded-md px-2.5 py-1.5 transition-colors"

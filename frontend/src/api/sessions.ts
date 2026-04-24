@@ -1,7 +1,6 @@
 import { get, post, del, apiUrl } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface Session {
   sessionId: string
@@ -20,14 +19,12 @@ export interface SessionStreamHandle {
   source: Promise<Response>
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   list: (agentId: string) => ['sessions', agentId] as const,
   detail: (agentId: string, sessionId: string) => ['sessions', agentId, sessionId] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const getSessions = (agentId: string) =>
   get<Session[]>(`/agents/${agentId}/sessions`)
@@ -53,7 +50,6 @@ export const streamSession = (agentId: string, sessionId: string, message: strin
 export const deleteSession = (agentId: string, sessionId: string) =>
   del(`/agents/${agentId}/sessions/${sessionId}`)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useSessions(agentId: string, enabled = true) {
   return useQuery({

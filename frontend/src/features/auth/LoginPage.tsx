@@ -25,18 +25,15 @@ export function LoginPage() {
   return (
     <div className="flex h-screen items-center justify-center bg-bg-primary">
       <div className="w-full max-w-sm">
-        {/* Logo / título */}
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold text-text-primary">EFS AI Hub</h1>
           <p className="text-sm text-text-muted mt-1">Informe sua conta para continuar</p>
         </div>
 
-        {/* Card */}
         <form
           onSubmit={handleSubmit}
           className="bg-bg-secondary border border-border-primary rounded-2xl p-8 flex flex-col gap-5 shadow-lg"
         >
-          {/* Conta */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-text-secondary uppercase tracking-wide">
               Conta
@@ -51,7 +48,6 @@ export function LoginPage() {
             />
           </div>
 
-          {/* Tipo de usuário */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-text-secondary uppercase tracking-wide">
               Tipo de usuário

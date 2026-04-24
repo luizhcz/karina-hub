@@ -158,7 +158,6 @@ export function PersonasAdminPage() {
   )
 }
 
-// ── Views por tipo ───────────────────────────────────────────────────────────
 
 function ClientPersonaView({ persona }: { persona: ClientPersona }) {
   return (

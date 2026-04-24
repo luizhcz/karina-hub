@@ -1,7 +1,6 @@
 import { get, post } from './client'
 import { useQuery, useMutation } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface ResponseJob {
   jobId: string
@@ -19,19 +18,16 @@ export interface CreateResponseRequest {
   metadata?: Record<string, string>
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   detail: (jobId: string) => ['responses', jobId] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const createResponse = (body: CreateResponseRequest) => post<ResponseJob>('/responses', body)
 export const getResponse = (jobId: string) => get<ResponseJob>(`/responses/${jobId}`)
 export const cancelResponse = (jobId: string) => post<void>(`/responses/${jobId}/cancel`)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useResponse(jobId: string, enabled = true) {
   return useQuery({

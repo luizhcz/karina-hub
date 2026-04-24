@@ -46,7 +46,7 @@ export function WorkflowCostPage() {
   if (isLoading) return <PageLoader />
   if (error) return <ErrorCard message="Erro ao carregar custos por workflow" onRetry={refetch} />
 
-  // Aggregate per workflowId (one row per workflowId+modelId from API)
+  // API devolve uma linha por (workflowId, modelId) — agregamos por workflowId
   const byWorkflow = rows.reduce<Record<string, WorkflowRow>>((acc, r) => {
     const cost = estimateCost(r.totalInput, r.totalOutput, r.modelId, priceList)
     if (!acc[r.workflowId]) {

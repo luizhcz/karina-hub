@@ -1,7 +1,6 @@
 import { get } from './client'
 import { useQuery } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface LlmTokenUsage {
   id: number
@@ -77,7 +76,6 @@ export interface DateRangeParams {
   to?: string
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   summary: (params?: DateRangeParams) => ['token-usage', 'summary', params] as const,
@@ -89,7 +87,6 @@ export const KEYS = {
   projectsSummary: (params?: DateRangeParams) => ['token-usage', 'projects', 'summary', params] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const getTokenSummary = (params?: DateRangeParams) =>
   get<GlobalTokenSummary>('/token-usage/summary', params)
@@ -112,7 +109,6 @@ export const getWorkflowsSummary = (params?: DateRangeParams) =>
 export const getProjectsSummary = (params?: DateRangeParams) =>
   get<ProjectTokenSummary[]>('/token-usage/projects/summary', params)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useTokenSummary(params?: DateRangeParams) {
   return useQuery({

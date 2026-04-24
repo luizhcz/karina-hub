@@ -17,7 +17,7 @@ import { ErrorCard } from '../../shared/ui/ErrorCard'
 import { EmptyState } from '../../shared/ui/EmptyState'
 
 /**
- * F6 — A/B testing de templates de persona. Lista + criar + encerrar +
+ * A/B testing de templates de persona. Lista + criar + encerrar +
  * dashboard de resultados por variant. Decisão: 1 experiment ativo por
  * (project, scope) — UNIQUE parcial no DB força.
  */
@@ -128,7 +128,6 @@ export function PersonaExperimentsPage() {
   )
 }
 
-// ── Tabela ───────────────────────────────────────────────────────────────────
 
 function ExperimentsTable(props: {
   experiments: PersonaPromptExperiment[]
@@ -180,7 +179,6 @@ function ExperimentsTable(props: {
   )
 }
 
-// ── Dialog de criação ────────────────────────────────────────────────────────
 
 function CreateExperimentDialog(props: {
   onClose: () => void
@@ -314,7 +312,6 @@ function Field(props: {
   )
 }
 
-// ── Dialog de resultados ─────────────────────────────────────────────────────
 
 function ResultsDialog(props: { id: number; onClose: () => void }) {
   const { t, i18n } = useTranslation('persona')

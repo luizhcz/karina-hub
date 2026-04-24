@@ -11,7 +11,6 @@ import { PageLoader } from '../../shared/ui/LoadingSpinner'
 import { useWorkflow, useTriggerWorkflow, useWorkflowExecutions } from '../../api/workflows'
 import type { WorkflowExecution } from '../../api/workflows'
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 const EXAMPLE_INPUT = JSON.stringify({ message: 'Hello, workflow!', context: {} }, null, 2)
 
@@ -24,7 +23,6 @@ function isValidJson(str: string): boolean {
   }
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
 
 export function WorkflowTriggerPage() {
   const { id } = useParams<{ id: string }>()
@@ -126,7 +124,6 @@ export function WorkflowTriggerPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-center gap-3 flex-wrap">
         <Link to={`/workflows/${id}`}>
           <Button variant="ghost" size="sm">
@@ -148,7 +145,6 @@ export function WorkflowTriggerPage() {
         </div>
       </div>
 
-      {/* Trigger form */}
       <Card
         title="Executar Workflow"
         actions={
@@ -160,7 +156,6 @@ export function WorkflowTriggerPage() {
         }
       >
         <div className="flex flex-col gap-4">
-          {/* JSON input */}
           <div className="flex flex-col gap-2">
             <label className="text-xs font-medium text-text-muted">Input JSON</label>
             <div className="font-mono">
@@ -176,7 +171,6 @@ export function WorkflowTriggerPage() {
             )}
           </div>
 
-          {/* Actions */}
           <div className="flex items-center justify-between">
             <button
               type="button"
@@ -196,7 +190,6 @@ export function WorkflowTriggerPage() {
         </div>
       </Card>
 
-      {/* Success banner */}
       {lastExecutionId && !triggerMutation.isPending && (
         <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3 flex items-center justify-between">
           <div>
@@ -216,14 +209,12 @@ export function WorkflowTriggerPage() {
         </div>
       )}
 
-      {/* Trigger error */}
       {triggerMutation.error && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-400">
           Erro ao executar workflow: {(triggerMutation.error as Error).message}
         </div>
       )}
 
-      {/* Recent executions */}
       <Card title="Ultimas Execucoes" padding={false}>
         {executionsLoading ? (
           <div className="p-6 text-center text-sm text-text-muted">Carregando execucoes...</div>

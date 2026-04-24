@@ -6,7 +6,7 @@ import ptBrPersona from '../locales/pt-BR/persona.json'
 import enUsPersona from '../locales/en-US/persona.json'
 
 /**
- * F8 — setup de i18n. Estratégia:
+ * Setup de i18n. Estratégia:
  *  - Default: pt-BR (mercado primário).
  *  - Resolução: languagedetector (navigator.language / cookie / localStorage),
  *    fallback explicito pra pt-BR quando unsupported.

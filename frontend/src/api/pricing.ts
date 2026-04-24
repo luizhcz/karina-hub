@@ -1,7 +1,6 @@
 import { get, post, del } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface ModelPricing {
   id: number
@@ -23,14 +22,12 @@ export interface CreateModelPricingRequest {
   effectiveFrom: string
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   all: ['model-pricing'] as const,
   detail: (id: number) => ['model-pricing', id] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 // Backend retorna paginado `{ items, total, page, pageSize }` — extrai items para
 // preservar a interface de array que todos os callers (CostDashboardPage, WorkflowCostPage,
@@ -51,7 +48,6 @@ export const createModelPricing = (body: CreateModelPricingRequest) => post<Mode
 export const deleteModelPricing = (id: number) => del(`/admin/model-pricing/${id}`)
 export const refreshPricingView = () => post<void>('/admin/model-pricing/refresh-view')
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useModelPricings() {
   return useQuery({ queryKey: KEYS.all, queryFn: getModelPricings })

@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import type { MiddlewareTypeInfo } from '../../../api/tools'
 
-// ── Types ──────────────────────────────────────────────────────────────────
 
 export interface MiddlewareEntry {
   type: string
@@ -15,7 +14,6 @@ interface MiddlewarePickerProps {
   onChange: (next: MiddlewareEntry[]) => void
 }
 
-// ── Component ──────────────────────────────────────────────────────────────
 
 const PHASE_BADGE: Record<string, { label: string; className: string }> = {
   Pre: { label: 'Pre-LLM', className: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30' },
@@ -93,7 +91,6 @@ export function MiddlewarePicker({
                 : 'border-border-secondary bg-bg-tertiary'
             }`}
           >
-            {/* Header toggle */}
             <button
               type="button"
               onClick={() => toggle(type)}
@@ -139,7 +136,6 @@ export function MiddlewarePicker({
               </div>
             </button>
 
-            {/* Settings (only when active and has settings from API) */}
             {isActive && settings.length > 0 && (
               <div className="px-4 pb-3 pt-0 border-t border-border-secondary/50">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">

@@ -64,7 +64,6 @@ export function DocumentIntelligenceCostPage() {
         </div>
       </div>
 
-      {/* Resumo */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <MetricCard
           label="Custo Total"
@@ -77,7 +76,6 @@ export function DocumentIntelligenceCostPage() {
         <MetricCard label="Falhas" value={formatNumber(summary?.failedJobs ?? 0)} />
       </div>
 
-      {/* Gráfico temporal */}
       <Card title="Custo diário">
         {chartData.length === 0 ? (
           <EmptyState
@@ -97,7 +95,6 @@ export function DocumentIntelligenceCostPage() {
         )}
       </Card>
 
-      {/* Detalhamento por modelo */}
       <Card title="Por modelo">
         {byModel.length === 0 ? (
           <EmptyState title="Sem dados" description="Nenhum modelo usado no período." />
@@ -127,7 +124,6 @@ export function DocumentIntelligenceCostPage() {
         )}
       </Card>
 
-      {/* Jobs recentes */}
       <Card title="Jobs recentes">
         {jobsList.length === 0 ? (
           <EmptyState title="Sem jobs" description="Nenhum job de extração no período." />

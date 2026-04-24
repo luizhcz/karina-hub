@@ -1,7 +1,6 @@
 import { get, post } from './client'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export type UserType = 'cliente' | 'admin'
 
@@ -41,13 +40,11 @@ export interface AdminPersona extends BasePersona {
  */
 export type UserPersona = ClientPersona | AdminPersona
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const PERSONA_KEYS = {
   detail: (userId: string, userType: string) => ['personas', userType, userId] as const,
 }
 
-// ── Raw API ──────────────────────────────────────────────────────────────────
 
 export const getPersona = (userId: string, userType: UserType = 'cliente') =>
   get<UserPersona>(`/admin/personas/${encodeURIComponent(userId)}`, { userType })
@@ -57,7 +54,6 @@ export const invalidatePersona = (userId: string, userType: UserType = 'cliente'
     `/admin/personas/${encodeURIComponent(userId)}/invalidate?userType=${encodeURIComponent(userType)}`,
   )
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 /**
  * Resolve persona sob demanda — `enabled` controla disparo (tipicamente

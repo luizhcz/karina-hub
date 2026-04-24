@@ -100,7 +100,6 @@ export function SharedStatePanel({ agentState, changedPaths, timestamp, isStream
   return (
     <div>
       <div className="w-full rounded-xl bg-bg-secondary border border-border-primary overflow-hidden text-xs">
-        {/* Header */}
         <button
           onClick={() => setExpanded(!expanded)}
           className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 cursor-pointer"
@@ -125,7 +124,6 @@ export function SharedStatePanel({ agentState, changedPaths, timestamp, isStream
           <span className="text-text-muted flex-shrink-0">{expanded ? '▾' : '▸'}</span>
         </button>
 
-        {/* Collapsible body */}
         <div
           className={cn(
             'grid transition-[grid-template-rows] duration-200',

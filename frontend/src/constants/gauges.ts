@@ -1,4 +1,3 @@
-// ── Gauge threshold constants ────────────────────────────────────────────────
 
 export const LATENCY_GAUGE = {
   maxMs: 10_000,

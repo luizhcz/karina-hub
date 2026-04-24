@@ -19,7 +19,7 @@ export function SchemaEditor({ value, onChange }: SchemaEditorProps) {
   const history = useSchemaHistory(value)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Sync external value changes (e.g. RHF reset)
+  // Sincroniza mudanças externas do valor (ex: reset do RHF)
   useEffect(() => {
     if (value !== lastSerialized.current) {
       const result = tryParseSchema(value)
@@ -79,7 +79,6 @@ export function SchemaEditor({ value, onChange }: SchemaEditorProps) {
     if (!schema) return
     const s = deepClone(schema)
 
-    // Adding new field
     if (data.isNew) {
       const parent = navigateToParent(s, path)
       if (!parent.properties) parent.properties = {}
@@ -115,7 +114,6 @@ export function SchemaEditor({ value, onChange }: SchemaEditorProps) {
       newProp = rebuildProp(data.type, data.description, data.nullable)
     }
 
-    // Handle rename
     if (data.key !== oldKey) {
       const entries = Object.entries(parent.properties).map(([k, v]) =>
         k === oldKey ? [data.key, newProp] : [k, v]
@@ -191,14 +189,12 @@ export function SchemaEditor({ value, onChange }: SchemaEditorProps) {
 
   return (
     <div ref={containerRef} tabIndex={-1} className="outline-none">
-      {/* Animations */}
       <style>{`
         @keyframes slideIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
         .animate-slideIn { animation: slideIn 0.15s ease; }
         @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
 
-      {/* Toast */}
       {toast && (
         <div
           className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-text-primary text-bg-primary px-5 py-2 rounded-lg text-[13px] font-medium z-50 pointer-events-none"
@@ -208,7 +204,6 @@ export function SchemaEditor({ value, onChange }: SchemaEditorProps) {
         </div>
       )}
 
-      {/* Toolbar */}
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
         <div className="flex items-center gap-3">
           <span className="text-[13px] text-text-secondary">
@@ -267,17 +262,14 @@ export function SchemaEditor({ value, onChange }: SchemaEditorProps) {
         </div>
       </div>
 
-      {/* Parse error banner */}
       {parseError && (
         <div className="mb-3 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-xs text-red-400">
           JSON invalido: {parseError}
         </div>
       )}
 
-      {/* Mode: Visual */}
       {mode === 'visual' && (
         <>
-          {/* Legend */}
           <div className="flex gap-4 mb-3 flex-wrap text-xs text-text-secondary items-center">
             <span className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-red-400" /> obrigatorio
@@ -319,7 +311,6 @@ export function SchemaEditor({ value, onChange }: SchemaEditorProps) {
         </>
       )}
 
-      {/* Mode: JSON */}
       {mode === 'json' && (
         <MonacoEditor
           value={history.state}

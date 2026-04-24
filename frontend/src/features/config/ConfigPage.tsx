@@ -5,7 +5,6 @@ import { Badge } from '../../shared/ui/Badge'
 import { Button } from '../../shared/ui/Button'
 import { Input } from '../../shared/ui/Input'
 
-// ── Local config store ────────────────────────────────────────────────────────
 
 interface LocalConfig {
   key: string
@@ -22,7 +21,6 @@ const DEFAULT_CONFIGS: LocalConfig[] = [
   { key: 'AUDIT_RETENTION_DAYS', value: '90', description: 'Dias para reter logs de auditoria', updatedAt: new Date().toISOString() },
 ]
 
-// ── Circuit Breakers & Queue data types ──────────────────────────────────────
 
 interface CircuitBreakerStatus {
   name: string
@@ -56,7 +54,6 @@ const TAB_ITEMS = [
   { key: 'queue-health', label: 'Queue Health' },
 ]
 
-// ── Settings Tab ─────────────────────────────────────────────────────────────
 
 function SettingsTab() {
   const [configs, setConfigs] = useState<LocalConfig[]>(DEFAULT_CONFIGS)
@@ -117,7 +114,6 @@ function SettingsTab() {
   )
 }
 
-// ── Circuit Breakers Tab ──────────────────────────────────────────────────────
 
 function CircuitBreakersTab() {
   const [tick, setTick] = useState(0)
@@ -166,7 +162,6 @@ function CircuitBreakersTab() {
   )
 }
 
-// ── Queue Health Tab ──────────────────────────────────────────────────────────
 
 function QueueHealthTab() {
   const [tick, setTick] = useState(0)
@@ -205,7 +200,6 @@ function QueueHealthTab() {
   )
 }
 
-// ── Main ConfigPage ───────────────────────────────────────────────────────────
 
 export function ConfigPage() {
   const [activeTab, setActiveTab] = useState('settings')

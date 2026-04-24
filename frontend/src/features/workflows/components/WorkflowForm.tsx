@@ -25,8 +25,6 @@ import {
 } from '../../../constants/workflow'
 import { useEnums } from '../../../api/enums'
 
-// ── Zod schema ────────────────────────────────────────────────────────────────
-
 const hitlConfigSchema = z.object({
   enabled: z.boolean(),
   when: z.enum(['before', 'after']),
@@ -92,8 +90,6 @@ const schema = z.object({
   metadata: z.array(z.object({ key: z.string(), value: z.string() })),
 })
 
-// ── Default values ─────────────────────────────────────────────────────────
-
 const DEFAULT_VALUES: WorkflowFormValues = {
   id: '',
   name: '',
@@ -120,8 +116,6 @@ const DEFAULT_VALUES: WorkflowFormValues = {
   metadata: [],
 }
 
-// ── Tab items ──────────────────────────────────────────────────────────────
-
 const TAB_ITEMS = [
   { key: 'basic', label: 'Basic Info' },
   { key: 'agents', label: 'Agents' },
@@ -132,16 +126,12 @@ const TAB_ITEMS = [
   { key: 'metadata', label: 'Metadata' },
 ]
 
-// ── Props ─────────────────────────────────────────────────────────────────
-
 interface WorkflowFormProps {
   initialValues?: WorkflowDef
   onSubmit: (values: WorkflowFormValues) => void
   loading?: boolean
   isEdit?: boolean
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────
 
 function workflowDefToFormValues(wf: WorkflowDef): WorkflowFormValues {
   return {
@@ -211,8 +201,6 @@ function workflowDefToFormValues(wf: WorkflowDef): WorkflowFormValues {
     metadata: Object.entries(wf.metadata ?? {}).map(([key, value]) => ({ key, value })),
   }
 }
-
-// ── EdgeItem sub-component ─────────────────────────────────────────────────
 
 interface EdgeItemProps {
   idx: number
@@ -320,7 +308,6 @@ function EdgeItem({ idx, control, register, nodeOptions, onRemove }: EdgeItemPro
         </button>
       </div>
 
-      {/* Edge Type selector */}
       <Controller
         control={control}
         name={`edges.${idx}.edgeType`}
@@ -336,10 +323,8 @@ function EdgeItem({ idx, control, register, nodeOptions, onRemove }: EdgeItemPro
         )}
       />
 
-      {/* Direct */}
       {edgeType === 'Direct' && fromToGrid}
 
-      {/* Conditional */}
       {edgeType === 'Conditional' && (
         <>
           {fromToGrid}
@@ -351,7 +336,6 @@ function EdgeItem({ idx, control, register, nodeOptions, onRemove }: EdgeItemPro
         </>
       )}
 
-      {/* Switch */}
       {edgeType === 'Switch' && (
         <>
           <Controller
@@ -428,7 +412,6 @@ function EdgeItem({ idx, control, register, nodeOptions, onRemove }: EdgeItemPro
         </>
       )}
 
-      {/* FanOut: one → many */}
       {edgeType === 'FanOut' && (
         <>
           <Controller
@@ -453,7 +436,6 @@ function EdgeItem({ idx, control, register, nodeOptions, onRemove }: EdgeItemPro
         </>
       )}
 
-      {/* FanIn: many → one */}
       {edgeType === 'FanIn' && (
         <>
           <MultiCheckboxField
@@ -478,7 +460,6 @@ function EdgeItem({ idx, control, register, nodeOptions, onRemove }: EdgeItemPro
         </>
       )}
 
-      {/* Input Source */}
       <Controller
         control={control}
         name={`edges.${idx}.inputSource`}
@@ -497,8 +478,6 @@ function EdgeItem({ idx, control, register, nodeOptions, onRemove }: EdgeItemPro
     </div>
   )
 }
-
-// ── HITL Fields (reused for agents and executors) ─────────────────────────
 
 /**
  * Paths de HITL config permitidos no form. Restringe o componente para nunca receber
@@ -519,7 +498,7 @@ function HitlFields({
   register: UseFormRegister<WorkflowFormValues>
   watch: ReturnType<typeof useForm<WorkflowFormValues>>['watch']
 }) {
-  // FieldPath cast mais estreito que `as any` — valida que é um path válido da shape.
+  // FieldPath<...> em vez de `as any` — valida contra a shape do form
   const enabled = watch(`${prefix}.enabled` as FieldPath<WorkflowFormValues>)
   const interactionType = watch(`${prefix}.interactionType` as FieldPath<WorkflowFormValues>)
 
@@ -614,8 +593,6 @@ function HitlFields({
   )
 }
 
-// ── Component ─────────────────────────────────────────────────────────────
-
 export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: WorkflowFormProps) {
   const [activeTab, setActiveTab] = useState('basic')
   const { data: availableAgents } = useAgents()
@@ -643,7 +620,7 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
 
   const agentIdOptions = (availableAgents ?? []).map((a) => ({ label: `${a.name} (${a.id})`, value: a.id }))
 
-  // All nodes that can be connected via edges (agents + executors)
+  // Nós conectáveis por edges — agents + executors
   const nodeOptions = [
     ...watchedAgents
       .filter((a) => a.agentId)
@@ -658,10 +635,8 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6">
-      {/* Tabs navigation */}
       <Tabs items={TAB_ITEMS} active={activeTab} onChange={setActiveTab} />
 
-      {/* ── Basic Info ── */}
       {activeTab === 'basic' && (
         <Card title="Basic Information">
           <div className="flex flex-col gap-4">
@@ -707,7 +682,6 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
         </Card>
       )}
 
-      {/* ── Agents ── */}
       {activeTab === 'agents' && (
         <Card
           title="Agents"
@@ -773,7 +747,6 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
         </Card>
       )}
 
-      {/* ── Executors ── */}
       {activeTab === 'executors' && (
         <Card
           title="Executor Nodes"
@@ -851,7 +824,6 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
         </Card>
       )}
 
-      {/* ── Edges ── */}
       {activeTab === 'edges' && (
         <Card
           title="Edges"
@@ -896,7 +868,6 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
         </Card>
       )}
 
-      {/* ── Configuration ── */}
       {activeTab === 'configuration' && (
         <Card title="Configuration">
           <div className="flex flex-col gap-5">
@@ -988,7 +959,6 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
         </Card>
       )}
 
-      {/* ── Trigger ── */}
       {activeTab === 'trigger' && (
         <Card title="Trigger">
           <div className="flex flex-col gap-5">
@@ -1053,7 +1023,6 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
         </Card>
       )}
 
-      {/* ── Metadata ── */}
       {activeTab === 'metadata' && (
         <Card
           title="Metadata"
@@ -1096,7 +1065,6 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
         </Card>
       )}
 
-      {/* Submit */}
       <div className="flex items-center justify-between pt-2">
         <div className="flex items-center gap-2">
           {Object.keys(errors).length > 0 && (

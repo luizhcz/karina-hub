@@ -2,8 +2,6 @@ import { del, get, post } from './client'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { UserType } from './personas'
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
 /**
  * Template de prompt de persona persistido em aihub.persona_prompt_templates.
  * Scope embute userType: <c>global:cliente</c> | <c>global:admin</c> |
@@ -17,12 +15,11 @@ export interface PersonaPromptTemplate {
   template: string
   createdAt: string
   updatedAt: string
-  // F9: updatedBy removido — actor canônico vive em admin_audit_log.
-  /** F5: aponta pra version ativa no histórico. */
+  /** Aponta pra version ativa no histórico append-only. */
   activeVersionId: string | null
 }
 
-/** F5: uma entrada no histórico append-only de versions de um template. */
+/** Entrada no histórico append-only de versions de um template. */
 export interface PersonaPromptTemplateVersion {
   id: number
   templateId: number
@@ -87,14 +84,10 @@ export interface PersonaPromptTemplatePreviewResponse {
   sample: unknown
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
-
 export const PERSONA_TEMPLATE_KEYS = {
   all: ['persona-templates'] as const,
   detail: (id: number) => ['persona-templates', id] as const,
 }
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
  * Deduz o userType a partir do scope (sufixo `:cliente` ou `:admin`).
@@ -105,8 +98,6 @@ export function userTypeFromScope(scope: string): UserType {
   if (scope.endsWith(':admin')) return 'admin'
   return 'cliente'
 }
-
-// ── Raw API ──────────────────────────────────────────────────────────────────
 
 export const getPersonaTemplates = () =>
   get<PersonaPromptTemplateListResponse>('/admin/persona-templates')
@@ -123,7 +114,6 @@ export const deletePersonaTemplate = (id: number) =>
 export const previewPersonaTemplate = (body: PersonaPromptTemplatePreviewRequest) =>
   post<PersonaPromptTemplatePreviewResponse>('/admin/persona-templates/preview', body)
 
-// F5 — versionamento
 export const getPersonaTemplateVersions = (id: number) =>
   get<PersonaPromptTemplateVersionsResponse>(`/admin/persona-templates/${id}/versions`)
 
@@ -131,8 +121,6 @@ export const rollbackPersonaTemplate = (id: number, versionId: string) =>
   post<PersonaPromptTemplate>(
     `/admin/persona-templates/${id}/rollback?versionId=${encodeURIComponent(versionId)}`,
   )
-
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function usePersonaTemplates() {
   return useQuery({
@@ -169,8 +157,6 @@ export function useDeletePersonaTemplate() {
     },
   })
 }
-
-// F5 — versionamento + rollback
 
 export const PERSONA_TEMPLATE_VERSION_KEYS = {
   list: (templateId: number) => ['persona-templates', templateId, 'versions'] as const,

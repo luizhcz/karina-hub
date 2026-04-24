@@ -12,7 +12,6 @@ export type {
   WorkflowVersion,
 } from '../../api/workflows'
 
-// ── Form-specific types ──────────────────────────────────────────────────────
 
 export interface NodeHitlConfigForm {
   enabled: boolean

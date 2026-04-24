@@ -1,7 +1,6 @@
 import { get, post, put, del } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface ProviderCredentialsResponse {
   apiKeySet: boolean
@@ -55,7 +54,6 @@ export interface ProjectStats {
   executionCount: number
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   all: ['projects'] as const,
@@ -63,7 +61,6 @@ export const KEYS = {
   stats: (id: string) => ['projects', id, 'stats'] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const getProjects = () => get<Project[]>('/projects')
 export const getProject = (id: string) => get<Project>(`/projects/${id}`)
@@ -72,7 +69,6 @@ export const updateProject = (id: string, body: UpdateProjectRequest) => put<Pro
 export const deleteProject = (id: string) => del(`/projects/${id}`)
 export const getProjectStats = (id: string) => get<ProjectStats>(`/projects/${id}/stats`)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useProjects() {
   return useQuery({ queryKey: KEYS.all, queryFn: getProjects })

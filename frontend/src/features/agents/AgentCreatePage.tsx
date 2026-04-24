@@ -71,7 +71,6 @@ export function AgentCreatePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <Link to="/agents">
           <Button variant="ghost" size="sm">
@@ -84,7 +83,6 @@ export function AgentCreatePage() {
         </div>
       </div>
 
-      {/* Form */}
       <AgentForm onSubmit={handleSubmit} loading={createMutation.isPending} />
     </div>
   )

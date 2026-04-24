@@ -1,7 +1,6 @@
 import { get } from './client'
 import { useQuery } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface ExecutionSummary {
   total: number
@@ -51,7 +50,6 @@ export interface TimeseriesParams extends AnalyticsParams {
   groupBy?: string
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   summary: (params?: AnalyticsParams) => ['analytics', 'summary', params] as const,
@@ -59,7 +57,6 @@ export const KEYS = {
   failureBreakdown: (params?: AnalyticsParams) => ['analytics', 'failure-breakdown', params] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const getExecutionSummary = (params?: AnalyticsParams) =>
   get<ExecutionSummary>('/analytics/executions/summary', params)
@@ -70,7 +67,6 @@ export const getExecutionTimeseries = (params?: TimeseriesParams) =>
 export const getExecutionFailureBreakdown = (params?: AnalyticsParams) =>
   get<ExecutionFailureBreakdownResponse>('/analytics/executions/failure-breakdown', params)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useExecutionSummary(params?: AnalyticsParams) {
   return useQuery({

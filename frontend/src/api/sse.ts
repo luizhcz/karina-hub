@@ -1,7 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { apiUrl } from './client'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface SSEEvent {
   type: string
@@ -21,7 +20,6 @@ export interface SSEHookReturn {
   isConnected: boolean
 }
 
-// ── useExecutionSSE ──────────────────────────────────────────────────────────
 
 export function useExecutionSSE(executionId: string | undefined, options: SSEHookOptions = {}): SSEHookReturn {
   const { onEvent, onError, onOpen, autoConnect = false } = options
@@ -73,7 +71,6 @@ export function useExecutionSSE(executionId: string | undefined, options: SSEHoo
   return { connect, disconnect, isConnected }
 }
 
-// ── useChatSSE ───────────────────────────────────────────────────────────────
 
 export function useChatSSE(conversationId: string | undefined, options: SSEHookOptions = {}): SSEHookReturn {
   const { onEvent, onError, onOpen, autoConnect = false } = options

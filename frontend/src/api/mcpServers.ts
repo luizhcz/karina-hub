@@ -1,7 +1,6 @@
 import { get, post, put, del } from './client'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 /**
  * Servidor MCP registrado em aihub.mcp_servers. Agents referenciam por Id;
@@ -31,14 +30,12 @@ interface McpServerPageResponse {
   pageSize: number
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   all: ['mcp-servers'] as const,
   detail: (id: string) => ['mcp-servers', id] as const,
 }
 
-// ── Raw API ──────────────────────────────────────────────────────────────────
 
 // Backend retorna paginado — extrai .items pra manter interface de array nos callers
 // (pattern do fix em pricing.ts/skills.ts/modelCatalog.ts pós-commit 3016a8e).
@@ -57,7 +54,6 @@ export const updateMcpServer = (id: string, body: CreateMcpServerRequest) =>
 
 export const deleteMcpServer = (id: string) => del(`/admin/mcp-servers/${id}`)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useMcpServers() {
   return useQuery({ queryKey: KEYS.all, queryFn: getMcpServers })

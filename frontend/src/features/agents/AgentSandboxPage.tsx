@@ -7,13 +7,11 @@ import { PageLoader } from '../../shared/ui/LoadingSpinner'
 import { useAgent } from '../../api/agents'
 import { getIdentityHeaders } from '../../api/client'
 
-// ── Tipos ─────────────────────────────────────────────────────────────────────
 
 type Msg =
   | { kind: 'user'; id: string; text: string }
   | { kind: 'assistant'; id: string; content: string; streaming?: boolean }
 
-// ── Bubbles ───────────────────────────────────────────────────────────────────
 
 function UserBubble({ text }: { text: string }) {
   return (
@@ -49,7 +47,6 @@ function TypingBubble() {
   )
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
 
 export function AgentSandboxPage() {
   const { id } = useParams<{ id: string }>()
@@ -171,7 +168,6 @@ export function AgentSandboxPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
-      {/* Header */}
       <div className="flex items-center gap-3 flex-wrap mb-4 flex-none">
         <Link to="/agents">
           <Button variant="ghost" size="sm">← Agentes</Button>
@@ -199,9 +195,7 @@ export function AgentSandboxPage() {
         </Button>
       </div>
 
-      {/* Chat area */}
       <div className="flex-1 flex flex-col bg-bg-secondary border border-border-primary rounded-xl overflow-hidden min-h-0">
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 min-h-0">
           {isEmpty && (
             <div className="flex flex-col items-center justify-center gap-3 text-center h-full">
@@ -235,7 +229,6 @@ export function AgentSandboxPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input area */}
         <div className="border-t border-border-primary p-3 flex gap-2 items-end flex-none">
           <textarea
             value={input}

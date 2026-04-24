@@ -102,7 +102,6 @@ export function ConversationListPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-text-primary">Conversas</h1>
         <p className="text-sm text-text-muted mt-1">
@@ -110,7 +109,6 @@ export function ConversationListPage() {
         </p>
       </div>
 
-      {/* Filters */}
       <Card title="Filtros">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           <Input
@@ -146,7 +144,6 @@ export function ConversationListPage() {
         </div>
       </Card>
 
-      {/* Table */}
       <DataTable
         data={conversations}
         columns={columns}
@@ -154,7 +151,6 @@ export function ConversationListPage() {
         onRowClick={(row) => navigate(`/chat/${row.conversationId}`)}
       />
 
-      {/* Manual Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between text-sm text-text-muted">
           <span>

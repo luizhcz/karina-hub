@@ -1,4 +1,3 @@
-// ── Workflow form constants ──────────────────────────────────────────────────
 
 /** UI labels for orchestration modes (values come from GET /api/enums) */
 export const ORCHESTRATION_MODE_LABELS: Record<string, string> = {

@@ -70,7 +70,6 @@ export function MetricsOverviewPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Metrics</h1>
@@ -87,7 +86,6 @@ export function MetricsOverviewPage() {
         </div>
       </div>
 
-      {/* Top metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MetricCard label="Total Execuções" value={formatNumber(s?.total ?? 0)} />
         <MetricCard label="Completadas" value={formatNumber(s?.completed ?? 0)} sub="execuções" />
@@ -95,7 +93,6 @@ export function MetricsOverviewPage() {
         <MetricCard label="Avg Duration" value={s ? formatDuration(s.avgDurationMs) : '—'} />
       </div>
 
-      {/* Timeseries + Gauge */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card title="Execuções por período" className="lg:col-span-2">
           <TimeseriesChart
@@ -126,7 +123,6 @@ export function MetricsOverviewPage() {
         </Card>
       </div>
 
-      {/* Donut + Latency */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card title="Distribuição de Status">
           <DonutChart data={donutData} height={240} />

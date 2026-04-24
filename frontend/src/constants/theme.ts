@@ -1,4 +1,3 @@
-// ── Chart color palette ──────────────────────────────────────────────────────
 
 export const CHART_COLORS = [
   '#0057E0',

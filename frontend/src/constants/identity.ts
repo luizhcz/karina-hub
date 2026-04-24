@@ -1,4 +1,3 @@
-// ── User identity constants ──────────────────────────────────────────────────
 
 export const USER_TYPES = ['cliente', 'admin'] as const
 

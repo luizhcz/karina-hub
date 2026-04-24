@@ -80,7 +80,6 @@ export function Sidebar() {
         collapsed ? 'w-16' : 'w-56'
       )}
     >
-      {/* Logo */}
       <div className="flex items-center gap-2 px-4 h-14 border-b border-border-primary flex-shrink-0">
         <div className="w-7 h-7 rounded-lg bg-accent-blue flex items-center justify-center text-white font-bold text-xs">
           AI
@@ -88,7 +87,6 @@ export function Sidebar() {
         {!collapsed && <span className="font-semibold text-text-primary text-sm">EfsAiHub</span>}
       </div>
 
-      {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 space-y-1">
         <NavGroup title="Operação" items={operationItems} collapsed={collapsed} />
         <div className="mx-4 border-t border-border-primary my-2" />
@@ -97,7 +95,6 @@ export function Sidebar() {
         <NavGroup title="Admin" items={adminItems} collapsed={collapsed} />
       </nav>
 
-      {/* Collapse toggle */}
       <button
         onClick={toggle}
         className="flex items-center justify-center h-10 border-t border-border-primary text-text-muted hover:text-text-primary transition-colors"

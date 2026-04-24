@@ -145,7 +145,6 @@ export function ExecutionsListPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Execuções</h1>
@@ -161,7 +160,6 @@ export function ExecutionsListPage() {
         </Button>
       </div>
 
-      {/* Filters */}
       <Card title="Filtros">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Select
@@ -191,7 +189,6 @@ export function ExecutionsListPage() {
         </div>
       </Card>
 
-      {/* Table */}
       <DataTable
         data={executions}
         columns={columns}
@@ -199,7 +196,6 @@ export function ExecutionsListPage() {
         onRowClick={(row) => navigate(`/executions/${row.executionId}`)}
       />
 
-      {/* Cancel confirm */}
       <ConfirmDialog
         open={!!cancelTarget}
         onClose={() => setCancelTarget(null)}

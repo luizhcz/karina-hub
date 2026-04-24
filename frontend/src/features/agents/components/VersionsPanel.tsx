@@ -55,7 +55,6 @@ export function VersionsPanel({ agentId }: VersionsPanelProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Timeline */}
       <Card title="Historico de Versoes" padding={false}>
         <div className="divide-y divide-border-primary">
           {sorted.length === 0 && (
@@ -111,7 +110,6 @@ export function VersionsPanel({ agentId }: VersionsPanelProps) {
         </div>
       </Card>
 
-      {/* Diff Viewer */}
       {selectedA && selectedB && versionA && versionB && (
         <Card title={`Diff: ${selectedA} vs ${selectedB}`}>
           <DiffViewer
@@ -124,7 +122,6 @@ export function VersionsPanel({ agentId }: VersionsPanelProps) {
         </Card>
       )}
 
-      {/* Rollback confirmation */}
       <ConfirmDialog
         open={!!rollbackTarget}
         onClose={() => setRollbackTarget(null)}

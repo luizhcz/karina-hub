@@ -107,7 +107,6 @@ export function TracingListPage() {
           />
         ) : (
           <div className="divide-y divide-border-primary/40">
-            {/* Header */}
             <div className="grid grid-cols-[1fr_160px_110px_160px_180px] gap-4 px-4 py-2 text-[10px] font-semibold text-text-muted uppercase tracking-wider">
               <span>Execution ID</span>
               <span>Workflow</span>

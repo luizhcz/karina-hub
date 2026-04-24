@@ -1,7 +1,6 @@
 import { get, post, put, del } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface AgentPromptVersion {
   versionId: string
@@ -19,14 +18,12 @@ export interface SetMasterResult {
   master: string
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   list: (agentId: string) => ['prompts', agentId] as const,
   active: (agentId: string) => ['prompts', agentId, 'active'] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const getPromptVersions = (agentId: string) =>
   get<AgentPromptVersion[]>(`/agents/${agentId}/prompts`)
@@ -46,7 +43,6 @@ export const deletePromptVersion = (agentId: string, versionId: string) =>
 export const clearMasterPrompt = (agentId: string) =>
   del(`/agents/${agentId}/prompts/master`)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function usePromptVersions(agentId: string, enabled = true) {
   return useQuery({

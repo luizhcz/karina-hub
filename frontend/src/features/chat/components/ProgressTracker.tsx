@@ -12,7 +12,6 @@ export function ProgressTracker({ steps }: { steps: StepMsg[] }) {
           const isActive = !step.done && isLast
           return (
             <div key={step.stepId} className="flex items-start gap-2.5">
-              {/* Status circle + connector line */}
               <div className="flex flex-col items-center">
                 <span
                   className={cn(
@@ -29,7 +28,6 @@ export function ProgressTracker({ steps }: { steps: StepMsg[] }) {
                 )}
               </div>
 
-              {/* Label */}
               <span
                 className={cn(
                   'text-[11px] leading-tight',

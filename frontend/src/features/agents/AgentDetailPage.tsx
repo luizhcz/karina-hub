@@ -107,7 +107,6 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <Link to="/agents">
           <Button variant="ghost" size="sm">
@@ -122,10 +121,9 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
         </div>
       </div>
 
-      {/* Tabs */}
       <Tabs items={tabItems} active={activeTab} onChange={setActiveTab} />
 
-      {/* Tab panels — all rendered, hidden with CSS to preserve state */}
+      {/* Todos os panels são renderizados e escondidos via CSS — preserva estado ao trocar de tab */}
       <div style={{ display: activeTab === 'config' ? 'block' : 'none' }}>
         <AgentForm
           initialValues={agent}

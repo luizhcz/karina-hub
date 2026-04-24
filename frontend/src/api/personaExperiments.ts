@@ -1,10 +1,9 @@
 import { del, get, post } from './client'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 /**
- * F6 — experiment A/B de templates. Scope é o mesmo string de template
+ * Experiment A/B de templates. Scope é o mesmo string de template
  * (project:{pid}:*, agent:{aid}:*, global:*). Variants apontam pra
  * VersionIds (UUID) em persona_prompt_template_versions — snapshots
  * imutáveis.
@@ -48,7 +47,6 @@ export interface PersonaPromptExperimentResultsResponse {
   results: ExperimentVariantResult[]
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const PERSONA_EXPERIMENT_KEYS = {
   all: ['persona-experiments'] as const,
@@ -56,7 +54,6 @@ export const PERSONA_EXPERIMENT_KEYS = {
   results: (id: number) => ['persona-experiments', id, 'results'] as const,
 }
 
-// ── Raw API ──────────────────────────────────────────────────────────────────
 
 export const getPersonaExperiments = () =>
   get<PersonaPromptExperiment[]>('/admin/persona-experiments')
@@ -78,7 +75,6 @@ export const endPersonaExperiment = (id: number) =>
 export const deletePersonaExperiment = (id: number) =>
   del(`/admin/persona-experiments/${id}`)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function usePersonaExperiments() {
   return useQuery({

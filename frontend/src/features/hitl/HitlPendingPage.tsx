@@ -17,7 +17,6 @@ import {
 } from '../../api/interactions'
 import { useUserStore } from '../../stores/user'
 
-// ── Resolve Modal ─────────────────────────────────────────────────────────────
 
 interface ResolveModalProps {
   interaction: HumanInteraction | null
@@ -135,7 +134,6 @@ function ResolveModal({ interaction, onClose, onResolved }: ResolveModalProps) {
   )
 }
 
-// ── Interaction Card ──────────────────────────────────────────────────────────
 
 interface InteractionCardProps {
   interaction: HumanInteraction
@@ -147,7 +145,6 @@ function InteractionCard({ interaction, onResolve, onCancel }: InteractionCardPr
   return (
     <Card className="border-yellow-500/20 hover:border-yellow-500/40 transition-colors">
       <div className="flex flex-col gap-3">
-        {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
@@ -172,13 +169,11 @@ function InteractionCard({ interaction, onResolve, onCancel }: InteractionCardPr
           </span>
         </div>
 
-        {/* Prompt */}
         <div className="bg-bg-tertiary rounded-lg p-3">
           <p className="text-xs text-text-muted mb-1">Prompt</p>
           <p className="text-sm text-text-primary leading-relaxed">{interaction.prompt}</p>
         </div>
 
-        {/* Context */}
         {interaction.context && (
           <div className="bg-bg-tertiary rounded-lg p-3">
             <p className="text-xs text-text-muted mb-1">Contexto</p>
@@ -186,7 +181,6 @@ function InteractionCard({ interaction, onResolve, onCancel }: InteractionCardPr
           </div>
         )}
 
-        {/* Actions */}
         <div className="flex gap-2 pt-1">
           <Button variant="primary" size="sm" onClick={() => onResolve(interaction)}>
             Resolver
@@ -205,7 +199,6 @@ function InteractionCard({ interaction, onResolve, onCancel }: InteractionCardPr
   )
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
 
 export function HitlPendingPage() {
   const { data: interactions, isLoading, error, refetch } = usePendingInteractions()
@@ -247,7 +240,6 @@ export function HitlPendingPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold text-text-primary">Interações Pendentes</h1>
@@ -262,7 +254,6 @@ export function HitlPendingPage() {
         </Button>
       </div>
 
-      {/* Empty state */}
       {pendingCount === 0 && (
         <EmptyState
           title="Nenhuma interação pendente"
@@ -270,7 +261,6 @@ export function HitlPendingPage() {
         />
       )}
 
-      {/* Interaction cards */}
       {pendingCount > 0 && (
         <div className="flex flex-col gap-4">
           {interactions!.map((interaction) => (
@@ -284,14 +274,12 @@ export function HitlPendingPage() {
         </div>
       )}
 
-      {/* Resolve modal */}
       <ResolveModal
         interaction={resolveTarget}
         onClose={() => setResolveTarget(null)}
         onResolved={() => refetch()}
       />
 
-      {/* Cancel confirm */}
       <ConfirmDialog
         open={!!cancelTarget}
         onClose={() => setCancelTarget(null)}

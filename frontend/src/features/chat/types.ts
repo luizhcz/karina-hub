@@ -1,4 +1,3 @@
-// ── Tipos de mensagens locais (in-flight) ─────────────────────────────────────
 
 export type LocalMsg =
   | { kind: 'optimistic-user'; id: string; text: string }

@@ -25,7 +25,6 @@ export function AgentVersionsPage() {
   const [selectedA, setSelectedA] = useState<string | null>(null)
   const [selectedB, setSelectedB] = useState<string | null>(null)
 
-  // Fetch selected version snapshots for diff
   const { data: versionA } = useAgentVersion(id!, selectedA ?? '', !!id && !!selectedA)
   const { data: versionB } = useAgentVersion(id!, selectedB ?? '', !!id && !!selectedB)
 
@@ -49,7 +48,6 @@ export function AgentVersionsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <Link to="/agents">
           <Button variant="ghost" size="sm">
@@ -66,7 +64,6 @@ export function AgentVersionsPage() {
         </div>
       </div>
 
-      {/* Timeline */}
       <Card title="Historico de Versoes" padding={false}>
         <div className="divide-y divide-border-primary">
           {sorted.length === 0 && (
@@ -78,7 +75,6 @@ export function AgentVersionsPage() {
               className="flex items-center justify-between px-5 py-4 hover:bg-bg-tertiary/50 transition-colors"
             >
               <div className="flex items-center gap-4">
-                {/* Timeline dot */}
                 <div className="flex flex-col items-center">
                   <div className={`w-3 h-3 rounded-full border-2 ${
                     idx === 0 ? 'bg-accent-blue border-accent-blue' : 'bg-bg-tertiary border-border-secondary'
@@ -123,7 +119,6 @@ export function AgentVersionsPage() {
         </div>
       </Card>
 
-      {/* Diff Viewer */}
       {selectedA && selectedB && versionA && versionB && (
         <Card title={`Diff: ${selectedA} vs ${selectedB}`}>
           <DiffViewer
@@ -136,7 +131,6 @@ export function AgentVersionsPage() {
         </Card>
       )}
 
-      {/* Rollback confirmation */}
       <ConfirmDialog
         open={!!rollbackTarget}
         onClose={() => setRollbackTarget(null)}

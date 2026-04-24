@@ -35,7 +35,6 @@ export function ToolCallCard({ item }: { item: ToolCallMsg }) {
   return (
     <div className="flex justify-start">
       <div className="max-w-[80%] rounded-lg bg-bg-tertiary border border-border-primary overflow-hidden text-xs">
-        {/* Header */}
         <button
           onClick={() => hasBody && setExpanded(!expanded)}
           className={cn(
@@ -63,7 +62,6 @@ export function ToolCallCard({ item }: { item: ToolCallMsg }) {
           )}
         </button>
 
-        {/* Collapsible body */}
         <div
           className={cn(
             'grid transition-[grid-template-rows] duration-200',
@@ -92,7 +90,6 @@ export function ToolCallCard({ item }: { item: ToolCallMsg }) {
           </div>
         </div>
 
-        {/* Timestamp footer */}
         {item.done && item.endedAt && (
           <div className="px-3 pb-1.5 text-right">
             <span className="text-[10px] text-text-dimmed">

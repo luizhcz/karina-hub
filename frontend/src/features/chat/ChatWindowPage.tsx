@@ -34,8 +34,6 @@ import { useSmartScroll } from './hooks/useSmartScroll'
 import { useAgUiSharedState } from './hooks/useAgUiSharedState'
 import { useAgUiEventTimeline } from './hooks/useAgUiEventTimeline'
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 function tryParseJson(raw: string): Record<string, unknown> {
   try { return JSON.parse(raw) } catch { return {} }
 }
@@ -43,7 +41,6 @@ function tryParseJson(raw: string): Record<string, unknown> {
 type StepMsg = Extract<LocalMsg, { kind: 'step' }>
 type GroupedItem = (LocalMsg | { kind: 'step-group'; steps: StepMsg[] })
 
-/** Groups consecutive step messages into step-group entries */
 function groupLocalMsgs(msgs: LocalMsg[]): GroupedItem[] {
   const result: GroupedItem[] = []
   let stepBuffer: StepMsg[] = []
@@ -69,8 +66,6 @@ function groupLocalMsgs(msgs: LocalMsg[]): GroupedItem[] {
   flushSteps()
   return result
 }
-
-// ── Main Component ────────────────────────────────────────────────────────────
 
 export function ChatWindowPage() {
   const { id } = useParams<{ id: string }>()
@@ -254,7 +249,7 @@ export function ChatWindowPage() {
             } else if (evt.type === 'STEP_STARTED') {
               const stepId = evt.stepId ?? `step_${Date.now()}`
               const stepName = evt.stepName ?? stepId
-              // Detect agent name from step name (e.g. "agent: MyAgent" or ends with "Agent")
+              // Extrai nome do agente do step (ex: "agent: MyAgent" ou termina em "Agent")
               const agentMatch = stepName.match(/^agent[:\s]+(.+)$/i)
               if (agentMatch) {
                 setActiveAgent(agentMatch[1].trim())
@@ -433,9 +428,9 @@ export function ChatWindowPage() {
       // injeta identity headers automaticamente via getIdentityHeaders().
       await post<void>('/chat/ag-ui/resolve-hitl', { toolCallId, response })
     } catch (err) {
-      // 404 = CAS perdido no HumanInteractionService.ResolveAsync (C7 do sprint anterior):
-      // outro caller/pod já resolveu OU a execução expirou. A UI já está otimista,
-      // então marca uma nota visível informando que o estado pode estar dessincronizado.
+      // 404 = CAS perdido no HumanInteractionService.ResolveAsync: outro caller/pod
+      // já resolveu OU a execução expirou. A UI já está otimista, então marca uma
+      // nota visível informando que o estado pode estar dessincronizado.
       if (err instanceof ApiError && err.status === 404) {
         setLocalMsgs(prev =>
           prev.map(m =>
@@ -485,9 +480,7 @@ export function ChatWindowPage() {
 
   return (
     <div className="flex h-[calc(100vh-8rem)] gap-4">
-      {/* Chat area */}
       <div className="w-1/2 flex flex-col bg-bg-secondary border border-border-primary rounded-xl overflow-hidden relative">
-        {/* Messages */}
         <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
           {isEmpty && (
             <div className="flex-1 flex items-center justify-center">
@@ -495,7 +488,6 @@ export function ChatWindowPage() {
             </div>
           )}
 
-          {/* Mensagens persistidas no banco */}
           {persistedMsgs.map((msg) => {
             const time = new Date(msg.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
             const text = typeof msg.message === 'string' ? msg.message : JSON.stringify(msg.message ?? '')
@@ -504,7 +496,6 @@ export function ChatWindowPage() {
             return <AssistantBubble key={msg.messageId} text={text} time={time} />
           })}
 
-          {/* Agent indicator */}
           {activeAgent && isSending && <AgentIndicator agentName={activeAgent} />}
 
           {/* Mensagens locais (in-flight) — agrupadas para progress tracker */}
@@ -535,7 +526,6 @@ export function ChatWindowPage() {
             return null
           })}
 
-          {/* Typing indicator — visível enquanto aguarda resposta de texto */}
           {isSending && !localMsgs.some(m => m.kind === 'streaming' || m.kind === 'error') && (
             <TypingBubble />
           )}
@@ -543,10 +533,8 @@ export function ChatWindowPage() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Scroll-to-bottom FAB */}
         <ScrollToBottomFab visible={!isAtBottom} unreadCount={unreadCount} onClick={scrollToBottom} />
 
-        {/* Input area */}
         <div className="border-t border-border-primary p-3 flex gap-2 items-center">
           <textarea
             value={input}
@@ -595,9 +583,7 @@ export function ChatWindowPage() {
         </div>
       </div>
 
-      {/* Painel de informações */}
       <aside className="w-1/2 flex flex-col min-h-0">
-        {/* Área scrollável: info + botões + estado dos agentes */}
         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4">
           <div className="bg-bg-secondary border border-border-primary rounded-xl p-4 flex flex-col gap-3">
             <h2 className="text-sm font-semibold text-text-primary">Informações</h2>
@@ -661,7 +647,6 @@ export function ChatWindowPage() {
             </Button>
           </div>
 
-          {/* Shared state panel — sidebar */}
           {agentState && Object.keys(agentState).length > 0 && (
             <SharedStatePanel
               agentState={agentState}
@@ -672,7 +657,7 @@ export function ChatWindowPage() {
           )}
         </div>
 
-        {/* Event timeline — fixo na parte inferior, sempre visível */}
+        {/* Timeline de eventos fixa no bottom — sempre visível para debug da sessão */}
         <div className="shrink-0 mt-4 max-h-[40%] overflow-y-auto">
           <EventTimelinePanel events={events} isStreaming={isSending} onClear={clearEvents} />
         </div>

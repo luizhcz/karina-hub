@@ -170,7 +170,6 @@ export function ModelCatalogPage() {
         <Button onClick={() => { setAdding(true); setEditing(null) }}>+ Adicionar</Button>
       </div>
 
-      {/* Filters */}
       <div className="flex items-center gap-4 flex-wrap">
         <input
           type="text"
@@ -201,12 +200,10 @@ export function ModelCatalogPage() {
         </span>
       </div>
 
-      {/* Add form */}
       {adding && (
         <ModelForm saving={upsert.isPending} onSave={handleSave} onCancel={() => setAdding(false)} />
       )}
 
-      {/* Table */}
       <Card padding={false}>
         <div className="flex flex-col divide-y divide-border-primary">
           {paged.length === 0 && (
@@ -262,7 +259,6 @@ export function ModelCatalogPage() {
           ))}
         </div>
 
-        {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-border-primary">
             <span className="text-xs text-text-muted">

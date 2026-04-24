@@ -125,7 +125,6 @@ export function WorkflowCreatePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <Link to="/workflows">
           <Button variant="ghost" size="sm">
@@ -140,10 +139,8 @@ export function WorkflowCreatePage() {
         </div>
       </div>
 
-      {/* Form */}
       <WorkflowForm onSubmit={handleSubmit} loading={createMutation.isPending} />
 
-      {/* Error */}
       {createMutation.error && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-400">
           Erro ao criar workflow: {(createMutation.error as Error).message}

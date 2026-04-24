@@ -14,9 +14,8 @@ import {
   type HumanInteraction,
 } from '../../api/interactions'
 
-// Note: the API exposes pending interactions and per-execution interactions.
-// We show all interactions from the pending endpoint for history purposes
-// since the API doesn't have a dedicated history endpoint.
+// API só expõe pending e por-execução. Não há endpoint dedicado de histórico,
+// então a listagem aqui reusa o pending (filtrando no cliente).
 
 const STATUS_OPTIONS = [
   { label: 'Todos', value: '' },
@@ -139,7 +138,6 @@ export function HitlHistoryPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-text-primary">Histórico de Interações</h1>
         <p className="text-sm text-text-muted mt-1">
@@ -147,7 +145,6 @@ export function HitlHistoryPage() {
         </p>
       </div>
 
-      {/* Filters */}
       <Card title="Filtros">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Select
@@ -177,7 +174,6 @@ export function HitlHistoryPage() {
         </div>
       </Card>
 
-      {/* Table */}
       <DataTable
         data={filtered}
         columns={columns}

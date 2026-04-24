@@ -1,4 +1,3 @@
-// ── Agent form constants ─────────────────────────────────────────────────────
 
 export const RESPONSE_FORMAT_OPTIONS: { value: string; label: string }[] = [
   { value: 'text', label: 'Text' },

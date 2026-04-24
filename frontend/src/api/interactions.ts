@@ -1,7 +1,6 @@
 import { get, post, ApiError } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface HumanInteraction {
   interactionId: string
@@ -27,7 +26,6 @@ export interface ResolveInteractionRequest {
   approved: boolean
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   pending: ['interactions', 'pending'] as const,
@@ -35,7 +33,6 @@ export const KEYS = {
   byExecution: (executionId: string) => ['interactions', 'execution', executionId] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const getPendingInteractions = () => get<HumanInteraction[]>('/interactions/pending')
 export const getInteraction = (id: string) => get<HumanInteraction>(`/interactions/${id}`)
@@ -44,7 +41,6 @@ export const resolveInteraction = (id: string, body: ResolveInteractionRequest) 
 export const getInteractionsByExecution = (executionId: string) =>
   get<HumanInteraction[]>(`/interactions/by-execution/${executionId}`)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function usePendingInteractions() {
   return useQuery({ queryKey: KEYS.pending, queryFn: getPendingInteractions })
@@ -64,8 +60,8 @@ export function useInteractionsByExecution(executionId: string, enabled = true) 
 
 /**
  * Discrimina o motivo de uma falha em `resolveInteraction`. Backend retorna 404
- * quando o CAS a nível de banco perdeu (outro pod/caller já resolveu — ver
- * C7 do sprint anterior) OU quando o ID não existe. UX trata iguais: "já foi resolvido".
+ * quando o CAS a nível de banco perdeu (outro pod/caller já resolveu) OU quando
+ * o ID não existe. UX trata iguais: "já foi resolvido".
  */
 export function isHitlAlreadyResolvedError(err: unknown): err is ApiError {
   return err instanceof ApiError && err.status === 404

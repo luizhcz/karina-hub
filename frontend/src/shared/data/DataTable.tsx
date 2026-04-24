@@ -39,7 +39,6 @@ export function DataTable<T>({ data, columns, searchPlaceholder = 'Buscar...', p
 
   return (
     <div className={cn('flex flex-col gap-3', className)}>
-      {/* Search */}
       <input
         value={globalFilter}
         onChange={(e) => setGlobalFilter(e.target.value)}
@@ -47,7 +46,6 @@ export function DataTable<T>({ data, columns, searchPlaceholder = 'Buscar...', p
         className="bg-bg-tertiary border border-border-secondary rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-dimmed focus:outline-none focus:border-accent-blue max-w-xs"
       />
 
-      {/* Table */}
       <div className="overflow-auto rounded-xl border border-border-primary">
         <table className="w-full text-sm">
           <thead>
@@ -92,7 +90,6 @@ export function DataTable<T>({ data, columns, searchPlaceholder = 'Buscar...', p
         </table>
       </div>
 
-      {/* Pagination */}
       {table.getPageCount() > 1 && (
         <div className="flex items-center justify-between text-xs text-text-muted">
           <span>

@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { cn } from '../../../shared/utils/cn'
 import type { FunctionToolInfo, CodeExecutorInfo } from '../../../api/tools'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 interface ToolGroup {
   key: string
@@ -23,7 +22,6 @@ interface ToolPickerProps {
   onChange: (selected: string[]) => void
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
 
 export function ToolPicker({ functionTools, codeExecutors, selected, onChange }: ToolPickerProps) {
   const [search, setSearch] = useState('')
@@ -98,7 +96,6 @@ export function ToolPicker({ functionTools, codeExecutors, selected, onChange }:
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Search + summary */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1">
           <svg
@@ -123,7 +120,6 @@ export function ToolPicker({ functionTools, codeExecutors, selected, onChange }:
         </span>
       </div>
 
-      {/* Groups */}
       <div className="flex flex-col gap-2 max-h-80 overflow-y-auto pr-1">
         {filteredGroups.map((group) => {
           const isCollapsed = collapsed[group.key] ?? false
@@ -132,7 +128,6 @@ export function ToolPicker({ functionTools, codeExecutors, selected, onChange }:
 
           return (
             <div key={group.key} className="border border-border-secondary rounded-lg overflow-hidden">
-              {/* Group header */}
               <button
                 type="button"
                 onClick={() => toggleCollapse(group.key)}
@@ -172,7 +167,6 @@ export function ToolPicker({ functionTools, codeExecutors, selected, onChange }:
                 </button>
               </button>
 
-              {/* Group items */}
               {!isCollapsed && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-border-secondary/30">
                   {group.items.map((item) => {

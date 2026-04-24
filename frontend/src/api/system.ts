@@ -1,7 +1,6 @@
 import { get } from './client'
 import { useQuery } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface CircuitBreakerState {
   providerKey: string
@@ -27,14 +26,12 @@ export interface QueuesResponse {
   queues: QueueStatus[]
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   circuitBreakers: ['system', 'circuit-breakers'] as const,
   queues: ['system', 'queues'] as const,
 }
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useCircuitBreakers() {
   return useQuery({

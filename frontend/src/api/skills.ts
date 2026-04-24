@@ -1,7 +1,6 @@
 import { get, put, del } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface Skill {
   id: string
@@ -27,7 +26,6 @@ export interface SkillVersion {
   description?: string
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   all: ['skills'] as const,
@@ -35,7 +33,6 @@ export const KEYS = {
   versions: (id: string) => ['skills', id, 'versions'] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 // Backend retorna paginado `{ items, total, page, pageSize }` — extrai items para
 // manter a interface de array que os callers esperam (SkillsListPage, AgentForm skill picker).
@@ -55,7 +52,6 @@ export const updateSkill = (id: string, body: UpdateSkillRequest) => put<Skill>(
 export const deleteSkill = (id: string) => del(`/skills/${id}`)
 export const getSkillVersions = (id: string) => get<SkillVersion[]>(`/skills/${id}/versions`)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useSkills() {
   return useQuery({ queryKey: KEYS.all, queryFn: getSkills })

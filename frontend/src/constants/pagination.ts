@@ -1,4 +1,3 @@
-// ── Pagination constants ─────────────────────────────────────────────────────
 
 export const PAGE_SIZES = {
   small: 10,

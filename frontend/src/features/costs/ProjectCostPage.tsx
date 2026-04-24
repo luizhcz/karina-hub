@@ -45,7 +45,7 @@ export function ProjectCostPage() {
   if (isLoading) return <PageLoader />
   if (error) return <ErrorCard message="Erro ao carregar custos por projeto" onRetry={refetch} />
 
-  // Aggregate per projectId (one row per projectId+modelId from API)
+  // API devolve uma linha por (projectId, modelId) — agregamos por projectId
   const byProject = rows.reduce<Record<string, ProjectRow>>((acc, r) => {
     const cost = estimateCost(r.totalInput, r.totalOutput, r.modelId, priceList)
     if (!acc[r.projectId]) {

@@ -1,7 +1,6 @@
 import { get, del } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface WorkflowExecution {
   executionId: string
@@ -70,7 +69,6 @@ export interface ExecutionListParams {
   pageSize?: number
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   all: ['executions'] as const,
@@ -82,7 +80,6 @@ export const KEYS = {
   full: (id: string) => ['executions', id, 'full'] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const getExecutions = (params?: ExecutionListParams) =>
   get<ExecutionPage>('/executions', params as Record<string, string | number | undefined>)
@@ -94,7 +91,6 @@ export const getExecutionTools = (id: string) => get<ToolInvocation[]>(`/executi
 export const getExecutionEvents = (id: string) => get<ExecutionEventRecord[]>(`/executions/${id}/events`)
 export const getExecutionFull = (id: string) => get<ExecutionFull>(`/executions/${id}/full`)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useExecutions(params?: ExecutionListParams) {
   return useQuery({

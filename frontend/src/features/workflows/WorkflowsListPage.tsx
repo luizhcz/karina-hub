@@ -17,7 +17,6 @@ import {
 import type { WorkflowDef } from '../../api/workflows'
 import { ApiError } from '../../api/client'
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function modeVariant(mode: string): 'blue' | 'purple' | 'yellow' {
   if (mode === 'AgentOrchestration') return 'blue'
@@ -39,7 +38,6 @@ function triggerVariant(type?: string): 'green' | 'blue' | 'purple' | 'gray' {
   return 'gray'
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
 
 export function WorkflowsListPage() {
   const navigate = useNavigate()
@@ -223,7 +221,6 @@ export function WorkflowsListPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Workflows</h1>
@@ -236,7 +233,6 @@ export function WorkflowsListPage() {
         </Button>
       </div>
 
-      {/* Table */}
       <DataTable
         data={workflows ?? []}
         columns={columns}
@@ -244,7 +240,6 @@ export function WorkflowsListPage() {
         onRowClick={(row) => navigate(`/workflows/${row.id}`)}
       />
 
-      {/* Delete confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}

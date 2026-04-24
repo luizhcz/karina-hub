@@ -1,7 +1,6 @@
 import { get, post, put, del } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface WorkflowEdge {
   from?: string
@@ -123,7 +122,6 @@ export interface WorkflowVersion {
   description?: string
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   all: ['workflows'] as const,
@@ -135,7 +133,6 @@ export const KEYS = {
   version: (id: string, vid: string) => ['workflows', id, 'versions', vid] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const getWorkflows = () => get<WorkflowDef[]>('/workflows')
 export const getWorkflow = (id: string) => get<WorkflowDef>(`/workflows/${id}`)
@@ -166,7 +163,6 @@ export const setWorkflowTrigger = (workflow: WorkflowDef, trigger: WorkflowTrigg
   return put<WorkflowDef>(`/workflows/${workflow.id}`, body)
 }
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useWorkflows() {
   return useQuery({ queryKey: KEYS.all, queryFn: getWorkflows })

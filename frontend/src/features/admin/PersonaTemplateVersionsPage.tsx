@@ -14,7 +14,7 @@ import {
 import type { PersonaPromptTemplateVersion } from '../../api/personaTemplates'
 
 /**
- * F5 — histórico append-only de versions de um template + rollback.
+ * Histórico append-only de versions de um template + rollback.
  * Replica pattern de AgentVersionsPage. Rollback cria nova version com
  * conteúdo da alvo (não pula ponteiro).
  */
@@ -47,7 +47,6 @@ export function PersonaTemplateVersionsPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <Link to={`/admin/persona-templates/${template.id}`}>
           <Button variant="ghost" size="sm">
@@ -65,7 +64,6 @@ export function PersonaTemplateVersionsPage() {
         </div>
       </div>
 
-      {/* Timeline */}
       <Card title={`Histórico (${versions.length} versões)`} padding={false}>
         <div className="divide-y divide-border-primary">
           {versions.length === 0 && (
@@ -79,7 +77,6 @@ export function PersonaTemplateVersionsPage() {
                 className="flex items-center justify-between px-5 py-4 hover:bg-bg-tertiary/50 transition-colors"
               >
                 <div className="flex items-center gap-4">
-                  {/* Timeline dot */}
                   <div className="flex flex-col items-center">
                     <div
                       className={`w-3 h-3 rounded-full border-2 ${
@@ -130,7 +127,6 @@ export function PersonaTemplateVersionsPage() {
         </div>
       </Card>
 
-      {/* Diff Viewer */}
       {versionA && versionB && (
         <Card title={`Diff: ${versionA.versionId.slice(0, 8)}… vs ${versionB.versionId.slice(0, 8)}…`}>
           <DiffViewer
@@ -143,7 +139,6 @@ export function PersonaTemplateVersionsPage() {
         </Card>
       )}
 
-      {/* Rollback confirmation */}
       <ConfirmDialog
         open={!!rollbackTarget}
         onClose={() => setRollbackTarget(null)}

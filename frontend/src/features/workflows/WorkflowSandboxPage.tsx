@@ -18,8 +18,6 @@ const PDF_WORKFLOW_IDS = new Set<string>([
   'classificacao-fato-relevante',
 ])
 
-// ── Status Badge ─────────────────────────────────────────────────────────────
-
 const STATUS_MAP: Record<WorkflowExecution['status'], { label: string; variant: 'gray' | 'blue' | 'green' | 'red' | 'yellow' }> = {
   Pending:   { label: 'Aguardando',  variant: 'gray' },
   Running:   { label: 'Executando…', variant: 'blue' },
@@ -34,8 +32,6 @@ function StatusBadge({ status }: { status: WorkflowExecution['status'] }) {
   return <Badge variant={variant}>{label}</Badge>
 }
 
-// ── Output Block ──────────────────────────────────────────────────────────────
-
 function OutputBlock({ raw }: { raw: string }) {
   let content = raw
   try { content = JSON.stringify(JSON.parse(raw), null, 2) } catch { /* use raw */ }
@@ -45,8 +41,6 @@ function OutputBlock({ raw }: { raw: string }) {
     </pre>
   )
 }
-
-// ── Main Component ────────────────────────────────────────────────────────────
 
 export function WorkflowSandboxPage() {
   const { id } = useParams<{ id: string }>()
@@ -63,7 +57,7 @@ export function WorkflowSandboxPage() {
   const isPdfWorkflow = !!id && PDF_WORKFLOW_IDS.has(id)
   const isSubmitting = sandboxMutation.isPending
 
-  // Poll execution until terminal state
+  // Polling até estado terminal
   const { data: execution } = useQuery({
     queryKey: EXECUTION_KEYS.detail(executionId ?? ''),
     queryFn: () => getExecution(executionId!),
@@ -141,8 +135,6 @@ export function WorkflowSandboxPage() {
 
   if (isLoading) return <PageLoader />
 
-  // ── Chat Mode → Redirect ──────────────────────────────────────────────────
-
   if (isChatMode) {
     return (
       <div className="flex flex-col h-[calc(100vh-8rem)]">
@@ -177,11 +169,8 @@ export function WorkflowSandboxPage() {
     )
   }
 
-  // ── Standalone Sandbox ────────────────────────────────────────────────────
-
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-center gap-3 flex-wrap">
         <Link to={`/workflows/${id}`}>
           <Button variant="ghost" size="sm">← Editar</Button>
@@ -205,7 +194,7 @@ export function WorkflowSandboxPage() {
         )}
       </div>
 
-      {/* Input — file picker para workflows com document_intelligence; textarea caso contrário */}
+      {/* Input: file picker para document_intelligence, textarea para os demais */}
       <div className="flex flex-col gap-3 bg-bg-secondary border border-border-primary rounded-xl p-4">
         {isPdfWorkflow ? (
           <>
@@ -281,7 +270,6 @@ export function WorkflowSandboxPage() {
         </div>
       </div>
 
-      {/* Result */}
       {executionId && (
         <div className="flex flex-col gap-3 bg-bg-secondary border border-border-primary rounded-xl p-4">
           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -321,7 +309,6 @@ export function WorkflowSandboxPage() {
         </div>
       )}
 
-      {/* Mutation error */}
       {sandboxMutation.isError && (
         <div className="px-4 py-3 rounded-lg text-sm bg-red-500/10 border border-red-500/30 text-red-400">
           Erro ao iniciar execução: {(sandboxMutation.error as Error).message}

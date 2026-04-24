@@ -1,7 +1,6 @@
 import { get } from './client'
 import { useQuery } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 /**
  * Entrada da trilha /api/admin/audit-log — espelha AdminAuditEntry do backend.
@@ -41,18 +40,15 @@ export interface AdminAuditParams {
   pageSize?: number
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   audit: (params?: AdminAuditParams) => ['admin', 'audit-log', params] as const,
 }
 
-// ── Raw API ──────────────────────────────────────────────────────────────────
 
 export const getAdminAudit = (params?: AdminAuditParams) =>
   get<AdminAuditPage>('/admin/audit-log', params as Record<string, string | number | undefined>)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useAdminAudit(params?: AdminAuditParams) {
   return useQuery({

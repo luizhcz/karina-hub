@@ -25,7 +25,6 @@ export function WorkflowVersionsPage() {
   const [selectedA, setSelectedA] = useState<string | null>(null)
   const [selectedB, setSelectedB] = useState<string | null>(null)
 
-  // Fetch selected version snapshots for diff
   const { data: versionA } = useWorkflowVersion(id!, selectedA ?? '', !!id && !!selectedA)
   const { data: versionB } = useWorkflowVersion(id!, selectedB ?? '', !!id && !!selectedB)
 
@@ -55,7 +54,6 @@ export function WorkflowVersionsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-center gap-3 flex-wrap">
         <Link to={`/workflows/${id}`}>
           <Button variant="ghost" size="sm">
@@ -82,14 +80,12 @@ export function WorkflowVersionsPage() {
         )}
       </div>
 
-      {/* Diff help banner */}
       {selectedA && !selectedB && (
         <div className="bg-accent-blue/10 border border-accent-blue/30 rounded-lg px-4 py-2 text-sm text-accent-blue">
           Versao <strong>{selectedA}</strong> selecionada. Escolha outra versao para comparar.
         </div>
       )}
 
-      {/* Timeline */}
       <Card title={`Historico de Versoes (${sorted.length})`} padding={false}>
         <div className="divide-y divide-border-primary">
           {sorted.length === 0 && (
@@ -111,7 +107,6 @@ export function WorkflowVersionsPage() {
                 `}
               >
                 <div className="flex items-center gap-4">
-                  {/* Timeline dot */}
                   <div className="flex flex-col items-center self-stretch justify-center">
                     <div
                       className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${
@@ -124,7 +119,6 @@ export function WorkflowVersionsPage() {
                     />
                   </div>
 
-                  {/* Version info */}
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-mono font-medium text-text-primary">
@@ -169,7 +163,6 @@ export function WorkflowVersionsPage() {
         </div>
       </Card>
 
-      {/* Diff Viewer */}
       {selectedA && selectedB && versionA && versionB && (
         <Card title={`Diff: ${selectedA} vs ${selectedB}`}>
           <DiffViewer
@@ -188,7 +181,6 @@ export function WorkflowVersionsPage() {
         </div>
       )}
 
-      {/* Rollback confirmation */}
       <ConfirmDialog
         open={!!rollbackTarget}
         onClose={() => setRollbackTarget(null)}

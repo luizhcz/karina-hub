@@ -8,7 +8,7 @@
  *
  * Este módulo centraliza:
  *  - parsing de frames SSE (separados por \n\n, com `id:` e `data:`)
- *  - backoff exponencial com jitter (paridade com C4 backend — ResiliencePolicy.JitterRatio)
+ *  - backoff exponencial com jitter (paridade com backend — ResiliencePolicy.JitterRatio)
  *  - loop de reconnect limitado por tentativas max
  */
 
@@ -19,7 +19,7 @@ export interface SseFrame {
   data: string
 }
 
-/** Política de reconexão. Defaults alinhados com o backend C4 (ResiliencePolicy). */
+/** Política de reconexão. Defaults alinhados com o backend (ResiliencePolicy). */
 export interface ReconnectPolicy {
   /** Máximo de tentativas de reconexão após a queda. Default: 5. */
   maxAttempts?: number
@@ -43,7 +43,7 @@ export const DEFAULT_RECONNECT_POLICY: Required<ReconnectPolicy> = {
 
 /**
  * Calcula o delay da tentativa `attempt` (0-indexed) aplicando backoff exponencial + jitter.
- * Respeita o teto `capDelayMs`. Equivalente ao ApplyJitter do RetryingChatClient (C4).
+ * Respeita o teto `capDelayMs`. Equivalente ao ApplyJitter do RetryingChatClient.
  */
 export function computeBackoffDelay(attempt: number, policy?: ReconnectPolicy): number {
   const p = { ...DEFAULT_RECONNECT_POLICY, ...policy }

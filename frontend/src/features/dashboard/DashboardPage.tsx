@@ -43,15 +43,12 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-text-primary">Dashboard</h1>
         <TimeRangeSelector value={range} onChange={setRange} />
       </div>
 
-      {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Row 1 */}
         <Card title="Executions">
           <ExecutionStats data={summary.data} isLoading={summary.isLoading} />
         </Card>
@@ -65,7 +62,6 @@ export function DashboardPage() {
           <TokensCard data={tokens.data} isLoading={tokens.isLoading} />
         </Card>
 
-        {/* Row 2 */}
         <Card title="Execution Timeseries" className="md:col-span-2">
           {timeseries.isLoading ? (
             <div className="flex items-center justify-center h-[300px]">
@@ -94,7 +90,6 @@ export function DashboardPage() {
           <WorkflowsCard data={workflows.data} isLoading={workflows.isLoading} />
         </Card>
 
-        {/* Row 3 */}
         <Card title="HITL">
           <HitlPendingBadge data={pending.data} isLoading={pending.isLoading} />
         </Card>
@@ -104,7 +99,6 @@ export function DashboardPage() {
         <QueueDepthCard />
         <CircuitBreakerStatus />
 
-        {/* Row 4 */}
         <Card title="Recent Errors" className="md:col-span-2">
           <RecentErrors data={errors.data} isLoading={errors.isLoading} />
         </Card>

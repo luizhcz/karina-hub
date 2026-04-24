@@ -151,7 +151,6 @@ export function PromptsPanel({ agentId, currentInstructions }: PromptsPanelProps
     )
   }
 
-  // ── Compare Mode ──────────────────────────────────────────────────────────
   if (mode === 'compare') {
     return (
       <div className="flex flex-col gap-4">
@@ -196,10 +195,8 @@ export function PromptsPanel({ agentId, currentInstructions }: PromptsPanelProps
     )
   }
 
-  // ── Editor Mode ───────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col gap-4">
-      {/* Compare button appears when 2 versions are checked */}
       {checked.size === 2 && (
         <div className="flex items-center gap-3 px-4 py-2.5 bg-accent-blue/10 border border-accent-blue/30 rounded-lg">
           <span className="text-sm text-accent-blue flex-1">
@@ -210,7 +207,6 @@ export function PromptsPanel({ agentId, currentInstructions }: PromptsPanelProps
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Versions list */}
         <Card title="Versoes" padding={false} className="lg:col-span-1">
           <div className="divide-y divide-border-primary max-h-[500px] overflow-y-auto">
             {allEntries.length === 0 && (
@@ -226,7 +222,6 @@ export function PromptsPanel({ agentId, currentInstructions }: PromptsPanelProps
                   }`}
                   onClick={() => handleSelectVersion(version)}
                 >
-                  {/* Checkbox for comparison selection */}
                   <input
                     type="checkbox"
                     checked={checked.has(version.versionId)}
@@ -290,7 +285,6 @@ export function PromptsPanel({ agentId, currentInstructions }: PromptsPanelProps
           </div>
         </Card>
 
-        {/* Editor */}
         <Card title="Editor" className="lg:col-span-2">
           <div className="flex flex-col gap-4">
             <div className="flex gap-3 items-end">
@@ -333,7 +327,6 @@ export function PromptsPanel({ agentId, currentInstructions }: PromptsPanelProps
         </Card>
       </div>
 
-      {/* Activate confirmation */}
       <ConfirmDialog
         open={!!activateTarget}
         onClose={() => setActivateTarget(null)}
@@ -351,7 +344,6 @@ export function PromptsPanel({ agentId, currentInstructions }: PromptsPanelProps
         loading={setMasterMutation.isPending}
       />
 
-      {/* Delete confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
@@ -370,7 +362,6 @@ export function PromptsPanel({ agentId, currentInstructions }: PromptsPanelProps
         loading={deleteMutation.isPending}
       />
 
-      {/* Restore original confirmation */}
       <ConfirmDialog
         open={showRestoreOriginal}
         onClose={() => setShowRestoreOriginal(false)}

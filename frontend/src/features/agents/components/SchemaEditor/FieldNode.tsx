@@ -67,12 +67,10 @@ export function FieldNode({ fieldKey, prop, required, depth, path, onUpdate, onD
   return (
     <div className="mb-1">
       <div className="border border-border-tertiary rounded-lg bg-bg-primary overflow-hidden transition-colors">
-        {/* Field row */}
         <div
           onClick={() => isComplex && setOpen(!open)}
           className={`group flex items-center gap-2 px-3 py-2 select-none ${isComplex ? 'cursor-pointer' : ''}`}
         >
-          {/* Chevron */}
           {isComplex ? (
             <svg
               width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"
@@ -84,34 +82,28 @@ export function FieldNode({ fieldKey, prop, required, depth, path, onUpdate, onD
             <div className="w-4 flex-shrink-0" />
           )}
 
-          {/* Required dot */}
           <span
             className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
               required ? 'bg-red-400' : 'border border-border-secondary'
             }`}
           />
 
-          {/* Field name */}
           <span className="font-mono text-sm font-medium text-text-primary">{fieldKey}</span>
 
-          {/* Type pills */}
           {types.map((t) => (
             <Badge key={t} variant={TYPE_VARIANT[t] || 'gray'}>{t}</Badge>
           ))}
 
-          {/* Nullable tag */}
           {nullable && (
             <span className="text-[10px] text-text-muted border border-border-tertiary px-1.5 py-0.5 rounded font-mono">
               nullable
             </span>
           )}
 
-          {/* Description */}
           {desc && (
             <span className="text-xs text-text-dimmed flex-1 truncate min-w-0">{desc}</span>
           )}
 
-          {/* Action buttons */}
           <div
             className="flex gap-0.5 ml-auto flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
             onClick={(e) => e.stopPropagation()}
@@ -151,7 +143,6 @@ export function FieldNode({ fieldKey, prop, required, depth, path, onUpdate, onD
           </div>
         </div>
 
-        {/* Children (expanded) */}
         {open && childProps && (
           <div className="pl-8 pr-3 pb-2 pt-0.5 border-t border-border-tertiary">
             {resolved.type === 'array' && (
@@ -174,7 +165,6 @@ export function FieldNode({ fieldKey, prop, required, depth, path, onUpdate, onD
         )}
       </div>
 
-      {/* Edit modal (below the field) */}
       {editing && (
         <EditFieldModal
           field={{ key: fieldKey, types, description: desc, nullable, required }}

@@ -1,7 +1,6 @@
 import { get, post, del } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface ModelCatalog {
   id: string
@@ -25,14 +24,12 @@ export interface UpsertModelCatalogRequest {
   isActive?: boolean
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const MODEL_CATALOG_KEYS = {
   all: (provider?: string) => ['model-catalog', provider ?? 'all'] as const,
   detail: (id: string, provider: string) => ['model-catalog', provider, id] as const,
 }
 
-// ── Raw API Functions ─────────────────────────────────────────────────────────
 
 // Backend retorna paginado `{ items, total, page, pageSize }` — extrai items para
 // manter a interface de array usada por ModelCatalogPage.
@@ -55,7 +52,6 @@ export const upsertModelCatalog = (body: UpsertModelCatalogRequest) =>
 export const deactivateModel = (provider: string, id: string) =>
   del(`/model-catalog/${provider}/${id}`)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useModelCatalog(provider?: string, activeOnly = true) {
   return useQuery({

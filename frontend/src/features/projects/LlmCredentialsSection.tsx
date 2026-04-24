@@ -68,7 +68,6 @@ export function LlmCredentialsSection({ existing, onChange }: Props) {
   return (
     <Card title="Configuração LLM">
       <div className="flex flex-col gap-4">
-        {/* Defaults */}
         <div className="flex gap-3">
           <div className="flex flex-col gap-1 flex-1">
             <label className="text-xs text-text-muted">Provider padrão</label>
@@ -96,7 +95,6 @@ export function LlmCredentialsSection({ existing, onChange }: Props) {
           </div>
         </div>
 
-        {/* Credentials per provider (collapsible) */}
         <button
           type="button"
           onClick={() => setOpen(!open)}

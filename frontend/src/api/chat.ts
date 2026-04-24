@@ -1,7 +1,6 @@
 import { get, post, del } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export type UserType = 'cliente' | 'admin'
 
@@ -39,7 +38,6 @@ export interface ConversationFull {
   messages: ChatMsg[]
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   all: ['conversations'] as const,
@@ -49,7 +47,6 @@ export const KEYS = {
   userConversations: (userId: string) => ['conversations', 'user', userId] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const createConversation = (body?: { workflowId?: string; metadata?: Record<string, string> }) =>
   post<ConversationSession>('/conversations', body)
@@ -74,7 +71,6 @@ export const getUserConversations = (userId: string) =>
 export const getConversationFull = (id: string) =>
   get<ConversationFull>(`/conversations/${id}/full`)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useConversation(id: string, enabled = true) {
   return useQuery({

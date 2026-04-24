@@ -20,8 +20,6 @@ import { PageLoader } from '../../shared/ui/LoadingSpinner'
 import { ErrorCard } from '../../shared/ui/ErrorCard'
 import { useWorkflow } from '../../api/workflows'
 
-// ── Layout Dagre (DAG) ────────────────────────────────────────────────────────
-
 const NODE_W = 180
 const NODE_H = 72
 const PILL_W = 80
@@ -49,8 +47,6 @@ function applyDagreLayout(nodes: Node[], edges: Edge[], rankdir: 'LR' | 'TB' = '
   })
 }
 
-// ── Layout circular (Handoff / mesh) ─────────────────────────────────────────
-
 /**
  * Retorna o sourceHandle e targetHandle corretos dado o ângulo (em rad)
  * da aresta source → target no plano cartesiano (y cresce para baixo).
@@ -75,7 +71,7 @@ function applyCircularLayout(
 ): { laidOut: Node[]; posMap: Record<string, { x: number; y: number }> } {
   const n = spokeNodes.length
   const radius = Math.max(220, n * 80)
-  const cx = NODE_W + 120 + radius   // garante que o nó mais à esquerda não colide com Start
+  const cx = NODE_W + 120 + radius // garante que o nó mais à esquerda não colide com Start
   const cy = radius + 20
 
   const posMap: Record<string, { x: number; y: number }> = {}
@@ -139,8 +135,6 @@ function applyGroupChatLayout(
   return { laidOut, posMap }
 }
 
-// ── Cores por tipo ────────────────────────────────────────────────────────────
-
 const TYPE_COLORS: Record<string, string> = {
   agent:        '#3b82f6',
   orchestrator: '#8b5cf6',
@@ -153,8 +147,6 @@ const TYPE_COLORS: Record<string, string> = {
 function typeColor(type: string) {
   return TYPE_COLORS[type?.toLowerCase()] ?? '#6b7280'
 }
-
-// ── Custom nodes ──────────────────────────────────────────────────────────────
 
 interface NodeData {
   label: string
@@ -265,8 +257,6 @@ const nodeTypes = {
   endNode:      EndNode,
 }
 
-// ── Edge label colors ─────────────────────────────────────────────────────────
-
 const EDGE_TYPE_COLOR: Record<string, string> = {
   Direct:      '#6b7280',
   Conditional: '#f59e0b',
@@ -274,8 +264,6 @@ const EDGE_TYPE_COLOR: Record<string, string> = {
   FanOut:      '#06b6d4',
   FanIn:       '#10b981',
 }
-
-// ── Page ──────────────────────────────────────────────────────────────────────
 
 export function WorkflowDiagramPage() {
   const { id } = useParams<{ id: string }>()
@@ -289,7 +277,6 @@ export function WorkflowDiagramPage() {
     const wfEdges   = workflow.edges ?? []
     const isHandoff = workflow.orchestrationMode === 'Handoff'
 
-    // Nós: agentes + executors (tipos vêm de api/workflows.ts — sem cast)
     const agentNodes: Node[] = [
       ...agents.map((a) => ({
         id: a.agentId,
@@ -310,7 +297,7 @@ export function WorkflowDiagramPage() {
       ...executors.map((ex) => ex.id),
     ])
 
-    // Arestas brutas (inclui Switch → cases)
+    // Arestas brutas — expande Switch em N cases para facilitar o render
     const rawEdges: Edge[] = []
     wfEdges.forEach((e, idx) => {
       const color = EDGE_TYPE_COLOR[e.edgeType] ?? '#6b7280'
@@ -349,7 +336,6 @@ export function WorkflowDiagramPage() {
       }
     })
 
-    // Detecta entry / terminal
     const allTargets = new Set(rawEdges.map((e) => e.target))
     const allSources = new Set(rawEdges.map((e) => e.source))
     const outputNodes: string[] = workflow.configuration?.outputNodes ?? []
@@ -365,7 +351,7 @@ export function WorkflowDiagramPage() {
 
     const showEnd = effectiveTerminalIds.length > 0
 
-    // ── HANDOFF: layout circular ──────────────────────────────────────────────
+    // HANDOFF: layout circular
     if (isHandoff) {
       const startNode: Node = { id: '__start__', type: 'startNode', position: { x: 0, y: 0 }, data: {} }
       const hubId  = effectiveEntryIds[0]
@@ -374,7 +360,7 @@ export function WorkflowDiagramPage() {
 
       const { laidOut, posMap } = applyCircularLayout(startNode, hubN, spokes)
 
-      // Arestas com handles direcionais baseados no ângulo
+      // Handles direcionais dependem do ângulo source → target no layout circular
       const handoffEdges: Edge[] = rawEdges.map((e) => {
         const src = posMap[e.source]
         const tgt = posMap[e.target]
@@ -397,7 +383,7 @@ export function WorkflowDiagramPage() {
       return { nodes: laidOut, edges: [startEdge, ...handoffEdges] }
     }
 
-    // ── GROUPCHAT: Manager central, participantes abaixo, bidirecional ─────────
+    // GroupChat: Manager central, participantes abaixo, bidirecional
     if (workflow.orchestrationMode === 'GroupChat') {
       const managerN = agentNodes.find((n) => String(n.data.role).toLowerCase() === 'manager') ?? agentNodes[0]
       const participants = agentNodes.filter((n) => n.id !== managerN.id)
@@ -409,7 +395,6 @@ export function WorkflowDiagramPage() {
         true,
       )
 
-      // Start → Manager
       const gcEdges: Edge[] = [
         {
           id: 'start-to-manager',
@@ -419,7 +404,6 @@ export function WorkflowDiagramPage() {
           style: { stroke: '#10b981' },
           markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981' },
         },
-        // Manager → End (direita)
         {
           id: 'manager-to-end',
           source: managerN.id,
@@ -428,7 +412,6 @@ export function WorkflowDiagramPage() {
           style: { stroke: '#ef4444' },
           markerEnd: { type: MarkerType.ArrowClosed, color: '#ef4444' },
         },
-        // Manager ↔ cada participante
         ...participants.flatMap((p) => {
           return [
             {
@@ -456,11 +439,11 @@ export function WorkflowDiagramPage() {
       return { nodes: laidOut, edges: gcEdges }
     }
 
-    // ── SEQUENTIAL: layout TB com edges implícitas ────────────────────────────
+    // Sequential: layout TB com edges implícitas se workflow não as definir
     const isSequential = workflow.orchestrationMode === 'Sequential'
     if (isSequential) {
       const orderedIds = agentNodes.map((n) => n.id)
-      // Se não há edges explícitas, cria sequência implícita
+      // Sem edges explícitas → gera sequência implícita a partir da ordem dos agentes
       const seqEdges: Edge[] = rawEdges.length > 0 ? rawEdges : orderedIds.slice(0, -1).map((id, i) => ({
         id: `seq-${i}`,
         source: id,
@@ -487,7 +470,7 @@ export function WorkflowDiagramPage() {
       return { nodes: applyDagreLayout(seqNodes, seqAllEdges, 'TB'), edges: seqAllEdges }
     }
 
-    // ── OUTROS MODOS: layout Dagre LR ─────────────────────────────────────────
+    // Demais modos: layout Dagre LR
     const allNodes: Node[] = [
       { id: '__start__', type: 'startNode', position: { x: 0, y: 0 }, data: {} },
       ...agentNodes,
@@ -523,7 +506,6 @@ export function WorkflowDiagramPage() {
 
   return (
     <div className="flex flex-col gap-4" style={{ height: 'calc(100vh - 8rem)' }}>
-      {/* Header */}
       <div className="flex items-center gap-3 flex-wrap flex-none">
         <Link to={`/workflows/${id}`}>
           <Button variant="ghost" size="sm">← Editar</Button>
@@ -546,7 +528,6 @@ export function WorkflowDiagramPage() {
         </Button>
       </div>
 
-      {/* Legend */}
       <div className="flex items-center gap-4 flex-wrap flex-none">
         {Object.entries(TYPE_COLORS).map(([type, color]) => (
           <div key={type} className="flex items-center gap-1.5">
@@ -564,7 +545,6 @@ export function WorkflowDiagramPage() {
         </div>
       </div>
 
-      {/* Canvas */}
       <div className="flex-1 bg-bg-secondary border border-border-primary rounded-xl overflow-hidden min-h-0">
         {isEmpty ? (
           <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -596,7 +576,6 @@ export function WorkflowDiagramPage() {
         )}
       </div>
 
-      {/* Stats */}
       <div className="flex items-center gap-6 text-xs text-text-muted flex-none">
         <span>{workflow?.agents?.length ?? 0} agentes</span>
         <span>{workflow?.edges?.length ?? 0} conexões</span>

@@ -1,7 +1,6 @@
 import { get } from './client'
 import { useQuery } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface ConversationSession {
   conversationId: string
@@ -34,18 +33,15 @@ export interface AdminConversationParams {
   pageSize?: number
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   conversations: (params?: AdminConversationParams) => ['admin', 'conversations', params] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const getAdminConversations = (params?: AdminConversationParams) =>
   get<ConversationPage>('/admin/conversations', params as Record<string, string | number | undefined>)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useAdminConversations(params?: AdminConversationParams) {
   return useQuery({

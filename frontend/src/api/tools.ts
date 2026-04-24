@@ -1,7 +1,6 @@
 import { get } from './client'
 import { useQuery } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface FunctionToolInfo {
   name: string
@@ -48,17 +47,14 @@ export interface AvailableFunctions {
   availableProviders: LlmProviderInfo[]
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   functions: ['functions'] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const getFunctions = () => get<AvailableFunctions>('/functions')
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useFunctions() {
   return useQuery({ queryKey: KEYS.functions, queryFn: getFunctions })

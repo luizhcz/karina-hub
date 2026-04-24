@@ -1,7 +1,6 @@
 import { get, post, put, del } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-// ── Types ────────────────────────────────────────────────────────────────────
 
 export interface AgentToolDef {
   type: string
@@ -110,7 +109,6 @@ export interface CompareResult {
   differences: { field: string; before: unknown; after: unknown }[]
 }
 
-// ── Query Keys ───────────────────────────────────────────────────────────────
 
 export const KEYS = {
   all: ['agents'] as const,
@@ -119,7 +117,6 @@ export const KEYS = {
   version: (id: string, vid: string) => ['agents', id, 'versions', vid] as const,
 }
 
-// ── Raw API Functions ────────────────────────────────────────────────────────
 
 export const getAgents = () => get<AgentDef[]>('/agents')
 export const getAgent = (id: string) => get<AgentDef>(`/agents/${id}`)
@@ -134,7 +131,6 @@ export const sandboxAgent = (id: string, body: { input: string }) => post<Sandbo
 export const compareAgent = (id: string, body: { versionA: string; versionB: string }) =>
   post<CompareResult>(`/agents/${id}/compare`, body)
 
-// ── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useAgents() {
   return useQuery({ queryKey: KEYS.all, queryFn: getAgents })
