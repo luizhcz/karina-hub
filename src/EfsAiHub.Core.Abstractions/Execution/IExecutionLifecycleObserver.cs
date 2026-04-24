@@ -1,7 +1,7 @@
 namespace EfsAiHub.Core.Abstractions.Execution;
 
 /// <summary>
-/// Phase 11 — Observer scoped por execução. Quebra o acoplamento direto
+/// Observer scoped por execução. Quebra o acoplamento direto
 /// ExecutionFailureWriter → ConversationService: o writer publica eventos
 /// terminais para todos os observers registrados (multi-bind via DI), cada
 /// observer decide se reage com base nos identificadores.

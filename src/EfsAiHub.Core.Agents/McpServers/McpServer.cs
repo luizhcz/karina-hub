@@ -11,7 +11,7 @@ namespace EfsAiHub.Core.Agents.McpServers;
 ///
 /// Secrets em <see cref="Headers"/> (ex: <c>Authorization</c>) ficam plaintext na
 /// coluna <c>Data</c> JSONB — mesmo tratamento de <c>projects.llm_config.ApiKey</c> hoje.
-/// Encriptação via Data Protection é backlog (BC-SEC-1).
+/// Encriptação via Data Protection está no backlog.
 /// </summary>
 public sealed class McpServer
 {

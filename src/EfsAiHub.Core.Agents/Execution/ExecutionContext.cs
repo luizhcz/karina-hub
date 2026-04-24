@@ -21,17 +21,17 @@ public sealed record ExecutionContext(
     ExecutionBudget Budget,
     string? UserId = null,
     AccountGuardMode GuardMode = AccountGuardMode.None,
-    // Fase 1 — rastreia qual snapshot de agente está rodando.
+    // Rastreia qual snapshot de agente está rodando.
     // Preenchido pelo AgentFactory quando resolve AgentVersion; null em execuções legadas.
     ConcurrentDictionary<string, string>? AgentVersions = null,
-    // Fase 3 — seam para RAG (Fase 4): documentos recuperados a serem injetados no prompt.
+    // Seam para RAG: documentos recuperados a serem injetados no prompt.
     // Null até um IKnowledgeRetriever ser registrado. Middleware de augmentation consumirá daqui.
     IReadOnlyList<RetrievedDocument>? RetrievedDocuments = null,
-    // Fase 7 — bag de sinais de escalação emitidos por agentes via EscalationSignalFunction.
+    // Bag de sinais de escalação emitidos por agentes via EscalationSignalFunction.
     // O IEscalationRouter consome este bag para decidir o próximo nó com base nas RoutingRules do workflow.
     ConcurrentQueue<AgentEscalationSignal>? EscalationSignals = null,
-    // Sprint 5 — modo de execução (Production/Sandbox).
-    // Cada camada checa este campo para ajustar comportamento (C6: sem filter centralizado).
+    // Modo de execução (Production/Sandbox).
+    // Cada camada checa este campo para ajustar comportamento (sem filter centralizado).
     ExecutionMode Mode = ExecutionMode.Production,
     // Shared state — delegate para tools atualizarem o AG-UI shared state (agent drafts).
     // Setado pelo WorkflowRunnerService quando a execução é de Chat. Null para execuções não-chat.
@@ -48,11 +48,11 @@ public sealed record ExecutionContext(
     // Null = sem personalização (fluxo anterior à feature). AgentFactory/SystemMessageBuilder
     // lidam com null e caem no prompt base invariante.
     UserPersona? Persona = null,
-    // F4 — ProjectId do caller. Propagado pro TokenTrackingChatClient gravar
+    // ProjectId do caller. Propagado pro TokenTrackingChatClient gravar
     // em llm_token_usage + usado pelo PersonaPromptComposer pra montar scope
-    // project-aware. Null preserva compat com execuções pré-F4.
+    // project-aware. Null preserva compat com execuções legadas.
     string? ProjectId = null,
-    // F6 — assignments de experiment A/B por agentId. Composer resolve o
+    // Assignments de experiment A/B por agentId. Composer resolve o
     // experiment ativo pro (projectId, scope) do agent + faz bucketing
     // determinístico por userId, e grava aqui. TokenTrackingChatClient lê
     // pra persistir ExperimentId + Variant em llm_token_usage. Null quando
@@ -87,7 +87,7 @@ public sealed class ExecutionBudget
 
     public int MaxTokensPerExecution { get; }
 
-    /// <summary>Fase 2 — teto de custo em USD para a execução. null/≤0 = sem enforcement.</summary>
+    /// <summary>Teto de custo em USD para a execução. null/≤0 = sem enforcement.</summary>
     public decimal? MaxCostUsd { get; }
 
     public long TotalTokens => Interlocked.Read(ref _totalTokens);

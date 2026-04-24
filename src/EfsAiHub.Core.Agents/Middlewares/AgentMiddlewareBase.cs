@@ -4,11 +4,11 @@ using Microsoft.Extensions.Logging;
 namespace EfsAiHub.Core.Agents.Middlewares;
 
 /// <summary>
-/// Abstract base class that simplifies writing LLM middleware for agents.
-/// Wraps <see cref="DelegatingChatClient"/> and exposes two async hooks so
-/// junior developers do not need to know the underlying pipeline plumbing.
+/// Classe base abstrata que simplifica escrever middleware LLM para agentes.
+/// Envolve <see cref="DelegatingChatClient"/> e expõe dois hooks assíncronos para que
+/// desenvolvedores juniores não precisem conhecer o encanamento interno do pipeline.
 ///
-/// Usage — override only what you need:
+/// Uso — sobrescreva apenas o que precisar:
 /// <code>
 /// public class MyLoggingMiddleware : AgentMiddlewareBase
 /// {
@@ -31,7 +31,7 @@ namespace EfsAiHub.Core.Agents.Middlewares;
 ///     }
 /// }
 /// </code>
-/// Register the middleware via <c>IAgentMiddlewareRegistry.Register</c>:
+/// Registre o middleware via <c>IAgentMiddlewareRegistry.Register</c>:
 /// <code>
 /// registry.Register("MyLogging", (inner, agentId, settings, logger) =>
 ///     new MyLoggingMiddleware(inner, agentId, settings, logger));
@@ -40,27 +40,27 @@ namespace EfsAiHub.Core.Agents.Middlewares;
 public abstract class AgentMiddlewareBase : DelegatingChatClient
 {
     /// <summary>
-    /// The identifier of the agent this middleware instance is attached to.
+    /// Identificador do agente ao qual esta instância de middleware está associada.
     /// </summary>
     protected string AgentId { get; }
 
     /// <summary>
-    /// Read-only view of the settings configured for this middleware in the AgentDefinition.
+    /// View read-only das settings configuradas para este middleware na AgentDefinition.
     /// </summary>
     protected IReadOnlyDictionary<string, string> Settings { get; }
 
     /// <summary>
-    /// Logger scoped to the concrete middleware type.
+    /// Logger com escopo no tipo concreto do middleware.
     /// </summary>
     protected ILogger Logger { get; }
 
     /// <summary>
-    /// Initializes the middleware base with all required dependencies.
+    /// Inicializa a base do middleware com todas as dependências necessárias.
     /// </summary>
-    /// <param name="inner">The next <see cref="IChatClient"/> in the pipeline.</param>
-    /// <param name="agentId">The agent identifier.</param>
-    /// <param name="settings">Settings from the AgentDefinition middleware configuration.</param>
-    /// <param name="logger">Logger instance provided by the runtime.</param>
+    /// <param name="inner">O próximo <see cref="IChatClient"/> no pipeline.</param>
+    /// <param name="agentId">Identificador do agente.</param>
+    /// <param name="settings">Settings do bloco de middleware na AgentDefinition.</param>
+    /// <param name="logger">Instância de logger fornecida pelo runtime.</param>
     protected AgentMiddlewareBase(
         IChatClient inner,
         string agentId,
@@ -74,14 +74,14 @@ public abstract class AgentMiddlewareBase : DelegatingChatClient
     }
 
     /// <summary>
-    /// Called before the request is forwarded to the inner client.
-    /// Override to inspect or mutate the message list (e.g. inject context, filter PII).
-    /// Default implementation returns <paramref name="messages"/> unchanged.
+    /// Chamado antes do request ser encaminhado ao client interno.
+    /// Sobrescreva para inspecionar ou mutar a lista de mensagens (ex.: injetar contexto, filtrar PII).
+    /// Implementação default retorna <paramref name="messages"/> sem alteração.
     /// </summary>
-    /// <param name="messages">The messages about to be sent to the LLM.</param>
-    /// <param name="options">Chat options for this request.</param>
+    /// <param name="messages">As mensagens prestes a serem enviadas ao LLM.</param>
+    /// <param name="options">Opções de chat para este request.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>The (potentially modified) message sequence to forward.</returns>
+    /// <returns>A sequência (potencialmente modificada) de mensagens a encaminhar.</returns>
     protected virtual Task<IEnumerable<ChatMessage>> OnBeforeRequestAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options,
@@ -89,21 +89,21 @@ public abstract class AgentMiddlewareBase : DelegatingChatClient
         => Task.FromResult(messages);
 
     /// <summary>
-    /// Called after the response is received from the inner client.
-    /// Override to inspect or mutate the response (e.g. redact sensitive data, re-rank).
-    /// Default implementation returns <paramref name="response"/> unchanged.
+    /// Chamado depois da resposta ser recebida do client interno.
+    /// Sobrescreva para inspecionar ou mutar a resposta (ex.: redigir dados sensíveis, re-ranquear).
+    /// Implementação default retorna <paramref name="response"/> sem alteração.
     /// </summary>
-    /// <param name="response">The response returned by the LLM.</param>
+    /// <param name="response">A resposta retornada pelo LLM.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>The (potentially modified) response.</returns>
+    /// <returns>A resposta (potencialmente modificada).</returns>
     protected virtual Task<ChatResponse> OnAfterResponseAsync(
         ChatResponse response,
         CancellationToken ct)
         => Task.FromResult(response);
 
     /// <summary>
-    /// Orchestrates the middleware pipeline: before-hook → inner client → after-hook.
-    /// Can be further overridden when the hook pattern is insufficient.
+    /// Orquestra o pipeline do middleware: before-hook → client interno → after-hook.
+    /// Pode ser sobrescrito quando o padrão de hooks não for suficiente.
     /// </summary>
     public override async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,

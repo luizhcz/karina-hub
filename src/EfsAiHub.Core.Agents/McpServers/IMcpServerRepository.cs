@@ -3,7 +3,7 @@ namespace EfsAiHub.Core.Agents.McpServers;
 /// <summary>
 /// Repositório de MCP servers. Project-scoped: queries aplicam HasQueryFilter via
 /// IProjectContextAccessor. Não mantém histórico de versões (append-only) —
-/// auditoria de mudanças vive em <c>aihub.admin_audit_log</c> (PR 8).
+/// auditoria de mudanças vive em <c>aihub.admin_audit_log</c>.
 /// </summary>
 public interface IMcpServerRepository
 {

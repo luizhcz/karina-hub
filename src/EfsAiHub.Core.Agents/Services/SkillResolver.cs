@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace EfsAiHub.Core.Agents.Services;
 
 /// <summary>
-/// Fase 3 — resolve <see cref="SkillRef"/>s em snapshots concretos de <see cref="Skill"/>.
+/// Resolve <see cref="SkillRef"/>s em snapshots concretos de <see cref="Skill"/>.
 /// Serve como cache in-memory sobre (<see cref="ISkillRepository"/>, <see cref="ISkillVersionRepository"/>),
 /// usado pelo AgentFactory no hot-path de construção de agentes.
 ///
@@ -68,7 +68,7 @@ public sealed class SkillResolver : ISkillResolver
 }
 
 /// <summary>
-/// Fase 3 — helpers para fundir um conjunto de skills resolvidas em um <see cref="AgentDefinition"/>
+/// Helpers para fundir um conjunto de skills resolvidas em um <see cref="AgentDefinition"/>
 /// efetivo, concatenando <see cref="Skill.InstructionsAddendum"/> ao prompt e agregando tools.
 /// </summary>
 public static class SkillMerger

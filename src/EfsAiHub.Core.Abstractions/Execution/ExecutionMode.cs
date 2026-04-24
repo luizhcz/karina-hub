@@ -3,7 +3,7 @@ namespace EfsAiHub.Core.Abstractions.Execution;
 /// <summary>
 /// Modo de execução de um workflow/agente.
 /// Propagado via ExecutionContext (AsyncLocal) para que cada camada
-/// ajuste seu comportamento sem um filter centralizado (correção C6).
+/// ajuste seu comportamento sem um filter centralizado.
 /// </summary>
 public enum ExecutionMode
 {

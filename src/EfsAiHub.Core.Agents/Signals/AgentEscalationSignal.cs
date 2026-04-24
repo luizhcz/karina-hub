@@ -1,7 +1,7 @@
 namespace EfsAiHub.Core.Agents.Signals;
 
 /// <summary>
-/// Fase 7 — Sinal emitido por um agente quando precisa escalar/delegar.
+/// Sinal emitido por um agente quando precisa escalar/delegar.
 /// O agente NÃO conhece peers; apenas descreve categoria e tags desejadas.
 /// O <c>IEscalationRouter</c> decide o nó de destino a partir das
 /// <c>RoutingRules</c> do workflow.

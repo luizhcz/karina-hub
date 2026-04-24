@@ -5,14 +5,14 @@ using System.Text.Json.Serialization;
 namespace EfsAiHub.Core.Abstractions.Persistence;
 
 /// <summary>
-/// Centralized JSON serialization options used by all persistence backends.
-/// Avoids duplicated JsonSerializerOptions instances across repositories.
+/// Opções centralizadas de serialização JSON usadas por todos os backends de persistência.
+/// Evita instâncias duplicadas de JsonSerializerOptions entre repositórios.
 /// </summary>
 public static class JsonDefaults
 {
     /// <summary>
-    /// Options for serializing/deserializing domain entities stored as JSON.
-    /// Includes JsonStringEnumConverter and preserves property casing.
+    /// Opções para serializar/deserializar entidades de domínio armazenadas como JSON.
+    /// Inclui JsonStringEnumConverter e preserva casing de propriedades.
     ///
     /// Encoder UnsafeRelaxedJsonEscaping: evita escape de caracteres não-ASCII
     /// (ex: "ã" não vira "ã"). Os textos em português permanecem legíveis
@@ -28,7 +28,7 @@ public static class JsonDefaults
     };
 
     /// <summary>
-    /// Options for deserializing external/HTTP input where property casing may vary.
+    /// Opções para deserializar input externo/HTTP onde o casing de propriedades pode variar.
     /// </summary>
     public static readonly JsonSerializerOptions CaseInsensitive = new()
     {

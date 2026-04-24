@@ -1,7 +1,7 @@
 namespace EfsAiHub.Core.Agents.Responses;
 
 /// <summary>
-/// Fase 5 — Execução assíncrona de um agente, com polling (GET) ou callback HMAC.
+/// Execução assíncrona de um agente, com polling (GET) ou callback HMAC.
 /// Reusa a infraestrutura existente (bounded channel + LISTEN/NOTIFY) sem novos brokers.
 /// </summary>
 public enum BackgroundResponseStatus

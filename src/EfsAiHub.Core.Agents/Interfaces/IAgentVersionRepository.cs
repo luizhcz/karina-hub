@@ -1,7 +1,7 @@
 namespace EfsAiHub.Core.Agents;
 
 /// <summary>
-/// Fase 1 — Repositório append-only de snapshots imutáveis de AgentVersion.
+/// Repositório append-only de snapshots imutáveis de AgentVersion.
 /// </summary>
 public interface IAgentVersionRepository
 {

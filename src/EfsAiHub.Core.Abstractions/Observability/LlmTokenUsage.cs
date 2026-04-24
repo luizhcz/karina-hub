@@ -20,8 +20,8 @@ public class LlmTokenUsage
     public int CachedTokens { get; set; }
 
     /// <summary>
-    /// Project que originou a chamada LLM. Nullable pra compat com rows
-    /// pré-F4; writers novos populam via <c>IProjectContextAccessor</c>.
+    /// Project que originou a chamada LLM. Nullable pra compat com rows legadas;
+    /// writers novos populam via <c>IProjectContextAccessor</c>.
     /// Permite analytics cross-project e HasQueryFilter no DbContext.
     /// </summary>
     public string? ProjectId { get; set; }
@@ -33,13 +33,13 @@ public class LlmTokenUsage
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
-    /// F6 — id do experiment A/B ativo quando essa LLM call rodou. Null = não
+    /// Id do experiment A/B ativo quando essa LLM call rodou. Null = não
     /// participou de experiment. Permite agregar métricas por variant.
     /// </summary>
     public int? ExperimentId { get; set; }
 
     /// <summary>
-    /// F6 — variant ('A'/'B') atribuída via bucketing determinístico por userId.
+    /// Variant ('A'/'B') atribuída via bucketing determinístico por userId.
     /// Null quando <see cref="ExperimentId"/> é null.
     /// </summary>
     public char? ExperimentVariant { get; set; }

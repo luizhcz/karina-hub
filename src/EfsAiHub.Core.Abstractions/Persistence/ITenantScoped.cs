@@ -2,7 +2,7 @@ namespace EfsAiHub.Core.Abstractions.Persistence;
 
 /// <summary>
 /// Marca uma entidade como isolada por tenant. Usado pelo DbContext em Infra.Persistence
-/// para aplicar query filter global (Fase 9).
+/// para aplicar query filter global.
 /// </summary>
 public interface ITenantScoped
 {

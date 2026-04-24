@@ -1,7 +1,7 @@
 namespace EfsAiHub.Core.Agents;
 
 /// <summary>
-/// Fase 2 — política de resiliência por agente. Substitui os valores hard-coded
+/// Política de resiliência por agente. Substitui os valores hard-coded
 /// em <see cref="Engine.Factories.RetryingChatClient"/>. Aplicada pelo AgentFactory
 /// ao montar a pipeline de IChatClient do snapshot de <see cref="AgentVersion"/>.
 /// </summary>
@@ -32,7 +32,7 @@ public sealed record ResiliencePolicy(
 }
 
 /// <summary>
-/// Fase 2 — orçamento de custo em USD por execução. Calculado incrementalmente no
+/// Orçamento de custo em USD por execução. Calculado incrementalmente no
 /// TokenTrackingChatClient a partir de <see cref="Domain.Observability.ModelPricing"/>.
 /// Null = sem enforcement de custo (mantém comportamento legado só com tokens).
 /// </summary>

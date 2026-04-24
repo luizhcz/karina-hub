@@ -24,19 +24,19 @@ public class AgentDefinition
     public IReadOnlyList<AgentMiddlewareConfig> Middlewares { get; init; } = [];
 
     /// <summary>
-    /// Item 9 — provider de fallback para circuit breaker. Null = sem failover (throw CircuitOpenException).
-    /// Deve ser de tipo DIFERENTE do Provider.Type para ter efeito (R3).
+    /// Provider de fallback para circuit breaker. Null = sem failover (throw CircuitOpenException).
+    /// Deve ser de tipo DIFERENTE do Provider.Type para ter efeito.
     /// </summary>
     public AgentProviderConfig? FallbackProvider { get; init; }
 
-    /// <summary>Fase 2 — política de retry/backoff por agente. Null = defaults.</summary>
+    /// <summary>Política de retry/backoff por agente. Null = defaults.</summary>
     public ResiliencePolicy? Resilience { get; init; }
 
-    /// <summary>Fase 2 — orçamento de custo em USD por execução. Null = sem enforcement de custo.</summary>
+    /// <summary>Orçamento de custo em USD por execução. Null = sem enforcement de custo.</summary>
     public AgentCostBudget? CostBudget { get; init; }
 
     /// <summary>
-    /// Fase 3 — skills (agrupamentos de tools+addendum+policy) referenciadas pelo agente.
+    /// Skills (agrupamentos de tools+addendum+policy) referenciadas pelo agente.
     /// Resolvidas pelo AgentFactory antes de BuildAgentOptions: tools mescladas às tools flat
     /// existentes e addenda concatenados ao prompt final.
     /// </summary>
@@ -148,12 +148,11 @@ public class AgentToolDefinition
     /// <summary>"code_interpreter" | "file_search" | "function" | "mcp" | "web_search"</summary>
     public required string Type { get; init; }
 
-    // function tool fields
     public string? Name { get; init; }
     public bool RequiresApproval { get; init; } = false;
 
     /// <summary>
-    /// Fase 6 — fingerprint (sha256 canônico de <c>{Name, Description, JsonSchema}</c>)
+    /// Fingerprint (sha256 canônico de <c>{Name, Description, JsonSchema}</c>)
     /// da versão da tool esperada no momento do snapshot do agente. Populado em
     /// <c>PgAgentDefinitionRepository.UpsertAsync</c>. O <c>ChatOptionsBuilder</c>
     /// resolve por este hash (fail-fast quando a tool evoluiu, salvo feature flag
@@ -161,7 +160,6 @@ public class AgentToolDefinition
     /// </summary>
     public string? FingerprintHash { get; init; }
 
-    // mcp tool fields
     /// <summary>
     /// Referência por Id ao registro em <c>aihub.mcp_servers</c>. Quando presente, o provider
     /// LLM resolve <c>ServerLabel</c>, <c>ServerUrl</c>, <c>AllowedTools</c> e <c>Headers</c>
@@ -182,7 +180,7 @@ public class AgentToolDefinition
     /// <summary>Legacy/fallback: headers inline para o MCP server.</summary>
     public Dictionary<string, string> Headers { get; init; } = [];
 
-    // web_search (Bing Grounding) fields — connectionId do Azure AI Foundry
+    /// <summary>Para web_search (Bing Grounding): connectionId do Azure AI Foundry.</summary>
     public string? ConnectionId { get; init; }
 }
 

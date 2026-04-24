@@ -59,8 +59,6 @@ public interface IFunctionToolRegistry
     /// <summary>Mapa <c>name → AIFunction (latest)</c> — API legado.</summary>
     IReadOnlyDictionary<string, AIFunction> GetAll();
 
-    // ── Project-scoped tools ────────────────────────────────────────────────
-
     /// <summary>Registra uma tool com escopo de projeto.</summary>
     void Register(string name, AIFunction function, string projectId);
 

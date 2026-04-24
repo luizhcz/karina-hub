@@ -7,7 +7,7 @@ using EfsAiHub.Core.Abstractions.Persistence;
 namespace EfsAiHub.Core.Agents;
 
 /// <summary>
-/// Fase 1 — Snapshot imutável de um agente num determinado ponto do tempo.
+/// Snapshot imutável de um agente num determinado ponto do tempo.
 /// Captura prompt + model + tools + schema + middlewares em um único blob hashable.
 /// Rollback determinístico = apontar CurrentVersionId de AgentDefinition para uma revision anterior.
 ///
@@ -29,10 +29,10 @@ public sealed record AgentVersion(
     IReadOnlyList<ToolFingerprint> ToolFingerprints,
     IReadOnlyList<AgentMiddlewareSnapshot> MiddlewarePipeline,
     AgentStructuredOutputSnapshot? OutputSchema,
-    // Fase 2 — política de retry e orçamento de custo capturados no snapshot.
+    // Política de retry e orçamento de custo capturados no snapshot.
     ResiliencePolicy? Resilience,
     AgentCostBudget? CostBudget,
-    // Fase 3 — referências a skills materializadas com SkillVersionId explícito para rollback determinístico.
+    // Referências a skills materializadas com SkillVersionId explícito para rollback determinístico.
     IReadOnlyList<SkillRef> SkillRefs,
     string ContentHash)
 {
@@ -132,9 +132,9 @@ public enum AgentVersionStatus
 }
 
 /// <summary>
-/// Identifica uma tool referenciada por um AgentVersion. Para Fase 1, o SignatureHash
-/// é derivado dos campos declarativos do AgentToolDefinition (sem inspeção do AIFunction),
-/// servindo como marcador de rollback. A Fase 6 substituirá por hash canônico do JSONSchema.
+/// Identifica uma tool referenciada por um AgentVersion. Quando a tool ainda não
+/// carrega fingerprint canônico (sha256 do JSONSchema), o SignatureHash é derivado
+/// dos campos declarativos do AgentToolDefinition como fallback.
 /// </summary>
 public sealed record ToolFingerprint(
     string Type,
@@ -145,8 +145,8 @@ public sealed record ToolFingerprint(
 {
     public static ToolFingerprint FromDefinition(AgentToolDefinition tool)
     {
-        // Fase 6 — quando o registry já populou o fingerprint canônico (sha256 do JSONSchema),
-        // prefere-o ao hash declarativo legado da Fase 1.
+        // Quando o registry já populou o fingerprint canônico (sha256 do JSONSchema),
+        // prefere-o ao hash declarativo derivado dos campos.
         if (!string.IsNullOrEmpty(tool.FingerprintHash))
         {
             return new ToolFingerprint(
