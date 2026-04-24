@@ -71,7 +71,7 @@ public sealed record ClientPersona(
         "suitability_description" => SuitabilityDescription ?? "",
         "business_segment" => BusinessSegment ?? "",
         "country" => Country ?? "",
-        "is_offshore" => IsOffshore ? "sim" : "não",
+        "is_offshore" => PersonaBooleanFormat.Format(IsOffshore),
         "user_type" => UserType,
         _ => null,
     };
@@ -113,10 +113,10 @@ public sealed record AdminPersona(
         "partner_type" => PartnerType ?? "",
         "segments" => string.Join(", ", Segments),
         "institutions" => string.Join(", ", Institutions),
-        "is_internal" => IsInternal ? "sim" : "não",
-        "is_wm" => IsWm ? "sim" : "não",
-        "is_master" => IsMaster ? "sim" : "não",
-        "is_broker" => IsBroker ? "sim" : "não",
+        "is_internal" => PersonaBooleanFormat.Format(IsInternal),
+        "is_wm" => PersonaBooleanFormat.Format(IsWm),
+        "is_master" => PersonaBooleanFormat.Format(IsMaster),
+        "is_broker" => PersonaBooleanFormat.Format(IsBroker),
         "user_type" => UserType,
         _ => null,
     };

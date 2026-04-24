@@ -354,3 +354,59 @@ mostrando p99 alto em endpoints admin.
 **Esforço estimado:** 2h.
 
 ---
+
+### I18N-MIGRATE — Migrar demais páginas admin pra `react-i18next`
+
+**Origem:** [ADR 007](adr/007-i18n-strategy.md) — F8 só migrou
+`PersonaExperimentsPage` como proof.
+
+**Contexto:** Páginas `PersonaTemplatesListPage`,
+`PersonaTemplateEditPage`, `PersonaTemplateVersionsPage`,
+`PersonasAdminPage` seguem com strings pt-BR hardcoded. Conforme
+aparecerem usuários não-pt-BR, cada uma vira tarefa de migração:
+(1) extrair strings para `locales/{pt-BR,en-US}/persona.json`;
+(2) injetar `useTranslation('persona')`; (3) reformatar datas via
+`Intl.DateTimeFormat(i18n.language)`.
+
+**Gatilho:** primeiro tenant non-pt-BR em produção, ou feedback de
+cliente demandando UI em inglês.
+
+**Esforço estimado:** 3-4h por página.
+
+---
+
+### I18N-CONTEXT-AWARE — Culture do prompt segue end-user, não operador
+
+**Origem:** [ADR 007](adr/007-i18n-strategy.md) — hoje culture
+resolve via `Accept-Language` do request HTTP.
+
+**Contexto:** Quando admin pt-BR opera em nome de cliente en-US
+(impersonation ou job async), culture do prompt deve seguir o
+end-user, não o operador. Hoje cai no `Accept-Language` do HTTP
+(operador), ou no default `pt-BR` em jobs async.
+
+**Trabalho:** adicionar `ConversationSession.Locale` + custom
+`RequestCultureProvider` que prioriza session.Locale sobre header.
+Propagar via `ExecutionContext` pros flows de worker.
+
+**Gatilho:** primeiro flow com impersonation cross-locale em
+produção.
+
+**Esforço estimado:** 4-6h.
+
+---
+
+### I18N-BACKEND-ERRORS — Localizar mensagens de erro dos endpoints
+
+**Origem:** [ADR 007](adr/007-i18n-strategy.md) — F8 só localizou
+persona template boolean rendering.
+
+**Contexto:** Controllers retornam mensagens em pt-BR hardcoded
+(`BadRequest(new { error = "Scope inválido..." })` etc). UI em
+en-US continua vendo mensagem em pt-BR. Aceitável enquanto UI
+interpreta e traduz via mapping client-side; se virar critério
+compliance, migrar pra `IStringLocalizer` com `.resx`.
+
+**Esforço estimado:** 1-2d.
+
+---

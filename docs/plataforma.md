@@ -1346,3 +1346,34 @@ src/EfsAiHub.Host.Api/Controllers/EnumsController.cs
 | EnumsController | `src/EfsAiHub.Host.Api/Controllers/EnumsController.cs` |
 | InteractionsController | `src/EfsAiHub.Host.Api/Controllers/InteractionsController.cs` |
 | Program.cs | `src/EfsAiHub.Host.Api/Program.cs` |
+
+---
+
+## Localização (F8)
+
+Ver [ADR 007](adr/007-i18n-strategy.md) pra detalhes.
+
+**Stack**: `react-i18next` no front, `CultureInfo.CurrentUICulture` +
+`RequestLocalizationMiddleware` no back. Suportadas: `pt-BR` (default),
+`en-US`.
+
+**Resolução no backend**: `RequestLocalizationMiddleware` no pipeline
+(antes de `TenantMiddleware`) detecta culture via header
+`Accept-Language` ou default. `PersonaBooleanFormat.Format(bool)` no
+renderer lê `CurrentUICulture` pra escolher "sim/não" vs "yes/no".
+
+**Resolução no frontend**: `i18next-browser-languagedetector` (nav
+language / cookie / localStorage), fallback `pt-BR`. Namespace
+`persona` pra migração incremental — páginas não-migradas continuam
+com strings hardcoded.
+
+**Trade-offs aceitos**:
+- Contexto do LLM segue o **end-user** via `Accept-Language` — admin
+  pt-BR operando cliente en-US ainda gera prompt em pt-BR. Corrigir
+  requer `ConversationSession.Locale` + custom provider (backlog
+  `I18N-CONTEXT-AWARE`).
+- Só `PersonaExperimentsPage` 100% migrada no front. Demais em
+  backlog `I18N-MIGRATE`.
+- Mensagens de erro dos endpoints ficam em pt-BR hardcoded — UI
+  faria tradução client-side se necessário. Migração pra
+  `IStringLocalizer` em backlog `I18N-BACKEND-ERRORS`.

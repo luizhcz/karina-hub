@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   useCreatePersonaExperiment,
   useDeletePersonaExperiment,
@@ -21,6 +22,7 @@ import { EmptyState } from '../../shared/ui/EmptyState'
  * (project, scope) — UNIQUE parcial no DB força.
  */
 export function PersonaExperimentsPage() {
+  const { t } = useTranslation('persona')
   const { data, isLoading, error, refetch } = usePersonaExperiments()
   const createMut = useCreatePersonaExperiment()
   const endMut = useEndPersonaExperiment()
@@ -32,7 +34,7 @@ export function PersonaExperimentsPage() {
   const [resultsId, setResultsId] = useState<number | null>(null)
 
   if (isLoading) return <PageLoader />
-  if (error) return <ErrorCard message="Erro ao carregar experiments" onRetry={refetch} />
+  if (error) return <ErrorCard message={t('experiments.errorLoading')} onRetry={refetch} />
 
   const items = data ?? []
   const active = items.filter((e) => e.isActive)
@@ -42,18 +44,16 @@ export function PersonaExperimentsPage() {
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">Experiments A/B</h1>
+          <h1 className="text-2xl font-bold text-text-primary">{t('experiments.title')}</h1>
           <p className="text-sm text-text-muted mt-1">
-            Compara duas versions de um template com bucketing determinístico por{' '}
-            <code className="font-mono">userId</code>. Um experiment ativo por scope
-            (regra do DB).
+            {t('experiments.subtitle', { code: 'userId' })}
           </p>
         </div>
-        <Button onClick={() => setCreating(true)}>Novo experiment</Button>
+        <Button onClick={() => setCreating(true)}>{t('experiments.newButton')}</Button>
       </div>
 
       {active.length > 0 && (
-        <Card title={`Ativos (${active.length})`} padding={false}>
+        <Card title={t('experiments.activeSection', { count: active.length })} padding={false}>
           <ExperimentsTable
             experiments={active}
             onEnd={(id) => setEndingId(id)}
@@ -64,7 +64,7 @@ export function PersonaExperimentsPage() {
       )}
 
       {ended.length > 0 && (
-        <Card title={`Encerrados (${ended.length})`} padding={false}>
+        <Card title={t('experiments.endedSection', { count: ended.length })} padding={false}>
           <ExperimentsTable
             experiments={ended}
             onEnd={() => undefined}
@@ -77,8 +77,8 @@ export function PersonaExperimentsPage() {
       {items.length === 0 && (
         <Card padding={false}>
           <EmptyState
-            title="Nenhum experiment cadastrado"
-            description="Experiments precisam de pelo menos duas versions de um template. Cadastre um template e edite-o pra gerar versions antes de criar um experiment."
+            title={t('experiments.emptyTitle')}
+            description={t('experiments.emptyDescription')}
           />
         </Card>
       )}
@@ -101,9 +101,9 @@ export function PersonaExperimentsPage() {
           if (endingId !== null)
             endMut.mutate(endingId, { onSuccess: () => setEndingId(null) })
         }}
-        title="Encerrar experiment"
-        message="Para o bucketing e libera o scope pra um novo experiment. Operação idempotente. Dados ficam preservados no histórico."
-        confirmLabel="Encerrar"
+        title={t('experiments.endDialog.title')}
+        message={t('experiments.endDialog.message')}
+        confirmLabel={t('experiments.endDialog.confirm')}
         loading={endMut.isPending}
       />
 
@@ -114,9 +114,9 @@ export function PersonaExperimentsPage() {
           if (deletingId !== null)
             deleteMut.mutate(deletingId, { onSuccess: () => setDeletingId(null) })
         }}
-        title="Deletar experiment"
-        message="Remove o registro do experiment. Rows em llm_token_usage com ExperimentId deste experiment ficam órfãs (sem cascade por design — preserva analytics histórico)."
-        confirmLabel="Deletar"
+        title={t('experiments.deleteDialog.title')}
+        message={t('experiments.deleteDialog.message')}
+        confirmLabel={t('experiments.deleteDialog.confirm')}
         variant="danger"
         loading={deleteMut.isPending}
       />
@@ -136,6 +136,8 @@ function ExperimentsTable(props: {
   onShowResults: (id: number) => void
   onDelete: (id: number) => void
 }) {
+  const { t, i18n } = useTranslation('persona')
+  const locale = i18n.language // 'pt-BR' ou 'en-US' pra Intl.DateTimeFormat
   return (
     <div className="divide-y divide-border-primary">
       {props.experiments.map((exp) => (
@@ -144,15 +146,16 @@ function ExperimentsTable(props: {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium text-text-primary">{exp.name}</span>
               <Badge variant={exp.isActive ? 'green' : 'gray'}>
-                {exp.isActive ? 'ativo' : 'encerrado'}
+                {exp.isActive ? t('experiments.statusActive') : t('experiments.statusEnded')}
               </Badge>
               <Badge variant="purple">{exp.scope}</Badge>
             </div>
             <div className="text-xs text-text-muted">
-              Split: <span className="font-mono">A {100 - exp.trafficSplitB}% / B {exp.trafficSplitB}%</span>
-              {' · '}Métrica: <code className="font-mono">{exp.metric}</code>
-              {' · '}Iniciou: {new Date(exp.startedAt).toLocaleString('pt-BR')}
-              {exp.endedAt ? ` · Encerrou: ${new Date(exp.endedAt).toLocaleString('pt-BR')}` : ''}
+              {t('experiments.splitLabel')}{' '}
+              <span className="font-mono">A {100 - exp.trafficSplitB}% / B {exp.trafficSplitB}%</span>
+              {' · '}{t('experiments.metricLabel')}{' '}<code className="font-mono">{exp.metric}</code>
+              {' · '}{t('experiments.startedLabel')}{' '}{new Date(exp.startedAt).toLocaleString(locale)}
+              {exp.endedAt ? ` · ${t('experiments.endedLabel')} ${new Date(exp.endedAt).toLocaleString(locale)}` : ''}
             </div>
             <div className="text-xs text-text-dimmed font-mono">
               A: {exp.variantAVersionId.slice(0, 8)}… · B: {exp.variantBVersionId.slice(0, 8)}…
@@ -160,15 +163,15 @@ function ExperimentsTable(props: {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="secondary" size="sm" onClick={() => props.onShowResults(exp.id)}>
-              Resultados
+              {t('experiments.actions.results')}
             </Button>
             {exp.isActive && (
               <Button variant="secondary" size="sm" onClick={() => props.onEnd(exp.id)}>
-                Encerrar
+                {t('experiments.actions.end')}
               </Button>
             )}
             <Button variant="danger" size="sm" onClick={() => props.onDelete(exp.id)}>
-              Deletar
+              {t('experiments.actions.delete')}
             </Button>
           </div>
         </div>
@@ -192,6 +195,7 @@ function CreateExperimentDialog(props: {
   pending: boolean
   error: string | null
 }) {
+  const { t } = useTranslation('persona')
   const [scope, setScope] = useState('')
   const [name, setName] = useState('')
   const [vA, setVA] = useState('')
@@ -210,26 +214,26 @@ function CreateExperimentDialog(props: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <Card title="Novo experiment" className="w-full max-w-2xl">
+      <Card title={t('experiments.create.title')} className="w-full max-w-2xl">
         <div className="flex flex-col gap-4">
-          <Field label="Scope" hint="Ex: project:p1:cliente ou agent:trading:admin">
+          <Field label={t('experiments.create.fieldScope')} hint={t('experiments.create.fieldScopeHint')}>
             <input
               value={scope}
               onChange={(e) => setScope(e.target.value)}
               className="form-input w-full"
-              placeholder="project:p1:cliente"
+              placeholder={t('experiments.create.fieldScopePlaceholder')}
             />
           </Field>
-          <Field label="Nome">
+          <Field label={t('experiments.create.fieldName')}>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="form-input w-full"
-              placeholder="Ex: novo tom de suitability v2"
+              placeholder={t('experiments.create.fieldNamePlaceholder')}
             />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Variant A (VersionId UUID)">
+            <Field label={t('experiments.create.fieldVariantA')}>
               <input
                 value={vA}
                 onChange={(e) => setVA(e.target.value)}
@@ -237,7 +241,7 @@ function CreateExperimentDialog(props: {
                 placeholder="00000000-0000-0000-0000-000000000000"
               />
             </Field>
-            <Field label="Variant B (VersionId UUID)">
+            <Field label={t('experiments.create.fieldVariantB')}>
               <input
                 value={vB}
                 onChange={(e) => setVB(e.target.value)}
@@ -246,7 +250,7 @@ function CreateExperimentDialog(props: {
               />
             </Field>
           </div>
-          <Field label={`Split B: ${split}% (A recebe ${100 - split}%)`}>
+          <Field label={t('experiments.create.fieldSplit', { split, aShare: 100 - split })}>
             <input
               type="range"
               min={0}
@@ -256,7 +260,7 @@ function CreateExperimentDialog(props: {
               className="w-full"
             />
           </Field>
-          <Field label="Métrica de interesse">
+          <Field label={t('experiments.create.fieldMetric')}>
             <select
               value={metric}
               onChange={(e) => setMetric(e.target.value)}
@@ -272,7 +276,7 @@ function CreateExperimentDialog(props: {
           )}
           <div className="flex items-center justify-end gap-2 pt-2">
             <Button variant="ghost" onClick={props.onClose}>
-              Cancelar
+              {t('experiments.create.cancel')}
             </Button>
             <Button
               onClick={() =>
@@ -287,7 +291,7 @@ function CreateExperimentDialog(props: {
               }
               disabled={!isValid || props.pending}
             >
-              {props.pending ? 'Criando…' : 'Criar'}
+              {props.pending ? t('experiments.create.submitting') : t('experiments.create.submit')}
             </Button>
           </div>
         </div>
@@ -313,35 +317,37 @@ function Field(props: {
 // ── Dialog de resultados ─────────────────────────────────────────────────────
 
 function ResultsDialog(props: { id: number; onClose: () => void }) {
+  const { t, i18n } = useTranslation('persona')
+  const locale = i18n.language
   const { data, isLoading, error } = usePersonaExperimentResults(props.id)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <Card title="Resultados por variant" className="w-full max-w-3xl">
+      <Card title={t('experiments.results.title')} className="w-full max-w-3xl">
         <div className="flex flex-col gap-4">
-          {isLoading && <p className="text-sm text-text-muted">Carregando…</p>}
-          {error && <p className="text-sm text-accent-red">Erro ao carregar.</p>}
+          {isLoading && <p className="text-sm text-text-muted">{t('experiments.results.loading')}</p>}
+          {error && <p className="text-sm text-accent-red">{t('experiments.results.error')}</p>}
           {data && (
             <>
               <div className="text-sm text-text-muted">
-                <strong>{data.experiment.name}</strong> · scope{' '}
+                <strong>{data.experiment.name}</strong> · {t('experiments.results.scopePrefix')}{' '}
                 <code className="font-mono">{data.experiment.scope}</code>
-                {' · '}métrica <code className="font-mono">{data.experiment.metric}</code>
+                {' · '}{t('experiments.results.metricPrefix')}{' '}<code className="font-mono">{data.experiment.metric}</code>
               </div>
               {data.results.length === 0 ? (
                 <p className="text-sm text-text-dimmed italic">
-                  Nenhuma LLM call registrada sob esse experiment ainda.
+                  {t('experiments.results.empty')}
                 </p>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="text-left text-text-muted">
                     <tr>
-                      <th className="py-2">Variant</th>
-                      <th className="py-2 text-right">Calls</th>
-                      <th className="py-2 text-right">Total tokens</th>
-                      <th className="py-2 text-right">Cached</th>
-                      <th className="py-2 text-right">Média tokens</th>
-                      <th className="py-2 text-right">Latência (ms)</th>
+                      <th className="py-2">{t('experiments.results.colVariant')}</th>
+                      <th className="py-2 text-right">{t('experiments.results.colCalls')}</th>
+                      <th className="py-2 text-right">{t('experiments.results.colTotalTokens')}</th>
+                      <th className="py-2 text-right">{t('experiments.results.colCached')}</th>
+                      <th className="py-2 text-right">{t('experiments.results.colAvgTokens')}</th>
+                      <th className="py-2 text-right">{t('experiments.results.colLatency')}</th>
                     </tr>
                   </thead>
                   <tbody className="font-mono">
@@ -351,8 +357,8 @@ function ResultsDialog(props: { id: number; onClose: () => void }) {
                           <Badge variant={r.variant === 'A' ? 'blue' : 'purple'}>{r.variant}</Badge>
                         </td>
                         <td className="py-2 text-right">{r.sampleCount}</td>
-                        <td className="py-2 text-right">{r.totalTokens.toLocaleString('pt-BR')}</td>
-                        <td className="py-2 text-right">{r.cachedTokens.toLocaleString('pt-BR')}</td>
+                        <td className="py-2 text-right">{r.totalTokens.toLocaleString(locale)}</td>
+                        <td className="py-2 text-right">{r.cachedTokens.toLocaleString(locale)}</td>
                         <td className="py-2 text-right">{r.avgTotalTokens.toFixed(0)}</td>
                         <td className="py-2 text-right">{r.avgDurationMs.toFixed(0)}</td>
                       </tr>
@@ -363,7 +369,7 @@ function ResultsDialog(props: { id: number; onClose: () => void }) {
             </>
           )}
           <div className="flex items-center justify-end pt-2">
-            <Button onClick={props.onClose}>Fechar</Button>
+            <Button onClick={props.onClose}>{t('experiments.results.close')}</Button>
           </div>
         </div>
       </Card>

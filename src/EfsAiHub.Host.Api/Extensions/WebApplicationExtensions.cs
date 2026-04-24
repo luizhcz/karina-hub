@@ -12,6 +12,23 @@ public static class WebApplicationExtensions
         app.UseCors();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.GlobalExceptionMiddleware>();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.SecurityHeadersMiddleware>();
+        // F8 — i18n: seta CultureInfo.CurrentUICulture por request via
+        // Accept-Language (ou ConversationSession.Locale, quando futuro).
+        // PersonaBooleanFormat lê daí pra renderizar "sim/não" vs "yes/no".
+        app.UseRequestLocalization(new Microsoft.AspNetCore.Builder.RequestLocalizationOptions
+        {
+            DefaultRequestCulture = new Microsoft.AspNetCore.Localization.RequestCulture("pt-BR"),
+            SupportedCultures = new[]
+            {
+                new System.Globalization.CultureInfo("pt-BR"),
+                new System.Globalization.CultureInfo("en-US"),
+            },
+            SupportedUICultures = new[]
+            {
+                new System.Globalization.CultureInfo("pt-BR"),
+                new System.Globalization.CultureInfo("en-US"),
+            },
+        });
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.TenantMiddleware>();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.ProjectMiddleware>();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.DefaultProjectGuard>();

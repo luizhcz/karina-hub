@@ -1,0 +1,63 @@
+{
+  "experiments": {
+    "title": "Experiments A/B",
+    "subtitle": "Compara duas versions de um template com bucketing determinístico por {{code}}. Um experiment ativo por scope (regra do DB).",
+    "newButton": "Novo experiment",
+    "activeSection": "Ativos ({{count}})",
+    "endedSection": "Encerrados ({{count}})",
+    "emptyTitle": "Nenhum experiment cadastrado",
+    "emptyDescription": "Experiments precisam de pelo menos duas versions de um template. Cadastre um template e edite-o pra gerar versions antes de criar um experiment.",
+    "errorLoading": "Erro ao carregar experiments",
+    "statusActive": "ativo",
+    "statusEnded": "encerrado",
+    "splitLabel": "Split:",
+    "metricLabel": "Métrica:",
+    "startedLabel": "Iniciou:",
+    "endedLabel": "Encerrou:",
+    "actions": {
+      "results": "Resultados",
+      "end": "Encerrar",
+      "delete": "Deletar"
+    },
+    "endDialog": {
+      "title": "Encerrar experiment",
+      "message": "Para o bucketing e libera o scope pra um novo experiment. Operação idempotente. Dados ficam preservados no histórico.",
+      "confirm": "Encerrar"
+    },
+    "deleteDialog": {
+      "title": "Deletar experiment",
+      "message": "Remove o registro do experiment. Rows em llm_token_usage com ExperimentId deste experiment ficam órfãs (sem cascade por design — preserva analytics histórico).",
+      "confirm": "Deletar"
+    },
+    "create": {
+      "title": "Novo experiment",
+      "fieldScope": "Scope",
+      "fieldScopeHint": "Ex: project:p1:cliente ou agent:trading:admin",
+      "fieldScopePlaceholder": "project:p1:cliente",
+      "fieldName": "Nome",
+      "fieldNamePlaceholder": "Ex: novo tom de suitability v2",
+      "fieldVariantA": "Variant A (VersionId UUID)",
+      "fieldVariantB": "Variant B (VersionId UUID)",
+      "fieldSplit": "Split B: {{split}}% (A recebe {{aShare}}%)",
+      "fieldMetric": "Métrica de interesse",
+      "cancel": "Cancelar",
+      "submit": "Criar",
+      "submitting": "Criando…"
+    },
+    "results": {
+      "title": "Resultados por variant",
+      "loading": "Carregando…",
+      "error": "Erro ao carregar.",
+      "empty": "Nenhuma LLM call registrada sob esse experiment ainda.",
+      "close": "Fechar",
+      "metricPrefix": "métrica",
+      "scopePrefix": "scope",
+      "colVariant": "Variant",
+      "colCalls": "Calls",
+      "colTotalTokens": "Total tokens",
+      "colCached": "Cached",
+      "colAvgTokens": "Média tokens",
+      "colLatency": "Latência (ms)"
+    }
+  }
+}

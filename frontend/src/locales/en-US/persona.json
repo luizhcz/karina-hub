@@ -1,0 +1,63 @@
+{
+  "experiments": {
+    "title": "A/B Experiments",
+    "subtitle": "Compares two versions of a template with deterministic bucketing by {{code}}. One active experiment per scope (DB rule).",
+    "newButton": "New experiment",
+    "activeSection": "Active ({{count}})",
+    "endedSection": "Ended ({{count}})",
+    "emptyTitle": "No experiments registered",
+    "emptyDescription": "Experiments require at least two versions of a template. Create a template and edit it to generate versions before creating an experiment.",
+    "errorLoading": "Failed to load experiments",
+    "statusActive": "active",
+    "statusEnded": "ended",
+    "splitLabel": "Split:",
+    "metricLabel": "Metric:",
+    "startedLabel": "Started:",
+    "endedLabel": "Ended:",
+    "actions": {
+      "results": "Results",
+      "end": "End",
+      "delete": "Delete"
+    },
+    "endDialog": {
+      "title": "End experiment",
+      "message": "Stops bucketing and frees the scope for a new experiment. Idempotent operation. Data is preserved in history.",
+      "confirm": "End"
+    },
+    "deleteDialog": {
+      "title": "Delete experiment",
+      "message": "Removes the experiment record. Rows in llm_token_usage with this ExperimentId become orphaned (no cascade by design — preserves historical analytics).",
+      "confirm": "Delete"
+    },
+    "create": {
+      "title": "New experiment",
+      "fieldScope": "Scope",
+      "fieldScopeHint": "Ex: project:p1:cliente or agent:trading:admin",
+      "fieldScopePlaceholder": "project:p1:cliente",
+      "fieldName": "Name",
+      "fieldNamePlaceholder": "Ex: new suitability tone v2",
+      "fieldVariantA": "Variant A (VersionId UUID)",
+      "fieldVariantB": "Variant B (VersionId UUID)",
+      "fieldSplit": "Split B: {{split}}% (A gets {{aShare}}%)",
+      "fieldMetric": "Target metric",
+      "cancel": "Cancel",
+      "submit": "Create",
+      "submitting": "Creating…"
+    },
+    "results": {
+      "title": "Results by variant",
+      "loading": "Loading…",
+      "error": "Failed to load.",
+      "empty": "No LLM call recorded under this experiment yet.",
+      "close": "Close",
+      "metricPrefix": "metric",
+      "scopePrefix": "scope",
+      "colVariant": "Variant",
+      "colCalls": "Calls",
+      "colTotalTokens": "Total tokens",
+      "colCached": "Cached",
+      "colAvgTokens": "Avg tokens",
+      "colLatency": "Latency (ms)"
+    }
+  }
+}

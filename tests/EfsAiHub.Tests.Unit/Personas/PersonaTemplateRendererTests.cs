@@ -1,3 +1,4 @@
+using System.Globalization;
 using EfsAiHub.Core.Abstractions.Identity.Persona;
 using EfsAiHub.Platform.Runtime.Personalization;
 using FluentAssertions;
@@ -6,8 +7,19 @@ using Xunit;
 namespace EfsAiHub.Tests.Unit.Personas;
 
 [Trait("Category", "Unit")]
-public class PersonaTemplateRendererTests
+public class PersonaTemplateRendererTests : IDisposable
 {
+    // F8 — trava CurrentUICulture em pt-BR pra testes que esperam "sim"/"não".
+    // Cada runner pode ter default diferente (macOS = en-US, Linux = C),
+    // mas produção roda com RequestLocalizationMiddleware definindo a culture
+    // por request — default pt-BR ([ADR 007]).
+    private readonly CultureInfo _originalCulture = CultureInfo.CurrentUICulture;
+    public PersonaTemplateRendererTests()
+    {
+        CultureInfo.CurrentUICulture = new CultureInfo("pt-BR");
+    }
+    public void Dispose() => CultureInfo.CurrentUICulture = _originalCulture;
+
     private static ClientPersona MakeClient(
         string? clientName = null,
         string? suitability = null,
@@ -195,5 +207,55 @@ public class PersonaTemplateRendererTests
             "{{business_segment}} + {{partner_type}}", persona);
 
         result.Should().Be("private + {{partner_type}}");
+    }
+
+    // ── F8: i18n do boolean format ───────────────────────────────────────────
+
+    [Fact]
+    public void Render_Client_IsOffshore_PtBr_RenderizaSim()
+    {
+        // Sem troca de culture = default pt-BR = "sim"/"não".
+        var persona = MakeClient(isOffshore: true);
+        var result = PersonaTemplateRenderer.Render("offshore={{is_offshore}}", persona);
+        result.Should().Be("offshore=sim");
+    }
+
+    [Fact]
+    public void Render_Client_IsOffshore_EnUs_RenderizaYes()
+    {
+        // F8 — CultureInfo.CurrentUICulture setado como en-US pelo
+        // RequestLocalizationMiddleware em produção; aqui simulamos inline.
+        var original = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentUICulture = new CultureInfo("en-US");
+            var persona = MakeClient(isOffshore: true);
+            var result = PersonaTemplateRenderer.Render("offshore={{is_offshore}}", persona);
+            result.Should().Be("offshore=yes");
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = original;
+        }
+    }
+
+    [Fact]
+    public void Render_Admin_TodosBooleanos_EnUs_UsamYesNo()
+    {
+        var original = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentUICulture = new CultureInfo("en-US");
+            var persona = MakeAdmin(
+                isInternal: true, isWm: false, isMaster: true, isBroker: false);
+            var result = PersonaTemplateRenderer.Render(
+                "int={{is_internal}} wm={{is_wm}} master={{is_master}} broker={{is_broker}}",
+                persona);
+            result.Should().Be("int=yes wm=no master=yes broker=no");
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = original;
+        }
     }
 }

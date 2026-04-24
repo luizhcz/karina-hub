@@ -1,3 +1,4 @@
+using System.Globalization;
 using EfsAiHub.Core.Abstractions.Identity.Persona;
 using EfsAiHub.Platform.Runtime.Execution;
 using EfsAiHub.Platform.Runtime.Personalization;
@@ -7,8 +8,17 @@ using Xunit;
 namespace EfsAiHub.Tests.Unit.Personas;
 
 [Trait("Category", "Unit")]
-public class PersonaPromptComposerTests
+public class PersonaPromptComposerTests : IDisposable
 {
+    // F8 — trava CurrentUICulture em pt-BR pra testes que esperam "sim"/"não".
+    // Produção usa RequestLocalizationMiddleware ([ADR 007]).
+    private readonly CultureInfo _originalCulture = CultureInfo.CurrentUICulture;
+    public PersonaPromptComposerTests()
+    {
+        CultureInfo.CurrentUICulture = new CultureInfo("pt-BR");
+    }
+    public void Dispose() => CultureInfo.CurrentUICulture = _originalCulture;
+
     private sealed class StubCache : IPersonaPromptTemplateCache
     {
         public Dictionary<string, PersonaPromptTemplate> Store { get; } = new();
