@@ -45,7 +45,7 @@ public class PgPersonaPromptTemplateRepository : IPersonaPromptTemplateRepositor
         await using var ctx = await _factory.CreateDbContextAsync(ct);
         var now = DateTime.UtcNow;
 
-        // F5: upsert + append version em transação.
+        // Upsert + append version em transação.
         //
         // Atenção: IDbContextFactory abre conexão nova do pool em cada
         // CreateDbContextAsync. Esta transação está isolada dentro deste
@@ -112,8 +112,6 @@ public class PgPersonaPromptTemplateRepository : IPersonaPromptTemplateRepositor
         await ctx.SaveChangesAsync(ct);
         return true;
     }
-
-    // ── F5: versionamento ───────────────────────────────────────────────────
 
     public async Task<IReadOnlyList<PersonaPromptTemplateVersion>> GetVersionsAsync(
         int templateId, CancellationToken ct = default)

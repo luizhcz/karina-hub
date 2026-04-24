@@ -13,7 +13,7 @@ namespace EfsAiHub.Infra.LlmProviders.Providers;
 public class OpenAiClientProvider : ILlmClientProvider
 {
     private readonly OpenAIOptions _options;
-    // Fix #A4: cache de OpenAIClient por hash da apiKey — evita TLS/HttpMessageHandler churn.
+    // Cache de OpenAIClient por hash da apiKey — evita TLS/HttpMessageHandler churn.
     private readonly ConcurrentDictionary<string, OpenAIClient> _clientCache = new();
 
     public OpenAiClientProvider(IOptions<OpenAIOptions> options) => _options = options.Value;

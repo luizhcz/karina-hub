@@ -130,8 +130,6 @@ public sealed class PgProjectRepository : IProjectRepository
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    // ── Mapeamento ────────────────────────────────────────────────────────────
-
     private Project MapProject(NpgsqlDataReader reader)
     {
         var settingsJson = reader.GetString(4);
@@ -150,8 +148,6 @@ public sealed class PgProjectRepository : IProjectRepository
             UpdatedAt   = reader.GetDateTime(8)
         };
     }
-
-    // ── Cifragem / Decifragem ─────────────────────────────────────────────────
 
     /// <summary>
     /// Serializa ProjectLlmConfig para JSON, cifrando cada ApiKey com IDataProtector.

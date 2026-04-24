@@ -6,8 +6,6 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace EfsAiHub.Infra.Persistence.Postgres;
 
-// ── Classes row wrapper (entidades EF internas) ───────────────────────────────
-
 internal class WorkflowDefinitionRow
 {
     public string Id { get; set; } = "";
@@ -52,7 +50,7 @@ internal class AgentPromptVersionRow
     public DateTime CreatedAt { get; set; }
 }
 
-// Fase 1 — Snapshot imutável atômico (prompt + model + tools + middlewares + schema).
+// Snapshot imutável atômico (prompt + model + tools + middlewares + schema).
 internal class AgentVersionRow
 {
     public string AgentVersionId { get; set; } = "";
@@ -79,7 +77,7 @@ internal class WorkflowVersionRow
     public string Snapshot { get; set; } = "{}"; // JSONB — WorkflowDefinition serializada
 }
 
-// Fase 3 — Skill (estado mutável) + SkillVersion (append-only imutável).
+// Skill (estado mutável) + SkillVersion (append-only imutável).
 internal class SkillRow
 {
     public string Id { get; set; } = "";
@@ -103,7 +101,7 @@ internal class SkillVersionRow
     public string Snapshot { get; set; } = "{}"; // JSONB
 }
 
-// Fase 5 — Background Responses (execução assíncrona de agentes).
+// Background Responses (execução assíncrona de agentes).
 internal class BackgroundResponseJobRow
 {
     public string JobId { get; set; } = "";
@@ -170,7 +168,6 @@ internal class LlmTokenUsageRow
     public int RetryCount { get; set; }
     public string? ProjectId { get; set; }
     public DateTime CreatedAt { get; set; }
-    // F6 — binding de outcome por variant (A/B).
     public int? ExperimentId { get; set; }
     public string? ExperimentVariant { get; set; }  // 'A' | 'B' | null
 }
@@ -208,10 +205,9 @@ internal class PersonaPromptTemplateRow
     public string Template { get; set; } = "";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
-    // F9: UpdatedBy removido da entity. Coluna ainda existe no DB; EF ignora
-    // colunas que não estão mapeadas (forward-compat OK). Drop fica na
-    // migration db/migration_persona_templates_drop_updatedby.sql (não
-    // aplicada até próxima release validar app ignorando).
+    // UpdatedBy removido da entity; coluna ainda existe no DB (EF ignora
+    // colunas não mapeadas, forward-compat OK). Drop fica na
+    // migration db/migration_persona_templates_drop_updatedby.sql.
     public Guid? ActiveVersionId { get; set; }
 }
 
@@ -299,9 +295,9 @@ internal class WorkflowEventAuditRow
     public DateTime Timestamp { get; set; }
 }
 
-// Phase MCP-1 — MCP Server registry (project-scoped, CRUD simples sem versions).
-// Data é o McpServer serializado completo em JSONB; colunas denormalizadas
-// (Name, ProjectId, CreatedAt, UpdatedAt) são só para indexar/ordenar na UI.
+// MCP Server registry (project-scoped, CRUD simples sem versions). Data é o
+// McpServer serializado completo em JSONB; colunas denormalizadas (Name,
+// ProjectId, CreatedAt, UpdatedAt) são só para indexar/ordenar na UI.
 internal class McpServerRow
 {
     public string Id { get; set; } = "";
@@ -326,8 +322,6 @@ internal class AdminAuditLogRow
     public string? PayloadAfter { get; set; }
     public DateTime Timestamp { get; set; }
 }
-
-// ── DbContext ─────────────────────────────────────────────────────────────────
 
 public class AgentFwDbContext : DbContext
 {
@@ -380,7 +374,6 @@ public class AgentFwDbContext : DbContext
     {
         modelBuilder.HasDefaultSchema("aihub");
 
-        // ── ConversationSession ──────────────────────────────────────────────
         modelBuilder.Entity<ConversationSession>(b =>
         {
             b.ToTable("conversations");
@@ -406,7 +399,6 @@ public class AgentFwDbContext : DbContext
             b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
         });
 
-        // ── ChatMessage ──────────────────────────────────────────────────────
         modelBuilder.Entity<ChatMessage>(b =>
         {
             b.ToTable("chat_messages");
@@ -428,7 +420,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => new { e.ConversationId, e.CreatedAt });
         });
 
-        // ── ProjectRow ─────────────────────────────────────────────────────────
         // Colunas em lowercase para compatibilidade com PgProjectRepository (raw SQL).
         modelBuilder.Entity<ProjectRow>(b =>
         {
@@ -446,7 +437,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.TenantId).HasDatabaseName("ix_projects_tenant_id");
         });
 
-        // ── WorkflowDefinitionRow ────────────────────────────────────────────
         modelBuilder.Entity<WorkflowDefinitionRow>(b =>
         {
             b.ToTable("workflow_definitions");
@@ -461,7 +451,6 @@ public class AgentFwDbContext : DbContext
             b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
         });
 
-        // ── AgentDefinitionRow ───────────────────────────────────────────────
         modelBuilder.Entity<AgentDefinitionRow>(b =>
         {
             b.ToTable("agent_definitions");
@@ -475,7 +464,6 @@ public class AgentFwDbContext : DbContext
             b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
         });
 
-        // ── AgentVersionRow (Fase 1) ─────────────────────────────────────────
         modelBuilder.Entity<AgentVersionRow>(b =>
         {
             b.ToTable("agent_versions");
@@ -494,7 +482,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.ContentHash);
         });
 
-        // ── WorkflowVersionRow ─────────────────────────────────────────────
         modelBuilder.Entity<WorkflowVersionRow>(b =>
         {
             b.ToTable("workflow_versions");
@@ -513,7 +500,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.WorkflowDefinitionId);
         });
 
-        // ── SkillRow (Fase 3) ────────────────────────────────────────────────
         modelBuilder.Entity<SkillRow>(b =>
         {
             b.ToTable("skills");
@@ -528,7 +514,6 @@ public class AgentFwDbContext : DbContext
             b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
         });
 
-        // ── SkillVersionRow (Fase 3) ─────────────────────────────────────────
         modelBuilder.Entity<SkillVersionRow>(b =>
         {
             b.ToTable("skill_versions");
@@ -546,7 +531,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.ContentHash);
         });
 
-        // ── AgentPromptVersionRow ────────────────────────────────────────────
         modelBuilder.Entity<AgentPromptVersionRow>(b =>
         {
             b.ToTable("agent_prompt_versions");
@@ -560,7 +544,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.AgentId);
         });
 
-        // ── WorkflowExecutionRow ─────────────────────────────────────────────
         modelBuilder.Entity<WorkflowExecutionRow>(b =>
         {
             b.ToTable("workflow_executions");
@@ -580,7 +563,6 @@ public class AgentFwDbContext : DbContext
             b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
         });
 
-        // ── NodeExecutionRow ─────────────────────────────────────────────────
         modelBuilder.Entity<NodeExecutionRow>(b =>
         {
             b.ToTable("node_executions");
@@ -592,14 +574,12 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.ProjectId).HasMaxLength(128);
             b.HasIndex(e => new { e.ExecutionId, e.NodeId }).IsUnique();
             b.HasIndex(e => e.ExecutionId);
-            // F4: tolerância ao null em rows legadas (pré-F4). Débito
-            // conhecido (ver backlog TENANCY-STRICT-FILTER): callers que
-            // omitem projectId também passam. Remover o `|| == null`
-            // após backfill de rows antigas + enforcement no trigger.
+            // Tolerância ao null em rows legadas: callers que omitem projectId
+            // também passam. Remover o `|| == null` após backfill de rows
+            // antigas + enforcement no trigger.
             b.HasQueryFilter(e => e.ProjectId == CurrentProjectId || e.ProjectId == null);
         });
 
-        // ── AtivoRow ─────────────────────────────────────────────────────────
         modelBuilder.Entity<AtivoRow>(b =>
         {
             b.ToTable("ativos");
@@ -610,7 +590,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.Setor);
         });
 
-        // ── LlmTokenUsageRow ───────────────────────────────────────────────
         modelBuilder.Entity<LlmTokenUsageRow>(b =>
         {
             b.ToTable("llm_token_usage");
@@ -627,21 +606,19 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.CachedTokens).HasDefaultValue(0);
             b.Property(e => e.ProjectId).HasMaxLength(128);
             b.Property(e => e.CreatedAt).IsRequired();
-            // F6 — binding de outcome por experiment A/B.
             b.Property(e => e.ExperimentId);
             b.Property(e => e.ExperimentVariant).HasMaxLength(1);
             b.HasIndex(e => e.AgentId);
             b.HasIndex(e => e.ExecutionId);
             b.HasIndex(e => e.CreatedAt);
             b.HasIndex(e => e.ExperimentId);
-            // F4: mesma tolerância e mesmo débito que NodeExecutionRow — rows
-            // pré-F4 e execuções sem projectId no metadata ficam com null e
-            // passam. Analytics globais (GetAllAgentsSummaryAsync,
-            // GetThroughputAsync) usam SQL raw e ignoram esse filter.
+            // Mesma tolerância de NodeExecutionRow — rows legadas e execuções
+            // sem projectId no metadata ficam com null e passam. Analytics
+            // globais (GetAllAgentsSummaryAsync, GetThroughputAsync) usam SQL
+            // raw e ignoram esse filter.
             b.HasQueryFilter(e => e.ProjectId == CurrentProjectId || e.ProjectId == null);
         });
 
-        // ── ToolInvocationRow ────────────────────────────────────────────────
         modelBuilder.Entity<ToolInvocationRow>(b =>
         {
             b.ToTable("tool_invocations");
@@ -658,7 +635,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.ToolName);
         });
 
-        // ── ModelPricingRow ─────────────────────────────────────────────────
         modelBuilder.Entity<ModelPricingRow>(b =>
         {
             b.ToTable("model_pricing");
@@ -674,7 +650,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.ModelId);
         });
 
-        // ── DocumentIntelligencePricingRow ──────────────────────────────────
         modelBuilder.Entity<DocumentIntelligencePricingRow>(b =>
         {
             b.ToTable("document_intelligence_pricing");
@@ -689,7 +664,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.ModelId);
         });
 
-        // ── PersonaPromptTemplateRow ────────────────────────────────────────
         modelBuilder.Entity<PersonaPromptTemplateRow>(b =>
         {
             b.ToTable("persona_prompt_templates");
@@ -700,12 +674,10 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.Template).IsRequired();
             b.Property(e => e.CreatedAt).IsRequired();
             b.Property(e => e.UpdatedAt).IsRequired();
-            // F9: b.Property(e => e.UpdatedBy).HasMaxLength(128); removido.
             b.Property(e => e.ActiveVersionId);
             b.HasIndex(e => e.Scope).IsUnique();
         });
 
-        // ── PersonaPromptTemplateVersionRow (F5) ────────────────────────────
         modelBuilder.Entity<PersonaPromptTemplateVersionRow>(b =>
         {
             b.ToTable("persona_prompt_template_versions");
@@ -721,7 +693,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.VersionId).IsUnique();
         });
 
-        // ── PersonaPromptExperimentRow (F6) ─────────────────────────────────
         // Isolamento por project é garantido pelo Repo ao filtrar por
         // ProjectId nas queries — não usamos HasQueryFilter porque o composer
         // precisa consultar experiments em contexto hot path com ProjectId
@@ -743,7 +714,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => new { e.ProjectId, e.StartedAt });
         });
 
-        // ── WorkflowCheckpointRow ────────────────────────────────────────────
         modelBuilder.Entity<WorkflowCheckpointRow>(b =>
         {
             b.ToTable("workflow_checkpoints");
@@ -753,7 +723,6 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.UpdatedAt).IsRequired();
         });
 
-        // ── HumanInteractionRow ──────────────────────────────────────────────
         modelBuilder.Entity<HumanInteractionRow>(b =>
         {
             b.ToTable("human_interactions");
@@ -770,7 +739,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.Status);
         });
 
-        // ── AgentSessionRow ──────────────────────────────────────────────────
         modelBuilder.Entity<AgentSessionRow>(b =>
         {
             b.ToTable("agent_sessions");
@@ -786,7 +754,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.ExpiresAt);
         });
 
-        // ── BackgroundResponseJobRow (Fase 5) ────────────────────────────────
         modelBuilder.Entity<BackgroundResponseJobRow>(b =>
         {
             b.ToTable("background_response_jobs");
@@ -807,7 +774,6 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.IdempotencyKey).IsUnique().HasFilter("\"IdempotencyKey\" IS NOT NULL");
         });
 
-        // ── WorkflowEventAuditRow ────────────────────────────────────────────
         modelBuilder.Entity<WorkflowEventAuditRow>(b =>
         {
             b.ToTable("workflow_event_audit");
@@ -823,7 +789,6 @@ public class AgentFwDbContext : DbContext
              .HasDatabaseName("IX_workflow_event_audit_ExecutionId_Id");
         });
 
-        // ── McpServerRow (MCP Servers Registry) ──────────────────────────────
         modelBuilder.Entity<McpServerRow>(b =>
         {
             b.ToTable("mcp_servers");
@@ -839,7 +804,6 @@ public class AgentFwDbContext : DbContext
             b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
         });
 
-        // ── AdminAuditLogRow ─────────────────────────────────────────────────
         // Trilha de mudanças CRUD em Project/Agent/Workflow/Skill/ModelPricing.
         // Payload* são JSONB opcionais; escritas são do raw SQL do repositório
         // (mantemos o DbSet para testes EF e consistência de schema).

@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace EfsAiHub.Infra.Persistence.Postgres;
 
 /// <summary>
-/// Fase 3 — Append-only store de snapshots imutáveis de skills. Idempotente por
+/// Append-only store de snapshots imutáveis de skills. Idempotente por
 /// <see cref="SkillVersion.ContentHash"/>: upserts sem mudança real não duplicam revision.
 /// </summary>
 public sealed class PgSkillVersionRepository : ISkillVersionRepository

@@ -33,7 +33,7 @@ public interface IDocumentIntelligencePricingCache
 
 public sealed class DocumentIntelligencePricingCache : IDocumentIntelligencePricingCache, IDisposable
 {
-    /// <summary>Identificador no <see cref="ICacheInvalidationBus"/> (F2).</summary>
+    /// <summary>Identificador no <see cref="ICacheInvalidationBus"/>.</summary>
     public const string CacheName = "di-pricing";
 
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(5);
@@ -149,7 +149,6 @@ public sealed class DocumentIntelligencePricingCache : IDocumentIntelligencePric
         }
         else
         {
-            // Invalida tudo
             var keys = _local.Keys.ToList();
             _local.Clear();
             foreach (var k in keys)

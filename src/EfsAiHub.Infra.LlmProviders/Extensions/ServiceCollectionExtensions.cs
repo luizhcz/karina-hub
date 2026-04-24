@@ -8,8 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace EfsAiHub.Infra.LlmProviders.Extensions;
 
 /// <summary>
-/// Phase 12 — DI consolidado dos providers LLM (OpenAI, AzureOpenAI, AzureFoundry).
-/// Substitui as 5 chamadas manuais que viviam no <c>Program.cs</c> do Host.Api.
+/// DI consolidado dos providers LLM (OpenAI, AzureOpenAI, AzureFoundry).
 /// </summary>
 public static class ServiceCollectionExtensions
 {

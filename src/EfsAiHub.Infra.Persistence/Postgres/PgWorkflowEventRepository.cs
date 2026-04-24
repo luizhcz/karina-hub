@@ -22,7 +22,7 @@ public class PgWorkflowEventRepository(IDbContextFactory<AgentFwDbContext> facto
         };
         ctx.WorkflowEventAudits.Add(row);
         await ctx.SaveChangesAsync(ct);
-        return row.Id; // EF Core popula o Id auto-gerado após SaveChanges
+        return row.Id;
     }
 
     public async Task<IReadOnlyList<WorkflowEventEnvelope>> GetAllAsync(string executionId, CancellationToken ct = default)

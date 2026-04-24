@@ -53,8 +53,6 @@ public static class ChatOptionsBuilder
         return BuildCoreOptions(definition, functionRegistry, toolWriter, trackedFnLogger, logger, allowFingerprintMismatch, projectId);
     }
 
-    // ── Helpers privados ─────────────────────────────────────────────────────
-
     private static ChatOptions BuildCoreOptions(
         AgentDefinition definition,
         IFunctionToolRegistry functionRegistry,
@@ -72,12 +70,10 @@ public static class ChatOptionsBuilder
             ModelId = definition.Model.DeploymentName
         };
 
-        // Resolve function tools da definição → registry → TrackedAIFunction
         var tools = BuildFunctionTools(definition, functionRegistry, toolWriter, trackedFnLogger, logger, allowFingerprintMismatch, projectId);
         if (tools.Count > 0)
             options.Tools = tools;
 
-        // Structured output
         var responseFormat = BuildResponseFormat(definition.StructuredOutput, logger, definition.Id);
         if (responseFormat is not null)
             options.ResponseFormat = responseFormat;
@@ -97,7 +93,7 @@ public static class ChatOptionsBuilder
         var tools = new List<AITool>();
         var addedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // 1. Resolve function tools explícitos do registry (por fingerprint quando disponível)
+        // Resolve function tools explícitos do registry (por fingerprint quando disponível).
         foreach (var toolDef in definition.Tools.Where(t =>
             t.Type.Equals("function", StringComparison.OrdinalIgnoreCase)))
         {
@@ -121,15 +117,15 @@ public static class ChatOptionsBuilder
             addedNames.Add(toolDef.Name!);
         }
 
-        // 2. Resolve MCP tools: se uma entrada AllowedTools existe no FunctionToolRegistry,
-        //    usa a implementação registrada como fallback (evita precisar de um cliente MCP em runtime).
+        // Resolve MCP tools: se uma entrada AllowedTools existe no FunctionToolRegistry,
+        // usa a implementação registrada como fallback (evita precisar de um cliente MCP em runtime).
         foreach (var toolDef in definition.Tools.Where(t =>
             t.Type.Equals("mcp", StringComparison.OrdinalIgnoreCase)))
         {
             foreach (var mcpToolName in toolDef.AllowedTools)
             {
                 if (addedNames.Contains(mcpToolName))
-                    continue; // já adicionado como function tool
+                    continue;
 
                 var found = projectId is not null
                     ? functionRegistry.TryGet(mcpToolName, projectId, out var fn)
@@ -155,7 +151,7 @@ public static class ChatOptionsBuilder
     }
 
     /// <summary>
-    /// Fase 6 — resolve a tool pelo fingerprint snapshoteado (se presente), falhando
+    /// Resolve a tool pelo fingerprint snapshoteado (se presente), falhando
     /// ou caindo para <c>GetLatest</c> conforme feature flag.
     /// </summary>
     private static AIFunction? ResolveByFingerprintOrLatest(
@@ -180,7 +176,6 @@ public static class ChatOptionsBuilder
                 agentId, toolName, expectedFingerprint[..Math.Min(12, expectedFingerprint.Length)]);
         }
 
-        // Project-scoped resolution: project tools first, fallback to global
         if (projectId is not null)
             return registry.TryGet(toolName, projectId, out var projFn) ? projFn : null;
 

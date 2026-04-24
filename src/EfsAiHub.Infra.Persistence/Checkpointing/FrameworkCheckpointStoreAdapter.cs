@@ -149,7 +149,7 @@ public sealed class FrameworkCheckpointStoreAdapter : ICheckpointStore<JsonEleme
 
     /// <summary>
     /// Remove o índice em memória da sessão. Usado em estados terminais pelo WorkflowRunnerService
-    /// para eliminar o leak monotônico do _index (Fix #A5 parte A).
+    /// para eliminar o leak monotônico do _index.
     /// </summary>
     public void EvictSession(string sessionId) => _index.TryRemove(sessionId, out _);
 

@@ -68,7 +68,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
     public async Task<AgentDefinition> UpsertAsync(
         AgentDefinition definition, CancellationToken ct = default)
     {
-        // Fase 6 — carimba FingerprintHash em cada function tool com o hash canônico
+        // Carimba FingerprintHash em cada function tool com o hash canônico
         // (sha256 de name|description|jsonSchema) do AIFunction atualmente registrado.
         // Snapshots subsequentes de AgentVersion herdam esse hash via AgentVersion.FromDefinition.
         definition = StampFunctionFingerprints(definition);
@@ -102,7 +102,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
         // Atualiza no Redis APENAS se a chave já existia.
         await _cache.SetIfExistsAsync(CacheKeyPrefix + definition.Id, data, _ttl);
 
-        // Fase 1 — dual-write: append de snapshot imutável atômico.
+        // Dual-write: append de snapshot imutável atômico.
         // Idempotente por ContentHash: upserts consecutivos sem mudança real não criam nova revision.
         try
         {
@@ -112,7 +112,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
 
             var revision = await _versionRepo.GetNextRevisionAsync(definition.Id, ct);
 
-            // Fase 3 — materializa SkillVersionId concreto para cada SkillRef;
+            // Materializa SkillVersionId concreto para cada SkillRef;
             // garante que rollback resolva a versão exata da skill em uso no momento do publish.
             IReadOnlyList<SkillRef>? materializedSkills = null;
             if (_skillVersionRepo is not null && definition.SkillRefs.Count > 0)
@@ -177,7 +177,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
     }
 
     /// <summary>
-    /// Fase 6 — reconstrói <see cref="AgentDefinition"/> com o <c>FingerprintHash</c>
+    /// Reconstrói <see cref="AgentDefinition"/> com o <c>FingerprintHash</c>
     /// atual de cada function tool no registry. Tools desconhecidas ou sem registry
     /// preservam o hash existente (ou null).
     /// </summary>

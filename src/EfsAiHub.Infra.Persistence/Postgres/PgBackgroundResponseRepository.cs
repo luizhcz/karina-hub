@@ -5,8 +5,8 @@ using Microsoft.EntityFrameworkCore;
 namespace EfsAiHub.Infra.Persistence.Postgres;
 
 /// <summary>
-/// Fase 5 — Persistência de <see cref="BackgroundResponseJob"/>. Segue o mesmo
-/// padrão factory-per-op dos demais repositórios Pg da Fase 3/4.
+/// Persistência de <see cref="BackgroundResponseJob"/>. Segue o mesmo
+/// padrão factory-per-op dos demais repositórios Pg.
 /// </summary>
 public sealed class PgBackgroundResponseRepository : IBackgroundResponseRepository
 {

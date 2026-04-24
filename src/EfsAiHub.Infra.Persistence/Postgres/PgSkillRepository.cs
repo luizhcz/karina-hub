@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace EfsAiHub.Infra.Persistence.Postgres;
 
 /// <summary>
-/// Fase 3 — Repositório de Skills com dual-write append-only para SkillVersion,
+/// Repositório de Skills com dual-write append-only para SkillVersion,
 /// mesma mecânica de <see cref="PgAgentDefinitionRepository"/>.
 /// </summary>
 public sealed class PgSkillRepository : ISkillRepository

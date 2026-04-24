@@ -91,15 +91,11 @@ public partial class WorkflowFactory : IWorkflowFactory
         return ExecutableWorkflow.FromWorkflow(workflow);
     }
 
-    // ─── Sequential / Concurrent ────────────────────────────────────────────────
-
     private static Workflow BuildSequential(List<AIAgent> agents)
         => AgentWorkflowBuilder.BuildSequential(agents);
 
     private static Workflow BuildConcurrent(List<AIAgent> agents)
         => AgentWorkflowBuilder.BuildConcurrent(agents);
-
-    // ─── Handoff ────────────────────────────────────────────────────────────────
 
     private Workflow BuildHandoff(WorkflowDefinition definition, IReadOnlyDictionary<string, ExecutableWorkflow> agentMap, string? startAgentId)
     {
@@ -172,8 +168,6 @@ public partial class WorkflowFactory : IWorkflowFactory
         return builder.Build();
     }
 
-    // ─── GroupChat ───────────────────────────────────────────────────────────────
-
     private Workflow BuildGroupChat(WorkflowDefinition definition, IReadOnlyDictionary<string, ExecutableWorkflow> agentMap)
     {
         var managerRef = definition.Agents.FirstOrDefault(a =>
@@ -209,8 +203,6 @@ public partial class WorkflowFactory : IWorkflowFactory
             .Build();
     }
 
-    // ─── Graph (WorkflowBuilder de baixo nível) ──────────────────────────────────
-
     /// <summary>
     /// Constrói um Workflow usando o WorkflowBuilder de baixo nível.
     /// Todos os nós são Executor&lt;string,string&gt; para garantir compatibilidade de tipos.
@@ -224,12 +216,11 @@ public partial class WorkflowFactory : IWorkflowFactory
             throw new InvalidOperationException(
                 $"Workflow '{definition.Id}' (Graph mode) não possui nenhum nó válido.");
 
-        // ── InputSource: injetar bridge nodes automáticos para edges com InputSource ──
+        // Injeta bridge nodes automáticos para edges com InputSource.
         var processedEdges = InjectInputSourceBridges(definition.Edges, bindingMap, definition.Id);
 
         var (startId, endNodeIds) = ResolveGraphLayout(definition, processedEdges, bindingMap.Keys);
 
-        // ── Inserir ChatTriggerExecutor como start node real ─────────────────────
         // InProcessExecution.RunStreamingAsync entrega List<ChatMessage> como primeiro input.
         // DelegateExecutor<string,string> e AIAgent só aceitam string — sem este adapter,
         // o framework não consegue rotear o trigger e o workflow completa vazio.
@@ -267,7 +258,7 @@ public partial class WorkflowFactory : IWorkflowFactory
     }
 
     /// <summary>
-    /// Fase 1 de BuildGraphAsync: cria o mapa de ExecutorBindings para agentes LLM e code executors.
+    /// Cria o mapa de ExecutorBindings para agentes LLM e code executors.
     /// </summary>
     private async Task<Dictionary<string, ExecutorBinding>> BuildBindingMapAsync(
         WorkflowDefinition definition, CancellationToken ct)
@@ -318,7 +309,7 @@ public partial class WorkflowFactory : IWorkflowFactory
     }
 
     /// <summary>
-    /// Fase 2 de BuildGraphAsync: determina o nó inicial e os nós finais a partir das arestas.
+    /// Determina o nó inicial e os nós finais a partir das arestas.
     /// </summary>
     private (string startId, List<string> endNodeIds) ResolveGraphLayout(
         WorkflowDefinition definition, List<WorkflowEdge> edges, IEnumerable<string> nodeIds)
@@ -365,9 +356,6 @@ public partial class WorkflowFactory : IWorkflowFactory
         return (startId, endNodeIds);
     }
 
-    // Métodos de construção de arestas e seus helpers residem em WorkflowFactory.Edges.cs
-    // (partial class) para manter esta classe focada no ciclo de vida e na orquestração.
-
     /// <summary>
     /// Resolve um ExecutorId (possivelmente sanitizado pelo framework) para o ID original
     /// no agentMap usando o mapa pré-computado — O(1) por chamada.
@@ -398,8 +386,6 @@ public partial class WorkflowFactory : IWorkflowFactory
             foreach (var t in @case.Targets)
                 targets.Add(t);
     }
-
-    // ── InputSource Bridge Injection ────────────────────────────────────────────
 
     /// <summary>
     /// Para cada edge com InputSource="WorkflowInput", injeta um nó bridge automático

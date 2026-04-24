@@ -15,7 +15,7 @@ public class AzureOpenAiClientProvider : ILlmClientProvider
 {
     private readonly AzureAIOptions _options;
     private readonly TokenCredential _credential;
-    // Fix #A4: reuse de AzureOpenAIClient por (endpoint|authKind|apiKeyHash).
+    // Reuse de AzureOpenAIClient por (endpoint|authKind|apiKeyHash).
     // AzureOpenAIClient é thread-safe e long-lived; instanciar por chamada explodia sockets/TLS.
     private readonly ConcurrentDictionary<string, AzureOpenAIClient> _clientCache = new();
 
@@ -32,7 +32,6 @@ public class AzureOpenAiClientProvider : ILlmClientProvider
     {
         var client = CreateAzureClient(definition);
         var deploymentName = ResolveDeployment(definition);
-        // Rastreamento de tokens é aplicado pelo AgentFactory via WrapWithTokenTracking
         var chatClient = client.GetChatClient(deploymentName).AsIChatClient();
         object agent = chatClient.AsAIAgent(options);
         return Task.FromResult(agent);

@@ -12,7 +12,7 @@ using Npgsql;
 namespace EfsAiHub.Infra.Messaging;
 
 /// <summary>
-/// Fase 3 — dispatcher singleton que multiplexa LISTEN em uma única conexão PG
+/// Dispatcher singleton que multiplexa LISTEN em uma única conexão PG
 /// persistente. Demultiplexa NOTIFY pro canal "wf_events" por ExecutionId do payload.
 ///
 /// Substitui o padrão anterior (1 conn PG dedicada por subscriber SSE) que tinha
@@ -33,7 +33,7 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
     /// <summary>Canal global onde PgEventBus.PublishAsync emite NOTIFY.</summary>
     public const string ChannelName = "wf_events";
 
-    /// <summary>Canal dedicado a invalidações de cache cross-pod (F2).</summary>
+    /// <summary>Canal dedicado a invalidações de cache cross-pod.</summary>
     public const string CacheInvalidateChannel = "efs_cache_invalidate";
 
     private readonly NpgsqlDataSource _dataSource;
@@ -61,8 +61,6 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
         _dataSource = dataSource;
         _logger = logger;
     }
-
-    // ── Subscribe / Unsubscribe ────────────────────────────────────────────────
 
     /// <summary>
     /// Registra um novo subscriber para a execution especificada. Retorna o par
@@ -138,8 +136,6 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
         }
     }
 
-    // ── IHostedService ─────────────────────────────────────────────────────────
-
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -173,7 +169,7 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
                     w.TryComplete();
         _subscribers.Clear();
 
-        // F2: zera também os handlers de cache invalidation. Após esse ponto,
+        // Zera também os handlers de cache invalidation. Após esse ponto,
         // NOTIFY tardios caem no early-return do OnCacheInvalidateNotification.
         foreach (var (_, list) in _cacheInvalidateHandlers)
             lock (list) list.Clear();
@@ -200,8 +196,6 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
         _cts?.Dispose();
         _connMutex.Dispose();
     }
-
-    // ── Internal: conn + loop ──────────────────────────────────────────────────
 
     private async Task OpenAndListenAsync(CancellationToken ct)
     {
@@ -314,8 +308,6 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
             _logger.LogDebug(ex, "[PgNotifyDispatcher] Mensagem NOTIFY malformada ignorada.");
         }
     }
-
-    // ── Cache invalidation (F2) ────────────────────────────────────────────────
 
     /// <summary>
     /// Subscription do canal <c>efs_cache_invalidate</c> — filtragem por

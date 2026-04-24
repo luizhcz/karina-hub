@@ -56,7 +56,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
         var response = await base.GetResponseAsync(messages, options, cancellationToken);
         sw.Stop();
 
-        // Capturar output content (truncado a 4000 chars para não explodir o DB)
+        // Captura output content truncado a 4000 chars para não explodir o DB.
         var outputContent = response.Messages
             .Where(m => m.Role == ChatRole.Assistant)
             .Select(m => string.Join("", m.Contents.OfType<TextContent>().Select(t => t.Text)))
@@ -90,7 +90,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
                 if (content is UsageContent uc) lastUsage = uc.Details;
                 if (content is TextContent tc) outputBuilder.Append(tc.Text);
 
-                // AG-UI: emitir TOOL_CALL_ARGS durante streaming de argumentos de tool calls
+                // AG-UI: emite TOOL_CALL_ARGS durante streaming de argumentos de tool calls.
                 if (content is FunctionCallContent fcc && _tokenSink is not null)
                 {
                     var ctx = DelegateExecutor.Current.Value;
@@ -134,7 +134,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
         var outputTokens = (int)(usage?.OutputTokenCount ?? 0);
         var totalTokens = (int)(usage?.TotalTokenCount ?? inputTokens + outputTokens);
         // Propriedade tipada em Microsoft.Extensions.AI.Abstractions 10.5.0;
-        // mapeada do OpenAI via InputTokenDetails.CachedTokenCount. Ver ADR 000.
+        // mapeada do OpenAI via InputTokenDetails.CachedTokenCount.
         // É SUBSET de inputTokens (não somar de novo no total).
         var cachedTokens = (int)(usage?.CachedInputTokenCount ?? 0);
 
@@ -161,7 +161,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
         // Acumula no budget da execução — será checado na próxima chamada LLM via EnforceBudget.
         ctx?.Budget?.Add(totalTokens);
 
-        // Fase 2 — calcula custo incremental em USD e acumula no budget.
+        // Calcula custo incremental em USD e acumula no budget.
         // Fire-and-forget via Task.Run impediria enforcement na chamada seguinte → fazemos síncrono.
         if (ctx?.Budget is not null && _pricingCache is not null)
         {
@@ -189,7 +189,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
 
         var promptVersionId = ctx?.PromptVersions.GetValueOrDefault(_agentId);
 
-        // F6 — experiment binding. Composer grava quando bucketing acontece;
+        // Experiment binding: composer grava quando bucketing acontece;
         // aqui só copiamos pra persistir em llm_token_usage pra análise.
         int? experimentId = null;
         char? experimentVariant = null;

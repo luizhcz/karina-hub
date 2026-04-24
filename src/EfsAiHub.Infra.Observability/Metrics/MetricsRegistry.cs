@@ -32,7 +32,7 @@ public static class MetricsRegistry
         _meter.CreateHistogram<double>("agents.tokens_used",
             description: "Tokens utilizados por execução de agente");
 
-    /// <summary>Fase 2 — custo incremental em USD por chamada LLM.</summary>
+    /// <summary>Custo incremental em USD por chamada LLM.</summary>
     public static readonly Histogram<double> AgentCostUsd =
         _meter.CreateHistogram<double>("agents.cost_usd",
             description: "Custo em USD por chamada LLM (incremental, calculado via ModelPricing)");
@@ -92,8 +92,6 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("hitl.orphaned_recoveries",
             description: "Execuções Paused retomadas com HITL já resolvido (Approved/Rejected) — gap do NOTIFY perdido.");
 
-    // ── P2-A — Métricas operacionais HITL ───────────────────────────────────────
-
     public static readonly Counter<long> HitlRequested =
         _meter.CreateCounter<long>("hitl.requested",
             description: "Interações HITL criadas. Tags: workflow_id");
@@ -131,34 +129,30 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("persistence.channel.dropped",
             description: "Itens descartados (DropOldest) por channel de persistência. Tag: channel=token_usage|tool_invocation|node");
 
-    // ── Fase 8 — Hardening / Observabilidade consolidada ─────────────────────
-
-    /// <summary>Fase 1 — latência de resolução de AgentVersion (cache+DB).</summary>
+    /// <summary>Latência de resolução de AgentVersion (cache+DB).</summary>
     public static readonly Histogram<double> AgentVersionResolveLatency =
         _meter.CreateHistogram<double>("agent.version.resolve_latency", unit: "ms",
             description: "Latência de resolução de AgentVersion (lookup do snapshot corrente)");
 
-    /// <summary>Fase 4 — latência de retrieval RAG por knowledge source.</summary>
+    /// <summary>Latência de retrieval RAG por knowledge source.</summary>
     public static readonly Histogram<double> RagRetrievalLatency =
         _meter.CreateHistogram<double>("rag.retrieval.latency", unit: "ms",
             description: "Latência de retrieval RAG. Tag: source_kind=pgvector|foundry|ai_search");
 
-    /// <summary>Fase 4 — documentos retornados por retrieval RAG.</summary>
+    /// <summary>Documentos retornados por retrieval RAG.</summary>
     public static readonly Histogram<double> RagDocsReturned =
         _meter.CreateHistogram<double>("rag.docs.returned",
             description: "Quantidade de documentos retornados por retrieval RAG");
 
-    /// <summary>Fase 7 — sinais de escalação emitidos (tag: category, routed=true|false).</summary>
+    /// <summary>Sinais de escalação emitidos (tag: category, routed=true|false).</summary>
     public static readonly Counter<long> EscalationSignalsTotal =
         _meter.CreateCounter<long>("agent.escalation.signals",
             description: "Sinais AgentEscalationSignal emitidos por agentes. Tags: category, routed");
 
-    /// <summary>Fase 6 — invocações de tool por fingerprint (tag: tool, fingerprint_prefix).</summary>
+    /// <summary>Invocações de tool por fingerprint (tag: tool, fingerprint_prefix).</summary>
     public static readonly Counter<long> ToolInvocationsByFingerprint =
         _meter.CreateCounter<long>("tool.invocations.by_fingerprint",
-            description: "Invocações de tool contadas por fingerprint (Fase 6). Tags: tool, fingerprint");
-
-    // ── Item 9 — Circuit Breaker LLM ──────────────────────────────────────────
+            description: "Invocações de tool contadas por fingerprint. Tags: tool, fingerprint");
 
     /// <summary>Vezes que o circuit breaker abriu para um provider. Tag: provider.</summary>
     public static readonly Counter<long> CircuitBreakerOpened =
@@ -179,8 +173,6 @@ public static class MetricsRegistry
     public static readonly Counter<long> UnhandledExceptions =
         _meter.CreateCounter<long>("http.unhandled_exceptions",
             description: "Exceções não tratadas capturadas pelo GlobalExceptionMiddleware. Tags: path, method");
-
-    // ── PgEventBus — observabilidade do LISTEN/NOTIFY SSE ────────────────────
 
     /// <summary>
     /// Subscribers SSE ativos (conns PG "sse" em LISTEN). Proxy direto pro uso do pool:
@@ -204,8 +196,6 @@ public static class MetricsRegistry
     public static readonly Counter<long> EventBusSubscribeSetupErrors =
         _meter.CreateCounter<long>("eventbus.subscribe.setup_errors",
             description: "Erros durante o setup do subscriber (open/listen/replay). Tag: phase");
-
-    // ── Persona Resolution ──────────────────────────────────────────────────
 
     /// <summary>
     /// Latência da resolução de persona, com tag <c>outcome</c> =
@@ -232,7 +222,7 @@ public static class MetricsRegistry
             description: "Tamanho (chars) do bloco de persona inserido no system message.");
 
     /// <summary>
-    /// F6 — incrementa cada vez que o composer atribui uma variant (A/B) a um
+    /// Incrementa cada vez que o composer atribui uma variant (A/B) a um
     /// usuário sob experiment ativo. Tag <c>variant</c>. Permite ver a taxa
     /// de assignments em tempo real sem esperar o batch writer do
     /// <c>llm_token_usage</c>.
@@ -242,7 +232,7 @@ public static class MetricsRegistry
             description: "Assignments de variant em experiments A/B de persona. Tags: experiment_id, variant.");
 
     /// <summary>
-    /// F6 — incrementa quando o composer encontra um experiment ativo apontando
+    /// Incrementa quando o composer encontra um experiment ativo apontando
     /// pra <see cref="EfsAiHub.Core.Abstractions.Identity.Persona.PersonaPromptTemplateVersion.VersionId"/>
     /// que não existe mais (version deletada direto no DB). Composer degrada
     /// pro ActiveVersionId do template pai — sinalizar pra alertar admin que

@@ -17,7 +17,7 @@ public sealed class PersonaContextAccessor : IPersonaContextAccessor
         set
         {
             var current = _holder.Value;
-            if (current is not null) current.Persona = null; // libera reference antiga
+            if (current is not null) current.Persona = null;
 
             _holder.Value = value is null ? null : new Holder { Persona = value };
         }

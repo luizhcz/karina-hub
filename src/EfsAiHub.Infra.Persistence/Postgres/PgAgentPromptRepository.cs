@@ -31,8 +31,6 @@ public class PgAgentPromptRepository : IAgentPromptRepository
     public void InvalidateCache(string agentId)
         => _cache.RemoveAsync(CacheKeyPrefix + agentId).GetAwaiter().GetResult();
 
-    // ── Leitura ──────────────────────────────────────────────────────────────
-
     public async Task<string?> GetActivePromptAsync(string agentId, CancellationToken ct = default)
     {
         var result = await GetActivePromptWithVersionAsync(agentId, ct);
@@ -85,8 +83,6 @@ public class PgAgentPromptRepository : IAgentPromptRepository
             .ToList();
     }
 
-    // ── Escrita ───────────────────────────────────────────────────────────────
-
     public async Task SaveVersionAsync(
         string agentId, string versionId, string content, CancellationToken ct = default)
     {
@@ -111,7 +107,6 @@ public class PgAgentPromptRepository : IAgentPromptRepository
         else
         {
             existing.Content = content;
-            // se esta versão está ativa, invalida o cache
             if (existing.IsActive) InvalidateCache(agentId);
         }
 
@@ -131,7 +126,6 @@ public class PgAgentPromptRepository : IAgentPromptRepository
             throw new KeyNotFoundException(
                 $"Versão '{versionId}' não existe para o agente '{agentId}'. Grave-a primeiro.");
 
-        // Desativa todas as versões deste agente
         var allVersions = await ctx.AgentPromptVersions
             .Where(r => r.AgentId == agentId)
             .ToListAsync(ct);

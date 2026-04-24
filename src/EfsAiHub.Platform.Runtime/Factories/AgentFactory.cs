@@ -87,7 +87,6 @@ public class AgentFactory : IAgentFactory
             definition.Name, definition.Id,
             definition.Provider.Type, definition.Provider.ClientType);
 
-        // Injeta o logger do scope no DelegateExecutor — substitui o LoggerFactory hard-coded.
         DelegateExecutor.CurrentLogger.Value = _logger;
 
         definition = await InjectProjectCredentials(definition, ct);
@@ -97,7 +96,6 @@ public class AgentFactory : IAgentFactory
         var provider = ResolveProvider(definition);
         var options = ChatOptionsBuilder.BuildAgentOptions(definition, _functionRegistry, _toolPersistence.Writer, _trackedFnLogger, _logger, _allowFingerprintMismatch, projectId: definition.ProjectId);
 
-        // Para AzureOpenAI/OpenAI (não-Foundry), envolve com rastreamento de tokens + middleware
         if (provider.ProviderType is "AZUREOPENAI" or "OPENAI")
         {
             var rawClient = provider.CreateChatClient(definition);
@@ -144,7 +142,6 @@ public class AgentFactory : IAgentFactory
             ? new FunctionInvokingChatClient(rawChatClient) { MaximumIterationsPerRequest = 10 }
             : rawChatClient;
 
-        // Aplica cadeia de middlewares (AccountGuard, StructuredOutputState, etc.)
         chatClient = WrapWithMiddlewares(chatClient, definition);
 
         var promptResult = await _promptRepo.GetActivePromptWithVersionAsync(definition.Id, ct);
@@ -169,7 +166,7 @@ public class AgentFactory : IAgentFactory
             var execCtx = EfsAiHub.Core.Orchestration.Executors.DelegateExecutor.Current.Value;
             var persona = execCtx?.Persona;
             var projectId = execCtx?.ProjectId;
-            // Cadeia de 5 níveis no composer (F4): project:{pid}:agent:{aid}:{userType}
+            // Cadeia de 5 níveis no composer: project:{pid}:agent:{aid}:{userType}
             // → project:{pid}:{userType} → agent:{aid}:{userType} → global:{userType} → null.
             var composedPersona = _personaComposer is null
                 ? ComposedPersonaPrompt.Empty
@@ -232,15 +229,12 @@ public class AgentFactory : IAgentFactory
         };
     }
 
-    // ── Helpers privados ─────────────────────────────────────────────────────
-
     private ILlmClientProvider ResolveProvider(AgentDefinition definition)
     {
         var type = definition.Provider.Type;
         if (_providers.TryGetValue(type, out var provider))
             return provider;
 
-        // Fallback para AzureFoundry para providers desconhecidos
         if (_providers.TryGetValue("AZUREFOUNDRY", out var foundry))
             return foundry;
 
@@ -304,7 +298,7 @@ public class AgentFactory : IAgentFactory
     {
         var modelId = definition.Model.DeploymentName ?? "unknown";
 
-        // Cadeia (C5): Retry → Circuit → [AccountGuard] → TokenTracking → Raw
+        // Cadeia: Retry → Circuit → [AccountGuard] → TokenTracking → Raw
         IChatClient current = new TokenTrackingChatClient(inner, definition.Id, modelId, _tokenPersistence.Writer, _logger, _pricingCache, _agUiTokenSink);
 
         foreach (var mw in definition.Middlewares.Where(m => m.Enabled))
@@ -315,12 +309,11 @@ public class AgentFactory : IAgentFactory
                 current = wrapped;
         }
 
-        // Item 9 — Circuit breaker entre Retry e middlewares
         if (_circuitBreaker is not null)
         {
             var providerKey = $"{definition.Provider.Type}:{definition.Provider.Endpoint ?? "default"}";
 
-            // Fallback: só se explicitamente configurado e de tipo diferente do primary (R3)
+            // Fallback: só se explicitamente configurado e de tipo diferente do primary.
             IChatClient? fallbackClient = null;
             string? fallbackProviderType = null;
             if (definition.FallbackProvider is { } fb
@@ -328,7 +321,6 @@ public class AgentFactory : IAgentFactory
             {
                 if (_providers.TryGetValue(fb.Type, out var fallbackProvider))
                 {
-                    // Cria definição temporária com o fallback provider para obter o client
                     var fallbackDef = CopyWithProvider(definition, fb);
                     fallbackClient = fallbackProvider.CreateChatClient(fallbackDef);
                     fallbackProviderType = fb.Type;

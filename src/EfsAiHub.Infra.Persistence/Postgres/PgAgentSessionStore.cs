@@ -60,14 +60,13 @@ public class PgAgentSessionStore(
         var row = await ctx.AgentSessions.FindAsync([record.SessionId], ct);
         if (row is null)
         {
-            // Fallback: upsert caso não exista
             return await CreateAsync(record, ct);
         }
 
         row.SerializedState = JsonSerializer.Serialize(record.SerializedState);
         row.TurnCount = record.TurnCount;
         row.LastAccessedAt = record.LastAccessedAt;
-        row.ExpiresAt = DateTime.UtcNow.Add(Ttl); // TTL renovável
+        row.ExpiresAt = DateTime.UtcNow.Add(Ttl);
         await ctx.SaveChangesAsync(ct);
         return record;
     }

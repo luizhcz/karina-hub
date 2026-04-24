@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace EfsAiHub.Infra.Persistence.Postgres;
 
 /// <summary>
-/// Fase 1 — Append-only store de snapshots imutáveis de agente.
+/// Append-only store de snapshots imutáveis de agente.
 /// Idempotência por <see cref="AgentVersion.ContentHash"/>: se a última revision já carrega
 /// o mesmo hash, retorna-a em vez de criar uma duplicata.
 /// </summary>

@@ -32,7 +32,7 @@ public interface IModelPricingCache
 
 public sealed class ModelPricingCache : IModelPricingCache, IDisposable
 {
-    /// <summary>Identificador no <see cref="ICacheInvalidationBus"/> (F2).</summary>
+    /// <summary>Identificador no <see cref="ICacheInvalidationBus"/>.</summary>
     public const string CacheName = "model-pricing";
 
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(5);
@@ -44,7 +44,7 @@ public sealed class ModelPricingCache : IModelPricingCache, IDisposable
     private readonly ICacheInvalidationBus _invalidationBus;
     private readonly ILogger<ModelPricingCache> _logger;
 
-    // Local in-memory cache for hot-path (avoids Redis roundtrip on every token tracking call)
+    // Cache local in-memory para hot path: evita roundtrip ao Redis em cada token tracking call.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (ModelPricing? Value, DateTime ExpiresAt)> _local = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly IDisposable _invalidationSubscription;
@@ -85,11 +85,11 @@ public sealed class ModelPricingCache : IModelPricingCache, IDisposable
     {
         var now = DateTime.UtcNow;
 
-        // 1. Local in-memory (fastest — no I/O)
+        // Local in-memory (sem I/O).
         if (_local.TryGetValue(modelId, out var localEntry) && localEntry.ExpiresAt > now)
             return localEntry.Value;
 
-        // 2. Redis (shared cross-pod)
+        // Redis (shared cross-pod).
         try
         {
             var redisKey = $"{RedisKeyPrefix}{modelId}";
@@ -108,7 +108,7 @@ public sealed class ModelPricingCache : IModelPricingCache, IDisposable
             _logger.LogWarning(ex, "[ModelPricingCache] Redis read failed for '{Model}', falling back to Postgres.", modelId);
         }
 
-        // 3. Postgres fallback → populate Redis + local
+        // Postgres fallback → popula Redis + local.
         try
         {
             using var scope = _sp.CreateScope();
@@ -122,7 +122,7 @@ public sealed class ModelPricingCache : IModelPricingCache, IDisposable
 
             _local[modelId] = (match, now + Ttl);
 
-            // Populate Redis (fire-and-forget — cache miss is tolerable)
+            // Popula Redis (fire-and-forget — cache miss é tolerável).
             try
             {
                 var redisKey = $"{RedisKeyPrefix}{modelId}";
@@ -155,7 +155,7 @@ public sealed class ModelPricingCache : IModelPricingCache, IDisposable
         }
         else
         {
-            // Invalidate all — clear local and remove known Redis keys
+            // Invalida tudo — limpa local e remove chaves conhecidas no Redis.
             var keys = _local.Keys.ToList();
             _local.Clear();
             foreach (var key in keys)

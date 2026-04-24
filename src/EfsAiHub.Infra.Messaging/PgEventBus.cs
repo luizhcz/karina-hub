@@ -47,8 +47,6 @@ public sealed class PgEventBus : IWorkflowEventBus
         _logger = logger;
     }
 
-    // ── PublishAsync ──────────────────────────────────────────────────────────
-
     public async Task PublishAsync(
         string executionId,
         WorkflowEventEnvelope envelope,
@@ -85,8 +83,6 @@ public sealed class PgEventBus : IWorkflowEventBus
         cmd.Parameters.AddWithValue("payload", notifyPayload);
         await cmd.ExecuteNonQueryAsync(ct);
     }
-
-    // ── SubscribeAsync ────────────────────────────────────────────────────────
 
     public async IAsyncEnumerable<WorkflowEventEnvelope> SubscribeAsync(
         string executionId,
@@ -176,8 +172,6 @@ public sealed class PgEventBus : IWorkflowEventBus
             // dispatcher e completa o channel.
         }
     }
-
-    // ── GetHistoryAsync ───────────────────────────────────────────────────────
 
     public Task<IReadOnlyList<WorkflowEventEnvelope>> GetHistoryAsync(
         string executionId,
