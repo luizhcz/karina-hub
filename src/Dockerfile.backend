@@ -29,6 +29,11 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS runner
 WORKDIR /app
 COPY --from=builder /out .
 
+# F8: habilita ICU (cultures pt-BR / en-US) — Alpine vem sem por padrão e
+# InvariantGlobalization=false no csproj exige libs presentes em runtime.
+RUN apk add --no-cache icu-libs icu-data-full
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
+
 # Usuário não-root
 RUN adduser -D appuser
 USER appuser

@@ -5,6 +5,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <NoWarn>$(NoWarn);OPENAI001;MEAI001;MAAIW001</NoWarn>
+    <!-- F8: precisa de cultures (pt-BR, en-US) para RequestLocalizationMiddleware
+         e PersonaBooleanFormat. Container base .NET 8 runs em invariant mode por
+         default — desliga aqui pra habilitar CultureInfo completa. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
