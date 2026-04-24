@@ -35,7 +35,7 @@ public sealed class PersonaPromptTemplate
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; set; }
 
-    // F9: coluna UpdatedBy foi deprecada no domínio. Actor canônico vive em
+    // Coluna UpdatedBy foi deprecada no domínio. Actor canônico vive em
     // admin_audit_log (via IAdminAuditLogger). Coluna no DB fica pra drop
     // numa release subsequente após confirmar zero read no app (migration
     // db/migration_persona_templates_drop_updatedby.sql preparada, não
@@ -43,9 +43,9 @@ public sealed class PersonaPromptTemplate
 
     /// <summary>
     /// Aponta pra <see cref="PersonaPromptTemplateVersion.VersionId"/> ativa
-    /// em <c>aihub.persona_prompt_template_versions</c>. F5 — cada UPDATE
-    /// via API cria nova version + move esse ponteiro na mesma transação.
-    /// Nullable em rows pré-F5 até backfill migrar.
+    /// em <c>aihub.persona_prompt_template_versions</c>. Cada UPDATE via API
+    /// cria nova version + move esse ponteiro na mesma transação. Nullable em
+    /// rows antigas até backfill migrar.
     /// </summary>
     public Guid? ActiveVersionId { get; set; }
 
@@ -60,10 +60,10 @@ public sealed class PersonaPromptTemplate
     public static string AgentScope(string agentId, string userType)
         => $"agent:{agentId}:{userType}";
 
-    // F4: Scopes project-aware — override mais específico que o global e por
-    // agente. ProjectId foi escolhido (ADR 003) em vez de TenantId paralelo,
-    // porque Project já é o boundary de isolamento no repo. Cadeia completa
-    // no composer:
+    // Scopes project-aware — override mais específico que o global e por
+    // agente. ProjectId foi escolhido em vez de TenantId paralelo porque
+    // Project já é o boundary de isolamento no repo (ver ADR 003). Cadeia
+    // completa no composer:
     //
     //   1. project:{projectId}:agent:{agentId}:{userType}  (mais específico)
     //   2. project:{projectId}:{userType}

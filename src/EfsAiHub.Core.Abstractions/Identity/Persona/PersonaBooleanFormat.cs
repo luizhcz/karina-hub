@@ -3,7 +3,7 @@ using System.Globalization;
 namespace EfsAiHub.Core.Abstractions.Identity.Persona;
 
 /// <summary>
-/// F8 — formata booleans da persona ("sim"/"não" vs "yes"/"no") conforme
+/// Formata booleans da persona ("sim"/"não" vs "yes"/"no") conforme
 /// <see cref="CultureInfo.CurrentUICulture"/> setada pelo middleware
 /// <c>RequestLocalizationMiddleware</c> no pipeline do Host.Api.
 ///

@@ -11,8 +11,7 @@ namespace EfsAiHub.Platform.Runtime.Personalization;
 /// <summary>
 /// Implementação default do <see cref="IPersonaPromptComposer"/>.
 ///
-/// Resolve template (cache L1 → Redis → PG) na cadeia de 5 níveis (F4 /
-/// ADR 003):
+/// Resolve template (cache L1 → Redis → PG) na cadeia de 5 níveis:
 ///   1. <c>project:{projectId}:agent:{agentId}:{userType}</c>  (mais específico)
 ///   2. <c>project:{projectId}:{userType}</c>
 ///   3. <c>agent:{agentId}:{userType}</c>
@@ -21,19 +20,15 @@ namespace EfsAiHub.Platform.Runtime.Personalization;
 ///
 /// ProjectId foi escolhido como boundary de isolamento em vez de TenantId
 /// porque já é enforced em 6 entidades via <c>HasQueryFilter</c>, e projects
-/// já pertencem a tenants via <c>projects.tenant_id</c>. Ver ADR 003.
+/// já pertencem a tenants via <c>projects.tenant_id</c> (ver ADR 003).
 ///
-/// F6 — A/B testing: quando um <see cref="PersonaPromptExperiment"/> está
-/// ativo para (<paramref name="projectId"/>, scope_resolvido), o composer
-/// faz bucketing determinístico por <c>persona.UserId</c> e usa o
+/// A/B testing: quando um <see cref="PersonaPromptExperiment"/> está ativo
+/// para (<paramref name="projectId"/>, scope_resolvido), o composer faz
+/// bucketing determinístico por <c>persona.UserId</c> e usa o
 /// <see cref="PersonaPromptTemplateVersion"/> da variant escolhida no lugar
 /// da ActiveVersionId corrente. O <see cref="ExperimentAssignment"/> vai pro
 /// <see cref="ExecutionContext.ExperimentAssignments"/> pro TokenTrackingChatClient
 /// persistir em llm_token_usage.
-///
-/// Renderização é <see cref="PersonaTemplateRenderer"/> — pure function,
-/// delega a cada subtipo (<see cref="ClientPersona"/> / <see cref="AdminPersona"/>)
-/// o mapeamento placeholder → valor via <see cref="UserPersona.GetPlaceholderValue"/>.
 ///
 /// O <see cref="ComposedPersonaPrompt.UserReinforcement"/> é montado em C#
 /// (hardcoded ≤15 tokens por tipo) — não entra no template porque é invariante
@@ -71,9 +66,8 @@ public sealed class PersonaPromptComposer : IPersonaPromptComposer
         if (resolvedNullable is not { } resolved)
             return ComposedPersonaPrompt.Empty;
 
-        // F6 — check active experiment para (projectId, scope resolvido).
-        // Só tenta quando temos os 3 componentes (experiments injetado + projectId
-        // + template repo pra resolver version snapshot).
+        // Só tenta experiment ativo quando temos os 3 componentes (experiments
+        // injetado + projectId + template repo pra resolver version snapshot).
         var templateContent = resolved.Template.Template;
         if (_experiments is not null && _templateRepo is not null
             && !string.IsNullOrWhiteSpace(projectId))

@@ -10,7 +10,7 @@ public interface IPersonaPromptTemplateRepository
     /// Upsert por <see cref="PersonaPromptTemplate.Scope"/>. Cria se não existe,
     /// atualiza in-place caso contrário (constraint UNIQUE(Scope) força 1 linha por scope).
     ///
-    /// <para>F5: também append uma version nova em
+    /// <para>Também append uma version nova em
     /// <c>persona_prompt_template_versions</c> + move
     /// <see cref="PersonaPromptTemplate.ActiveVersionId"/> pra ela, tudo na
     /// mesma transação.</para>
@@ -22,8 +22,6 @@ public interface IPersonaPromptTemplateRepository
         CancellationToken ct = default);
 
     Task<bool> DeleteAsync(int id, CancellationToken ct = default);
-
-    // ── F5: versionamento ───────────────────────────────────────────────
 
     /// <summary>
     /// Lista todas as versions de um template, ordenadas por
@@ -46,7 +44,7 @@ public interface IPersonaPromptTemplateRepository
         CancellationToken ct = default);
 
     /// <summary>
-    /// F6 — lookup direto de uma version pelo seu <see cref="PersonaPromptTemplateVersion.VersionId"/>.
+    /// Lookup direto de uma version pelo seu <see cref="PersonaPromptTemplateVersion.VersionId"/>.
     /// Usado pelo composer quando um experiment A/B aponta pra uma version
     /// específica (snapshot imutável — independe da ActiveVersionId corrente).
     /// </summary>

@@ -8,7 +8,7 @@ namespace EfsAiHub.Core.Abstractions.Identity.Persona;
 ///    (≤15 tokens) anexado ao fim da user message — combate lost-in-the-middle.
 ///
 /// Template usado vem de <see cref="IPersonaPromptTemplateRepository"/>:
-/// cadeia de fallback 5 níveis (F4 / ADR 003):
+/// cadeia de fallback 5 níveis (ver ADR 003):
 ///   1. <c>project:{projectId}:agent:{agentId}:{userType}</c>  (mais específico)
 ///   2. <c>project:{projectId}:{userType}</c>
 ///   3. <c>agent:{agentId}:{userType}</c>

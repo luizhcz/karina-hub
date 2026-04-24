@@ -1,7 +1,7 @@
 namespace EfsAiHub.Core.Abstractions.Identity.Persona;
 
 /// <summary>
-/// F6 — CRUD de experiments A/B de templates.
+/// CRUD de experiments A/B de templates.
 /// </summary>
 public interface IPersonaPromptExperimentRepository
 {
@@ -17,7 +17,7 @@ public interface IPersonaPromptExperimentRepository
 
     /// <summary>
     /// Lista experiments do project (ativos e encerrados), mais recentes
-    /// primeiro. Paginação é out-of-scope do MVP.
+    /// primeiro. Sem paginação — volume esperado é baixo (dezenas por project).
     /// </summary>
     Task<IReadOnlyList<PersonaPromptExperiment>> GetByProjectAsync(
         string projectId, CancellationToken ct = default);
@@ -41,7 +41,7 @@ public interface IPersonaPromptExperimentRepository
         int experimentId, CancellationToken ct = default);
 }
 
-/// <summary>F6 — agregado por variant (A/B) pra dashboard de resultados.</summary>
+/// <summary>Agregado por variant (A/B) pra dashboard de resultados.</summary>
 public sealed class ExperimentVariantResult
 {
     public required char Variant { get; init; }

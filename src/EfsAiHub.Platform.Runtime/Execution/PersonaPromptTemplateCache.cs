@@ -28,7 +28,7 @@ public interface IPersonaPromptTemplateCache
 
 public sealed class PersonaPromptTemplateCache : IPersonaPromptTemplateCache, IDisposable
 {
-    /// <summary>Identificador do cache no <see cref="ICacheInvalidationBus"/> (F2).</summary>
+    /// <summary>Identificador do cache no <see cref="ICacheInvalidationBus"/>.</summary>
     public const string CacheName = "persona-tpl";
 
     private static readonly TimeSpan L1Ttl = TimeSpan.FromSeconds(60);

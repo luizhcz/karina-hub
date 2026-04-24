@@ -34,7 +34,7 @@ namespace EfsAiHub.Platform.Runtime.Execution;
 /// </summary>
 public sealed class CachedPersonaProvider : IPersonaProvider, IDisposable
 {
-    /// <summary>Identificador do cache no <see cref="ICacheInvalidationBus"/> (F2).</summary>
+    /// <summary>Identificador do cache no <see cref="ICacheInvalidationBus"/>.</summary>
     public const string CacheName = "persona";
 
     private const string RedisKeyPrefix = "persona:";
@@ -84,7 +84,7 @@ public sealed class CachedPersonaProvider : IPersonaProvider, IDisposable
         // Timer com due=SweepInterval pra não bloquear a primeira request do pod.
         _sweepTimer = new Timer(_ => SweepExpired(), null, SweepInterval, SweepInterval);
 
-        // Cross-pod invalidation (F2): quando admin invalidar em outro pod,
+        // Cross-pod invalidation: quando admin invalidar em outro pod,
         // limpamos L1 daqui também.
         _invalidationSubscription = _invalidationBus.Subscribe(CacheName, key =>
         {

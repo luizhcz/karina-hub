@@ -1,8 +1,8 @@
 namespace EfsAiHub.Core.Abstractions.Identity.Persona;
 
 /// <summary>
-/// F6 — experiment A/B de templates. Permite rodar dois VersionIds de um
-/// mesmo <see cref="PersonaPromptTemplate"/> em paralelo com split de tráfego
+/// Experiment A/B de templates. Permite rodar dois VersionIds de um mesmo
+/// <see cref="PersonaPromptTemplate"/> em paralelo com split de tráfego
 /// configurável.
 ///
 /// Design:
@@ -18,7 +18,7 @@ namespace EfsAiHub.Core.Abstractions.Identity.Persona;
 ///     vai pra mesma variant (sticky across retries).</item>
 /// </list>
 ///
-/// Isolamento: <see cref="ProjectId"/> é o boundary (ADR 003). UNIQUE parcial
+/// Isolamento: <see cref="ProjectId"/> é o boundary (ver ADR 003). UNIQUE parcial
 /// (onde <see cref="EndedAt"/> IS NULL) garante 1 experiment ativo por
 /// (ProjectId, Scope).
 /// </summary>
@@ -26,7 +26,7 @@ public sealed class PersonaPromptExperiment
 {
     public int Id { get; init; }
 
-    /// <summary>Project dono do experiment (ADR 003).</summary>
+    /// <summary>Project dono do experiment (ver ADR 003).</summary>
     public required string ProjectId { get; init; }
 
     /// <summary>Scope de template alvo (ex: <c>project:p1:cliente</c>).</summary>
@@ -58,7 +58,7 @@ public sealed class PersonaPromptExperiment
 }
 
 /// <summary>
-/// F6 — resultado de assignment. Propagado via ExecutionContext pro
+/// Resultado de assignment. Propagado via ExecutionContext pro
 /// <see cref="IPersonaPromptComposer"/> usar a version snapshot correta e
 /// pro writer de llm_token_usage persistir variant.
 /// </summary>
