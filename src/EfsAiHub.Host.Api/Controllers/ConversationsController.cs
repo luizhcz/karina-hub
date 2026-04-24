@@ -31,8 +31,6 @@ public class ConversationsController : ControllerBase
         _logger = logger;
     }
 
-    // ── POST /api/conversations ───────────────────────────────────────────────
-
     [HttpPost]
     [SwaggerOperation(Summary = "Cria uma nova conversa de chat")]
     [ProducesResponseType(StatusCodes.Status201Created)]
@@ -62,8 +60,6 @@ public class ConversationsController : ControllerBase
         });
     }
 
-    // ── GET /api/conversations/{id} ───────────────────────────────────────────
-
     [HttpGet("{id}")]
     [SwaggerOperation(Summary = "Retorna metadados de uma conversa")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -73,8 +69,6 @@ public class ConversationsController : ControllerBase
         var session = await _facade.GetAsync(id, ct);
         return session is null ? NotFound() : Ok(session);
     }
-
-    // ── GET /api/conversations/{id}/messages ─────────────────────────────────
 
     [HttpGet("{id}/messages")]
     [SwaggerOperation(Summary = "Lista histórico de mensagens da conversa (mais recentes primeiro)")]
@@ -100,8 +94,6 @@ public class ConversationsController : ControllerBase
             m.ExecutionId
         }));
     }
-
-    // ── GET /api/conversations/{id}/full ─────────────────────────────────────
 
     [HttpGet("{id}/full")]
     [SwaggerOperation(Summary = "Dump completo da conversa: metadata, todas as mensagens e execuções (nodes/tools/events) referenciadas")]
@@ -149,8 +141,6 @@ public class ConversationsController : ControllerBase
         });
     }
 
-    // ── POST /api/conversations/{id}/messages ────────────────────────────────
-
     [HttpPost("{id}/messages")]
     [SwaggerOperation(Summary = "Envia mensagens para a conversa (dispara workflow se a última não for 'robot')")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -188,8 +178,6 @@ public class ConversationsController : ControllerBase
             messageIds = sendResult.PersistedMessages?.Select(m => m.MessageId)
         });
     }
-
-    // ── GET /api/conversations/{id}/messages/stream (SSE) ────────────────────
 
     [HttpGet("{id}/messages/stream")]
     [SwaggerOperation(Summary = "SSE: stream de eventos em tempo real para a conversa ativa")]
@@ -230,8 +218,6 @@ public class ConversationsController : ControllerBase
         }
     }
 
-    // ── DELETE /api/conversations/{id} ────────────────────────────────────────
-
     [HttpDelete("{id}")]
     [SwaggerOperation(Summary = "Deleta uma conversa e todas as suas mensagens")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -243,8 +229,6 @@ public class ConversationsController : ControllerBase
             ? NoContent()
             : MapError(result.Status, result.ErrorMessage);
     }
-
-    // ── GET /api/admin/conversations ──────────────────────────────────────────
 
     [HttpGet("/api/admin/conversations")]
     [SwaggerOperation(Summary = "Admin: lista todas as conversas com filtros opcionais")]
@@ -263,8 +247,6 @@ public class ConversationsController : ControllerBase
         return Ok(new { items, total, page, pageSize });
     }
 
-    // ── DELETE /api/conversations/{id}/context ───────────────────────────────
-
     [HttpDelete("{id}/context")]
     [SwaggerOperation(Summary = "Reseta o contexto da conversa (mensagens antigas ficam visíveis, mas não são enviadas ao próximo workflow)")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -276,8 +258,6 @@ public class ConversationsController : ControllerBase
             ? NoContent()
             : MapError(result.Status, result.ErrorMessage);
     }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private IActionResult MapError(ConversationOperationStatus status, string? message) => status switch
     {

@@ -124,8 +124,6 @@ public class AgentsController : ControllerBase
         return NoContent();
     }
 
-    // ── Fase 1 — Versionamento / Rollback ────────────────────────────────
-
     [HttpGet("{id}/versions")]
     [SwaggerOperation(Summary = "Lista todas as revisões (AgentVersion) de um agente, ordenadas por Revision DESC.")]
     [ProducesResponseType(typeof(IReadOnlyList<AgentVersionResponse>), StatusCodes.Status200OK)]
@@ -229,8 +227,6 @@ public class AgentsController : ControllerBase
         var (isValid, errors) = await _agentService.ValidateAsync(agent, ct);
         return Ok(new { isValid, errors });
     }
-
-    // ── Sandbox / Playground ─────────────────────────────────────────────
 
     [HttpPost("{id}/sandbox")]
     [SwaggerOperation(Summary = "Testa um agente em modo sandbox (tools mockadas, LLM real, sem persistência de chat).")]

@@ -206,8 +206,6 @@ public class WorkflowsController : ControllerBase
         return Ok(executions.Select(ExecutionResponse.FromDomain));
     }
 
-    // ── Catalog ───────────────────────────────────────────────────────────
-
     [HttpGet("visible")]
     [SwaggerOperation(Summary = "Lista workflows visíveis para o projeto atual (project + global)")]
     [ProducesResponseType(typeof(IReadOnlyList<WorkflowResponse>), StatusCodes.Status200OK)]
@@ -238,8 +236,6 @@ public class WorkflowsController : ControllerBase
             return BadRequest(new { error = ex.Message });
         }
     }
-
-    // ── Versioning ──────────────────────────────────────────────────────────
 
     [HttpGet("{id}/versions")]
     [SwaggerOperation(Summary = "Lista todas as versões de um workflow (mais recente primeiro)")]

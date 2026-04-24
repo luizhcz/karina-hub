@@ -26,8 +26,6 @@ public class AgentSessionsController : ControllerBase
         _sessionService = sessionService;
     }
 
-    // ── CRUD de sessões ──────────────────────────────────────────────────────
-
     [HttpPost]
     [SwaggerOperation(
         Summary = "Cria uma sessão de conversa multi-turn com um agente",
@@ -80,8 +78,6 @@ public class AgentSessionsController : ControllerBase
         return NoContent();
     }
 
-    // ── Execução de turns ────────────────────────────────────────────────────
-
     [HttpPost("{sessionId}/run")]
     [SwaggerOperation(
         Summary = "Envia uma mensagem ao agente e recebe a resposta completa",
@@ -108,10 +104,6 @@ public class AgentSessionsController : ControllerBase
         });
     }
 
-    /// <summary>
-    /// Envia uma mensagem ao agente com resposta em Server-Sent Events (SSE).
-    /// Conectar com Accept: text/event-stream.
-    /// </summary>
     [HttpPost("{sessionId}/stream")]
     [SwaggerOperation(
         Summary = "Envia uma mensagem ao agente com resposta em streaming (SSE)",

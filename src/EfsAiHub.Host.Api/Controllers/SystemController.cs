@@ -39,8 +39,6 @@ public class SystemController : ControllerBase
 
 }
 
-// ── Response DTOs ────────────────────────────────────────────────────────────
-
 public class CircuitBreakersResponse
 {
     public List<CircuitBreakerStateDto> CircuitBreakers { get; init; } = [];

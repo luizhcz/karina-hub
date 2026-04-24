@@ -37,8 +37,6 @@ public class DocumentIntelligenceAdminController : ControllerBase
         _auditContext = auditContext;
     }
 
-    // ── Usage (read-only) ────────────────────────────────────────────────────
-
     [HttpGet("usage")]
     [SwaggerOperation(Summary = "Agregados de uso/custo do Document Intelligence num período")]
     public async Task<IActionResult> GetUsage(
@@ -77,8 +75,6 @@ public class DocumentIntelligenceAdminController : ControllerBase
         var items = await _usageQueries.GetRecentJobsAsync(fromUtc, toUtc, limit, ct);
         return Ok(new { from = fromUtc, to = toUtc, items });
     }
-
-    // ── Pricing (CRUD) ───────────────────────────────────────────────────────
 
     [HttpGet("pricing")]
     [SwaggerOperation(Summary = "Lista todos os registros de pricing do Document Intelligence")]
@@ -157,8 +153,6 @@ public class DocumentIntelligenceAdminController : ControllerBase
             payloadBefore: AdminAuditContext.Snapshot(existing)), ct);
         return NoContent();
     }
-
-    // ── Helpers ──────────────────────────────────────────────────────────────
 
     // Default: último 30 dias. Normaliza para UTC pra matchar created_at da tabela.
     private static (DateTime From, DateTime To) NormalizeRange(DateTime? from, DateTime? to)

@@ -7,7 +7,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 /// <summary>
-/// Fase 3 — CRUD de Skills. Upsert dual-escreve snapshot imutável em skill_versions.
+/// CRUD de Skills. Upsert dual-escreve snapshot imutável em skill_versions.
 /// </summary>
 [ApiController]
 [Route("api/skills")]

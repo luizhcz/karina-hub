@@ -8,13 +8,11 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 /// <summary>
-/// CRUD de servidores MCP (Model Context Protocol). Cada registro aqui vira
-/// uma opção para os agents do mesmo projeto: agents referenciam por Id, e o
-/// AzureFoundryClientProvider resolve ServerLabel/ServerUrl/AllowedTools/Headers
+/// CRUD de servidores MCP (Model Context Protocol). Agents referenciam por Id
+/// e o AzureFoundryClientProvider resolve ServerLabel/ServerUrl/AllowedTools/Headers
 /// em runtime toda vez que constrói o ChatOptions.
 ///
-/// Sem validação de rede na criação — cadastrar um MCP offline é permitido
-/// (diferente da versão anterior, onde McpHealthChecker bloqueava o agent create).
+/// Sem validação de rede na criação — cadastrar um MCP offline é permitido.
 /// Mudanças emitem linha em <c>aihub.admin_audit_log</c>.
 /// </summary>
 [ApiController]
@@ -157,7 +155,6 @@ public class McpServersController : ControllerBase
         return NoContent();
     }
 
-    // ── Validação local (sem chamada de rede) ──────────────────────────────
     private static string? Validate(McpServer input)
     {
         if (string.IsNullOrWhiteSpace(input.Id)) return "Id é obrigatório.";

@@ -91,7 +91,6 @@ public class ModelPricingController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
-        // Get model ID before delete for cache invalidation
         var existing = await _repo.GetByIdAsync(id, ct);
         var deleted = await _repo.DeleteAsync(id, ct);
         if (!deleted) return NotFound();

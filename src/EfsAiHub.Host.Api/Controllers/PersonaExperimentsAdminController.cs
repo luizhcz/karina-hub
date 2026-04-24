@@ -9,12 +9,11 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 /// <summary>
-/// F6 — CRUD de experiments A/B de templates de persona + endpoint de
-/// resultados agregados por variant.
+/// CRUD de experiments A/B de templates de persona + endpoint de resultados
+/// agregados por variant.
 ///
-/// Isolamento: igual ao controller de templates — scopes project-aware só
-/// aparecem pro project dono. Ver <see cref="PersonaPromptTemplatesAdminController"/>
-/// pra padrão canonical (F5.5).
+/// Isolamento: scopes project-aware só aparecem pro project dono.
+/// Ver <see cref="PersonaPromptTemplatesAdminController"/> pro padrão canonical.
 /// </summary>
 [ApiController]
 [Route("api/admin/persona-experiments")]
@@ -104,13 +103,11 @@ public class PersonaExperimentsAdminController : ControllerBase
 
         var projectId = _projectAccessor.Current.ProjectId;
 
-        // Scope precisa ser acessível pelo project corrente (mesma regra F5.5
-        // dos templates — admin de P1 não cria experiment que afeta P2).
         if (!IsScopeAccessibleByCurrentProject(request.Scope))
             return BadRequest(new { error = $"Scope '{request.Scope}' não é acessível pelo project corrente." });
 
-        // Variants precisam apontar pra versions distintas e existentes —
-        // previne experiment "quebrado" que cai no degraded silently do composer.
+        // Variants distintas e existentes: previne experiment "quebrado" que
+        // degrada silently no composer.
         if (request.VariantAVersionId == request.VariantBVersionId)
             return BadRequest(new { error = "VariantA e VariantB não podem apontar pra mesma version — experiment comparando conteúdo idêntico é lixo." });
 
@@ -123,14 +120,12 @@ public class PersonaExperimentsAdminController : ControllerBase
         if (a.TemplateId != b.TemplateId)
             return BadRequest(new { error = "Variants precisam ser versions do mesmo template." });
 
-        // Guard contra experiment duplicado ativo no mesmo scope — UNIQUE parcial
-        // no DB pega também, mas resposta clara evita 500.
+        // UNIQUE parcial no DB garante também, mas resposta clara evita 500.
         var existingActive = await _repo.GetActiveAsync(projectId, request.Scope, ct);
         if (existingActive is not null)
             return Conflict(new { error = $"Experiment ativo já existe pro scope '{request.Scope}' (id={existingActive.Id}). Encerre-o antes de criar outro." });
 
-        // CreatedBy fica null — actor real vem do admin_audit_log (canônico).
-        // Mesma razão que HOUSEKEEPING do UpdatedBy em persona_prompt_templates.
+        // Actor canônico vive em admin_audit_log; CreatedBy do domínio fica null.
         var created = await _repo.CreateAsync(new PersonaPromptExperiment
         {
             ProjectId = projectId,
@@ -187,8 +182,8 @@ public class PersonaExperimentsAdminController : ControllerBase
         return NoContent();
     }
 
-    /// <summary>Mesma regra F5.5 do controller de templates — mantida local
-    /// pra evitar dependência cruzada.</summary>
+    // Espelha a regra do controller de templates — mantida local pra evitar
+    // dependência cruzada entre controllers.
     private bool IsScopeAccessibleByCurrentProject(string scope)
     {
         var currentProject = _projectAccessor.Current.ProjectId;
