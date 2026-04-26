@@ -69,23 +69,23 @@ export function LlmCredentialsSection({ existing, onChange }: Props) {
     <Card title="Configuração LLM">
       <div className="flex flex-col gap-4">
         <div className="flex gap-3">
-          <div className="flex flex-col gap-1 flex-1">
+          <div className="flex flex-col gap-1 flex-1 min-w-0">
             <label className="text-xs text-text-muted">Provider padrão</label>
             <select
               value={defaultProvider}
               onChange={(e) => updateDefault(e.target.value, defaultModel)}
-              className="bg-bg-tertiary border border-border-secondary rounded-md px-2.5 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+              className="w-full bg-bg-tertiary border border-border-secondary rounded-md px-2.5 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
             >
               <option value="">Usar global (appsettings)</option>
               {PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
-          <div className="flex flex-col gap-1 flex-1">
+          <div className="flex flex-col gap-1 flex-1 min-w-0">
             <label className="text-xs text-text-muted">Modelo padrão</label>
             <select
               value={defaultModel}
               onChange={(e) => updateDefault(defaultProvider, e.target.value)}
-              className="bg-bg-tertiary border border-border-secondary rounded-md px-2.5 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+              className="w-full bg-bg-tertiary border border-border-secondary rounded-md px-2.5 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
             >
               <option value="">Usar global (appsettings)</option>
               {availableModels.map((m) => (

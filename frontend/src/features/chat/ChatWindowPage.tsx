@@ -222,6 +222,8 @@ export function ChatWindowPage() {
               stepId?: string
               stepName?: string
               error?: string
+              errorCode?: string
+              customValue?: { violationId?: string; phase?: string; retryable?: boolean }
               snapshot?: unknown
             }
 

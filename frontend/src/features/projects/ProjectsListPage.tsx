@@ -69,7 +69,7 @@ export function ProjectsListPage() {
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => navigate(`/projects/${row.original.id}/edit`)}
+            onClick={() => navigate(`/projects/${row.original.id}`)}
           >
             Editar
           </Button>
@@ -114,7 +114,7 @@ export function ProjectsListPage() {
             data={items}
             columns={columns}
             searchPlaceholder="Buscar projeto..."
-            onRowClick={(row) => navigate(`/projects/${row.id}/edit`)}
+            onRowClick={(row) => navigate(`/projects/${row.id}`)}
           />
         )}
       </Card>
