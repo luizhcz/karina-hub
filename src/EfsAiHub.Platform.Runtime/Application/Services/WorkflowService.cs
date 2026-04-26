@@ -13,6 +13,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
     private readonly IWorkflowDefinitionRepository _definitionRepo;
     private readonly IWorkflowExecutionRepository _executionRepo;
     private readonly WorkflowValidator _validator;
+    private readonly EdgeInvariantsValidator _edgeInvariants;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly IExecutionSlotRegistry _chatRegistry;
@@ -25,6 +26,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         IWorkflowDefinitionRepository definitionRepo,
         IWorkflowExecutionRepository executionRepo,
         WorkflowValidator validator,
+        EdgeInvariantsValidator edgeInvariants,
         IServiceScopeFactory scopeFactory,
         IHostApplicationLifetime appLifetime,
         IExecutionSlotRegistry chatRegistry,
@@ -36,6 +38,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         _definitionRepo = definitionRepo;
         _executionRepo = executionRepo;
         _validator = validator;
+        _edgeInvariants = edgeInvariants;
         _scopeFactory = scopeFactory;
         _appLifetime = appLifetime;
         _chatRegistry = chatRegistry;
@@ -52,6 +55,12 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         var (isValid, errors) = await ValidateAsync(definition, ct);
         if (!isValid)
             throw new ArgumentException($"Definição de workflow inválida: {string.Join(", ", errors)}");
+
+        // Invariantes tipadas (regras de negócio cruzando registries) — falha com
+        // envelope estruturado pra controller mapear pra 400 com error_code.
+        var invariantErrors = await _edgeInvariants.ValidateAsync(definition, ct);
+        if (invariantErrors.Count > 0)
+            throw new WorkflowInvariantViolationException(invariantErrors);
 
         _logger.LogInformation("Criando definição de workflow '{WorkflowId}'", definition.Id);
         return await _definitionRepo.UpsertAsync(definition, ct);
@@ -71,6 +80,10 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         var (isValid, errors) = await ValidateAsync(definition, ct);
         if (!isValid)
             throw new ArgumentException($"Definição de workflow inválida: {string.Join(", ", errors)}");
+
+        var invariantErrors = await _edgeInvariants.ValidateAsync(definition, ct);
+        if (invariantErrors.Count > 0)
+            throw new WorkflowInvariantViolationException(invariantErrors);
 
         definition.UpdatedAt = DateTime.UtcNow;
         return await _definitionRepo.UpsertAsync(definition, ct);

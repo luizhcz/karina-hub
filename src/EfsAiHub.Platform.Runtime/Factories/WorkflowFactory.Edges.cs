@@ -1,4 +1,5 @@
 using EfsAiHub.Core.Orchestration.Enums;
+using EfsAiHub.Core.Orchestration.Workflows;
 using Microsoft.Agents.AI.Workflows;
 
 namespace EfsAiHub.Platform.Runtime.Factories;
@@ -10,12 +11,18 @@ namespace EfsAiHub.Platform.Runtime.Factories;
 /// </summary>
 public partial class WorkflowFactory
 {
-    private static readonly IReadOnlyDictionary<WorkflowEdgeType, IEdgeHandler> EdgeHandlers =
-        new IEdgeHandler[]
+    /// <summary>
+    /// Mapa instance-bound (não static) — Conditional/Switch handlers dependem do
+    /// IEdgePredicateEvaluator injetado via DI no ctor da WorkflowFactory.
+    /// </summary>
+    private IReadOnlyDictionary<WorkflowEdgeType, IEdgeHandler>? _edgeHandlers;
+
+    private IReadOnlyDictionary<WorkflowEdgeType, IEdgeHandler> EdgeHandlersMap =>
+        _edgeHandlers ??= new IEdgeHandler[]
         {
             new DirectEdgeHandler(),
-            new ConditionalEdgeHandler(),
-            new SwitchEdgeHandler(),
+            new ConditionalEdgeHandler(_predicateEvaluator),
+            new SwitchEdgeHandler(_predicateEvaluator),
             new FanOutEdgeHandler(),
             new FanInEdgeHandler()
         }.ToDictionary(h => h.Type);
@@ -26,7 +33,7 @@ public partial class WorkflowFactory
         IReadOnlyDictionary<string, ExecutorBinding> bindingMap,
         string workflowId)
     {
-        if (!EdgeHandlers.TryGetValue(edge.EdgeType, out var handler))
+        if (!EdgeHandlersMap.TryGetValue(edge.EdgeType, out var handler))
             throw new NotSupportedException($"EdgeType '{edge.EdgeType}' não suportado.");
 
         var ctx = new EdgeBuildContext(bindingMap, workflowId, _logger);

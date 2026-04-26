@@ -50,6 +50,10 @@ public class WorkflowsController : ControllerBase
                 payloadAfter: AdminAuditContext.Snapshot(WorkflowResponse.FromDomain(definition))), ct);
             return CreatedAtAction(nameof(GetById), new { id = definition.Id }, WorkflowResponse.FromDomain(definition));
         }
+        catch (EfsAiHub.Core.Orchestration.Validation.WorkflowInvariantViolationException ex)
+        {
+            return BadRequest(new { errors = ex.Errors });
+        }
         catch (ArgumentException ex)
         {
             return BadRequest(new { error = ex.Message });
@@ -101,6 +105,10 @@ public class WorkflowsController : ControllerBase
                 payloadBefore: before,
                 payloadAfter: AdminAuditContext.Snapshot(WorkflowResponse.FromDomain(updated))), ct);
             return Ok(WorkflowResponse.FromDomain(updated));
+        }
+        catch (EfsAiHub.Core.Orchestration.Validation.WorkflowInvariantViolationException ex)
+        {
+            return BadRequest(new { errors = ex.Errors });
         }
         catch (ArgumentException ex)
         {

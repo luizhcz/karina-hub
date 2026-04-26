@@ -223,6 +223,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Core.Abstractions.Execution.IExecutionSlotRegistry, ChatExecutionRegistry>();
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<WorkflowValidator>();
+        services.AddScoped<EfsAiHub.Core.Orchestration.Validation.EdgeInvariantsValidator>();
         services.AddScoped<IExecutionDetailReader, ExecutionDetailAssembler>();
         services.AddScoped<IWorkflowService, WorkflowService>();
         services.AddScoped<IWorkflowDispatcher>(sp => (IWorkflowDispatcher)sp.GetRequiredService<IWorkflowService>());

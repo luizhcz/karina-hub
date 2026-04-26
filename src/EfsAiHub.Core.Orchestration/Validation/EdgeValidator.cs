@@ -6,6 +6,10 @@ namespace EfsAiHub.Core.Orchestration.Validation;
 /// <summary>
 /// Valida as arestas de um workflow (Handoff e Graph). Extraído de WorkflowService
 /// para reduzir complexidade e permitir teste isolado das regras de edges.
+///
+/// Regras topológicas e contratuais — a validação tipada de predicates
+/// (<see cref="EdgePredicate.Path"/>, operadores vs tipo, schema do produtor existente)
+/// fica em <c>EnsureInvariants</c> com envelope de erro estruturado por <c>error_code</c>.
 /// </summary>
 public static class EdgeValidator
 {
@@ -62,8 +66,8 @@ public static class EdgeValidator
                 case WorkflowEdgeType.Conditional:
                     ValidateEndpoint(edge.From, "from", "Conditional", errors, knownNodes);
                     ValidateEndpoint(edge.To, "to", "Conditional", errors, knownNodes);
-                    if (string.IsNullOrWhiteSpace(edge.Condition))
-                        errors.Add("Edge 'Conditional' requer o campo 'condition' não vazio.");
+                    if (edge.Predicate is null)
+                        errors.Add("Edge 'Conditional' requer o campo 'predicate' (com Path + Operator).");
                     break;
 
                 case WorkflowEdgeType.FanOut:
@@ -116,6 +120,7 @@ public static class EdgeValidator
         if (edge.Cases.Count == 0)
             errors.Add("Edge 'Switch' requer ao menos 1 item em 'cases'.");
 
+        var hasDefaultOrPredicate = false;
         foreach (var edgeCase in edge.Cases)
         {
             if (edgeCase.Targets.Count == 0)
@@ -123,7 +128,16 @@ public static class EdgeValidator
 
             foreach (var t in edgeCase.Targets)
                 ValidateEndpoint(t, "cases[].targets[]", "Switch", errors, knownNodes);
+
+            if (!edgeCase.IsDefault && edgeCase.Predicate is null)
+                errors.Add("Switch case não-default requer 'predicate'.");
+
+            if (edgeCase.IsDefault || edgeCase.Predicate is not null)
+                hasDefaultOrPredicate = true;
         }
+
+        if (edge.Cases.Count > 0 && !hasDefaultOrPredicate)
+            errors.Add("Switch precisa ter ao menos 1 case com predicate OU 1 default.");
     }
 
     private static void ValidateEndpoint(

@@ -167,12 +167,6 @@ public class WorkflowEdge
     /// <summary>ID do nó de destino (agente ou executor). Para FanOut usa Targets; para FanIn usa Sources.</summary>
     public string? To { get; init; }
 
-    /// <summary>
-    /// Condição de roteamento (substring case-insensitive no output do executor de origem).
-    /// Usado nos tipos Conditional e como identificador nos casos Switch.
-    /// </summary>
-    public string? Condition { get; init; }
-
     /// <summary>Tipo de aresta. Default: Direct (retrocompatível).</summary>
     public WorkflowEdgeType EdgeType { get; init; } = WorkflowEdgeType.Direct;
 
@@ -182,8 +176,21 @@ public class WorkflowEdge
     /// <summary>IDs das origens para FanIn (N→1 barreira).</summary>
     public List<string> Sources { get; init; } = [];
 
+    /// <summary>
+    /// Predicado tipado para edges <c>Conditional</c>. Avaliado em runtime sobre o output
+    /// JSON do nó <c>From</c>. Origem precisa expor schema (regra de negócio absoluta).
+    /// </summary>
+    public EdgePredicate? Predicate { get; init; }
+
     /// <summary>Casos para Switch (avaliados em ordem; primeiro match vence).</summary>
     public List<WorkflowSwitchCase> Cases { get; init; } = [];
+
+    /// <summary>
+    /// Hint textual usada apenas em modo <c>Handoff</c> — descreve ao LLM quando usar essa
+    /// transição. Não é predicate runtime; é metadata pro orquestrador. Null/vazio em
+    /// outros modos.
+    /// </summary>
+    public string? HandoffHint { get; init; }
 
     /// <summary>
     /// Controla qual input o(s) nó(s) destino recebem.
@@ -198,10 +205,10 @@ public class WorkflowEdge
 public class WorkflowSwitchCase
 {
     /// <summary>
-    /// Substring a ser procurada no output do executor (case-insensitive).
-    /// Null ou omitido = caso default.
+    /// Predicado tipado avaliado sobre o output JSON do nó produtor. Null se <c>IsDefault=true</c>.
+    /// Validado no save (Switch sem default precisa de Predicate em todos os cases).
     /// </summary>
-    public string? Condition { get; init; }
+    public EdgePredicate? Predicate { get; init; }
 
     /// <summary>IDs dos executores/agentes a acionar quando este caso for satisfeito.</summary>
     public required List<string> Targets { get; init; }

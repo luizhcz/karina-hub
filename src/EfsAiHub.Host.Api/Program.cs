@@ -92,6 +92,8 @@ builder.Services.AddSingleton<BoletaToolFunctions>();
 // ── Factories (Agente e Workflow) ─────────────────────────────────────────────
 builder.Services.AddScoped<IAgentFactory, AgentFactory>();
 builder.Services.AddScoped<IWorkflowFactory, WorkflowFactory>();
+builder.Services.AddSingleton<EfsAiHub.Core.Orchestration.Workflows.IEdgePredicateEvaluator,
+    EfsAiHub.Platform.Runtime.Predicates.EdgePredicateEvaluator>();
 
 // ── Infrastructure ──────────────────────────────────────────────────────────
 var pgConnectionString = builder.Configuration.GetConnectionString("Postgres")

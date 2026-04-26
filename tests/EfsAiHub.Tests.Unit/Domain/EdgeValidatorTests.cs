@@ -1,3 +1,4 @@
+using System.Text.Json;
 using EfsAiHub.Core.Orchestration.Validation;
 
 namespace EfsAiHub.Tests.Unit.Domain;
@@ -66,11 +67,17 @@ public class EdgeValidatorTests
     // ── Conditional ────────────────────────────────────────────────────────────
 
     [Fact]
-    public void ConditionalEdge_ComCondition_SemErros()
+    public void ConditionalEdge_ComPredicate_SemErros()
     {
         var def = MakeGraph(
             agents: [new WorkflowAgentReference { AgentId = "a" }, new WorkflowAgentReference { AgentId = "b" }],
-            edges: [new WorkflowEdge { EdgeType = WorkflowEdgeType.Conditional, From = "a", To = "b", Condition = "sucesso" }]);
+            edges: [new WorkflowEdge
+            {
+                EdgeType = WorkflowEdgeType.Conditional,
+                From = "a",
+                To = "b",
+                Predicate = new EdgePredicate("$.status", EdgeOperator.Eq, JsonDocument.Parse("\"sucesso\"").RootElement)
+            }]);
 
         var errors = new List<string>();
         EdgeValidator.Validate(def, AgentIds(def), errors);
@@ -79,7 +86,7 @@ public class EdgeValidatorTests
     }
 
     [Fact]
-    public void ConditionalEdge_SemCondition_AdicionaErro()
+    public void ConditionalEdge_SemPredicate_AdicionaErro()
     {
         var def = MakeGraph(
             agents: [new WorkflowAgentReference { AgentId = "a" }, new WorkflowAgentReference { AgentId = "b" }],
@@ -88,7 +95,7 @@ public class EdgeValidatorTests
         var errors = new List<string>();
         EdgeValidator.Validate(def, AgentIds(def), errors);
 
-        errors.Should().ContainSingle(e => e.Contains("condition"));
+        errors.Should().ContainSingle(e => e.Contains("predicate"));
     }
 
     // ── FanOut ─────────────────────────────────────────────────────────────────
@@ -179,7 +186,11 @@ public class EdgeValidatorTests
             {
                 EdgeType = WorkflowEdgeType.Switch,
                 From = "src",
-                Cases = [new WorkflowSwitchCase { Targets = ["t1"], Condition = "ok" }]
+                Cases = [new WorkflowSwitchCase
+                {
+                    Targets = ["t1"],
+                    Predicate = new EdgePredicate("$.status", EdgeOperator.Eq, JsonDocument.Parse("\"ok\"").RootElement)
+                }]
             }]);
 
         var errors = new List<string>();

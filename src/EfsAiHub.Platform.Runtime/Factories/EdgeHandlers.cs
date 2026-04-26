@@ -1,4 +1,5 @@
 using EfsAiHub.Core.Orchestration.Enums;
+using EfsAiHub.Core.Orchestration.Workflows;
 using Microsoft.Agents.AI.Workflows;
 
 namespace EfsAiHub.Platform.Runtime.Factories;
@@ -75,29 +76,43 @@ internal sealed class DirectEdgeHandler : IEdgeHandler
 internal sealed class ConditionalEdgeHandler : IEdgeHandler
 {
     public WorkflowEdgeType Type => WorkflowEdgeType.Conditional;
+    private readonly IEdgePredicateEvaluator _evaluator;
+
+    public ConditionalEdgeHandler(IEdgePredicateEvaluator evaluator)
+    {
+        _evaluator = evaluator;
+    }
 
     public WorkflowBuilder Apply(WorkflowBuilder builder, WorkflowEdge edge, EdgeBuildContext ctx)
     {
         if (!ctx.TryResolve(edge.From, out var from) || !ctx.TryResolve(edge.To, out var to))
             return builder;
 
-        if (string.IsNullOrWhiteSpace(edge.Condition))
+        if (edge.Predicate is null)
         {
-            ctx.Logger.LogWarning(
-                "Workflow '{WorkflowId}': aresta Conditional de '{From}' para '{To}' sem Condition — usando Direct.",
+            // EnsureInvariants no save bloqueia esse caminho — chegar aqui é bug ou
+            // workflow corrompido carregado do banco. Tratamos como Direct pra manter
+            // execução determinística.
+            ctx.Logger.LogError(
+                "Workflow '{WorkflowId}': Conditional edge {From}→{To} sem Predicate — comportamento indefinido, caindo em Direct.",
                 ctx.WorkflowId, edge.From, edge.To);
             return builder.AddEdge(from, to);
         }
 
-        var condition = edge.Condition!;
-        return builder.AddEdge<string>(from, to, output =>
-            output is not null && output.Contains(condition, StringComparison.OrdinalIgnoreCase));
+        var predicate = edge.Predicate;
+        return builder.AddEdge<string>(from, to, output => _evaluator.Evaluate(predicate, output));
     }
 }
 
 internal sealed class SwitchEdgeHandler : IEdgeHandler
 {
     public WorkflowEdgeType Type => WorkflowEdgeType.Switch;
+    private readonly IEdgePredicateEvaluator _evaluator;
+
+    public SwitchEdgeHandler(IEdgePredicateEvaluator evaluator)
+    {
+        _evaluator = evaluator;
+    }
 
     public WorkflowBuilder Apply(WorkflowBuilder builder, WorkflowEdge edge, EdgeBuildContext ctx)
     {
@@ -128,15 +143,15 @@ internal sealed class SwitchEdgeHandler : IEdgeHandler
                     continue;
                 }
 
-                if (@case.IsDefault || string.IsNullOrWhiteSpace(@case.Condition))
+                if (@case.IsDefault || @case.Predicate is null)
                 {
                     switchBuilder.WithDefault(targets);
                 }
                 else
                 {
-                    var caseCondition = @case.Condition!;
+                    var casePredicate = @case.Predicate;
                     switchBuilder.AddCase<string>(
-                        output => output is not null && output.Contains(caseCondition, StringComparison.OrdinalIgnoreCase),
+                        output => _evaluator.Evaluate(casePredicate, output),
                         targets);
                 }
             }

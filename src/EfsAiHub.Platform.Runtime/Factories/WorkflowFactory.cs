@@ -26,6 +26,7 @@ public partial class WorkflowFactory : IWorkflowFactory
     private readonly ICodeExecutorRegistry _executorRegistry;
     private readonly IHumanInteractionService _hitlService;
     private readonly IWorkflowEventBus _eventBus;
+    private readonly IEdgePredicateEvaluator _predicateEvaluator;
     private readonly ILogger<WorkflowFactory> _logger;
 
     public WorkflowFactory(
@@ -34,6 +35,7 @@ public partial class WorkflowFactory : IWorkflowFactory
         ICodeExecutorRegistry executorRegistry,
         IHumanInteractionService hitlService,
         IWorkflowEventBus eventBus,
+        IEdgePredicateEvaluator predicateEvaluator,
         ILogger<WorkflowFactory> logger)
     {
         _agentFactory = agentFactory;
@@ -41,6 +43,7 @@ public partial class WorkflowFactory : IWorkflowFactory
         _executorRegistry = executorRegistry;
         _hitlService = hitlService;
         _eventBus = eventBus;
+        _predicateEvaluator = predicateEvaluator;
         _logger = logger;
     }
 
@@ -139,7 +142,7 @@ public partial class WorkflowFactory : IWorkflowFactory
                     continue;
                 }
 
-                builder.WithHandoff((AIAgent)fromEw.Value, (AIAgent)toEw.Value, edge.Condition ?? string.Empty);
+                builder.WithHandoff((AIAgent)fromEw.Value, (AIAgent)toEw.Value, edge.HandoffHint ?? string.Empty);
             }
         }
         else
@@ -463,9 +466,9 @@ public partial class WorkflowFactory : IWorkflowFactory
 
             case WorkflowEdgeType.Conditional:
             {
-                // A → B (condition)  ⟹  A → __bridge_B__ (Conditional, mesma condition) + __bridge_B__ → B (Direct)
+                // A → B (predicate)  ⟹  A → __bridge_B__ (Conditional, mesmo predicate) + __bridge_B__ → B (Direct)
                 var bid = bridgeId(edge.To!);
-                result.Add(new WorkflowEdge { From = edge.From, To = bid, EdgeType = WorkflowEdgeType.Conditional, Condition = edge.Condition });
+                result.Add(new WorkflowEdge { From = edge.From, To = bid, EdgeType = WorkflowEdgeType.Conditional, Predicate = edge.Predicate });
                 result.Add(new WorkflowEdge { From = bid, To = edge.To, EdgeType = WorkflowEdgeType.Direct });
                 break;
             }
@@ -475,7 +478,7 @@ public partial class WorkflowFactory : IWorkflowFactory
                 // Switch: substituir targets nos cases por bridges + adicionar bridge → target (Direct)
                 var rewrittenCases = edge.Cases.Select(c => new WorkflowSwitchCase
                 {
-                    Condition = c.Condition,
+                    Predicate = c.Predicate,
                     IsDefault = c.IsDefault,
                     Targets = c.Targets.Select(t => targetIds.Contains(t) ? bridgeId(t) : t).ToList()
                 }).ToList();

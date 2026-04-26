@@ -9,15 +9,17 @@ public enum WorkflowEdgeType
     Direct,
 
     /// <summary>
-    /// Aresta condicional 1→1. WorkflowBuilder.AddEdge&lt;string&gt;(source, target, s => s.Contains(condition))
-    /// O campo Condition é verificado como substring no output do executor de origem.
+    /// Aresta condicional 1→1 com predicate tipado sobre o output JSON do nó produtor.
+    /// Usa <see cref="EfsAiHub.Core.Orchestration.Workflows.EdgePredicate"/> (Path + Operator + Value).
+    /// Origem precisa expor schema (agente json_schema ou executor Register&lt;TIn,TOut&gt;) — sem schema, save é rejeitado.
     /// </summary>
     Conditional,
 
     /// <summary>
     /// Ramificação switch 1→N com casos e default.
-    /// WorkflowBuilder.AddSwitch(source, b => b.AddCase(...).WithDefault(...))
-    /// Define os casos em Cases; o primeiro case cujo Condition for substring do output vence.
+    /// Cada case tem seu próprio <see cref="EfsAiHub.Core.Orchestration.Workflows.EdgePredicate"/>;
+    /// avaliados em ordem, primeiro match vence; default usado se nenhum casar.
+    /// Origem precisa expor schema, mesma regra do Conditional.
     /// </summary>
     Switch,
 
