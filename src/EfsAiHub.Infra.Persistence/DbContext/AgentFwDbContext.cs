@@ -2,6 +2,7 @@ using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Conversations;
 using EfsAiHub.Core.Abstractions.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace EfsAiHub.Infra.Persistence.Postgres;
@@ -391,7 +392,11 @@ public class AgentFwDbContext : DbContext
                 .HasColumnType("jsonb")
                 .HasConversion(
                     v => JsonSerializer.Serialize(v, JsonDefaults.Domain),
-                    v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, JsonDefaults.Domain) ?? new Dictionary<string, string>());
+                    v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, JsonDefaults.Domain) ?? new Dictionary<string, string>(),
+                    new ValueComparer<Dictionary<string, string>>(
+                        (a, b) => ReferenceEquals(a, b) || (a != null && b != null && a.Count == b.Count && !a.Except(b).Any()),
+                        v => v.Aggregate(0, (h, kv) => HashCode.Combine(h, kv.Key.GetHashCode(), kv.Value.GetHashCode())),
+                        v => new Dictionary<string, string>(v)));
 
             b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
             b.HasIndex(e => e.UserId);
