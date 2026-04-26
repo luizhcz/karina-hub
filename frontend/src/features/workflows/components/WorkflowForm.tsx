@@ -11,6 +11,7 @@ import { Select } from '../../../shared/ui/Select'
 import { Textarea } from '../../../shared/ui/Textarea'
 import { CronEditor } from '../../../shared/editors/CronEditor'
 import { useAgents } from '../../../api/agents'
+import { useFunctions } from '../../../api/tools'
 import type { WorkflowDef } from '../../../api/workflows'
 import type { WorkflowFormValues } from '../types'
 import { HITL_DEFAULTS } from '../types'
@@ -596,6 +597,7 @@ function HitlFields({
 export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: WorkflowFormProps) {
   const [activeTab, setActiveTab] = useState('basic')
   const { data: availableAgents } = useAgents()
+  const { data: availableFunctions } = useFunctions()
   const { data: enums } = useEnums()
 
   const {
@@ -619,6 +621,8 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
   const triggerType = watch('trigger.type')
 
   const agentIdOptions = (availableAgents ?? []).map((a) => ({ label: `${a.name} (${a.id})`, value: a.id }))
+  const executorNameOptions = (availableFunctions?.codeExecutors ?? [])
+    .map((e) => ({ label: e.name, value: e.name }))
 
   // Nós conectáveis por edges — agents + executors
   const nodeOptions = [
@@ -800,10 +804,18 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
                     )}
                   </div>
                   <div className="flex flex-col gap-1">
-                    <Input
-                      label="Function Name *"
-                      placeholder="e.g. CalculateRisk"
-                      {...register(`executors.${idx}.functionName`)}
+                    <Controller
+                      control={control}
+                      name={`executors.${idx}.functionName`}
+                      render={({ field: f }) => (
+                        <Select
+                          label="Function Name *"
+                          value={f.value}
+                          onChange={(e) => f.onChange(e.target.value)}
+                          placeholder="Selecione um executor..."
+                          options={executorNameOptions}
+                        />
+                      )}
                     />
                     {errors.executors?.[idx]?.functionName && (
                       <span className="text-xs text-red-400">
