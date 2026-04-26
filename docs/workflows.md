@@ -1545,7 +1545,7 @@ Eventos SSE em tempo real: `workflow_started → node_started → token → ... 
 | **Mode** | Graph |
 | **Description** | Recebe PDF de fato relevante, extrai texto via Document Intelligence e classifica com score, categoria e resumo |
 | **InputMode** | Standalone |
-| **Account** | 011982329 |
+| **Account** | 123456789 |
 | **HITL** | disabled |
 | **Timeout** | 300s |
 

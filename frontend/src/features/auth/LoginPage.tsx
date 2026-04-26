@@ -11,8 +11,7 @@ export function LoginPage() {
   const [userType, setUserType] = useState<UserType>('cliente')
   const [error, setError] = useState('')
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const submit = () => {
     const trimmed = account.trim()
     if (!trimmed) {
       setError('Informe a conta.')
@@ -31,7 +30,7 @@ export function LoginPage() {
         </div>
 
         <form
-          onSubmit={handleSubmit}
+          onSubmit={(e) => { e.preventDefault(); submit() }}
           className="bg-bg-secondary border border-border-primary rounded-2xl p-8 flex flex-col gap-5 shadow-lg"
         >
           <div className="flex flex-col gap-1.5">
@@ -42,7 +41,7 @@ export function LoginPage() {
               type="text"
               value={account}
               onChange={(e) => { setAccount(e.target.value); setError('') }}
-              placeholder="Ex: 011982329"
+              placeholder="Ex: 123456789"
               autoFocus
               className="bg-bg-tertiary border border-border-secondary rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue transition-colors"
             />

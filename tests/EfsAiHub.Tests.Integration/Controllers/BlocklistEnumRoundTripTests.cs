@@ -14,10 +14,10 @@ namespace EfsAiHub.Tests.Integration.Controllers;
 [Trait("Category", "Integration")]
 public class BlocklistEnumRoundTripTests(IntegrationWebApplicationFactory factory)
 {
-    // appsettings.json popula Admin:AccountIds com '011982329' — test factory herda
+    // appsettings.json popula Admin:AccountIds com '123456789' — test factory herda
     // a config porque appsettings.Test.json não sobrescreve. WithAdminAccount injeta
     // o header pra passar pelo AdminGate.
-    private readonly HttpClient _client = factory.CreateClient().WithAdminAccount("011982329");
+    private readonly HttpClient _client = factory.CreateClient().WithAdminAccount("123456789");
 
     /// <summary>
     /// Cria projeto via SQL direto (bypass do AdminGate de POST /api/projects).

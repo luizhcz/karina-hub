@@ -72,7 +72,7 @@ export function PersonasAdminPage() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleConsult()
             }}
-            placeholder="011982329"
+            placeholder="123456789"
           />
           <Select
             label="Tipo de usuário"

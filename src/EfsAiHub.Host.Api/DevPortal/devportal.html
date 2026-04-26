@@ -450,7 +450,7 @@
           <div class="step-title">Defina o header de identidade</div>
           <div class="step-desc">Escolha entre conta de cliente ou ID de assessor. Sem header, o usuário é <code>anonymous</code>.</div>
           <pre class="language-bash" style="margin-top:10px"><code class="language-bash"># Cliente (conta de investimento)
-x-efs-account: 011982329
+x-efs-account: 123456789
 
 # Assessor
 x-efs-user-profile-id: P-00123</code></pre>
@@ -466,7 +466,7 @@ x-efs-user-profile-id: P-00123</code></pre>
           <div class="step-desc">Use <code>threadId: null</code> para criar uma nova conversa. O servidor retorna o <code>threadId</code> no evento <code>RUN_STARTED</code>.</div>
           <pre class="language-bash" style="margin-top:10px"><code class="language-bash">curl -X POST http://localhost:5189/api/chat/ag-ui/stream \
   -H "Content-Type: application/json" \
-  -H "x-efs-account: 011982329" \
+  -H "x-efs-account: 123456789" \
   -d '{"messages":[{"role":"user","content":"Olá, qual é o saldo da minha conta?"}],"threadId":null}' \
   --no-buffer</code></pre>
         </div>
@@ -507,7 +507,7 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
         <tr>
           <td><code>x-efs-account</code></td>
           <td>Cliente (conta de investimento)</td>
-          <td><code>x-efs-account: 011982329</code></td>
+          <td><code>x-efs-account: 123456789</code></td>
         </tr>
         <tr>
           <td><code>x-efs-user-profile-id</code></td>
@@ -894,7 +894,7 @@ async function sendTurn(userText) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-efs-account': '011982329',  <span class="comment">// header de identidade — escolha um (ver Autenticação)</span>
+      'x-efs-account': '123456789',  <span class="comment">// header de identidade — escolha um (ver Autenticação)</span>
     },
     body: JSON.stringify({
       messages,
@@ -1012,7 +1012,7 @@ async function sendTurn(userText) {
   headers: {
     'Last-Event-ID': lastEventId,
     'x-thread-id': threadId,
-    'x-efs-account': '011982329',
+    'x-efs-account': '123456789',
   },
 })
 <span class="comment">// O servidor faz replay dos eventos perdidos. Se Last-Event-ID for null, manda</span>
@@ -1435,7 +1435,7 @@ while (true) {
       <div class="endpoint-body">
         <p>Retorna todos os agentes do projeto ativo (definido pelo header <code>x-efs-project-id</code>). Resposta é um array de <code>AgentResponse</code>.</p>
         <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/agents \
-  -H "x-efs-account: 011982329"</code></pre>
+  -H "x-efs-account: 123456789"</code></pre>
         <div class="callout callout-blue">
           Para buscar agentes de um projeto específico: <code>-H "x-efs-project-id: meu-projeto"</code>
         </div>
@@ -1453,7 +1453,7 @@ while (true) {
       <div class="endpoint-body">
         <p>Retorna o agente completo com todos os campos.</p>
         <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/agents/assessor-investimentos \
-  -H "x-efs-account: 011982329"</code></pre>
+  -H "x-efs-account: 123456789"</code></pre>
         <table>
           <thead><tr><th>Código</th><th>Situação</th></tr></thead>
           <tbody>
@@ -1476,7 +1476,7 @@ while (true) {
         <p>Atualiza o agente e cria automaticamente uma nova <code>AgentVersion</code> com snapshot imutável. O body tem o mesmo schema do POST.</p>
         <pre class="language-bash"><code class="language-bash">curl -X PUT http://localhost:5189/api/agents/assessor-investimentos \
   -H "Content-Type: application/json" \
-  -H "x-efs-account: 011982329" \
+  -H "x-efs-account: 123456789" \
   -d '{
     "id": "assessor-investimentos",
     "name": "Assessor de Investimentos v2",
@@ -1503,7 +1503,7 @@ while (true) {
           <strong>Atenção:</strong> Workflows que referenciam este agente continuarão a existir, mas falharão ao tentar usá-lo.
         </div>
         <pre class="language-bash"><code class="language-bash">curl -X DELETE http://localhost:5189/api/agents/assessor-investimentos \
-  -H "x-efs-account: 011982329"</code></pre>
+  -H "x-efs-account: 123456789"</code></pre>
       </div>
     </div>
 
@@ -1537,7 +1537,7 @@ while (true) {
       <div class="endpoint-body">
         <p>Executa o agente em modo sandbox — útil para smoke tests antes de promover para produção. Você pode mockar tools específicas.</p>
         <pre class="language-json"><code class="language-json">{
-  "input": "Qual é a carteira do cliente 011982329?",
+  "input": "Qual é a carteira do cliente 123456789?",
   "mockTools": ["get_client_position"]
 }</code></pre>
       </div>
@@ -1756,16 +1756,16 @@ while (true) {
 
     <h3>Listar versões</h3>
     <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/agents/assessor-investimentos/versions \
-  -H "x-efs-account: 011982329"</code></pre>
+  -H "x-efs-account: 123456789"</code></pre>
 
     <h3>Buscar versão específica</h3>
     <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/agents/assessor-investimentos/versions/{versionId} \
-  -H "x-efs-account: 011982329"</code></pre>
+  -H "x-efs-account: 123456789"</code></pre>
 
     <h3>Rollback para versão anterior</h3>
     <pre class="language-bash"><code class="language-bash">curl -X POST http://localhost:5189/api/agents/assessor-investimentos/rollback \
   -H "Content-Type: application/json" \
-  -H "x-efs-account: 011982329" \
+  -H "x-efs-account: 123456789" \
   -d '{
     "targetVersionId": "uuid-da-versao-alvo",
     "changeReason": "Revertendo instrução problemática do deploy de ontem"
@@ -1796,7 +1796,7 @@ while (true) {
     <pre class="language-javascript"><code class="language-javascript">const BASE = 'http://localhost:5189'
 const HEADERS = {
   'Content-Type': 'application/json',
-  'x-efs-account': '011982329',
+  'x-efs-account': '123456789',
 }
 
 // ── 1. Criar o agente ────────────────────────────────────────────────────
@@ -2039,7 +2039,7 @@ Usuário ─┤→ Agente B ─├→ Resposta agregada
       </div>
       <div class="endpoint-body">
         <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/workflows \
-  -H "x-efs-account: 011982329"</code></pre>
+  -H "x-efs-account: 123456789"</code></pre>
       </div>
     </div>
 
@@ -2122,7 +2122,7 @@ Usuário ─┤→ Agente B ─├→ Resposta agregada
       </div>
       <div class="endpoint-body">
         <p>Enfileira o workflow para execução em background. Retorna <code>202 Accepted</code> com o <code>executionId</code> imediatamente — sem aguardar o resultado.</p>
-        <pre class="language-json"><code class="language-json">{ "input": "Analise a carteira do cliente 011982329", "metadata": { "source": "crm" } }</code></pre>
+        <pre class="language-json"><code class="language-json">{ "input": "Analise a carteira do cliente 123456789", "metadata": { "source": "crm" } }</code></pre>
         <p>Resposta:</p>
         <pre class="language-json"><code class="language-json">{ "executionId": "exec-abc123", "statusUrl": "/api/executions/exec-abc123" }</code></pre>
         <p>Acompanhe via <code>GET /api/workflows/{id}/executions</code> ou polling de <code>statusUrl</code>.</p>
@@ -2183,7 +2183,7 @@ Usuário ─┤→ Agente B ─├→ Resposta agregada
           </tbody>
         </table>
         <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/workflows/assessoria-completa/diagram \
-  -H "x-efs-account: 011982329" \
+  -H "x-efs-account: 123456789" \
   --output workflow.png</code></pre>
       </div>
     </div>
@@ -2478,7 +2478,7 @@ Usuário ─┤→ Agente B ─├→ Resposta agregada
 
     <h3>Listar execuções (paginado)</h3>
     <pre class="language-bash"><code class="language-bash">curl "http://localhost:5189/api/workflows/assessoria-completa/executions?page=1&amp;pageSize=20&amp;status=Failed" \
-  -H "x-efs-account: 011982329"</code></pre>
+  -H "x-efs-account: 123456789"</code></pre>
 
     <h3>Campos de ExecutionResponse</h3>
     <table>
@@ -2561,13 +2561,13 @@ Usuário ─┤→ Agente B ─├→ Resposta agregada
 
     <h3>4. Disparar e acompanhar via JavaScript</h3>
     <pre class="language-javascript"><code class="language-javascript">const BASE = 'http://localhost:5189'
-const HEADERS = { 'Content-Type': 'application/json', 'x-efs-account': '011982329' }
+const HEADERS = { 'Content-Type': 'application/json', 'x-efs-account': '123456789' }
 
 // Disparar execução
 const trigRes = await fetch(`${BASE}/api/workflows/resumo-carteira/trigger`, {
   method: 'POST',
   headers: HEADERS,
-  body: JSON.stringify({ input: 'Analise a carteira do cliente 011982329', metadata: { source: 'portal' } }),
+  body: JSON.stringify({ input: 'Analise a carteira do cliente 123456789', metadata: { source: 'portal' } }),
 })
 const { executionId, statusUrl } = await trigRes.json()
 console.log('Execução iniciada:', executionId)
@@ -2724,8 +2724,8 @@ async function cancelRun(runId) {
 }
 
 // Uso:
-let thread = await chat('011982329', 'Qual é o saldo da minha conta?')
-thread = await chat('011982329', 'E os últimos extratos?', thread)</code></pre>
+let thread = await chat('123456789', 'Qual é o saldo da minha conta?')
+thread = await chat('123456789', 'E os últimos extratos?', thread)</code></pre>
   </section>
 
   <!-- Exemplo cURL -->
@@ -2735,7 +2735,7 @@ thread = await chat('011982329', 'E os últimos extratos?', thread)</code></pre>
     <h3>Chat básico</h3>
     <pre class="language-bash"><code class="language-bash">curl -X POST http://localhost:5189/api/chat/ag-ui/stream \
   -H "Content-Type: application/json" \
-  -H "x-efs-account: 011982329" \
+  -H "x-efs-account: 123456789" \
   -d '{
     "messages": [{"id":"m1","role":"user","content":"Olá!"}],
     "threadId": null,
@@ -2747,13 +2747,13 @@ thread = await chat('011982329', 'E os últimos extratos?', thread)</code></pre>
     <h3>Cancelar execução</h3>
     <pre class="language-bash"><code class="language-bash">curl -X POST http://localhost:5189/api/chat/ag-ui/cancel \
   -H "Content-Type: application/json" \
-  -H "x-efs-account: 011982329" \
+  -H "x-efs-account: 123456789" \
   -d '{"executionId":"exec-abc123"}'</code></pre>
 
     <h3>Resolver HITL</h3>
     <pre class="language-bash"><code class="language-bash">curl -X POST http://localhost:5189/api/chat/ag-ui/resolve-hitl \
   -H "Content-Type: application/json" \
-  -H "x-efs-account: 011982329" \
+  -H "x-efs-account: 123456789" \
   -d '{"toolCallId":"tc-xyz789","response":"approved"}'</code></pre>
 
     <h3>Health check</h3>

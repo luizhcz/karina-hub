@@ -162,7 +162,7 @@ export function AdminAuditPage() {
           <Input
             label="Actor (UserId)"
             type="text"
-            placeholder="ex: 011982329"
+            placeholder="ex: 123456789"
             value={actorUserId}
             onChange={(e) => setActorUserId(e.target.value)}
           />
