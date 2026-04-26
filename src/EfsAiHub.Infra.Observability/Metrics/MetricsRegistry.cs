@@ -77,6 +77,10 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("chat.stale_completion.skipped",
             description: "Completions ignoradas por corresponderem a execução não mais ativa na conversa");
 
+    public static readonly Counter<long> RobotMessagesPersisted =
+        _meter.CreateCounter<long>("chat.robot_messages.persisted",
+            description: "Mensagens com actor=robot registradas via short-circuit (sem disparar workflow). Ver ADR 0014.");
+
     public static readonly Counter<long> HitlRecoveries =
         _meter.CreateCounter<long>("hitl.recoveries",
             description: "Execuções retomadas a partir de checkpoint após restart (HitlRecoveryService)");

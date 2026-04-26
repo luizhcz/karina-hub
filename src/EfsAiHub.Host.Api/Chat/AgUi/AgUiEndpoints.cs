@@ -36,10 +36,25 @@ public static class AgUiEndpoints
         AgUiFrontendToolHandler frontendToolHandler,
         AgUiApprovalMiddleware approvalMiddleware,
         IConversationFacade facade,
+        IChatMessageRepository messageRepo,
+        IHumanInteractionService hitlService,
+        ILogger<AgUiSseHandler> logger,
         UserIdentityResolver identityResolver,
         HttpContext context,
         CancellationToken ct)
     {
+        // 0a. Validar campo actor (extensão proprietária aditiva à spec AG-UI; ver ADR 0014).
+        //     Trust model: backend não autentica o valor — proxy upstream é o boundary.
+        //     Mas validação de payload (sintática/semântica) acontece sempre pra evitar
+        //     spoofing acidental por bug de cliente.
+        var actorValidationError = ValidateActorField(input.Messages);
+        if (actorValidationError is not null)
+        {
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsJsonAsync(new { error = actorValidationError }, ct);
+            return;
+        }
+
         // 0. Resolver identidade (precisamos dela antes de ProcessApprovalsAsync para gravar ResolvedBy).
         //    Fallback para JWT sub-claim quando headers custom não estão presentes.
         var earlyIdentity = identityResolver.TryResolve(context.Request.Headers, out _);
@@ -134,8 +149,35 @@ public static class AgUiEndpoints
             sharedState = await stateManager.GetOrCreateAsync(threadId, effectiveState);
         }
 
-        // 5. Enviar mensagem
-        var messages = new List<ChatMessageInput> { new("user", effectiveMessage!) };
+        // 5. Detectar actor=robot na última mensagem (já validado acima — só pode estar
+        //    na última posição). Quando presente, propaga via ChatMessageInput.Actor pro
+        //    domínio fazer short-circuit em ConversationService.SendMessagesAsync.
+        var lastInputMsg = input.Messages?[^1];
+        var isRobotTurn = string.Equals(lastInputMsg?.Actor, "robot", StringComparison.OrdinalIgnoreCase);
+
+        // Validação semântica: HITL pendente + actor=robot é erro de cliente. HITL deve ser
+        // resolvido via /resolve-hitl, não via /stream com actor=robot. Robot durante turn
+        // humano em curso (sem HITL) é OK — ConversationService.SendMessagesAsync registra
+        // sem cancelar a execução em andamento (ver Messaging.cs).
+        if (isRobotTurn && !string.IsNullOrEmpty(session.ActiveExecutionId))
+        {
+            var pendingHitl = hitlService.GetPendingForExecution(session.ActiveExecutionId);
+            if (pendingHitl is not null)
+            {
+                context.Response.StatusCode = 400;
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    error = "actor=robot não pode resolver HITL pendente — use POST /api/chat/ag-ui/resolve-hitl."
+                }, ct);
+                return;
+            }
+        }
+
+        var actorEnum = isRobotTurn ? Actor.Robot : Actor.Human;
+        var messages = new List<ChatMessageInput>
+        {
+            new("user", effectiveMessage!, Actor: actorEnum)
+        };
         var sendResult = await facade.SendMessagesAsync(
             session.ConversationId,
             resolvedUserId,
@@ -155,9 +197,31 @@ public static class AgUiEndpoints
         }
 
         var executionId = sendResult.Value?.ExecutionId;
+
+        // 6a. Robot turn — short-circuit emite SSE sintético sem disparar workflow.
+        if (isRobotTurn && executionId is null && sendResult.Value?.PersistedMessages is { } persisted)
+        {
+            EfsAiHub.Infra.Observability.MetricsRegistry.RobotMessagesPersisted.Add(1);
+            logger.LogInformation(
+                "[AgUi] actor=robot persistido sem disparo de workflow — convId='{ConvId}', messageId='{MsgId}'.",
+                session.ConversationId,
+                persisted.LastOrDefault(m => m.Actor == Actor.Robot)?.MessageId);
+
+            var runId = clientRunId ?? Guid.NewGuid().ToString();
+            await sseHandler.StreamRobotPersistedAsync(
+                context.Response,
+                runId,
+                session.ConversationId,
+                persisted,
+                sharedState,
+                messageRepo,
+                ct);
+            return;
+        }
+
+        // 6b. Sem execução e sem ser robot — HITL resolved ou outro caminho ortogonal.
         if (executionId is null)
         {
-            // HITL resolved or no execution — just return success
             context.Response.StatusCode = 200;
             await context.Response.WriteAsJsonAsync(new
             {
@@ -167,7 +231,7 @@ public static class AgUiEndpoints
             return;
         }
 
-        // 6. Stream AG-UI SSE (propagate client runId if provided)
+        // 6c. Stream AG-UI SSE normal (propagate client runId if provided)
         await sseHandler.StreamAsync(
             context.Response,
             executionId,
@@ -175,6 +239,40 @@ public static class AgUiEndpoints
             sharedState,
             ct,
             clientRunId: clientRunId);
+    }
+
+    /// <summary>
+    /// Valida o campo <c>actor</c> nas mensagens AG-UI:
+    /// <list type="number">
+    ///   <item>Valor permitido: null/ausente, "human" ou "robot" (case-insensitive).</item>
+    ///   <item><c>actor="robot"</c> só pode aparecer na ÚLTIMA mensagem do batch — robot
+    ///   "fecha turno". No meio do array é misuse de cliente.</item>
+    /// </list>
+    /// Retorna mensagem de erro se inválido; null se OK.
+    /// </summary>
+    private static string? ValidateActorField(IReadOnlyList<AgUiInputMessage>? messages)
+    {
+        if (messages is null || messages.Count == 0) return null;
+
+        for (int i = 0; i < messages.Count; i++)
+        {
+            var actor = messages[i].Actor;
+            if (string.IsNullOrEmpty(actor)) continue;
+
+            if (!actor.Equals("human", StringComparison.OrdinalIgnoreCase)
+                && !actor.Equals("robot", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"actor inválido em messages[{i}]: '{actor}'. Valores aceitos: \"human\" ou \"robot\".";
+            }
+
+            // robot só pode estar na última posição
+            if (actor.Equals("robot", StringComparison.OrdinalIgnoreCase) && i != messages.Count - 1)
+            {
+                return "actor=\"robot\" só é permitido na última mensagem do batch (fecha turno sem disparar workflow).";
+            }
+        }
+
+        return null;
     }
 
     private static async Task<IResult> CancelAsync(

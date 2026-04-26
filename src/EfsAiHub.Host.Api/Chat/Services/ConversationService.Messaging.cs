@@ -20,7 +20,10 @@ public partial class ConversationService
             return new SendMessageResult(null, false, null);
 
         var lastInput = inputs[^1];
-        bool lastIsRobot = lastInput.Role.Equals("robot", StringComparison.OrdinalIgnoreCase);
+        // Caller pode discriminar via campo tipado Actor (caminho novo do wire AG-UI)
+        // ou via role legado "robot" (compat com controller antigo). Ver ADR 0014.
+        bool lastIsRobot = lastInput.Actor == Actor.Robot
+                        || lastInput.Role.Equals("robot", StringComparison.OrdinalIgnoreCase);
 
         var persisted = inputs.Select(input => BuildChatMessage(conversation.ConversationId, input)).ToList();
         await _msgRepo.SaveBatchAsync(persisted, ct);

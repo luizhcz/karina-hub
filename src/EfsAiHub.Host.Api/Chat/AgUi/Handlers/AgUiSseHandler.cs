@@ -137,6 +137,74 @@ public sealed class AgUiSseHandler
     }
 
     /// <summary>
+    /// SSE sintético quando uma mensagem com <c>actor=robot</c> é persistida sem
+    /// disparar workflow (short-circuit do AG-UI). Emite os 4 eventos canônicos
+    /// numa sequência mínima: <c>RUN_STARTED → CUSTOM(actor.persisted) →
+    /// MESSAGES_SNAPSHOT → RUN_FINISHED</c>. Cliente trata o turn como concluído
+    /// sem esperar nenhum evento de execução. Ver ADR 0014.
+    /// </summary>
+    public async Task StreamRobotPersistedAsync(
+        HttpResponse response,
+        string runId,
+        string threadId,
+        IReadOnlyList<ChatMessage> persistedMessages,
+        AgUiSharedState sharedState,
+        IChatMessageRepository messageRepo,
+        CancellationToken ct)
+    {
+        if (!response.HasStarted) SetSseHeaders(response);
+
+        // 1. RUN_STARTED — turn começou
+        await WriteEventAsync(response, new AgUiEvent
+        {
+            Type = "RUN_STARTED",
+            RunId = runId,
+            ThreadId = threadId
+        }, sequenceId: null, ct);
+
+        // 2. CUSTOM(actor.persisted) — sinaliza que foi short-circuit; cliente que conhece
+        //    o evento marca a mensagem como "registrada sem execução". Clientes AG-UI padrão
+        //    ignoram silenciosamente customNames desconhecidos (spec-conforme).
+        var lastRobotMsg = persistedMessages.LastOrDefault(m => m.Actor == Actor.Robot)
+                          ?? persistedMessages[^1];
+        var customValue = JsonSerializer.SerializeToElement(new
+        {
+            messageId = lastRobotMsg.MessageId,
+            actor = "robot"
+        }, _jsonOptions);
+
+        await WriteEventAsync(response, new AgUiEvent
+        {
+            Type = "CUSTOM",
+            CustomName = "actor.persisted",
+            CustomValue = customValue
+        }, sequenceId: null, ct);
+
+        // 3. MESSAGES_SNAPSHOT com histórico atualizado — frontend não precisa refetch
+        var messages = await messageRepo.GetContextWindowAsync(
+            threadId, maxMessages: 50, ct: ct);
+
+        await WriteEventAsync(response, new AgUiEvent
+        {
+            Type = "MESSAGES_SNAPSHOT",
+            Messages = messages.Select(m => new AgUiMessage(
+                m.MessageId, m.Role, m.Content,
+                new DateTimeOffset(m.CreatedAt, TimeSpan.Zero))).ToArray()
+        }, sequenceId: null, ct);
+
+        // 4. RUN_FINISHED — encerra o turn sem output (não houve execução de workflow)
+        await WriteEventAsync(response, new AgUiEvent
+        {
+            Type = "RUN_FINISHED",
+            RunId = runId,
+            ThreadId = threadId,
+            Output = ""
+        }, sequenceId: null, ct);
+
+        try { await response.CompleteAsync(); } catch { /* já fechado */ }
+    }
+
+    /// <summary>
     /// Resync após reconexão: envia MESSAGES_SNAPSHOT + STATE_SNAPSHOT.
     /// </summary>
     public async Task ResyncAsync(
