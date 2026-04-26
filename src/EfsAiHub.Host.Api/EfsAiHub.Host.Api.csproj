@@ -47,4 +47,8 @@
     <ProjectReference Include="..\EfsAiHub.Infra.LlmProviders\EfsAiHub.Infra.LlmProviders.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="EfsAiHub.Tests.Unit" />
+  </ItemGroup>
+
 </Project>

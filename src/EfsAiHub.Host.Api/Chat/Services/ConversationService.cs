@@ -95,7 +95,7 @@ public partial class ConversationService : IConversationLifecycle, IConversation
     /// Manter Role=user em mensagens robot preserva os 5 canônicos AG-UI; o discriminador
     /// fica no campo Actor. Ver ADR 0014.
     /// </summary>
-    private static ChatMessage BuildChatMessage(string conversationId, ChatMessageInput input)
+    internal static ChatMessage BuildChatMessage(string conversationId, ChatMessageInput input)
     {
         var legacyRobotRole = input.Role.Equals("robot", StringComparison.OrdinalIgnoreCase);
         var actor = input.Actor == Actor.Robot || legacyRobotRole ? Actor.Robot : Actor.Human;
@@ -187,7 +187,7 @@ public partial class ConversationService : IConversationLifecycle, IConversation
     private static string TruncateTitle(string message)
         => message.Length <= 50 ? message : string.Concat(message.AsSpan(0, 47), "...");
 
-    private static void UpdateConversationTitle(
+    internal static void UpdateConversationTitle(
         ConversationSession conversation, IReadOnlyList<ChatMessage> msgs)
     {
         if (conversation.Title is not null) return;
