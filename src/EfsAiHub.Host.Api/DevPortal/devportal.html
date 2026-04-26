@@ -245,6 +245,8 @@
   <a href="#endpoints">Endpoints</a>
   <a href="#events">Catálogo de Eventos</a>
   <a href="#hitl">Fluxo HITL</a>
+  <a href="#safety-flow">Fluxo SAFETY_VIOLATION</a>
+  <a href="#error-codes">Códigos de erro</a>
   <div class="nav-section">Gerenciamento</div>
   <a href="#agents">Agentes</a>
   <a href="#agents-schema">Schema do Agente</a>
@@ -534,7 +536,9 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
   <!-- Catálogo de Eventos -->
   <section id="events">
     <h2>Catálogo de Eventos</h2>
-    <p>Cada evento SSE chega no formato <code>data: {json}</code> com ao menos o campo <code>type</code>.</p>
+    <p>Cada evento SSE chega no formato <code>data: {json}</code> com ao menos o campo <code>type</code>. Todo evento inclui também <code>timestamp</code> (ISO-8601 UTC) e a linha <code>id:</code> do SSE corresponde ao <code>BusSequenceId</code> usado pelo header <code>Last-Event-ID</code> na reconexão. Esses campos foram omitidos das colunas pra manter a tabela enxuta.</p>
+
+    <p>Eventos marcados com <span class="badge badge-red">terminal</span> encerram o stream — após emiti-los, o servidor fecha a conexão SSE e o cliente não deve esperar mais nada.</p>
 
     <div class="filter-row">
       <button class="filter-btn active" onclick="filterEvents('all', this)">Todos</button>
@@ -544,6 +548,7 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
       <button class="filter-btn" onclick="filterEvents('tools', this)">Tools</button>
       <button class="filter-btn" onclick="filterEvents('state', this)">Estado</button>
       <button class="filter-btn" onclick="filterEvents('reconnect', this)">Reconexão</button>
+      <button class="filter-btn" onclick="filterEvents('safety', this)">Safety</button>
       <button class="filter-btn" onclick="filterEvents('custom', this)">Custom</button>
     </div>
 
@@ -564,16 +569,16 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
           <td>Workflow iniciou. Salve o <code>threadId</code> para próximas mensagens.</td>
         </tr>
         <tr data-cat="lifecycle">
-          <td><code>RUN_FINISHED</code></td>
+          <td><code>RUN_FINISHED</code> <span class="badge badge-red">terminal</span></td>
           <td><span class="badge badge-green">Lifecycle</span></td>
           <td><code>runId</code>, <code>threadId</code>, <code>output</code></td>
           <td>Workflow concluiu com sucesso. Stream encerrado após este evento.</td>
         </tr>
         <tr data-cat="lifecycle">
-          <td><code>RUN_ERROR</code></td>
+          <td><code>RUN_ERROR</code> <span class="badge badge-red">terminal</span></td>
           <td><span class="badge badge-red">Lifecycle</span></td>
-          <td><code>error</code>, <code>errorCode</code></td>
-          <td>Workflow falhou. <code>errorCode</code>: <code>BUDGET_EXCEEDED</code> | <code>EXECUTION_FAILED</code> | <code>CANCELLED</code></td>
+          <td><code>error</code>, <code>errorCode</code>, <code>runId</code></td>
+          <td>Workflow falhou ou foi cancelado. Veja a tabela completa de <a href="#error-codes"><code>errorCode</code></a> abaixo.</td>
         </tr>
         <tr data-cat="steps">
           <td><code>STEP_STARTED</code></td>
@@ -590,7 +595,7 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
         <tr data-cat="text">
           <td><code>TEXT_MESSAGE_START</code></td>
           <td><span class="badge badge-purple">Texto</span></td>
-          <td><code>messageId</code>, <code>role</code></td>
+          <td><code>messageId</code>, <code>role</code> (default <code>"assistant"</code>)</td>
           <td>Nova mensagem do assistente começando. Crie a bolha de resposta.</td>
         </tr>
         <tr data-cat="text">
@@ -608,7 +613,7 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
         <tr data-cat="tools">
           <td><code>TOOL_CALL_START</code></td>
           <td><span class="badge badge-yellow">Tools</span></td>
-          <td><code>toolCallId</code>, <code>toolCallName</code></td>
+          <td><code>toolCallId</code>, <code>toolCallName</code>, <code>parentMessageId</code> (opcional)</td>
           <td>Workflow chamando uma tool. Se <code>toolCallName = "request_approval"</code>: fluxo HITL.</td>
         </tr>
         <tr data-cat="tools">
@@ -626,8 +631,8 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
         <tr data-cat="tools">
           <td><code>TOOL_CALL_RESULT</code></td>
           <td><span class="badge badge-yellow">Tools</span></td>
-          <td><code>toolCallId</code>, <code>result</code></td>
-          <td>Resultado da tool call.</td>
+          <td><code>toolCallId</code>, <code>result</code>, <code>messageId</code>, <code>role: "tool"</code></td>
+          <td>Resultado da tool call. Para HITL: <code>result</code> contém a resposta humana (ex: <code>"Aprovar"</code>).</td>
         </tr>
         <tr data-cat="state">
           <td><code>STATE_SNAPSHOT</code></td>
@@ -639,7 +644,7 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
           <td><code>STATE_DELTA</code></td>
           <td><span class="badge badge-gray">Estado</span></td>
           <td><code>delta</code></td>
-          <td>Diff incremental de estado em formato JSON Patch.</td>
+          <td>Diff incremental de estado em formato <a href="https://datatracker.ietf.org/doc/html/rfc6902" target="_blank">JSON Patch (RFC 6902)</a>. Aplique sobre o último <code>STATE_SNAPSHOT</code>.</td>
         </tr>
         <tr data-cat="reconnect">
           <td><code>MESSAGES_SNAPSHOT</code></td>
@@ -651,7 +656,13 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
           <td><code>CUSTOM</code></td>
           <td><span class="badge badge-gray">Custom</span></td>
           <td><code>customName</code>, <code>customValue</code></td>
-          <td>Eventos de domínio específicos emitidos pelo workflow.</td>
+          <td>Eventos de domínio específicos emitidos pelo workflow (ex: <code>customName: "ESCALATION"</code>).</td>
+        </tr>
+        <tr data-cat="safety">
+          <td><code>SAFETY_VIOLATION</code> <span class="badge badge-red">terminal</span></td>
+          <td><span class="badge badge-red">Safety</span></td>
+          <td><code>error</code>, <code>errorCode</code>, <code>customValue</code>, <code>runId</code></td>
+          <td>Conteúdo violou guardrail (Blocklist). <code>errorCode</code> = categoria (ex: <code>PII</code>, <code>SECRETS</code>, <code>FINANCIAL</code>, <code>INTERNAL</code>). Stream encerrado. <code>customValue</code> traz <code>{violationId, phase, retryable}</code>. Veja o <a href="#safety-flow">fluxo SAFETY_VIOLATION</a> abaixo.</td>
         </tr>
       </tbody>
     </table>
@@ -692,6 +703,82 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
   "timeoutSeconds": 300
 }</code></pre>
     <p>Quando <code>options</code> é <code>null</code>, assuma Aprovar / Rejeitar com valores <code>"approved"</code> / <code>"rejected"</code>.</p>
+  </section>
+
+  <!-- Safety / Blocklist -->
+  <section id="safety-flow">
+    <h2>Fluxo SAFETY_VIOLATION — Bloqueio de conteúdo</h2>
+    <p>Quando o <strong>Blocklist Guardrail</strong> detecta padrão proibido (input do usuário ou output do LLM), o stream emite <code>SAFETY_VIOLATION</code> e encerra imediatamente. O cliente deve renderizar uma mensagem específica (não tratar como <code>RUN_ERROR</code> genérico) e não retentar.</p>
+
+    <div class="hitl-flow">
+<span class="comment">// Caminho input: bloqueio antes mesmo de chamar o LLM (zero token gasto)</span>
+<span class="resolve">cliente →</span> POST /api/chat/ag-ui/stream { messages: [{ role: <span class="resolve">"user"</span>, content: <span class="resolve">"meu CPF é 123.456.789-00"</span> }] }
+<span class="arrow">stream ←</span> <span class="event">RUN_STARTED</span>
+<span class="arrow">stream ←</span> <span class="event">SAFETY_VIOLATION</span>  { errorCode: <span class="resolve">"PII"</span>, error: <span class="resolve">"Conteúdo bloqueado: PII detectada"</span>, customValue: { violationId: <span class="resolve">"v-abc"</span>, phase: <span class="resolve">"input"</span>, retryable: false } }
+
+<span class="comment">// Caminho output: bloqueio durante streaming do LLM (tokens parciais já contados)</span>
+<span class="arrow">stream ←</span> <span class="event">RUN_STARTED</span>
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_START</span>
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_CONTENT</span> <span class="comment">[ tokens parciais antes da detecção ]</span>
+<span class="arrow">stream ←</span> <span class="event">SAFETY_VIOLATION</span>  { errorCode: <span class="resolve">"SECRETS"</span>, customValue: { phase: <span class="resolve">"output"</span>, retryable: false } }
+    </div>
+
+    <h3>Categorias padrão de <code>errorCode</code></h3>
+    <table>
+      <thead>
+        <tr><th><code>errorCode</code></th><th>Cobre</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>PII</code></td><td>CPF, CNPJ, dados pessoais</td></tr>
+        <tr><td><code>SECRETS</code></td><td>API keys, tokens, passwords, chaves PEM</td></tr>
+        <tr><td><code>FINANCIAL</code></td><td>Números de cartão (Luhn), valores sensíveis</td></tr>
+        <tr><td><code>INTERNAL</code></td><td>Nomes de tools/sistemas internos (built-in dinâmico)</td></tr>
+        <tr><td><em>customizadas</em></td><td>Definidas em <code>aihub.blocklist_pattern_groups</code> via SQL ou via tela <code>/projects/:id/blocklist</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3>Estrutura do <code>customValue</code></h3>
+    <pre class="language-json"><code class="language-json">{
+  "violationId": "viol-abc-123",
+  "category": "PII",
+  "phase": "input",
+  "retryable": false,
+  "patternId": "pii.cpf",
+  "contextObfuscated": "meu CPF é [REDACTED-len:14]"
+}</code></pre>
+
+    <div class="callout callout-yellow" style="margin-top:16px">
+      <strong>Importante:</strong> <code>retryable: false</code> sempre — a violação é determinística, retentar a mesma mensagem vai bloquear de novo. Para liberar, ou edite a mensagem ou desligue o grupo do projeto em <code>/projects/:id/blocklist</code>.
+    </div>
+  </section>
+
+  <!-- Códigos de erro -->
+  <section id="error-codes">
+    <h2>Códigos de erro (<code>RUN_ERROR.errorCode</code>)</h2>
+    <p>O campo <code>errorCode</code> identifica a causa do <code>RUN_ERROR</code>. Use ele para roteamento de UX (ex: mostrar botão "tentar de novo" só pra falhas transientes do provider).</p>
+
+    <table>
+      <thead>
+        <tr><th><code>errorCode</code></th><th>Significado</th><th>Retentar?</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>TIMEOUT</code></td><td>Execução excedeu <code>timeoutSeconds</code></td><td>Sim (talvez aumentar timeout)</td></tr>
+        <tr><td><code>BUDGET_EXCEEDED</code></td><td>Tokens ou custo USD ultrapassaram limite do projeto/workflow</td><td>Não (ajustar limite)</td></tr>
+        <tr><td><code>CANCELLED</code></td><td>Cancelamento manual (<code>POST /cancel</code>) ou disconnect grace period</td><td>Sim</td></tr>
+        <tr><td><code>LLM_ERROR</code></td><td>Falha na chamada ao provider (rede, 5xx)</td><td>Sim</td></tr>
+        <tr><td><code>LLM_RATE_LIMIT</code></td><td>Provider rejeitou por rate limit (429)</td><td>Sim com backoff</td></tr>
+        <tr><td><code>LLM_CONTENT_FILTER</code></td><td>Provider bloqueou por policy interna (Azure/OpenAI safety)</td><td>Não (editar conteúdo)</td></tr>
+        <tr><td><code>TOOL_ERROR</code></td><td>Tool invocada gerou exceção não tratada</td><td>Depende da tool</td></tr>
+        <tr><td><code>FRAMEWORK_ERROR</code></td><td>Erro interno do orquestrador (bug ou config inválida)</td><td>Não (reportar)</td></tr>
+        <tr><td><code>BACK_PRESSURE_REJECTED</code></td><td>Sobrecarga — slot registry recusou nova execução</td><td>Sim com backoff</td></tr>
+        <tr><td><code>AGENT_LOOP_LIMIT</code></td><td>Agente excedeu <code>MaxAgentInvocations</code></td><td>Não (ajustar limite)</td></tr>
+        <tr><td><code>HITL_REJECTED</code></td><td>Humano rejeitou aprovação inline</td><td>Não (ação intencional)</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout callout-blue" style="margin-top:16px">
+      <strong>Nota:</strong> Bloqueio por <strong>guardrail interno</strong> (Blocklist) NÃO usa <code>RUN_ERROR</code> — emite <a href="#safety-flow"><code>SAFETY_VIOLATION</code></a> separado, com semântica e UI própria.
+    </div>
   </section>
 
   <!-- ════════════════════════════════════════════════════════════════════════
