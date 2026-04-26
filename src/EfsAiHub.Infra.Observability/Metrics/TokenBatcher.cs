@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Infra.Observability.Services;
 
@@ -94,7 +95,7 @@ public sealed class TokenBatcher : IAsyncDisposable
             {
                 EventType = "token",
                 ExecutionId = state.ExecutionId,
-                Payload = JsonSerializer.Serialize(new { agentId, text })
+                Payload = JsonSerializer.Serialize(new { agentId, text }, JsonDefaults.Domain)
             };
             await _eventBus.PublishAsync(state.ExecutionId, envelope);
         }

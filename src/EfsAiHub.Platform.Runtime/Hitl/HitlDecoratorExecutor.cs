@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Persistence;
 using ExecutionContext = EfsAiHub.Core.Agents.Execution.ExecutionContext;
 
 namespace EfsAiHub.Platform.Runtime.Hitl;
@@ -71,15 +72,17 @@ public sealed class HitlDecoratorExecutor : Executor<string, string>
         {
             EventType = "hitl_required",
             ExecutionId = executionId,
-            Payload = JsonSerializer.Serialize(new
-            {
-                interactionId,
-                prompt = _config.Prompt,
-                question = _config.Prompt,
-                options = _config.Options,
-                timeoutSeconds = _config.TimeoutSeconds,
-                interactionType = _config.InteractionType.ToString()
-            })
+            Payload = JsonSerializer.Serialize(
+                new
+                {
+                    interactionId,
+                    prompt = _config.Prompt,
+                    question = _config.Prompt,
+                    options = _config.Options,
+                    timeoutSeconds = _config.TimeoutSeconds,
+                    interactionType = _config.InteractionType.ToString()
+                },
+                JsonDefaults.Domain)
         }, ct);
 
         // Bloquear até resposta humana (ou timeout)

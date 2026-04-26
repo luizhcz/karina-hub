@@ -1,6 +1,7 @@
 using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Conversations;
 using EfsAiHub.Core.Abstractions.Execution;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.BackgroundServices;
 
@@ -83,7 +84,7 @@ public sealed class ExecutionFailureWriter
         {
             EventType = eventType,
             ExecutionId = executionId,
-            Payload = JsonSerializer.Serialize(payload)
+            Payload = JsonSerializer.Serialize(payload, JsonDefaults.Domain)
         };
         await _eventBus.PublishAsync(executionId, envelope);
     }
