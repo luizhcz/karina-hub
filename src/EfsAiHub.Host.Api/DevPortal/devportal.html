@@ -242,10 +242,14 @@
   <a href="#quickstart">Quick Start</a>
   <a href="#auth">Autenticação</a>
   <div class="nav-section">AG-UI Protocol</div>
+  <a href="#ag-ui-101">AG-UI em 60 segundos</a>
   <a href="#endpoints">Endpoints</a>
   <a href="#events">Catálogo de Eventos</a>
+  <a href="#turn-anatomy">Anatomia de um turno</a>
+  <a href="#minimal-client">Cliente mínimo (JS)</a>
   <a href="#hitl">Fluxo HITL</a>
   <a href="#custom-events">Custom Events</a>
+  <a href="#patterns">Patterns comuns</a>
   <a href="#safety-flow">Fluxo SAFETY_VIOLATION</a>
   <a href="#error-codes">Códigos de erro</a>
   <div class="nav-section">Gerenciamento</div>
@@ -318,6 +322,119 @@
         <div style="color:var(--muted);font-size:13px">Compatível com CopilotKit e AG-UI SDK</div>
       </div>
     </div>
+  </section>
+
+  <!-- AG-UI 101 -->
+  <section id="ag-ui-101">
+    <h2>AG-UI em 60 segundos</h2>
+    <p>
+      <strong>AG-UI Protocol</strong> é uma especificação aberta (mantida pelo time CopilotKit) que padroniza
+      <strong>como uma UI conversa com um agente / workflow de IA</strong>. Em vez de cada produto inventar
+      eventos próprios pra streaming de tokens, tool calls, aprovações humanas e atualização de estado,
+      o AG-UI define <strong>17 tipos de evento canônicos</strong> que cobrem o ciclo de vida de uma conversa
+      ponta a ponta. Esse portal documenta a implementação do AG-UI no EFS AI Hub.
+    </p>
+
+    <h3>O que você ganha</h3>
+    <table>
+      <thead>
+        <tr><th>Capacidade</th><th>Como o AG-UI entrega</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Streaming de texto token a token</td>
+          <td><code>TEXT_MESSAGE_START</code> → vários <code>TEXT_MESSAGE_CONTENT</code> com <code>delta</code> → <code>TEXT_MESSAGE_END</code></td>
+        </tr>
+        <tr>
+          <td>Tool calls (function calling)</td>
+          <td><code>TOOL_CALL_START</code> → <code>TOOL_CALL_ARGS</code> (streaming) → <code>TOOL_CALL_END</code> → <code>TOOL_CALL_RESULT</code></td>
+        </tr>
+        <tr>
+          <td>Aprovação humana (HITL)</td>
+          <td>Mesma sequência de tool call usando <code>toolCallName: "request_approval"</code> — o stream <strong>fica aberto</strong> esperando o humano clicar.</td>
+        </tr>
+        <tr>
+          <td>Estado compartilhado UI ↔ agente</td>
+          <td><code>STATE_SNAPSHOT</code> (estado completo) e <code>STATE_DELTA</code> (JSON Patch RFC 6902) — sincroniza form, posição, contexto, etc.</td>
+        </tr>
+        <tr>
+          <td>Reconexão sem perder mensagens</td>
+          <td>Cada evento tem <code>id:</code> incremental no SSE; cliente envia <code>Last-Event-ID</code> e o servidor faz replay.</td>
+        </tr>
+        <tr>
+          <td>Eventos de domínio fora do schema</td>
+          <td><code>CUSTOM</code> com <code>customName</code> + <code>customValue</code> arbitrário — extensão idiomática.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Como ele se compara ao que você já conhece</h3>
+    <table>
+      <thead>
+        <tr><th>Conceito</th><th>OpenAI Chat Streaming</th><th>AG-UI</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Transporte</td>
+          <td>SSE (<code>text/event-stream</code>)</td>
+          <td>SSE (<code>text/event-stream</code>) — mesmo formato wire</td>
+        </tr>
+        <tr>
+          <td>Streaming de tokens</td>
+          <td><code>chat.completion.chunk</code> com <code>choices[].delta.content</code></td>
+          <td>Eventos discretos: <code>TEXT_MESSAGE_START</code> / <code>CONTENT</code> / <code>END</code></td>
+        </tr>
+        <tr>
+          <td>Tool call</td>
+          <td><code>tool_calls[]</code> dentro do chunk</td>
+          <td>Eventos próprios: <code>TOOL_CALL_*</code> (start/args streamed/end/result)</td>
+        </tr>
+        <tr>
+          <td>HITL (aprovação humana)</td>
+          <td>Não tem — sua app implementa por fora</td>
+          <td>Faz parte do protocolo: tool call <code>request_approval</code> + endpoint <code>/resolve-hitl</code></td>
+        </tr>
+        <tr>
+          <td>Estado compartilhado</td>
+          <td>Não tem</td>
+          <td><code>STATE_SNAPSHOT</code> + <code>STATE_DELTA</code> via JSON Patch</td>
+        </tr>
+        <tr>
+          <td>Reconexão</td>
+          <td>Sem replay — recomeça do zero</td>
+          <td><code>Last-Event-ID</code> + replay automático</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout callout-blue" style="margin-top:16px">
+      <strong>Mental model rápido:</strong> pense no AG-UI como "OpenAI streaming + tools + HITL + state + reconnect, tudo num único stream SSE com eventos discretos e tipados".
+    </div>
+
+    <h3>O que NÃO é AG-UI</h3>
+    <ul>
+      <li>Não é um SDK proprietário do EFS — é uma <a href="https://docs.ag-ui.com" target="_blank">spec aberta</a> implementada por vários frameworks (CopilotKit, Microsoft Agent Framework, Mastra, Pydantic AI, LangGraph bridge).</li>
+      <li>Não é REST — é um stream contínuo. Uma única request <code>POST /api/chat/ag-ui/stream</code> recebe N eventos até o turn terminar.</li>
+      <li>Não é WebSocket — é SSE (HTTP unidirecional servidor→cliente). Para enviar mensagens novas o cliente faz POST normal.</li>
+      <li>Não substitui o Swagger — endpoints CRUD de agentes/workflows continuam REST tradicional.</li>
+    </ul>
+
+    <h3>Glossário rápido</h3>
+    <table>
+      <thead>
+        <tr><th>Termo</th><th>Significado</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Thread</strong></td><td>Conversa contínua. Identificada por <code>threadId</code>; persiste mensagens entre turns.</td></tr>
+        <tr><td><strong>Run</strong></td><td>Uma execução do workflow disparada por um turn (uma mensagem do usuário). <code>runId</code> identifica essa execução específica.</td></tr>
+        <tr><td><strong>Step</strong></td><td>Um nó do workflow que produz fala visível ao usuário (geralmente um agente LLM). Marca-se com <code>STEP_STARTED</code>/<code>STEP_FINISHED</code>.</td></tr>
+        <tr><td><strong>Delta</strong></td><td>Fragmento incremental — pedaço de texto (token), pedaço de args de tool call, ou JSON Patch de estado.</td></tr>
+        <tr><td><strong>Snapshot</strong></td><td>Estado completo enviado de uma vez (vs delta). Usado em <code>STATE_SNAPSHOT</code> e <code>MESSAGES_SNAPSHOT</code>.</td></tr>
+        <tr><td><strong>Tool call</strong></td><td>Workflow chamando uma função (function calling do LLM ou aprovação humana).</td></tr>
+        <tr><td><strong>HITL</strong></td><td>Human-in-the-loop. Pausa do workflow esperando intervenção humana. Modelado como tool call especial <code>request_approval</code>.</td></tr>
+        <tr><td><strong>Frame SSE</strong></td><td>Bloco de linhas <code>data:</code> + <code>id:</code> separadas por linha em branco. Um frame = um evento.</td></tr>
+      </tbody>
+    </table>
   </section>
 
   <!-- Quick Start -->
@@ -442,9 +559,11 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
           <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>
           <tbody>
             <tr><td><code>messages[]</code></td><td>array</td><td>Histórico; o último <code>role=user</code> é a mensagem efetiva</td></tr>
-            <tr><td><code>threadId</code></td><td>string | null</td><td>ID da conversa. <code>null</code> = criar nova</td></tr>
+            <tr><td><code>threadId</code></td><td>string | null</td><td>ID da conversa. <code>null</code> = criar nova; reuse o <code>threadId</code> recebido em <code>RUN_STARTED</code> pra continuar a mesma conversa.</td></tr>
             <tr><td><code>workflowId</code></td><td>string | null</td><td>Alternativo ao header <code>x-efs-workflow-id</code>; body tem prioridade</td></tr>
             <tr><td><code>runId</code></td><td>string</td><td>Run ID fornecido pelo cliente</td></tr>
+            <tr><td><code>tools[]</code></td><td>array</td><td>Definição de tools client-side que a UI sabe executar (ex: chamar API local, abrir modal). O backend pode invocá-las via <code>TOOL_CALL_*</code>.</td></tr>
+            <tr><td><code>state</code></td><td>object</td><td>Estado inicial compartilhado UI ↔ agente (form, posição, contexto). O backend devolve <code>STATE_SNAPSHOT</code>/<code>STATE_DELTA</code> conforme atualiza.</td></tr>
           </tbody>
         </table>
         <h3>Códigos HTTP de resposta</h3>
@@ -669,6 +788,237 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
     </table>
   </section>
 
+  <!-- Anatomia de um turno -->
+  <section id="turn-anatomy">
+    <h2>Anatomia de um turno</h2>
+    <p>
+      A tabela acima lista os tipos de evento, mas o que importa pra implementar um cliente é
+      <strong>a sequência</strong>. Cada turno (uma mensagem do usuário) gera entre 5 e 50+ eventos
+      conforme o caminho. Os 3 caminhos principais cobrem ~95% dos casos:
+    </p>
+
+    <h3>1. Happy path — agente respondendo só com texto</h3>
+    <pre><code><span class="comment">// Cliente envia: "Qual é o saldo da minha conta?"</span>
+<span class="comment">// POST /api/chat/ag-ui/stream → 200 text/event-stream</span>
+
+<span class="arrow">stream ←</span> <span class="event">RUN_STARTED</span>          { runId: <span class="resolve">"run-abc"</span>, threadId: <span class="resolve">"thr-001"</span> }
+<span class="arrow">stream ←</span> <span class="event">STATE_SNAPSHOT</span>       { snapshot: { ... } }            <span class="comment">// estado inicial do thread</span>
+<span class="arrow">stream ←</span> <span class="event">STEP_STARTED</span>         { stepId: <span class="resolve">"agent-saldo"</span>, stepName: <span class="resolve">"agent-saldo"</span> }
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_START</span>   { messageId: <span class="resolve">"msg-1"</span>, role: <span class="resolve">"assistant"</span> }
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_CONTENT</span> { messageId: <span class="resolve">"msg-1"</span>, delta: <span class="resolve">"Seu "</span> }
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_CONTENT</span> { messageId: <span class="resolve">"msg-1"</span>, delta: <span class="resolve">"saldo "</span> }
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_CONTENT</span> { messageId: <span class="resolve">"msg-1"</span>, delta: <span class="resolve">"é R$ 12.480,33."</span> }
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_END</span>     { messageId: <span class="resolve">"msg-1"</span> }
+<span class="arrow">stream ←</span> <span class="event">STEP_FINISHED</span>        { stepId: <span class="resolve">"agent-saldo"</span> }
+<span class="arrow">stream ←</span> <span class="event">RUN_FINISHED</span>         { runId: <span class="resolve">"run-abc"</span>, output: <span class="resolve">"Seu saldo é R$ 12.480,33."</span> }
+
+<span class="comment">// stream encerra (servidor fecha SSE)</span></code></pre>
+
+    <h3>2. Com tool call (function calling)</h3>
+    <pre><code><span class="comment">// Cliente envia: "Compre 100 PETR4 a 30,00"</span>
+
+<span class="arrow">stream ←</span> <span class="event">RUN_STARTED</span>          { runId: <span class="resolve">"run-def"</span>, threadId: <span class="resolve">"thr-002"</span> }
+<span class="arrow">stream ←</span> <span class="event">STEP_STARTED</span>         { stepId: <span class="resolve">"agent-boleta"</span> }
+
+<span class="arrow">stream ←</span> <span class="event">TOOL_CALL_START</span>      { toolCallId: <span class="resolve">"tc-1"</span>, toolCallName: <span class="resolve">"SendOrder"</span> }
+<span class="arrow">stream ←</span> <span class="event">TOOL_CALL_ARGS</span>       { toolCallId: <span class="resolve">"tc-1"</span>, delta: <span class="resolve">'{"ticker":'</span> }    <span class="comment">// args streamed em fragmentos</span>
+<span class="arrow">stream ←</span> <span class="event">TOOL_CALL_ARGS</span>       { toolCallId: <span class="resolve">"tc-1"</span>, delta: <span class="resolve">'"PETR4","quantity":100}'</span> }
+<span class="arrow">stream ←</span> <span class="event">TOOL_CALL_END</span>        { toolCallId: <span class="resolve">"tc-1"</span> }                    <span class="comment">// fim do streaming de args</span>
+<span class="arrow">stream ←</span> <span class="event">TOOL_CALL_RESULT</span>     { toolCallId: <span class="resolve">"tc-1"</span>, result: <span class="resolve">"order-789 enviada"</span>, role: <span class="resolve">"tool"</span> }
+
+<span class="comment">// agente continua produzindo a resposta final pro usuário</span>
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_START</span>   { messageId: <span class="resolve">"msg-2"</span>, role: <span class="resolve">"assistant"</span> }
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_CONTENT</span> { messageId: <span class="resolve">"msg-2"</span>, delta: <span class="resolve">"Ordem enviada com sucesso..."</span> }
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_END</span>     { messageId: <span class="resolve">"msg-2"</span> }
+<span class="arrow">stream ←</span> <span class="event">STEP_FINISHED</span>        { stepId: <span class="resolve">"agent-boleta"</span> }
+<span class="arrow">stream ←</span> <span class="event">RUN_FINISHED</span>         { ... }</code></pre>
+
+    <div class="callout callout-blue">
+      <strong>Importante:</strong> os <code>delta</code> de <code>TOOL_CALL_ARGS</code> chegam fragmentados —
+      o JSON pode ser cortado <strong>no meio de uma string</strong>. Acumule todos os delta num buffer e
+      faça <code>JSON.parse()</code> apenas após <code>TOOL_CALL_END</code>.
+    </div>
+
+    <h3>3. Com HITL (aprovação humana)</h3>
+    <p>
+      HITL é uma tool call especial — <code>toolCallName: "request_approval"</code>. A diferença é que
+      <strong>o stream fica aberto</strong> esperando o cliente chamar <code>POST /resolve-hitl</code>.
+      Veja o <a href="#hitl">fluxo HITL completo</a> com detalhes do <code>customValue</code> e dos botões.
+    </p>
+
+    <h3>4. Fim do turno: 3 caminhos terminais</h3>
+    <p>
+      Todo turno termina por <strong>exatamente um</strong> destes 3 eventos. Após eles, o servidor
+      fecha o SSE e o cliente não deve esperar mais nada:
+    </p>
+    <table>
+      <thead>
+        <tr><th>Evento terminal</th><th>Quando</th><th>O que fazer</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>RUN_FINISHED</code> <span class="badge badge-green">success</span></td>
+          <td>Workflow concluiu sem erro.</td>
+          <td>Habilitar input pro próximo turn. Salvar <code>threadId</code>.</td>
+        </tr>
+        <tr>
+          <td><code>RUN_ERROR</code> <span class="badge badge-yellow">erro</span></td>
+          <td>Falha técnica (timeout, exception, cancelado).</td>
+          <td>Mostrar mensagem de erro. Olhar <code>errorCode</code> pra decidir retry — ver <a href="#error-codes">códigos</a>.</td>
+        </tr>
+        <tr>
+          <td><code>SAFETY_VIOLATION</code> <span class="badge badge-red">bloqueio</span></td>
+          <td>Conteúdo violou guardrail (PII, secrets, etc).</td>
+          <td>Mostrar UI específica de bloqueio. <strong>Não retentar.</strong> Ver <a href="#safety-flow">fluxo</a>.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Cliente mínimo -->
+  <section id="minimal-client">
+    <h2>Cliente mínimo (JavaScript)</h2>
+    <p>
+      Implementação completa em ~70 linhas — fetch SSE + parser linha-a-linha + acumulador de tokens
+      + handler dos 3 caminhos terminais. Roda em browser (com Web Streams API) ou Node 18+.
+    </p>
+
+    <pre class="language-javascript"><code class="language-javascript"><span class="comment">// Estado mantido entre turns: persiste threadId pra continuar a mesma conversa.</span>
+let threadId = null
+const messages = []  <span class="comment">// histórico local</span>
+
+async function sendTurn(userText) {
+  messages.push({ id: crypto.randomUUID(), role: 'user', content: userText })
+
+  const res = await fetch('/api/chat/ag-ui/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-efs-account': '011982329',  <span class="comment">// header de identidade — escolha um (ver Autenticação)</span>
+    },
+    body: JSON.stringify({
+      messages,
+      threadId,                       <span class="comment">// null no primeiro turn, reuso depois</span>
+      runId: crypto.randomUUID(),
+      tools: [],
+      state: {},
+    }),
+  })
+
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+  <span class="comment">// Estado por turn</span>
+  const tokens = new Map()              <span class="comment">// messageId → texto acumulado</span>
+  const toolArgs = new Map()            <span class="comment">// toolCallId → buffer JSON</span>
+  let lastEventId = null
+
+  <span class="comment">// Parser SSE: lê o body em chunks UTF-8 e quebra por linha em branco (\n\n).</span>
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    const frames = buffer.split('\n\n')
+    buffer = frames.pop()  <span class="comment">// último pedaço pode estar incompleto</span>
+
+    for (const frame of frames) {
+      const lines = frame.split('\n')
+      let dataLine = null
+      for (const line of lines) {
+        if (line.startsWith('data: ')) dataLine = line.slice(6)
+        else if (line.startsWith('id: ')) lastEventId = line.slice(4)
+        <span class="comment">// linhas começando com `:` são heartbeat — ignorar</span>
+      }
+      if (!dataLine) continue
+      const evt = JSON.parse(dataLine)
+
+      switch (evt.type) {
+        case 'RUN_STARTED':
+          threadId = evt.threadId  <span class="comment">// guardar pro próximo turn</span>
+          break
+
+        case 'TEXT_MESSAGE_START':
+          tokens.set(evt.messageId, '')
+          break
+
+        case 'TEXT_MESSAGE_CONTENT':
+          tokens.set(evt.messageId, (tokens.get(evt.messageId) ?? '') + (evt.delta ?? ''))
+          renderBubble(evt.messageId, tokens.get(evt.messageId))  <span class="comment">// streaming UI</span>
+          break
+
+        case 'TEXT_MESSAGE_END':
+          messages.push({ id: evt.messageId, role: 'assistant', content: tokens.get(evt.messageId) })
+          break
+
+        case 'TOOL_CALL_START':
+          toolArgs.set(evt.toolCallId, '')
+          break
+
+        case 'TOOL_CALL_ARGS':
+          toolArgs.set(evt.toolCallId, (toolArgs.get(evt.toolCallId) ?? '') + (evt.delta ?? ''))
+          break
+
+        case 'TOOL_CALL_END': {
+          const argsJson = toolArgs.get(evt.toolCallId) ?? '{}'
+          const args = JSON.parse(argsJson)  <span class="comment">// agora é seguro parse</span>
+          renderToolCall(evt.toolCallId, args)
+          toolArgs.delete(evt.toolCallId)
+          break
+        }
+
+        case 'STATE_SNAPSHOT':
+          replaceState(evt.snapshot)
+          break
+
+        case 'STATE_DELTA':
+          applyJsonPatch(evt.delta)  <span class="comment">// fast-json-patch ou similar</span>
+          break
+
+        case 'CUSTOM':
+          <span class="comment">// Discrimine por customName e ignore desconhecidos.</span>
+          if (evt.customName === 'executor.lifecycle') {
+            <span class="comment">// detalhe técnico — não criar bubble; loggar se útil pra observability</span>
+          }
+          break
+
+        case 'RUN_FINISHED':
+        case 'RUN_ERROR':
+        case 'SAFETY_VIOLATION':
+          <span class="comment">// 3 caminhos terminais — habilitar input do próximo turn</span>
+          handleTurnEnd(evt)
+          return
+      }
+    }
+  }
+}</code></pre>
+
+    <div class="callout callout-blue">
+      <strong>Por que <code>fetch</code> + parser manual em vez de <code>EventSource</code>?</strong>
+      A API <code>EventSource</code> do browser só faz GET — o AG-UI precisa POST com body. Com <code>fetch</code>
+      você lê o stream do <code>res.body.getReader()</code> e parseia frames SSE manualmente. É ~20 linhas
+      a mais e dá controle total sobre headers, cancelamento e backpressure.
+    </div>
+
+    <h3>Reconexão</h3>
+    <p>
+      Quando o stream cai (rede, refresh, timeout), guarde o último <code>id:</code> recebido
+      (<code>lastEventId</code> no exemplo) e chame:
+    </p>
+    <pre class="language-javascript"><code class="language-javascript">const res = await fetch(`/api/chat/ag-ui/reconnect/${runId}`, {
+  headers: {
+    'Last-Event-ID': lastEventId,
+    'x-thread-id': threadId,
+    'x-efs-account': '011982329',
+  },
+})
+<span class="comment">// O servidor faz replay dos eventos perdidos. Se Last-Event-ID for null, manda</span>
+<span class="comment">// MESSAGES_SNAPSHOT + STATE_SNAPSHOT pra resync completo antes de continuar.</span></code></pre>
+  </section>
+
   <!-- HITL -->
   <section id="hitl">
     <h2>Fluxo HITL — Human in the Loop</h2>
@@ -750,6 +1100,159 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
 <span class="comment">// Próximo nó é executor — sem STEP_*, sem bubble fake</span>
 <span class="arrow">stream ←</span> <span class="event">CUSTOM</span>                  { customName: <span class="resolve">"executor.lifecycle"</span>, customValue: { nodeId: <span class="resolve">"post_processor"</span>, phase: <span class="resolve">"started"</span>, functionName: <span class="resolve">"service_post_processor"</span> } }
 <span class="arrow">stream ←</span> <span class="event">CUSTOM</span>                  { customName: <span class="resolve">"executor.lifecycle"</span>, customValue: { nodeId: <span class="resolve">"post_processor"</span>, phase: <span class="resolve">"finished"</span>, functionName: <span class="resolve">"service_post_processor"</span> } }</code></pre>
+  </section>
+
+  <!-- Patterns comuns -->
+  <section id="patterns">
+    <h2>Patterns comuns — cheat sheet</h2>
+    <p>Receitas curtas pros padrões que todo cliente AG-UI implementa. Use junto com o <a href="#minimal-client">cliente mínimo</a>.</p>
+
+    <h3>1. Acumular tokens de TEXT_MESSAGE_CONTENT</h3>
+    <p>Cada <code>delta</code> é um pedaço — concatene por <code>messageId</code>:</p>
+    <pre class="language-javascript"><code class="language-javascript">const tokens = new Map()  <span class="comment">// messageId → string</span>
+
+case 'TEXT_MESSAGE_START':
+  tokens.set(evt.messageId, '')
+  break
+
+case 'TEXT_MESSAGE_CONTENT':
+  tokens.set(evt.messageId, tokens.get(evt.messageId) + evt.delta)
+  ui.update(evt.messageId, tokens.get(evt.messageId))   <span class="comment">// re-render bubble</span>
+  break
+
+case 'TEXT_MESSAGE_END':
+  ui.markComplete(evt.messageId)
+  break</code></pre>
+
+    <h3>2. Acumular args de TOOL_CALL_ARGS antes do parse</h3>
+    <p><strong>Nunca</strong> faça <code>JSON.parse(delta)</code> — o JSON pode ter sido cortado no meio:</p>
+    <pre class="language-javascript"><code class="language-javascript">const buffers = new Map()
+
+case 'TOOL_CALL_START':
+  buffers.set(evt.toolCallId, '')
+  break
+
+case 'TOOL_CALL_ARGS':
+  buffers.set(evt.toolCallId, buffers.get(evt.toolCallId) + evt.delta)
+  break
+
+case 'TOOL_CALL_END': {
+  const args = JSON.parse(buffers.get(evt.toolCallId) ?? '{}')  <span class="comment">// agora é seguro</span>
+  buffers.delete(evt.toolCallId)
+  ...
+}</code></pre>
+
+    <h3>3. Aplicar STATE_DELTA via JSON Patch</h3>
+    <p>O <code>delta</code> é uma lista de operações <a href="https://datatracker.ietf.org/doc/html/rfc6902" target="_blank">RFC 6902</a>. Use uma lib como <a href="https://github.com/Starcounter-Jack/JSON-Patch" target="_blank">fast-json-patch</a>:</p>
+    <pre class="language-javascript"><code class="language-javascript">import { applyPatch } from 'fast-json-patch'
+
+let state = {}
+
+case 'STATE_SNAPSHOT':
+  state = evt.snapshot     <span class="comment">// substitui inteiro</span>
+  break
+
+case 'STATE_DELTA':
+  state = applyPatch(state, evt.delta).newDocument
+  break</code></pre>
+
+    <h3>4. Detectar fim do turno (3 caminhos terminais)</h3>
+    <p>O cliente <strong>precisa</strong> tratar os 3 — se você só observar <code>RUN_FINISHED</code>, vai travar a UI em erro/bloqueio:</p>
+    <pre class="language-javascript"><code class="language-javascript">function handleTurnEnd(evt) {
+  switch (evt.type) {
+    case 'RUN_FINISHED':
+      ui.enableInput()
+      break
+
+    case 'RUN_ERROR':
+      <span class="comment">// errorCode é estável — use ele pra decidir, não a string `error`.</span>
+      ui.showError(evt.error)
+      if (evt.errorCode === 'BUDGET_EXCEEDED' || evt.errorCode === 'RATE_LIMIT') {
+        ui.disableInputUntil(/* política da app */)
+      } else {
+        ui.enableInput()  <span class="comment">// permite retry</span>
+      }
+      break
+
+    case 'SAFETY_VIOLATION':
+      <span class="comment">// terminal de bloqueio — NÃO retentar com o mesmo conteúdo.</span>
+      ui.showSafetyBlock(evt.errorCode, evt.error)
+      ui.enableInput()
+      break
+  }
+}</code></pre>
+
+    <h3>5. Reagir a tool call vs HITL no TOOL_CALL_START</h3>
+    <p>HITL é uma tool call com <code>toolCallName: "request_approval"</code>. Distinga cedo pra mostrar a UI certa:</p>
+    <pre class="language-javascript"><code class="language-javascript">const hitlPending = new Set()
+
+case 'TOOL_CALL_START':
+  if (evt.toolCallName === 'request_approval') {
+    hitlPending.add(evt.toolCallId)
+  } else {
+    ui.renderToolCallSpinner(evt.toolCallId, evt.toolCallName)
+  }
+  break
+
+case 'TOOL_CALL_END':
+  if (hitlPending.has(evt.toolCallId)) {
+    const args = JSON.parse(buffers.get(evt.toolCallId) ?? '{}')
+    <span class="comment">// args = { interactionId, question, options, timeoutSeconds, interactionType }</span>
+    ui.showApprovalButtons(evt.toolCallId, args)
+    hitlPending.delete(evt.toolCallId)
+  }
+  break</code></pre>
+
+    <h3>6. Continuar conversa entre turns</h3>
+    <p><code>threadId</code> é a chave da conversa contínua — guarde do <code>RUN_STARTED</code> e reuse:</p>
+    <pre class="language-javascript"><code class="language-javascript">let threadId = null  <span class="comment">// global ou em store da app</span>
+
+case 'RUN_STARTED':
+  threadId = evt.threadId    <span class="comment">// no primeiro turn vem novo; nos seguintes vem o mesmo</span>
+  break
+
+<span class="comment">// próxima request:</span>
+fetch('/api/chat/ag-ui/stream', {
+  method: 'POST',
+  body: JSON.stringify({ messages: [...], threadId, runId: ... }),
+})</code></pre>
+
+    <h3>7. Parser SSE robusto</h3>
+    <p>O frame SSE só está completo quando você vê uma linha em branco (<code>\n\n</code>). Trate buffer parcial:</p>
+    <pre class="language-javascript"><code class="language-javascript">let buffer = ''
+
+while (true) {
+  const { value, done } = await reader.read()
+  if (done) break
+  buffer += decoder.decode(value, { stream: true })
+
+  const frames = buffer.split('\n\n')
+  buffer = frames.pop()        <span class="comment">// último pode estar incompleto — guarda pra próxima iter</span>
+
+  for (const frame of frames) {
+    <span class="comment">// frame = bloco de linhas: data:..., id:..., :heartbeat, etc.</span>
+    let dataLine = null
+    let idLine = null
+    for (const line of frame.split('\n')) {
+      if (line.startsWith('data: ')) dataLine = line.slice(6)
+      else if (line.startsWith('id: ')) idLine = line.slice(4)
+      <span class="comment">// linhas começando com `:` são heartbeat — ignore</span>
+    }
+    if (!dataLine) continue
+    handleEvent(JSON.parse(dataLine), idLine)
+  }
+}</code></pre>
+
+    <div class="callout callout-yellow">
+      <strong>Pegadinhas comuns:</strong>
+      <ul style="margin-top:8px;margin-bottom:0">
+        <li><code>JSON.parse</code> em <code>delta</code> de <code>TOOL_CALL_ARGS</code> chunkado — sempre parta por <code>TOOL_CALL_END</code>.</li>
+        <li>Esquecer de tratar <code>SAFETY_VIOLATION</code> — UI fica travada esperando <code>RUN_FINISHED</code>.</li>
+        <li>Não persistir <code>threadId</code> — backend cria thread nova a cada request, perdendo histórico.</li>
+        <li>Usar <code>EventSource</code> nativo — não suporta POST nem headers customizados; use <code>fetch</code>.</li>
+        <li>Reagir a <code>STEP_*</code> de executores — eles emitem <code>CUSTOM executor.lifecycle</code> em vez (ver <a href="#custom-events">Custom Events</a>).</li>
+      </ul>
+    </div>
   </section>
 
   <!-- Safety / Blocklist -->
