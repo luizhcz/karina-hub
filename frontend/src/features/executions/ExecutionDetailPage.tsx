@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router'
 import { StatusPill } from '../../shared/data/StatusPill'
 import { MetricCard } from '../../shared/data/MetricCard'
 import { JsonViewer } from '../../shared/data/JsonViewer'
+import { prettyJsonInline } from '../../shared/utils/prettyJson'
 import { Button } from '../../shared/ui/Button'
 import { Badge } from '../../shared/ui/Badge'
 import { Card } from '../../shared/ui/Card'
@@ -72,7 +73,7 @@ function EventTimeline({ events }: TimelineProps) {
               {new Date(ev.timestamp).toLocaleString('pt-BR')}
             </p>
             {ev.payload && (
-              <p className="text-xs text-text-secondary mt-0.5 truncate max-w-md">{ev.payload}</p>
+              <p className="text-xs text-text-secondary mt-0.5 truncate max-w-md">{prettyJsonInline(ev.payload)}</p>
             )}
           </div>
         </div>
@@ -111,7 +112,9 @@ function EventsTable({ events }: EventsTableProps) {
                 <span className="text-xs font-mono text-accent-blue">{ev.eventType}</span>
               </td>
               <td className="px-4 py-2.5 max-w-xs">
-                <span className="text-xs text-text-secondary truncate block">{ev.payload ?? '—'}</span>
+                <span className="text-xs text-text-secondary truncate block">
+                  {ev.payload ? prettyJsonInline(ev.payload) : '—'}
+                </span>
               </td>
               <td className="px-4 py-2.5">
                 <span className="text-xs text-text-muted">

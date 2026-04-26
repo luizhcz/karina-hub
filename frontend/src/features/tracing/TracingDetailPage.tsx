@@ -9,6 +9,7 @@ import { PageLoader } from '../../shared/ui/LoadingSpinner'
 import { ErrorCard } from '../../shared/ui/ErrorCard'
 import { EmptyState } from '../../shared/ui/EmptyState'
 import { formatDuration } from '../../shared/utils/formatters'
+import { prettyJsonInline } from '../../shared/utils/prettyJson'
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -353,7 +354,7 @@ export function TracingDetailPage() {
                 </span>
                 <EventTypeChip type={ev.eventType} />
                 <div className="flex items-start gap-1 min-w-0">
-                  <span className="text-[10px] font-mono text-text-muted truncate">{ev.payload}</span>
+                  <span className="text-[10px] font-mono text-text-muted truncate">{prettyJsonInline(ev.payload)}</span>
                   {ev.payload && <CopyButton text={ev.payload} />}
                 </div>
               </div>

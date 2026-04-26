@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { cn } from '../utils/cn'
+import { prettyJsonString } from '../utils/prettyJson'
 
 interface JsonViewerProps {
   data: unknown
@@ -10,7 +11,9 @@ interface JsonViewerProps {
 
 export function JsonViewer({ data, collapsed = true, maxHeight = '300px', className }: JsonViewerProps) {
   const [expanded, setExpanded] = useState(!collapsed)
-  const json = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
+  // String que contém JSON é reparseada para que escapes (`á`, `\"`) virem chars
+  // legíveis na tela. Strings que não são JSON válido caem pro fallback original.
+  const json = typeof data === 'string' ? prettyJsonString(data) : JSON.stringify(data, null, 2)
 
   return (
     <div className={cn('bg-bg-tertiary border border-border-primary rounded-lg overflow-hidden', className)}>
