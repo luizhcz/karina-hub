@@ -90,13 +90,14 @@ internal sealed class ConditionalEdgeHandler : IEdgeHandler
 
         if (edge.Predicate is null)
         {
-            // EnsureInvariants no save bloqueia esse caminho — chegar aqui é bug ou
-            // workflow corrompido carregado do banco. Tratamos como Direct pra manter
-            // execução determinística.
-            ctx.Logger.LogError(
-                "Workflow '{WorkflowId}': Conditional edge {From}→{To} sem Predicate — comportamento indefinido, caindo em Direct.",
-                ctx.WorkflowId, edge.From, edge.To);
-            return builder.AddEdge(from, to);
+            // Caminho normal nunca chega aqui — EnsureInvariants no save bloqueia.
+            // Chegar aqui = workflow corrompido (UPDATE SQL manual, restore parcial,
+            // etc). Falha alta com stack trace claro pra error budget atacar o problema
+            // imediatamente em vez de mascarar com fallback Direct silencioso.
+            throw new InvalidOperationException(
+                $"Workflow '{ctx.WorkflowId}': Conditional edge {edge.From}→{edge.To} sem Predicate. " +
+                "Workflow corrompido — bypass de EnsureInvariants ou falha de migração. Investigar via " +
+                "GET /api/admin/workflows/edge-migration-report.");
         }
 
         var predicate = edge.Predicate;
@@ -143,9 +144,17 @@ internal sealed class SwitchEdgeHandler : IEdgeHandler
                     continue;
                 }
 
-                if (@case.IsDefault || @case.Predicate is null)
+                if (@case.IsDefault)
                 {
                     switchBuilder.WithDefault(targets);
+                }
+                else if (@case.Predicate is null)
+                {
+                    // Mesma lógica do Conditional — caminho normal nunca chega aqui;
+                    // workflow corrompido bypassou EnsureInvariants. Falha alta.
+                    throw new InvalidOperationException(
+                        $"Workflow '{ctx.WorkflowId}': Switch case não-default sem Predicate (from={edge.From}). " +
+                        "Workflow corrompido — investigar via GET /api/admin/workflows/edge-migration-report.");
                 }
                 else
                 {

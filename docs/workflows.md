@@ -318,8 +318,8 @@ src/EfsAiHub.Core.Orchestration/Enums/WorkflowEdgeType.cs
 public enum WorkflowEdgeType
 {
     Direct,       // 1→1 sem condição
-    Conditional,  // 1→1 com condição (substring match)
-    Switch,       // 1→N com cases e default
+    Conditional,  // 1→1 com predicate tipado sobre o output JSON do produtor
+    Switch,       // 1→N com cases (predicate por case) + default
     FanOut,       // 1→N paralelo
     FanIn         // N→1 barreira (aguarda todos)
 }
@@ -332,14 +332,17 @@ public class WorkflowEdge
 {
     public string? From { get; init; }
     public string? To { get; init; }
-    public string? Condition { get; init; }
     public WorkflowEdgeType EdgeType { get; init; } = WorkflowEdgeType.Direct;
     public List<string> Targets { get; init; } = [];    // FanOut: alvos paralelos
     public List<string> Sources { get; init; } = [];    // FanIn: fontes da barreira
-    public List<WorkflowSwitchCase> Cases { get; init; } = [];
+    public EdgePredicate? Predicate { get; init; }      // Conditional
+    public List<WorkflowSwitchCase> Cases { get; init; } = []; // Switch
+    public string? HandoffHint { get; init; }           // metadata em modo Handoff
     public string? InputSource { get; init; }           // null=default | "WorkflowInput"
 }
 ```
+
+Conditional/Switch só podem sair de origem que declara schema JSON (agente com `StructuredOutput.ResponseFormat="json_schema"` ou executor `Register<TIn,TOut>`). Sem schema, o save retorna `400 EdgeNotAllowedFromTextSource`.
 
 ### 5.1 Direct
 
@@ -351,23 +354,28 @@ A→B sem condição. O output de A é o input de B.
 
 ### 5.2 Conditional
 
-A→B somente se o output de A contiver a substring `condition`.
+A→B quando o predicate avalia `true` sobre o output JSON do produtor.
 
 ```json
-{ "from": "analise", "to": "alerta", "condition": "risco alto", "edgeType": "Conditional" }
+{
+  "from": "analise",
+  "to": "alerta",
+  "edgeType": "Conditional",
+  "predicate": { "path": "$.riskLevel", "operator": "Eq", "value": "high", "valueType": "String" }
+}
 ```
 
 ### 5.3 Switch
 
-A→{B,C,D} com cases baseados em substring match. Suporta case default.
+A→{B,C,D} com um predicate por case + default opcional. Cases são avaliados em ordem; primeiro match vence.
 
 ```json
 {
   "from": "classificador",
   "edgeType": "Switch",
   "cases": [
-    { "condition": "compra", "targets": ["executor-compra"] },
-    { "condition": "venda", "targets": ["executor-venda"] },
+    { "predicate": { "path": "$.intent", "operator": "Eq", "value": "compra",   "valueType": "String" }, "targets": ["executor-compra"] },
+    { "predicate": { "path": "$.intent", "operator": "Eq", "value": "venda",    "valueType": "String" }, "targets": ["executor-venda"] },
     { "isDefault": true, "targets": ["fallback"] }
   ]
 }

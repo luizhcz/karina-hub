@@ -1,19 +1,15 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using EfsAiHub.Core.Agents.Trading;
 
 namespace EfsAiHub.Platform.Runtime.Functions;
 
 /// <summary>
-/// Post-Processor DelegateExecutor para workflows de atendimento (Layer 2 — domain validation).
-/// Aceita tanto o formato legacy (OutputAtendimento flat) quanto o novo formato envelope
-/// (AgentOutputEnvelope com payload de boleta). Valida schema e business rules,
-/// preenche defaults, e retorna JSON validado ou erro para feedback loop condicional.
+/// Post-Processor para workflows de atendimento. Aceita envelope (com payload aninhado)
+/// ou OutputAtendimento flat, valida schema/business rules, preenche defaults e devolve
+/// um <see cref="PostProcessorResult"/> tipado. Predicate de Switch usa <c>$.hasErrors</c>.
 /// Registrado como <c>service_post_processor</c>.
-///
-/// Nota: quando o workflow usa <c>generic_enricher</c>, o enrichment de defaults
-/// (expireTime, account) é feito lá via regras declarativas.
-/// O EnrichBoletaDefaults permanece para backward compat com workflows v1.
 /// </summary>
 public static class ServicePostProcessor
 {
@@ -28,7 +24,6 @@ public static class ServicePostProcessor
     private static readonly HashSet<string> ValidPriceTypes = new(StringComparer.OrdinalIgnoreCase) { "M", "L", "F" };
     private static readonly HashSet<string> ValidResponseTypes = new(StringComparer.OrdinalIgnoreCase) { "boleta", "relatorio", "texto", "recomendacao" };
 
-    // Regex para extrair [CONTEXT: ...] do input que pode vir encadeado
     private static readonly Regex ContextBlockPattern = new(
         @"\[CONTEXT:\s*(.+?)\]", RegexOptions.Compiled | RegexOptions.Singleline);
 
@@ -39,12 +34,16 @@ public static class ServicePostProcessor
     private static readonly Regex ContaPattern = new(
         @"conta=(\S+?)(?:,|$|\])", RegexOptions.Compiled);
 
-    public static Task<string> ValidateAndEnrich(string input, CancellationToken ct)
+    public static Task<PostProcessorResult> ValidateAndEnrichTyped(string input, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(input))
-            return Task.FromResult(BuildErrorJson(["Output vazio do agente."], null));
+            return Task.FromResult(new PostProcessorResult
+            {
+                HasErrors = true,
+                Errors = ["Output vazio do agente."],
+                OriginalOutput = input
+            });
 
-        // Detectar formato: envelope (tem "payload") ou legacy (OutputAtendimento flat)
         bool isEnvelope = false;
         OutputAtendimento? output;
         try
@@ -53,40 +52,39 @@ public static class ServicePostProcessor
             isEnvelope = probe.RootElement.TryGetProperty("payload", out _);
 
             if (isEnvelope)
-            {
-                // Envelope format: extrair boletas do payload e construir OutputAtendimento
                 output = DeserializeFromEnvelope(probe.RootElement);
-            }
             else
-            {
                 output = JsonSerializer.Deserialize<OutputAtendimento>(input, JsonOpts);
-            }
         }
         catch (JsonException ex)
         {
-            return Task.FromResult(BuildErrorJson([$"JSON inválido: {ex.Message}"], input));
+            return Task.FromResult(new PostProcessorResult
+            {
+                HasErrors = true,
+                Errors = [$"JSON inválido: {ex.Message}"],
+                OriginalOutput = input
+            });
         }
 
         if (output is null)
-            return Task.FromResult(BuildErrorJson(["Output deserializou como null."], input));
+            return Task.FromResult(new PostProcessorResult
+            {
+                HasErrors = true,
+                Errors = ["Output deserializou como null."],
+                OriginalOutput = input
+            });
 
         var errors = new List<string>();
 
-        // ── 1. Validar response_type ─────────────────────────────────────────
         if (!ValidResponseTypes.Contains(output.ResponseType))
             errors.Add($"response_type '{output.ResponseType}' inválido. Esperado: boleta, relatorio, texto.");
 
-        // ── 2. Validar message ───────────────────────────────────────────────
         if (string.IsNullOrWhiteSpace(output.Message))
             errors.Add("Campo 'message' é obrigatório.");
 
-        // ── 3. Validar ui_component ──────────────────────────────────────────
         if (string.IsNullOrWhiteSpace(output.UiComponent))
             errors.Add("Campo 'ui_component' é obrigatório.");
 
-        // ── 4. Auto-corrigir boleta incompleta → texto ──────────────────────
-        // Quando o LLM classifica como "boleta" mas não tem dados suficientes
-        // (boletas null/vazio + ui_component=incomplete_card), corrigir para "texto"
         if (output.ResponseType.Equals("boleta", StringComparison.OrdinalIgnoreCase)
             && (output.Boletas is null || output.Boletas.Count == 0)
             && output.UiComponent is "incomplete_card" or "out_of_scope")
@@ -95,7 +93,6 @@ public static class ServicePostProcessor
             output.Command = null;
         }
 
-        // ── 5. Validação específica por response_type ────────────────────────
         switch (output.ResponseType.ToLowerInvariant())
         {
             case "boleta":
@@ -104,27 +101,28 @@ public static class ServicePostProcessor
             case "relatorio":
                 ValidateRelatorio(output, errors);
                 break;
-            case "texto":
-                // Texto livre — apenas message/ui_component já validados acima
-                break;
         }
 
         if (errors.Count > 0)
-            return Task.FromResult(BuildErrorJson(errors, input));
+            return Task.FromResult(new PostProcessorResult
+            {
+                HasErrors = true,
+                Errors = errors,
+                OriginalOutput = input
+            });
 
-        // ── 5. Preencher defaults (boleta) — apenas para legacy (sem generic_enricher)
         if (!isEnvelope && output.ResponseType.Equals("boleta", StringComparison.OrdinalIgnoreCase) && output.Boletas is not null)
-        {
             EnrichBoletaDefaults(output, input);
-        }
 
-        // ── 6. Retornar output validado e enriquecido ───────────────────────
-        if (isEnvelope)
+        var envelopeJson = isEnvelope ? SerializeAsEnvelope(output, input) : null;
+
+        return Task.FromResult(new PostProcessorResult
         {
-            // Re-serializar em formato envelope preservando a estrutura original
-            return Task.FromResult(SerializeAsEnvelope(output, input));
-        }
-        return Task.FromResult(JsonSerializer.Serialize(output, JsonOpts));
+            HasErrors = false,
+            Output = output,
+            IsEnvelope = isEnvelope,
+            Envelope = envelopeJson
+        });
     }
 
     private static void ValidateBoletas(OutputAtendimento output, List<string> errors)
@@ -149,14 +147,12 @@ public static class ServicePostProcessor
             if (!ValidPriceTypes.Contains(b.PriceType))
                 errors.Add($"{prefix}priceType '{b.PriceType}' inválido. Esperado: M, L ou F.");
 
-            // priceLimit obrigatório quando priceType=L
             if (b.PriceType.Equals("L", StringComparison.OrdinalIgnoreCase))
             {
                 if (string.IsNullOrWhiteSpace(b.PriceLimit) || b.PriceLimit == "0")
                     errors.Add($"{prefix}priceType 'L' requer priceLimit > 0.");
             }
 
-            // Pelo menos quantity ou volume deve estar preenchido
             var hasQuantity = !string.IsNullOrWhiteSpace(b.Quantity) && b.Quantity != "0";
             var hasVolume = !string.IsNullOrWhiteSpace(b.Volume) && b.Volume != "0";
             if (!hasQuantity && !hasVolume)
@@ -175,7 +171,6 @@ public static class ServicePostProcessor
 
     private static void EnrichBoletaDefaults(OutputAtendimento output, string rawInput)
     {
-        // Extrair [CONTEXT] block do raw input (pode estar encadeado nos dados anteriores)
         var contextMatch = ContextBlockPattern.Match(rawInput);
         string? defaultExpireTime = null;
         string? defaultExpireDate = null;
@@ -199,15 +194,12 @@ public static class ServicePostProcessor
 
         foreach (var b in output.Boletas!)
         {
-            // Preencher expireTime default se vazio
             if (string.IsNullOrWhiteSpace(b.ExpireTime) && !string.IsNullOrWhiteSpace(defaultExpireTime))
                 b.ExpireTime = $"{defaultExpireDate} {defaultExpireTime}";
 
-            // Preencher account da sessão se vazio
             if (string.IsNullOrWhiteSpace(b.Account) && !string.IsNullOrWhiteSpace(sessionAccount))
                 b.Account = sessionAccount;
 
-            // Limpar priceLimit quando priceType=M (mercado não usa limite)
             if (b.PriceType.Equals("M", StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(b.PriceLimit) && b.PriceLimit != "0")
             {
@@ -216,9 +208,6 @@ public static class ServicePostProcessor
         }
     }
 
-    /// <summary>
-    /// Deserializa envelope format → OutputAtendimento extraindo boletas/posicoes do payload.
-    /// </summary>
     private static OutputAtendimento? DeserializeFromEnvelope(JsonElement root)
     {
         var responseType = root.GetProperty("response_type").GetString() ?? "";
@@ -252,23 +241,16 @@ public static class ServicePostProcessor
         };
     }
 
-    /// <summary>
-    /// Re-serializa OutputAtendimento validado de volta para formato envelope,
-    /// preservando campos extras do input original (payload, enrichment, etc.).
-    /// </summary>
     private static string SerializeAsEnvelope(OutputAtendimento output, string originalInput)
     {
-        using var doc = JsonDocument.Parse(originalInput);
         var originalNode = System.Text.Json.Nodes.JsonNode.Parse(originalInput);
         if (originalNode is not System.Text.Json.Nodes.JsonObject envelope)
             return JsonSerializer.Serialize(output, JsonOpts);
 
-        // Atualizar campos do envelope com valores possivelmente corrigidos
         envelope["response_type"] = output.ResponseType;
         envelope["message"] = output.Message;
         envelope["ui_component"] = output.UiComponent;
 
-        // Atualizar payload com boletas/command validados
         if (output.Boletas is not null && envelope["payload"] is System.Text.Json.Nodes.JsonObject payloadObj)
         {
             payloadObj["boletas"] = System.Text.Json.Nodes.JsonNode.Parse(
@@ -280,13 +262,13 @@ public static class ServicePostProcessor
         return envelope.ToJsonString(JsonOpts);
     }
 
-    private static string BuildErrorJson(List<string> errors, string? originalOutput)
+    /// <summary>Re-serializa <see cref="OutputAtendimento"/> validado para o consumidor terminal.</summary>
+    public static string SerializeOutput(PostProcessorResult result)
     {
-        var errorObj = new
-        {
-            errors,
-            original = originalOutput
-        };
-        return JsonSerializer.Serialize(errorObj, JsonOpts);
+        if (result.IsEnvelope && result.Envelope is not null)
+            return result.Envelope;
+        if (result.Output is not null)
+            return JsonSerializer.Serialize(result.Output, JsonOpts);
+        return "";
     }
 }

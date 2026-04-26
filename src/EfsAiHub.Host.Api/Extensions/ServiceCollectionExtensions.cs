@@ -102,7 +102,69 @@ public static class ServiceCollectionExtensions
             registry.Register("search_single", (input, ct) => WebSearchBatchFunctions.SearchSingle(input, ct));
 
             registry.Register("service_pre_processor", (input, ct) => ServicePreProcessor.EnrichInput(input, ct));
-            registry.Register("service_post_processor", (input, ct) => ServicePostProcessor.ValidateAndEnrich(input, ct));
+
+            // service_post_processor — input chega em duas formas (envelope agent/legacy flat),
+            // por isso a entrada continua untyped. Saída é tipada em PostProcessorResult pra
+            // habilitar predicate Switch sobre $.hasErrors.
+            var postProcessorJsonOpts = new System.Text.Json.JsonSerializerOptions(
+                System.Text.Json.JsonSerializerDefaults.Web);
+            registry.Register("service_post_processor", async (input, ct) =>
+            {
+                var result = await ServicePostProcessor.ValidateAndEnrichTyped(input, ct);
+                return System.Text.Json.JsonSerializer.Serialize(result, postProcessorJsonOpts);
+            });
+            registry.RegisterSchema("service_post_processor", typeof(string), typeof(PostProcessorResult));
+
+            // Unwrap executors do post_processor — input tipado (PostProcessorResult), saída raw
+            // (não-JSON-encapsulada) pro consumidor downstream (agente boleta no loop ou consumidor terminal).
+            registry.Register("unwrap_errors_to_text", (input, ct) =>
+            {
+                var r = System.Text.Json.JsonSerializer.Deserialize<PostProcessorResult>(input, postProcessorJsonOpts)
+                        ?? new PostProcessorResult { HasErrors = true, OriginalOutput = input };
+                return Task.FromResult(PostProcessorUnwrappers.FormatErrorsForAgent(r));
+            });
+            registry.RegisterSchema("unwrap_errors_to_text", typeof(PostProcessorResult), typeof(string));
+
+            registry.Register("unwrap_post_processor_output", (input, ct) =>
+            {
+                var r = System.Text.Json.JsonSerializer.Deserialize<PostProcessorResult>(input, postProcessorJsonOpts);
+                return Task.FromResult(r is null ? input : PostProcessorUnwrappers.ExtractValidatedOutput(r));
+            });
+            registry.RegisterSchema("unwrap_post_processor_output", typeof(PostProcessorResult), typeof(string));
+
+            // Router fallback — terminal alcançado quando router classifica target_agent="texto".
+            registry.Register<RouterOutput, EfsAiHub.Core.Agents.Trading.OutputAtendimento>(
+                "router_fallback",
+                (r, ct) => RouterFallback.WrapAsync(r, ct));
+
+            // revisao_classificador — wrappa output em texto livre do agente revisor-analise-ativo.
+            registry.Register<string, EfsAiHub.Core.Agents.Trading.RevisaoResultado>(
+                "revisao_classificador",
+                (input, ct) => RevisaoClassificador.ClassifyAsync(input, ct));
+
+            // unwrap_aprovacao_to_ativo — extrai AprovadoPayload pro save_ativo_exec consumir.
+            registry.Register<EfsAiHub.Core.Agents.Trading.RevisaoResultado, EfsAiHub.Core.Agents.Trading.Ativo>(
+                "unwrap_aprovacao_to_ativo",
+                (r, ct) =>
+                {
+                    if (r.AprovadoPayload is null)
+                        throw new InvalidOperationException(
+                            "unwrap_aprovacao_to_ativo: AprovadoPayload é null. " +
+                            "Switch deveria rotear para esta branch apenas quando Status=APROVADO.");
+                    return Task.FromResult(r.AprovadoPayload);
+                });
+
+            // unwrap_reprovacao_to_feedback — gera texto de feedback pro escritor refazer.
+            registry.Register("unwrap_reprovacao_to_feedback", (input, ct) =>
+            {
+                var r = System.Text.Json.JsonSerializer.Deserialize<EfsAiHub.Core.Agents.Trading.RevisaoResultado>(
+                    input, postProcessorJsonOpts) ?? new EfsAiHub.Core.Agents.Trading.RevisaoResultado { Status = "REPROVADO" };
+                return Task.FromResult(RevisaoClassificador.FormatReprovacaoForEscritor(r));
+            });
+            registry.RegisterSchema(
+                "unwrap_reprovacao_to_feedback",
+                typeof(EfsAiHub.Core.Agents.Trading.RevisaoResultado),
+                typeof(string));
 
             return registry;
         });
@@ -224,6 +286,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<WorkflowValidator>();
         services.AddScoped<EfsAiHub.Core.Orchestration.Validation.EdgeInvariantsValidator>();
+        services.AddScoped<EfsAiHub.Platform.Runtime.Migration.EdgeMigrationReporter>(sp =>
+            new EfsAiHub.Platform.Runtime.Migration.EdgeMigrationReporter(
+                sp.GetRequiredKeyedService<Npgsql.NpgsqlDataSource>("general"),
+                sp.GetRequiredService<EfsAiHub.Core.Agents.IAgentDefinitionRepository>(),
+                sp.GetRequiredService<EfsAiHub.Core.Orchestration.Interfaces.ICodeExecutorRegistry>(),
+                sp.GetRequiredService<ILogger<EfsAiHub.Platform.Runtime.Migration.EdgeMigrationReporter>>()));
         services.AddScoped<IExecutionDetailReader, ExecutionDetailAssembler>();
         services.AddScoped<IWorkflowService, WorkflowService>();
         services.AddScoped<IWorkflowDispatcher>(sp => (IWorkflowDispatcher)sp.GetRequiredService<IWorkflowService>());
