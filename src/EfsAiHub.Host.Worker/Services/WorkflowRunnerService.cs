@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Persistence;
 using EfsAiHub.Core.Orchestration.Enums;
 using EfsAiHub.Platform.Runtime;
 using EfsAiHub.Platform.Runtime.Checkpointing;
@@ -98,7 +99,9 @@ public class WorkflowRunnerService
         {
             EventType = "workflow_started",
             ExecutionId = execution.ExecutionId,
-            Payload = JsonSerializer.Serialize(new { workflowId = execution.WorkflowId, timestamp = DateTime.UtcNow })
+            Payload = JsonSerializer.Serialize(
+                new { workflowId = execution.WorkflowId, timestamp = DateTime.UtcNow },
+                JsonDefaults.Domain)
         });
 
         var workflowTag = new KeyValuePair<string, object?>("workflow.id", execution.WorkflowId);
@@ -170,16 +173,15 @@ public class WorkflowRunnerService
                 // Publica STATE_DELTA no event bus para o SSE handler entregar ao frontend.
                 // Constrói JSON Patch (RFC 6902) com operação "add" para o path atualizado.
                 var jsonPatchPath = "/" + path.Replace(".", "/");
-                var patchArray = JsonSerializer.Serialize(new[]
-                {
-                    new { op = "add", path = jsonPatchPath, value }
-                });
+                var patchArray = JsonSerializer.Serialize(
+                    new[] { new { op = "add", path = jsonPatchPath, value } },
+                    JsonDefaults.Domain);
                 var deltaElement = JsonDocument.Parse(patchArray).RootElement.Clone();
                 await eventBus.PublishAsync(execId, new WorkflowEventEnvelope
                 {
                     EventType = "state_delta",
                     ExecutionId = execId,
-                    Payload = JsonSerializer.Serialize(deltaElement)
+                    Payload = JsonSerializer.Serialize(deltaElement, JsonDefaults.Domain)
                 });
             };
         }
@@ -190,7 +192,7 @@ public class WorkflowRunnerService
             WorkflowId: execution.WorkflowId,
             Input: execution.Input,
             PromptVersions: new System.Collections.Concurrent.ConcurrentDictionary<string, string>(),
-            NodeCallback: CreateNodeCallback(execution, nodeTracker),
+            NodeCallback: CreateNodeCallback(execution, nodeTracker, agentNames),
             Budget: new EfsAiHub.Core.Agents.Execution.ExecutionBudget(maxTokensPerExecution, maxCostUsdPerExecution),
             UserId: guardUserId,
             GuardMode: guardMode,
@@ -260,7 +262,7 @@ public class WorkflowRunnerService
             // Persiste mapa de prompt versions usadas nesta execução
             var promptVersions = DelegateExecutor.Current.Value?.PromptVersions;
             if (promptVersions is { Count: > 0 } && execution.Metadata is not null)
-                execution.Metadata["promptVersions"] = JsonSerializer.Serialize(promptVersions);
+                execution.Metadata["promptVersions"] = JsonSerializer.Serialize(promptVersions, JsonDefaults.Domain);
 
             // nodeTracker.DisposeAsync() (via await using) encerra spans de agentes órfãos
 
@@ -383,16 +385,15 @@ public class WorkflowRunnerService
                 await writer.UpdateAsync(threadId, path, value);
 
                 var jsonPatchPath = "/" + path.Replace(".", "/");
-                var patchArray = JsonSerializer.Serialize(new[]
-                {
-                    new { op = "add", path = jsonPatchPath, value }
-                });
+                var patchArray = JsonSerializer.Serialize(
+                    new[] { new { op = "add", path = jsonPatchPath, value } },
+                    JsonDefaults.Domain);
                 var deltaElement = JsonDocument.Parse(patchArray).RootElement.Clone();
                 await eventBus.PublishAsync(execId, new WorkflowEventEnvelope
                 {
                     EventType = "state_delta",
                     ExecutionId = execId,
-                    Payload = JsonSerializer.Serialize(deltaElement)
+                    Payload = JsonSerializer.Serialize(deltaElement, JsonDefaults.Domain)
                 });
             };
         }
@@ -402,7 +403,7 @@ public class WorkflowRunnerService
             WorkflowId: execution.WorkflowId,
             Input: execution.Input,
             PromptVersions: new System.Collections.Concurrent.ConcurrentDictionary<string, string>(),
-            NodeCallback: CreateNodeCallback(execution, nodeTracker),
+            NodeCallback: CreateNodeCallback(execution, nodeTracker, agentNames),
             Budget: new EfsAiHub.Core.Agents.Execution.ExecutionBudget(maxTokensPerExecution, maxCostUsdPerExecution),
             UserId: guardUserId,
             GuardMode: guardMode,
@@ -451,7 +452,7 @@ public class WorkflowRunnerService
 
             var promptVersions = DelegateExecutor.Current.Value?.PromptVersions;
             if (promptVersions is { Count: > 0 } && execution.Metadata is not null)
-                execution.Metadata["promptVersions"] = JsonSerializer.Serialize(promptVersions);
+                execution.Metadata["promptVersions"] = JsonSerializer.Serialize(promptVersions, JsonDefaults.Domain);
 
             DelegateExecutor.Current.Value = null;
             MetricsRegistry.ActiveExecutions.Add(-1, workflowTag);
@@ -465,17 +466,27 @@ public class WorkflowRunnerService
         }
     }
 
-    private Action<string, bool, string> CreateNodeCallback(WorkflowExecution execution, NodeStateTracker nodeTracker)
+    private Action<string, bool, string> CreateNodeCallback(
+        WorkflowExecution execution,
+        NodeStateTracker nodeTracker,
+        IReadOnlyDictionary<string, string>? agentNames)
     {
+        // No Graph mode todo node passa pelo DelegateExecutor (mesmo agentes — ver
+        // WorkflowFactory.BuildBindingMapAsync). Pra discriminar agente vs executor
+        // de código, comparamos contra `agentNames`, que carrega só os IDs declarados
+        // em definition.Agents. Sem essa distinção, F2 (CUSTOM executor.lifecycle no
+        // AG-UI) erra e marca agentes como executor, virando bubble fake no chat.
         return (nodeId, isCompleted, data) =>
         {
+            var kind = agentNames is not null && agentNames.ContainsKey(nodeId) ? "agent" : "executor";
+
             if (!isCompleted)
             {
                 var record = new NodeExecutionRecord
                 {
                     NodeId = nodeId,
                     ExecutionId = execution.ExecutionId,
-                    NodeType = "executor",
+                    NodeType = kind,
                     Status = "running",
                     StartedAt = DateTime.UtcNow
                 };
@@ -484,7 +495,9 @@ public class WorkflowRunnerService
                     record,
                     execution.ExecutionId,
                     "node_started",
-                    JsonSerializer.Serialize(new { nodeId, nodeType = "executor", timestamp = record.StartedAt })));
+                    JsonSerializer.Serialize(
+                        new { nodeId, nodeType = kind, timestamp = record.StartedAt },
+                        JsonDefaults.Domain)));
             }
             else
             {
@@ -497,7 +510,9 @@ public class WorkflowRunnerService
                         record,
                         execution.ExecutionId,
                         "node_completed",
-                        JsonSerializer.Serialize(new { nodeId, nodeType = "executor", output = data[..Math.Min(300, data.Length)], timestamp = record.CompletedAt })));
+                        JsonSerializer.Serialize(
+                            new { nodeId, nodeType = kind, output = data[..Math.Min(300, data.Length)], timestamp = record.CompletedAt },
+                            JsonDefaults.Domain)));
                 }
             }
         };
@@ -841,7 +856,7 @@ public class WorkflowRunnerService
         {
             EventType = eventType,
             ExecutionId = executionId,
-            Payload = JsonSerializer.Serialize(payload)
+            Payload = JsonSerializer.Serialize(payload, JsonDefaults.Domain)
         };
         // Publica em tempo real (SSE) via PostgreSQL NOTIFY (SSE backbone)
         await _eventBus.PublishAsync(executionId, envelope);

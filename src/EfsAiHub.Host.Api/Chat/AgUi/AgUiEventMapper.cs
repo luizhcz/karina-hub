@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Host.Api.Chat.AgUi.Models;
@@ -13,7 +14,11 @@ public sealed class AgUiEventMapper
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        // Mantém caracteres não-ASCII (acentos, símbolos) literais nos payloads
+        // serializados pelo mapper (ex: TOOL_CALL_ARGS.Delta a partir de string)
+        // em vez de escapar como \u00XX. Coerente com JsonDefaults.Domain.
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
     public IReadOnlyList<AgUiEvent> Map(
