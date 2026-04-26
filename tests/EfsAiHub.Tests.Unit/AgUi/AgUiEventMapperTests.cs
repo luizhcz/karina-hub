@@ -161,6 +161,69 @@ public class AgUiEventMapperTests
         events[3].Type.Should().Be("TEXT_MESSAGE_END");
     }
 
+    // ── Bifurcação por nodeType ───────────────────────────────────────────────
+
+    [Fact]
+    public void NodeStarted_NodeTypeAgent_EmiteStepStartedCanonico()
+    {
+        var env = Envelope("node_started", new { nodeId = "router", nodeType = "agent", agentName = "router-x" });
+
+        var events = _mapper.Map(env, "run-1", "thread-1");
+
+        events.Should().HaveCount(1);
+        events[0].Type.Should().Be("STEP_STARTED");
+        events[0].StepName.Should().Be("router-x");
+    }
+
+    [Fact]
+    public void NodeStarted_NodeTypeExecutor_EmiteCustomLifecycleStarted()
+    {
+        var env = Envelope("node_started", new { nodeId = "post_processor", nodeType = "executor", functionName = "service_post_processor" });
+
+        var events = _mapper.Map(env, "run-1", "thread-1");
+
+        events.Should().HaveCount(1);
+        events[0].Type.Should().Be("CUSTOM");
+        events[0].CustomName.Should().Be("executor.lifecycle");
+
+        var value = events[0].CustomValue!.Value;
+        value.GetProperty("phase").GetString().Should().Be("started");
+        value.GetProperty("nodeId").GetString().Should().Be("post_processor");
+        value.GetProperty("functionName").GetString().Should().Be("service_post_processor");
+    }
+
+    [Fact]
+    public void NodeCompleted_NodeTypeExecutor_NaoCriaTextMessageMesmoComOutput()
+    {
+        // Output não-streamed de executor não pode virar TEXT_MESSAGE_* — não é fala.
+        var env = Envelope("node_completed", new
+        {
+            nodeId = "post_processor",
+            nodeType = "executor",
+            output = "{\"hasErrors\":false}",
+            wasStreamed = false
+        });
+
+        var events = _mapper.Map(env, "run-1", "thread-1");
+
+        events.Should().HaveCount(1);
+        events[0].Type.Should().Be("CUSTOM");
+        events[0].CustomName.Should().Be("executor.lifecycle");
+        events[0].CustomValue!.Value.GetProperty("phase").GetString().Should().Be("finished");
+    }
+
+    [Fact]
+    public void NodeStarted_SemNodeType_FicaComStepStartedPorRetrocompat()
+    {
+        // Forward-compat: payload sem nodeType cai no caminho de agente (STEP_*).
+        var env = Envelope("node_started", new { nodeId = "x", agentName = "agent-x" });
+
+        var events = _mapper.Map(env, "run-1", "thread-1");
+
+        events.Should().HaveCount(1);
+        events[0].Type.Should().Be("STEP_STARTED");
+    }
+
     // ── Unknown events ────────────────────────────────────────────────────────
 
     [Fact]

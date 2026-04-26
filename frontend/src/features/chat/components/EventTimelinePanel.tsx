@@ -28,6 +28,19 @@ const TYPE_COLORS: Record<string, 'gray' | 'green' | 'yellow' | 'purple' | 'red'
   STATE_SNAPSHOT: 'purple',
   STATE_DELTA: 'purple',
   MESSAGES_SNAPSHOT: 'gray',
+  CUSTOM: 'purple',
+}
+
+/**
+ * Para CUSTOM, distingue na timeline pelo customName (ex: `executor.lifecycle`,
+ * `ESCALATION`) em vez de mostrar só `CUSTOM` para todos.
+ */
+function displayLabel(evt: TimelineEvent): string {
+  if (evt.type === 'CUSTOM') {
+    const name = (evt.data as { customName?: unknown })?.customName
+    if (typeof name === 'string' && name.length > 0) return `CUSTOM:${name}`
+  }
+  return evt.type
 }
 
 function getTypeColor(type: string) {
@@ -159,7 +172,7 @@ export function EventTimelinePanel({ events, isStreaming, onClear }: EventTimeli
                       {formatTime(evt.timestamp)}
                     </span>
                     <Badge variant={getTypeColor(evt.type)} className="text-[9px] flex-shrink-0 mt-0.5">
-                      {evt.type}
+                      {displayLabel(evt)}
                     </Badge>
                     <span className="text-[10px] text-text-muted font-mono break-all line-clamp-2">
                       {truncateJson(evt.data)}
@@ -187,7 +200,7 @@ export function EventTimelinePanel({ events, isStreaming, onClear }: EventTimeli
         {selected && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 text-xs">
-              <Badge variant={getTypeColor(selected.type)}>{selected.type}</Badge>
+              <Badge variant={getTypeColor(selected.type)}>{displayLabel(selected)}</Badge>
               <span className="text-text-muted font-mono">id={selected.id}</span>
               <span className="text-text-dimmed">·</span>
               <span className="text-text-muted font-mono">{formatTime(selected.timestamp)}</span>

@@ -245,6 +245,7 @@
   <a href="#endpoints">Endpoints</a>
   <a href="#events">Catálogo de Eventos</a>
   <a href="#hitl">Fluxo HITL</a>
+  <a href="#custom-events">Custom Events</a>
   <a href="#safety-flow">Fluxo SAFETY_VIOLATION</a>
   <a href="#error-codes">Códigos de erro</a>
   <div class="nav-section">Gerenciamento</div>
@@ -584,13 +585,13 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
           <td><code>STEP_STARTED</code></td>
           <td><span class="badge badge-blue">Steps</span></td>
           <td><code>stepId</code>, <code>stepName</code></td>
-          <td>Etapa interna do workflow iniciou (agente ou nó do grafo).</td>
+          <td>Agente LLM iniciou execução. <strong>Apenas para nós tipo agente</strong> — executores de código emitem <code>CUSTOM</code> <code>executor.lifecycle</code> (ver abaixo).</td>
         </tr>
         <tr data-cat="steps">
           <td><code>STEP_FINISHED</code></td>
           <td><span class="badge badge-blue">Steps</span></td>
           <td><code>stepId</code>, <code>stepName</code></td>
-          <td>Etapa interna concluiu.</td>
+          <td>Agente LLM concluiu. Para outputs não-streamed, vem seguido de <code>TEXT_MESSAGE_START/CONTENT/END</code> reconstruindo a fala.</td>
         </tr>
         <tr data-cat="text">
           <td><code>TEXT_MESSAGE_START</code></td>
@@ -656,7 +657,7 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
           <td><code>CUSTOM</code></td>
           <td><span class="badge badge-gray">Custom</span></td>
           <td><code>customName</code>, <code>customValue</code></td>
-          <td>Eventos de domínio específicos emitidos pelo workflow (ex: <code>customName: "ESCALATION"</code>).</td>
+          <td>Eventos de domínio específicos. <code>customName</code> reconhecidos: <code>ESCALATION</code>, <code>executor.lifecycle</code> (ver tabela abaixo). Outros nomes podem aparecer; consumidores devem ignorar silenciosamente os desconhecidos.</td>
         </tr>
         <tr data-cat="safety">
           <td><code>SAFETY_VIOLATION</code> <span class="badge badge-red">terminal</span></td>
@@ -703,6 +704,52 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
   "timeoutSeconds": 300
 }</code></pre>
     <p>Quando <code>options</code> é <code>null</code>, assuma Aprovar / Rejeitar com valores <code>"approved"</code> / <code>"rejected"</code>.</p>
+  </section>
+
+  <!-- Custom events catalog -->
+  <section id="custom-events">
+    <h2>Custom Events — extensões idiomáticas AG-UI</h2>
+    <p>O evento <code>CUSTOM</code> é a forma <strong>spec-conforme</strong> de carregar metadata fora dos 17 tipos canônicos do AG-UI Protocol. O backend usa <code>customName</code> como discriminador. Consumidores devem ignorar silenciosamente nomes desconhecidos (forward-compatible).</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th><code>customName</code></th>
+          <th>Quando é emitido</th>
+          <th>Shape de <code>customValue</code></th>
+          <th>Comportamento esperado da UI</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ESCALATION</code></td>
+          <td>Workflow disparou regra de escalação (operador humano necessário).</td>
+          <td>Variável conforme regra (categoria, contexto, alvo).</td>
+          <td>Renderizar banner / notificar canal de operadores.</td>
+        </tr>
+        <tr>
+          <td><code>executor.lifecycle</code></td>
+          <td>Início ou fim de um nó <strong>executor</strong> (código puro, sem LLM). Substitui <code>STEP_STARTED</code>/<code>STEP_FINISHED</code> para esse tipo de nó por design — executores não são "falas" no chat.</td>
+          <td><code>{ nodeId, phase: "started"\|"finished", functionName?, durationMs? }</code></td>
+          <td>Chat principal: <strong>ignorar</strong> (sem bubble). Timeline técnica / DevPortal: registrar como linha de progresso usando <code>nodeId</code> e <code>functionName</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Por que executor não é <code>STEP_*</code>?</h3>
+    <p>A spec AG-UI define <code>STEP_STARTED</code>/<code>STEP_FINISHED</code> como ciclo de vida de unidades de progresso visíveis ao usuário (1 step ≈ 1 fala). Executores de código (validação, transformação, unwrap de envelopes) são detalhe de implementação do graph — emiti-los como <code>STEP_*</code> gerava bubbles fake no chat com nomes técnicos (<code>post_processor</code>, <code>unwrap_aprovacao_to_ativo</code>) confundindo o usuário.</p>
+    <p>O caminho via <code>CUSTOM</code> mantém o protocolo canônico (consumidores AG-UI padrão como CopilotKit React SDK continuam funcionando) e ainda dá visibilidade técnica para quem precisa (DevPortal, observability dashboards).</p>
+
+    <pre><code><span class="comment">// Exemplo: workflow `atendimento-assessor` durante uma execução</span>
+<span class="arrow">stream ←</span> <span class="event">STEP_STARTED</span>            { stepId: <span class="resolve">"router-atendimento-assessor"</span>, stepName: <span class="resolve">"router-atendimento-assessor"</span> }
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_START</span>      ...
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_CONTENT</span>    ...
+<span class="arrow">stream ←</span> <span class="event">TEXT_MESSAGE_END</span>        ...
+<span class="arrow">stream ←</span> <span class="event">STEP_FINISHED</span>           { stepId: <span class="resolve">"router-atendimento-assessor"</span>, ... }
+
+<span class="comment">// Próximo nó é executor — sem STEP_*, sem bubble fake</span>
+<span class="arrow">stream ←</span> <span class="event">CUSTOM</span>                  { customName: <span class="resolve">"executor.lifecycle"</span>, customValue: { nodeId: <span class="resolve">"post_processor"</span>, phase: <span class="resolve">"started"</span>, functionName: <span class="resolve">"service_post_processor"</span> } }
+<span class="arrow">stream ←</span> <span class="event">CUSTOM</span>                  { customName: <span class="resolve">"executor.lifecycle"</span>, customValue: { nodeId: <span class="resolve">"post_processor"</span>, phase: <span class="resolve">"finished"</span>, functionName: <span class="resolve">"service_post_processor"</span> } }</code></pre>
   </section>
 
   <!-- Safety / Blocklist -->
@@ -2100,11 +2147,23 @@ while (!done) {
           break
 
         case 'STEP_STARTED':
+          // Apenas agentes LLM emitem STEP_*. Executores caem em CUSTOM "executor.lifecycle".
           console.log(`\n⏳ ${evtData.stepName}`)
           break
 
         case 'STEP_FINISHED':
           console.log(`✓ ${evtData.stepName}`)
+          break
+
+        case 'CUSTOM':
+          // Eventos extensíveis. Discrimine pelo customName e ignore desconhecidos.
+          if (evtData.customName === 'executor.lifecycle') {
+            // Detalhe técnico — útil pra timeline/observability, mas NÃO crie bubble no chat.
+            const v = evtData.customValue ?? {}
+            // console.debug('[executor]', v.phase, v.functionName ?? v.nodeId)
+          } else if (evtData.customName === 'ESCALATION') {
+            // Renderizar banner de escalação ao operador, etc.
+          }
           break
 
         case 'TOOL_CALL_START':

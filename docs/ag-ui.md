@@ -1226,8 +1226,10 @@ src/EfsAiHub.Host.Api/Chat/AgUi/AgUiEventMapper.cs
 | `workflow_cancelled` | → | `RUN_ERROR` |
 | `error` | → | `RUN_ERROR` |
 | `budget_exceeded` | → | `RUN_ERROR` (code: BUDGET_EXCEEDED) |
-| `step_started` / `node_started` | → | `STEP_STARTED` |
-| `step_completed` / `node_completed` | → | `STEP_FINISHED` + `TEXT_MESSAGE_*` (se output não streamed) |
+| `step_started` / `node_started` (nodeType=agent) | → | `STEP_STARTED` |
+| `step_started` / `node_started` (nodeType=executor) | → | `CUSTOM` (name: `executor.lifecycle`, phase=started) |
+| `step_completed` / `node_completed` (nodeType=agent) | → | `STEP_FINISHED` + `TEXT_MESSAGE_*` (se output não streamed) |
+| `step_completed` / `node_completed` (nodeType=executor) | → | `CUSTOM` (name: `executor.lifecycle`, phase=finished) |
 | `text_message_start` | → | `TEXT_MESSAGE_START` |
 | `token` / `token_delta` | → | `TEXT_MESSAGE_CONTENT` |
 | `text_message_end` | → | `TEXT_MESSAGE_END` |
@@ -1241,15 +1243,21 @@ src/EfsAiHub.Host.Api/Chat/AgUi/AgUiEventMapper.cs
 | `escalation_requested` | → | `CUSTOM` (name: ESCALATION) |
 | (desconhecido) | → | [] (lista vazia — forward-compatible) |
 
-### Lógica Especial: step_completed com Output
+### Lógica Especial: bifurcação por nodeType (caminho F2)
 
-Se `step_completed` contém `output` e `wasStreamed=false`:
-1. Emite `STEP_FINISHED`
-2. Emite `TEXT_MESSAGE_START` (messageId, role="assistant")
-3. Emite `TEXT_MESSAGE_CONTENT` (delta = output inteiro)
-4. Emite `TEXT_MESSAGE_END` (messageId)
+A spec AG-UI define `STEP_STARTED`/`STEP_FINISHED` como ciclo de vida de **falas no chat** (1 step = 1 unidade de progresso visível ao usuário). Executores de código puro (`ICodeExecutorRegistry`) são detalhe de implementação do graph — não são "falas". Por isso o mapper bifurca por `nodeType`:
 
-Isso garante que outputs de nós que não fizeram streaming (ex: executores de código) sejam entregues como mensagens de texto.
+**Agente (`nodeType=agent`):**
+1. `node_started` → `STEP_STARTED` canônico (`stepName` = persona).
+2. `node_completed` com `output` não-streamed → `STEP_FINISHED` + `TEXT_MESSAGE_START`/`CONTENT`/`END` reconstroi o bubble.
+
+**Executor (`nodeType=executor`):**
+1. `node_started` → `CUSTOM` `{ name: "executor.lifecycle", value: { nodeId, phase: "started", functionName } }`.
+2. `node_completed` → `CUSTOM` `{ name: "executor.lifecycle", value: { nodeId, phase: "finished", functionName, durationMs? } }`.
+
+Consumidores que precisam de timeline técnica (DevPortal, EventTimelinePanel) tratam o `CUSTOM`. O chat principal **ignora silenciosamente** — sem bubble fake. Sem `nodeType` (forward-compat com fontes externas) o evento cai no caminho de agente por default.
+
+A escolha respeita a spec AG-UI (`STEP_*` mantém schema canônico) e segue o precedente do Microsoft Agent Framework, que usa `CUSTOM` para tudo que extrapola os 17 tipos de eventos.
 
 ---
 

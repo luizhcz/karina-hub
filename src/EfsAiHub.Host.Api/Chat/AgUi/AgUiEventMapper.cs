@@ -56,14 +56,10 @@ public sealed class AgUiEventMapper
             ],
 
             // ── Steps ──
-            "step_started" or "node_started" => [
-                new AgUiEvent
-                {
-                    Type = "STEP_STARTED",
-                    StepId = GetString(payload, "nodeId"),
-                    StepName = GetString(payload, "agentName") ?? GetString(payload, "name") ?? GetString(payload, "nodeId")
-                }
-            ],
+            // Bifurcação por nodeType: STEP_* é ciclo de vida de "fala" no chat
+            // (spec AG-UI). Executores de código não são falas — saem como CUSTOM
+            // executor.lifecycle. Sem nodeType cai no caminho de agente (forward-compat).
+            "step_started" or "node_started" => MapNodeStarted(payload),
 
             "step_completed" or "node_completed" => MapStepCompleted(payload, runId),
 
@@ -197,23 +193,52 @@ public sealed class AgUiEventMapper
         };
     }
 
+    private IReadOnlyList<AgUiEvent> MapNodeStarted(JsonElement? payload)
+    {
+        var nodeId = GetString(payload, "nodeId");
+        var nodeType = GetString(payload, "nodeType");
+
+        if (IsExecutor(nodeType))
+        {
+            return [BuildExecutorLifecycle(payload, "started")];
+        }
+
+        return [
+            new AgUiEvent
+            {
+                Type = "STEP_STARTED",
+                StepId = nodeId,
+                StepName = GetString(payload, "agentName") ?? GetString(payload, "name") ?? nodeId
+            }
+        ];
+    }
+
     private IReadOnlyList<AgUiEvent> MapStepCompleted(JsonElement? payload, string runId)
     {
-        var events = new List<AgUiEvent>();
-
         var nodeId = GetString(payload, "nodeId");
+        var nodeType = GetString(payload, "nodeType");
 
-        events.Add(new AgUiEvent
+        if (IsExecutor(nodeType))
         {
-            Type = "STEP_FINISHED",
-            StepId = nodeId,
-            StepName = GetString(payload, "agentName") ?? GetString(payload, "name") ?? nodeId
-        });
+            // Output de executor não é "fala" do agente — não reconstroi TEXT_MESSAGE_*.
+            return [BuildExecutorLifecycle(payload, "finished")];
+        }
+
+        var events = new List<AgUiEvent>
+        {
+            new()
+            {
+                Type = "STEP_FINISHED",
+                StepId = nodeId,
+                StepName = GetString(payload, "agentName") ?? GetString(payload, "name") ?? nodeId
+            }
+        };
 
         var output = GetString(payload, "output");
         var wasStreamed = GetBool(payload, "wasStreamed");
 
-        // Se o step gerou texto (e não foi streaming token-by-token)
+        // Agente que produziu output não-streamed → reconstroi os 3 eventos de mensagem
+        // pra UI renderizar bubble.
         if (output is not null && !wasStreamed)
         {
             var messageId = $"msg_{nodeId}";
@@ -238,6 +263,32 @@ public sealed class AgUiEventMapper
 
         return events;
     }
+
+    /// <summary>
+    /// Empacota fase do ciclo de vida de executor num CUSTOM event AG-UI.
+    /// Shape: { nodeId, phase, functionName?, durationMs? }.
+    /// </summary>
+    private static AgUiEvent BuildExecutorLifecycle(JsonElement? payload, string phase)
+    {
+        var meta = new Dictionary<string, object?>
+        {
+            ["nodeId"] = GetString(payload, "nodeId"),
+            ["phase"] = phase,
+            ["functionName"] = GetString(payload, "functionName") ?? GetString(payload, "name")
+        };
+        var duration = GetInt(payload, "durationMs");
+        if (duration is not null) meta["durationMs"] = duration;
+
+        return new AgUiEvent
+        {
+            Type = "CUSTOM",
+            CustomName = "executor.lifecycle",
+            CustomValue = JsonSerializer.SerializeToElement(meta)
+        };
+    }
+
+    private static bool IsExecutor(string? nodeType)
+        => string.Equals(nodeType, "executor", StringComparison.OrdinalIgnoreCase);
 
     private IReadOnlyList<AgUiEvent> MapHitlRequired(JsonElement? payload)
     {
