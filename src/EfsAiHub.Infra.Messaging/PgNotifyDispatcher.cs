@@ -190,19 +190,27 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
         // Mesma lógica para handlers de blocklist_changed.
         lock (_blocklistHandlersLock) _blocklistChangedHandlers.Clear();
 
-        await _connMutex.WaitAsync(cancellationToken);
+        // .NET 10: o host pode chamar StopAsync e DisposeAsync em paralelo durante
+        // shutdown, então o mutex pode estar disposed quando chegamos aqui pela
+        // segunda rota. Em qualquer ObjectDisposedException, já não há nada a
+        // fechar — o caminho de disposal cuida disso.
         try
         {
-            if (_conn is not null)
+            await _connMutex.WaitAsync(cancellationToken);
+            try
             {
-                await _conn.DisposeAsync();
-                _conn = null;
+                if (_conn is not null)
+                {
+                    await _conn.DisposeAsync();
+                    _conn = null;
+                }
+            }
+            finally
+            {
+                try { _connMutex.Release(); } catch (ObjectDisposedException) { }
             }
         }
-        finally
-        {
-            _connMutex.Release();
-        }
+        catch (ObjectDisposedException) { }
     }
 
     public async ValueTask DisposeAsync()

@@ -66,13 +66,18 @@ public sealed class IntegrationWebApplicationFactory : WebApplicationFactory<Pro
             {
                 ["ConnectionStrings:Postgres"] = AiHubConnectionString(),
                 ["OpenAI:DefaultModel"] = "gpt-4o",
-                // Admin:AccountIds absent → empty list → gate disabled in tests
             });
             config.AddEnvironmentVariables();
         });
 
         builder.ConfigureServices(services =>
         {
+            // .NET 10 ficou estrito sobre merge de arrays na configuração: o
+            // appsettings.json da API (com Admin:AccountIds:["011982329"]) não
+            // é mais sobrescrito por uma chave vazia em appsettings.Test.json.
+            // Forçamos lista vazia via post-configure pra desabilitar o gate em testes.
+            services.PostConfigure<EfsAiHub.Host.Api.Configuration.AdminOptions>(o => o.AccountIds.Clear());
+
             // ── Override Postgres DbContextFactory ───────────────────────────
             services.RemoveAll<IDbContextFactory<AgentFwDbContext>>();
             services.RemoveAll<DbContextOptions<AgentFwDbContext>>();
@@ -159,12 +164,16 @@ public sealed class IntegrationWebApplicationFactory : WebApplicationFactory<Pro
     /// Use this only in tests that specifically test the default-project protection gate.
     /// </summary>
     public HttpClient CreateClientWithAdminGate(string adminAccountId) =>
-        WithWebHostBuilder(b =>
-            b.ConfigureAppConfiguration((_, cfg) =>
-                cfg.AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["Admin:AccountIds:0"] = adminAccountId
-                }))).CreateClient();
+        WithWebHostBuilder(b => b.ConfigureServices(services =>
+        {
+            // Re-popula AccountIds APÓS o PostConfigure do factory base que limpa.
+            // Múltiplos PostConfigure rodam em ordem de registro, e este é o último.
+            services.PostConfigure<EfsAiHub.Host.Api.Configuration.AdminOptions>(o =>
+            {
+                o.AccountIds.Clear();
+                o.AccountIds.Add(adminAccountId);
+            });
+        })).CreateClient();
 }
 
 [CollectionDefinition("Integration")]

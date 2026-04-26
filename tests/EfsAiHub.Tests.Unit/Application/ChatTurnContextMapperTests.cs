@@ -56,8 +56,9 @@ public class ChatTurnContextMapperTests
 
         var messages = ChatTurnContextMapper.Build(json, OrchestrationMode.Handoff);
 
-        // Deve ter: system(metadata) + user(message) + system(json blob) = pelo menos 3
-        messages.Should().HaveCountGreaterThan(2);
+        // Em Handoff: system(metadata) + user(message). Sem history nem sharedState = exatamente 2.
+        messages.Should().HaveCount(2);
+        messages.Should().Contain(m => m.Role == ChatRole.System && m.Text!.Contains("workflowId"));
         messages.Should().Contain(m => m.Role == ChatRole.User && m.Text == "qual a cotação?");
     }
 

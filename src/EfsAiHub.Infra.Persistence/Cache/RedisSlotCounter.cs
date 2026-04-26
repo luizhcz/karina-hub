@@ -67,6 +67,6 @@ return current
     {
         var fullKey = _cache.BuildKey($"slots:{scope}");
         var value = await _cache.Database.StringGetAsync(fullKey);
-        return value.HasValue && int.TryParse(value, out var count) ? count : 0;
+        return value.HasValue && int.TryParse((string?)value, out var count) ? count : 0;
     }
 }

@@ -6,9 +6,14 @@ public static class WebApplicationExtensions
 {
     public static WebApplication UseEfsMiddlewarePipeline(this WebApplication app)
     {
-        app.UseHttpsRedirection();
-        if (!app.Environment.IsDevelopment())
+        // .NET 10 — UseHttpsRedirection ficou mais estrito: lança em ambientes sem
+        // porta HTTPS configurada (dev + tests in-memory via WebApplicationFactory).
+        // Aplica apenas em produção real (não em Development nem Testing), junto com HSTS.
+        if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing"))
+        {
+            app.UseHttpsRedirection();
             app.UseHsts();
+        }
         app.UseCors();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.GlobalExceptionMiddleware>();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.SecurityHeadersMiddleware>();

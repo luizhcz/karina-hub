@@ -1,5 +1,5 @@
 # ── Stage 1: restore + build ─────────────────────────────────────────────────
-FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS builder
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS builder
 
 WORKDIR /src
 
@@ -24,7 +24,7 @@ RUN dotnet publish EfsAiHub.Host.Api/EfsAiHub.Host.Api.csproj \
     -c Release -o /out --no-restore
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
-FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS runner
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runner
 
 WORKDIR /app
 COPY --from=builder /out .
