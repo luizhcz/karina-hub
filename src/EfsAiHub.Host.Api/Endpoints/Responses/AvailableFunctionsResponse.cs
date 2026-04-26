@@ -30,6 +30,19 @@ public class CodeExecutorInfo
     public string  Name       { get; init; } = "";
     public string? InputType  { get; init; }
     public string? OutputType { get; init; }
+
+    /// <summary>JSON Schema do tipo de input (gerado via System.Text.Json.Schema). Null pra executors destipados.</summary>
+    public JsonElement? InputSchema { get; init; }
+
+    /// <summary>JSON Schema do tipo de output. Consumido pelo frontend pra construir picker de campos no edge predicate editor (PR 5).</summary>
+    public JsonElement? OutputSchema { get; init; }
+
+    /// <summary>
+    /// Hash sha256 (12 hex) do output schema serializado. Usado pelo frontend pra detectar schema drift
+    /// entre o momento da criação do edge e o estado atual do produtor — quando muda, UI sinaliza
+    /// pra revisar predicate (e PR 4+ invalida cache de definição).
+    /// </summary>
+    public string? OutputSchemaVersion { get; init; }
 }
 
 public class MiddlewareTypeInfo

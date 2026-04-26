@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using EfsAiHub.Core.Agents;
 using EfsAiHub.Core.Orchestration.Enums;
@@ -67,9 +68,15 @@ public sealed class EdgeInvariantsValidator
         return errors;
     }
 
+    private static bool HasSchemaInMap(string? nodeId, IReadOnlyDictionary<string, JsonElement?> map)
+        => !string.IsNullOrWhiteSpace(nodeId) && map.TryGetValue(nodeId, out var v) && v.HasValue;
+
+    private static JsonElement? GetSchema(string? nodeId, IReadOnlyDictionary<string, JsonElement?> map)
+        => nodeId is not null && map.TryGetValue(nodeId, out var v) ? v : null;
+
     private void ValidateConditional(
         WorkflowEdge edge, int edgeIndex,
-        IReadOnlyDictionary<string, bool> schemaSources,
+        IReadOnlyDictionary<string, JsonElement?> schemaSources,
         List<WorkflowInvariantError> errors)
     {
         if (edge.Predicate is null)
@@ -82,7 +89,7 @@ public sealed class EdgeInvariantsValidator
             return;
         }
 
-        if (!HasSchema(edge.From, schemaSources))
+        if (!HasSchemaInMap(edge.From, schemaSources))
         {
             errors.Add(new WorkflowInvariantError(
                 WorkflowErrorCodes.EdgeNotAllowedFromTextSource,
@@ -91,12 +98,12 @@ public sealed class EdgeInvariantsValidator
                 edgeIndex));
         }
 
-        ValidatePredicate(edge.Predicate, edgeIndex, errors);
+        ValidatePredicate(edge.Predicate, edgeIndex, GetSchema(edge.From, schemaSources), edge.From, errors);
     }
 
     private void ValidateSwitch(
         WorkflowEdge edge, int edgeIndex,
-        IReadOnlyDictionary<string, bool> schemaSources,
+        IReadOnlyDictionary<string, JsonElement?> schemaSources,
         List<WorkflowInvariantError> errors)
     {
         if (edge.Cases.Count == 0)
@@ -109,7 +116,7 @@ public sealed class EdgeInvariantsValidator
             return;
         }
 
-        if (!HasSchema(edge.From, schemaSources))
+        if (!HasSchemaInMap(edge.From, schemaSources))
         {
             errors.Add(new WorkflowInvariantError(
                 WorkflowErrorCodes.EdgeNotAllowedFromTextSource,
@@ -118,6 +125,7 @@ public sealed class EdgeInvariantsValidator
                 edgeIndex));
         }
 
+        var fromSchema = GetSchema(edge.From, schemaSources);
         var hasDefault = false;
         var hasAnyPredicate = false;
         foreach (var c in edge.Cases)
@@ -126,7 +134,7 @@ public sealed class EdgeInvariantsValidator
             if (c.Predicate is not null)
             {
                 hasAnyPredicate = true;
-                ValidatePredicate(c.Predicate, edgeIndex, errors);
+                ValidatePredicate(c.Predicate, edgeIndex, fromSchema, edge.From, errors);
             }
             else if (!c.IsDefault)
             {
@@ -149,14 +157,29 @@ public sealed class EdgeInvariantsValidator
     }
 
     private static void ValidatePredicate(
-        EdgePredicate predicate, int edgeIndex, List<WorkflowInvariantError> errors)
+        EdgePredicate predicate, int edgeIndex,
+        JsonElement? fromSchema, string? fromNodeId,
+        List<WorkflowInvariantError> errors)
     {
-        if (string.IsNullOrWhiteSpace(predicate.Path) || !JsonPathRegex.IsMatch(predicate.Path))
+        var pathSyntaxValid = !string.IsNullOrWhiteSpace(predicate.Path) && JsonPathRegex.IsMatch(predicate.Path);
+        if (!pathSyntaxValid)
         {
             errors.Add(new WorkflowInvariantError(
                 WorkflowErrorCodes.InvalidJsonPath,
                 $"JSONPath '{predicate.Path}' fora do subset suportado.",
                 "Use $, $.field, $.a.b, $.list[N] ou $.list[N].field. Wildcards, filtros e índice negativo não são suportados.",
+                edgeIndex));
+        }
+
+        // Cross-check do path contra schema atual do produtor (PR 3 fechando dívida do PR 2).
+        // Só roda quando syntax do path é válida E temos schema disponível — evita ruído duplicado.
+        if (pathSyntaxValid && fromSchema is { ValueKind: JsonValueKind.Object } schema
+            && !JsonSchemaPathResolver.PathExistsInSchema(schema, predicate.Path))
+        {
+            errors.Add(new WorkflowInvariantError(
+                WorkflowErrorCodes.PathNotFoundInSchema,
+                $"Path '{predicate.Path}' não resolve nenhum campo do schema atual de '{fromNodeId}'.",
+                "Conferir o schema do produtor (json_schema do agente ou OutputType do executor) e ajustar o Path; campo pode ter sido renomeado/removido.",
                 edgeIndex));
         }
 
@@ -172,7 +195,7 @@ public sealed class EdgeInvariantsValidator
         // Defesa anti-DoS: regex catastrófica no pattern pode travar o thread
         // durante compilação (antes de qualquer timeout de match). Limite no save.
         if (predicate.Operator == EdgeOperator.MatchesRegex
-            && predicate.Value is { ValueKind: System.Text.Json.JsonValueKind.String } v
+            && predicate.Value is { ValueKind: JsonValueKind.String } v
             && v.GetString() is { Length: > MaxRegexPatternLength } longPattern)
         {
             errors.Add(new WorkflowInvariantError(
@@ -205,18 +228,17 @@ public sealed class EdgeInvariantsValidator
     }
 
     /// <summary>
-    /// Constrói mapa nodeId → has-schema. Agente tem schema se ResponseFormat == "json_schema"
-    /// e Schema != null. Executor tem schema se está no GetTypeInfo() do registry (registrado
-    /// via Register&lt;TIn,TOut&gt;).
+    /// Constrói mapa nodeId → schema (JsonElement?). Null = origem sem schema (texto livre,
+    /// executor destipado). Tendo o JsonElement permite cross-check do Path do predicate.
     ///
     /// Performance: agentIds são consultados em paralelo (Task.WhenAll). Pool do Npgsql
     /// serializa por conexão mas múltiplas conexões executam simultaneamente — 8 agentes
     /// custam ~1-2 round-trips em vez de 8 sequenciais.
     /// </summary>
-    private async Task<IReadOnlyDictionary<string, bool>> BuildSchemaSourceMapAsync(
+    private async Task<IReadOnlyDictionary<string, JsonElement?>> BuildSchemaSourceMapAsync(
         WorkflowDefinition definition, CancellationToken ct)
     {
-        var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var map = new Dictionary<string, JsonElement?>(StringComparer.OrdinalIgnoreCase);
 
         // Agentes em paralelo — N+1 sequencial era hot path no save de workflow grande.
         var agentIds = definition.Agents.Select(a => a.AgentId).Distinct().ToArray();
@@ -224,28 +246,33 @@ public sealed class EdgeInvariantsValidator
             agentIds.Select(id => _agentRepo.GetByIdAsync(id, ct)));
 
         for (var i = 0; i < agentIds.Length; i++)
-            map[agentIds[i]] = HasJsonSchemaOutput(agentDefs[i]);
+            map[agentIds[i]] = ExtractAgentSchema(agentDefs[i]);
 
-        // Executores: schema só se registrado tipado.
-        var typedExecutors = _executorRegistry.GetTypeInfo().Keys
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // Executores: schema vem do registry (sha + JsonElement gerados via JsonSchemaExporter no PR 1).
+        var executorSchemas = _executorRegistry.GetSchemas();
         foreach (var ex in definition.Executors)
         {
-            map[ex.Id] = !string.IsNullOrEmpty(ex.FunctionName)
-                && typedExecutors.Contains(ex.FunctionName);
+            JsonElement? schema = null;
+            if (!string.IsNullOrEmpty(ex.FunctionName)
+                && executorSchemas.TryGetValue(ex.FunctionName, out var info))
+            {
+                schema = info.OutputSchema;
+            }
+            map[ex.Id] = schema;
         }
 
         return map;
     }
 
-    private static bool HasJsonSchemaOutput(AgentDefinition? agent)
+    private static JsonElement? ExtractAgentSchema(AgentDefinition? agent)
     {
-        if (agent?.StructuredOutput is null) return false;
+        if (agent?.StructuredOutput is null) return null;
         if (!string.Equals(agent.StructuredOutput.ResponseFormat, "json_schema", StringComparison.OrdinalIgnoreCase))
-            return false;
-        return agent.StructuredOutput.Schema is not null;
-    }
+            return null;
+        if (agent.StructuredOutput.Schema is null) return null;
 
-    private static bool HasSchema(string? nodeId, IReadOnlyDictionary<string, bool> map)
-        => !string.IsNullOrWhiteSpace(nodeId) && map.TryGetValue(nodeId, out var v) && v;
+        // JsonDocument do StructuredOutput é gerenciado pela definição do agente (não disposamos aqui).
+        // Clone pra desacoplar do buffer do Document caso o caller alterne escopo da definition.
+        return agent.StructuredOutput.Schema.RootElement.Clone();
+    }
 }

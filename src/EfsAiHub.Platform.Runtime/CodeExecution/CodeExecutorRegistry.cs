@@ -62,8 +62,20 @@ public class CodeExecutorRegistry : ICodeExecutorRegistry
     public IReadOnlyCollection<string> GetRegisteredNames()
         => _handlers.Keys.ToArray();
 
+    /// <summary>
+    /// Cache do resultado de <see cref="GetSchemas"/>. Invalidado em cada
+    /// <see cref="RegisterSchema"/> (registro de novo executor tipado). Evita re-rodar
+    /// o JsonSchemaExporter + Parse + Clone a cada chamada — esse caminho é hot porque
+    /// <c>EdgeInvariantsValidator</c> consulta no save de cada workflow e <c>FunctionsController</c>
+    /// expõe via API a cada request.
+    /// </summary>
+    private volatile IReadOnlyDictionary<string, ExecutorSchemaInfo>? _schemasCache;
+
     public void RegisterSchema(string functionName, Type inputType, Type outputType)
-        => _typeInfo[functionName] = (inputType, outputType);
+    {
+        _typeInfo[functionName] = (inputType, outputType);
+        _schemasCache = null; // novo executor tipado → cache obsoleto
+    }
 
     public IReadOnlyDictionary<string, (string InputType, string OutputType)> GetTypeInfo()
         => _typeInfo.ToDictionary(
@@ -72,6 +84,8 @@ public class CodeExecutorRegistry : ICodeExecutorRegistry
 
     public IReadOnlyDictionary<string, ExecutorSchemaInfo> GetSchemas()
     {
+        // Fast path: cache populado e ainda válido (RegisterSchema não rodou).
+        if (_schemasCache is { } cached) return cached;
         var result = new Dictionary<string, ExecutorSchemaInfo>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (name, types) in _typeInfo)
@@ -106,6 +120,9 @@ public class CodeExecutorRegistry : ICodeExecutorRegistry
             }
         }
 
+        // Memoriza pra próximas chamadas — RegisterSchema invalida quando entra novo executor.
+        // Race benigna: dois threads podem computar simultaneamente; ganha o último write.
+        _schemasCache = result;
         return result;
     }
 

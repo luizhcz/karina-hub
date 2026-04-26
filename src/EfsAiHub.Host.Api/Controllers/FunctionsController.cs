@@ -32,6 +32,7 @@ public class FunctionsController : ControllerBase
     public IActionResult GetAll()
     {
         var typeInfo = _executorRegistry.GetTypeInfo();
+        var schemas = _executorRegistry.GetSchemas();
 
         var functionTools = _functionRegistry.GetAll()
             .Select(kv => new FunctionToolInfo
@@ -48,11 +49,15 @@ public class FunctionsController : ControllerBase
             .Select(name =>
             {
                 typeInfo.TryGetValue(name, out var types);
+                schemas.TryGetValue(name, out var schemaInfo);
                 return new CodeExecutorInfo
                 {
-                    Name       = name,
-                    InputType  = types.InputType,
-                    OutputType = types.OutputType,
+                    Name                = name,
+                    InputType           = types.InputType,
+                    OutputType          = types.OutputType,
+                    InputSchema         = schemaInfo?.InputSchema,
+                    OutputSchema        = schemaInfo?.OutputSchema,
+                    OutputSchemaVersion = schemaInfo?.OutputSchemaVersion,
                 };
             })
             .OrderBy(e => e.Name)
