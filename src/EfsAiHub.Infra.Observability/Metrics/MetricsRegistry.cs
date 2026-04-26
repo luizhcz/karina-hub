@@ -92,6 +92,10 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("hitl.orphaned_recoveries",
             description: "Execuções Paused retomadas com HITL já resolvido (Approved/Rejected) — gap do NOTIFY perdido.");
 
+    public static readonly Counter<long> StuckExecutionsRecovered =
+        _meter.CreateCounter<long>("stuck_executions.recovered",
+            description: "Total de execuções Running marcadas como Failed por inatividade (StuckExecutionRecoveryService).");
+
     public static readonly Counter<long> HitlRequested =
         _meter.CreateCounter<long>("hitl.requested",
             description: "Interações HITL criadas. Tags: workflow_id");

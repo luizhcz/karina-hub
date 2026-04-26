@@ -326,6 +326,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<AuditRetentionService>();
         if (engineOpts.MultiNode)
             services.AddHostedService<CrossNodeCoordinator>();
+        services.AddHostedService<StuckExecutionRecoveryService>();
         // HitlRecoveryService DEVE ser registrado por último
         services.AddHostedService<HitlRecoveryService>();
 
@@ -355,6 +356,7 @@ public static class ServiceCollectionExtensions
             if (opts.MultiNode)
                 registry.Register("CrossNodeCoordinator", new() { Name = "CrossNodeCoordinator", Description = "Propaga cancelamentos e eventos HITL entre pods via LISTEN/NOTIFY", Lifecycle = "Continuous", ServiceType = typeof(CrossNodeCoordinator) });
             registry.Register("HitlRecovery", new() { Name = "HitlRecovery", Description = "Retoma execuções HITL pausadas após restart ou timeout", Lifecycle = "Continuous", Interval = TimeSpan.FromSeconds(Math.Max(1, opts.HitlRecoveryIntervalSeconds)), ServiceType = typeof(HitlRecoveryService) });
+            registry.Register("StuckExecutionRecovery", new() { Name = "StuckExecutionRecovery", Description = "Marca como Failed execuções Running paradas há mais que o timeout configurado", Lifecycle = "Continuous", Interval = TimeSpan.FromSeconds(Math.Max(1, opts.StuckExecutionRecoveryIntervalSeconds)), ServiceType = typeof(StuckExecutionRecoveryService) });
             registry.Register("NodePersistence", new() { Name = "NodePersistence", Description = "Persiste sequencialmente o estado dos nós de workflow", Lifecycle = "Continuous", ServiceType = typeof(NodePersistenceService) });
             registry.Register("TokenUsagePersistence", new() { Name = "TokenUsagePersistence", Description = "Persiste consumo de tokens em lote", Lifecycle = "Continuous", ServiceType = typeof(TokenUsagePersistenceService) });
             registry.Register("ToolInvocationPersistence", new() { Name = "ToolInvocationPersistence", Description = "Persiste invocações de tools em lote", Lifecycle = "Continuous", ServiceType = typeof(ToolInvocationPersistenceService) });

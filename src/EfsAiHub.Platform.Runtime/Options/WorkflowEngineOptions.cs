@@ -39,6 +39,20 @@ public class WorkflowEngineOptions
     public int LlmCostRefreshIntervalMinutes { get; init; } = 30;
 
     /// <summary>
+    /// Intervalo em segundos do StuckExecutionRecoveryService — varre execuções
+    /// Status=Running paradas há mais de StuckExecutionTimeoutMinutes e marca como Failed.
+    /// 0 = desabilita. Default: 1800 (30min).
+    /// </summary>
+    public int StuckExecutionRecoveryIntervalSeconds { get; init; } = 1800;
+
+    /// <summary>
+    /// Idade mínima (em minutos) que uma execução Running precisa ter pra ser considerada
+    /// stuck. Default: 30. O maior workflow de produção atual completa em &lt;10min, então
+    /// 30min cobre 3x o caso pior sem falsos positivos.
+    /// </summary>
+    public int StuckExecutionTimeoutMinutes { get; init; } = 30;
+
+    /// <summary>
     /// Quando <c>true</c>, registra o CrossNodeCoordinator (LISTEN em efs_exec_cancel /
     /// efs_hitl_resolved) + 1 conexão persistente no pool "sse". Obrigatório em deploy
     /// multi-pod — sem ele, cancel e HITL disparados em outro pod não chegam aqui.
