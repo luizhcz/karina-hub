@@ -30,11 +30,26 @@ export function getIdentityHeaders(): Record<string, string> {
  *
  * Em qualquer outro status ou body malformado, `message` vira `HTTP {status}`.
  */
+/**
+ * Erros estruturados emitidos pelo backend em violações de invariantes do workflow
+ * (envelope `{ errors: [{ errorCode, message, hint?, edgeIndex? }] }` em 400 do
+ * POST/PUT /api/workflows). Frontend renderiza inline no edge correspondente.
+ */
+export interface WorkflowInvariantApiError {
+  errorCode: string
+  message: string
+  hint?: string
+  edgeIndex?: number
+}
+
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  /** Lista estruturada quando o backend retorna `{ errors: [...] }`. */
+  invariantErrors?: WorkflowInvariantApiError[]
+  constructor(status: number, message: string, invariantErrors?: WorkflowInvariantApiError[]) {
     super(message)
     this.status = status
+    this.invariantErrors = invariantErrors
   }
 }
 
@@ -45,19 +60,49 @@ export class ApiError extends Error {
 const STATUS_WITH_ERROR_BODY: ReadonlySet<number> = new Set([400, 402, 403, 404, 409, 429])
 
 /**
- * Tenta extrair `{ error: string }` do body da Response. Nunca throws — retorna o fallback
- * se o body não for JSON válido ou se o campo não existir.
+ * Tenta extrair body de erro padronizado da Response. Nunca throws — retorna o fallback
+ * quando o body não for JSON válido ou quando nenhum campo conhecido existir.
+ *
+ * Formatos aceitos:
+ * - `{ error: string }` — handlers genéricos
+ * - `{ message: string }` — handlers .NET DataAnnotations
+ * - `{ errors: WorkflowInvariantApiError[] }` — invariante de workflow (predicate, schema, etc.)
  */
-async function extractErrorMessage(res: Response, fallback: string): Promise<string> {
+async function extractErrorPayload(
+  res: Response,
+  fallback: string,
+): Promise<{ message: string; invariantErrors?: WorkflowInvariantApiError[] }> {
   try {
-    const body = (await res.clone().json()) as { error?: unknown; message?: unknown } | null
+    const body = (await res.clone().json()) as
+      | {
+          error?: unknown
+          message?: unknown
+          errors?: unknown
+        }
+      | null
     if (body && typeof body === 'object') {
-      if (typeof body.error === 'string' && body.error.length > 0) return body.error
-      if (typeof body.message === 'string' && body.message.length > 0) return body.message
+      if (Array.isArray(body.errors)) {
+        const list = (body.errors as unknown[])
+          .filter((e): e is Record<string, unknown> => !!e && typeof e === 'object')
+          .map((e) => ({
+            errorCode: typeof e.errorCode === 'string' ? e.errorCode : 'Unknown',
+            message: typeof e.message === 'string' ? e.message : '',
+            hint: typeof e.hint === 'string' ? e.hint : undefined,
+            edgeIndex: typeof e.edgeIndex === 'number' ? e.edgeIndex : undefined,
+          }))
+        if (list.length > 0) {
+          const summary = list.length === 1
+            ? list[0].message
+            : `${list.length} violação(ões) de invariante: ${list.map((e) => e.errorCode).join(', ')}`
+          return { message: summary, invariantErrors: list }
+        }
+      }
+      if (typeof body.error === 'string' && body.error.length > 0) return { message: body.error }
+      if (typeof body.message === 'string' && body.message.length > 0) return { message: body.message }
     }
-    return fallback
+    return { message: fallback }
   } catch {
-    return fallback
+    return { message: fallback }
   }
 }
 
@@ -81,10 +126,11 @@ export async function safeFetch<T>(url: string, init?: RequestInit): Promise<T> 
   const res = await fetch(url, { ...init, headers: merged })
   if (!res.ok) {
     const fallback = `HTTP ${res.status}`
-    const message = STATUS_WITH_ERROR_BODY.has(res.status)
-      ? await extractErrorMessage(res, fallback)
-      : fallback
-    throw new ApiError(res.status, message)
+    if (STATUS_WITH_ERROR_BODY.has(res.status)) {
+      const { message, invariantErrors } = await extractErrorPayload(res, fallback)
+      throw new ApiError(res.status, message, invariantErrors)
+    }
+    throw new ApiError(res.status, fallback)
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>

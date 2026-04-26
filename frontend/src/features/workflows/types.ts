@@ -10,6 +10,10 @@ export type {
   WorkflowDiagram,
   SandboxResult,
   WorkflowVersion,
+  EdgeOperator,
+  EdgePredicate,
+  EdgePredicateValueType,
+  WorkflowSwitchCase,
 } from '../../api/workflows'
 
 
@@ -39,9 +43,43 @@ export interface WorkflowAgentRefForm {
   hitl: NodeHitlConfigForm
 }
 
+/**
+ * Forma do predicate no formulário. Mantém todos os campos como strings/booleans
+ * para compatibilidade com react-hook-form; serialização final pra EdgePredicate
+ * acontece no submit (parseValue por valueType).
+ */
+export interface EdgePredicateForm {
+  path: string
+  operator:
+    | 'Eq'
+    | 'NotEq'
+    | 'Gt'
+    | 'Gte'
+    | 'Lt'
+    | 'Lte'
+    | 'Contains'
+    | 'StartsWith'
+    | 'EndsWith'
+    | 'MatchesRegex'
+    | 'In'
+    | 'NotIn'
+    | 'IsNull'
+    | 'IsNotNull'
+  /** Conteúdo digitado/selecionado pelo usuário; vazio é válido em IsNull/IsNotNull. */
+  valueRaw: string
+  valueType: 'Auto' | 'String' | 'Number' | 'Integer' | 'Boolean' | 'Enum'
+}
+
+export const EDGE_PREDICATE_DEFAULTS: EdgePredicateForm = {
+  path: '',
+  operator: 'Eq',
+  valueRaw: '',
+  valueType: 'String',
+}
+
 export interface WorkflowEdgeCase {
-  condition: string   // empty when isDefault
-  target: string      // single node; serialized to targets: [target] on submit
+  predicate: EdgePredicateForm
+  target: string
   isDefault: boolean
 }
 
@@ -49,10 +87,11 @@ export interface WorkflowEdgeForm {
   from: string
   to: string
   edgeType: 'Direct' | 'Conditional' | 'Switch' | 'FanOut' | 'FanIn'
-  condition: string          // Conditional only
-  cases: WorkflowEdgeCase[] // Switch only
-  targets: string[]          // FanOut (destinations) & FanIn (sources)
-  inputSource: string        // "" | "WorkflowInput"
+  predicate: EdgePredicateForm   // Conditional only (zerado nos demais)
+  cases: WorkflowEdgeCase[]      // Switch only
+  targets: string[]              // FanOut (destinations) & FanIn (sources)
+  handoffHint: string            // Modo Handoff (opcional)
+  inputSource: string            // "" | "WorkflowInput"
 }
 
 export interface WorkflowExecutorForm {

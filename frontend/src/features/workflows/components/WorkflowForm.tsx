@@ -12,9 +12,13 @@ import { Textarea } from '../../../shared/ui/Textarea'
 import { CronEditor } from '../../../shared/editors/CronEditor'
 import { useAgents } from '../../../api/agents'
 import { useFunctions } from '../../../api/tools'
+import type { JsonSchemaObject } from '../../../api/tools'
 import type { WorkflowDef } from '../../../api/workflows'
 import type { WorkflowFormValues } from '../types'
-import { HITL_DEFAULTS } from '../types'
+import { HITL_DEFAULTS, EDGE_PREDICATE_DEFAULTS } from '../types'
+import type { WorkflowInvariantApiError } from '../../../api/client'
+import { EdgePredicateEditor } from './EdgePredicateEditor'
+import { hasSchemaForNode } from '../predicateUtils'
 import {
   INPUT_MODE_OPTIONS,
   CHECKPOINT_MODE_OPTIONS,
@@ -42,8 +46,30 @@ const agentRefSchema = z.object({
   hitl: hitlConfigSchema,
 })
 
+const predicateSchema = z.object({
+  path: z.string(),
+  operator: z.enum([
+    'Eq',
+    'NotEq',
+    'Gt',
+    'Gte',
+    'Lt',
+    'Lte',
+    'Contains',
+    'StartsWith',
+    'EndsWith',
+    'MatchesRegex',
+    'In',
+    'NotIn',
+    'IsNull',
+    'IsNotNull',
+  ]),
+  valueRaw: z.string(),
+  valueType: z.enum(['Auto', 'String', 'Number', 'Integer', 'Boolean', 'Enum']),
+})
+
 const edgeCaseSchema = z.object({
-  condition: z.string(),
+  predicate: predicateSchema,
   target: z.string(),
   isDefault: z.boolean(),
 })
@@ -52,9 +78,10 @@ const edgeSchema = z.object({
   from: z.string(),
   to: z.string(),
   edgeType: z.enum(['Direct', 'Conditional', 'Switch', 'FanOut', 'FanIn']),
-  condition: z.string(),
+  predicate: predicateSchema,
   cases: z.array(edgeCaseSchema),
   targets: z.array(z.string()),
+  handoffHint: z.string(),
   inputSource: z.string(),
 })
 
@@ -132,6 +159,11 @@ interface WorkflowFormProps {
   onSubmit: (values: WorkflowFormValues) => void
   loading?: boolean
   isEdit?: boolean
+  /**
+   * Erros estruturados retornados pelo backend (invariante de workflow).
+   * Renderizados inline em cada edge via edgeIndex; não bloqueiam o submit.
+   */
+  apiErrors?: WorkflowInvariantApiError[]
 }
 
 function workflowDefToFormValues(wf: WorkflowDef): WorkflowFormValues {
@@ -176,13 +208,28 @@ function workflowDefToFormValues(wf: WorkflowDef): WorkflowFormValues {
       from: e.from ?? '',
       to: e.to ?? '',
       edgeType: e.edgeType,
-      condition: e.condition ?? '',
+      predicate: e.predicate
+        ? {
+            path: e.predicate.path,
+            operator: e.predicate.operator,
+            valueRaw: stringifyPredicateValue(e.predicate.value),
+            valueType: e.predicate.valueType ?? 'Auto',
+          }
+        : { ...EDGE_PREDICATE_DEFAULTS },
       cases: (e.cases ?? []).map((c) => ({
-        condition: c.condition ?? '',
+        predicate: c.predicate
+          ? {
+              path: c.predicate.path,
+              operator: c.predicate.operator,
+              valueRaw: stringifyPredicateValue(c.predicate.value),
+              valueType: c.predicate.valueType ?? 'Auto',
+            }
+          : { ...EDGE_PREDICATE_DEFAULTS },
         target: c.targets?.[0] ?? '',
         isDefault: c.isDefault,
       })),
-      targets: e.targets ?? [],
+      targets: e.targets ?? e.sources ?? [],
+      handoffHint: e.handoffHint ?? '',
       inputSource: e.inputSource ?? '',
     })),
     configuration: {
@@ -203,11 +250,23 @@ function workflowDefToFormValues(wf: WorkflowDef): WorkflowFormValues {
   }
 }
 
+/** Stringifica o `value` do EdgePredicate (do API → form). Listas viram CSV. */
+function stringifyPredicateValue(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (Array.isArray(value)) return value.map((v) => String(v)).join(', ')
+  return String(value)
+}
+
 interface EdgeItemProps {
   idx: number
   control: Control<WorkflowFormValues>
   register: UseFormRegister<WorkflowFormValues>
   nodeOptions: { label: string; value: string }[]
+  /** nodeId → schema do output (agente structured ou executor tipado). undefined = sem schema. */
+  nodeSchemas: Record<string, JsonSchemaObject | undefined>
+  /** Erros estruturados do backend, indexados por edgeIndex (filtrados por idx pelo container). */
+  edgeErrors: WorkflowInvariantApiError[]
+  orchestrationMode: string
   onRemove: () => void
 }
 
@@ -258,11 +317,37 @@ function MultiCheckboxField({
   )
 }
 
-function EdgeItem({ idx, control, register, nodeOptions, onRemove }: EdgeItemProps) {
+function EdgeItem({
+  idx,
+  control,
+  register,
+  nodeOptions,
+  nodeSchemas,
+  edgeErrors,
+  orchestrationMode,
+  onRemove,
+}: EdgeItemProps) {
   const edgeType = useWatch({ control, name: `edges.${idx}.edgeType` })
+  const fromId = useWatch({ control, name: `edges.${idx}.from` })
+  const predicateValue = useWatch({ control, name: `edges.${idx}.predicate` })
+  const caseValues = useWatch({ control, name: `edges.${idx}.cases` })
   const { fields: caseFields, append: appendCase, remove: removeCase } = useFieldArray({
     control,
     name: `edges.${idx}.cases`,
+  })
+
+  const fromSchema = fromId ? nodeSchemas[fromId] : undefined
+  const fromHasSchema = hasSchemaForNode(fromSchema)
+  const isHandoff = orchestrationMode === 'Handoff'
+
+  // edgeType options: filtra Conditional/Switch quando origem não tem schema (gating de UX —
+  // backend rejeita com EdgeNotAllowedFromTextSource caso usuário force).
+  const edgeTypeOptions = enumToOptions(undefined, EDGE_TYPE_LABELS).map((opt) => {
+    const requiresSchema = opt.value === 'Conditional' || opt.value === 'Switch'
+    if (requiresSchema && fromId && !fromHasSchema) {
+      return { ...opt, label: `${opt.label} (requer schema na origem)`, disabled: true }
+    }
+    return opt
   })
 
   const fromToGrid = (
@@ -319,20 +404,50 @@ function EdgeItem({ idx, control, register, nodeOptions, onRemove }: EdgeItemPro
             onChange={(e) =>
               f.onChange(e.target.value as WorkflowFormValues['edges'][number]['edgeType'])
             }
-            options={enumToOptions(undefined, EDGE_TYPE_LABELS)}
+            options={edgeTypeOptions}
           />
         )}
       />
 
-      {edgeType === 'Direct' && fromToGrid}
+      {edgeErrors.length > 0 && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2 flex flex-col gap-1">
+          {edgeErrors.map((err, i) => (
+            <div key={i} className="text-xs text-red-400">
+              <span className="font-mono font-semibold">{err.errorCode}</span>: {err.message}
+              {err.hint && <div className="text-[11px] text-red-300/80 mt-0.5">{err.hint}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {edgeType === 'Direct' && (
+        <>
+          {fromToGrid}
+          {isHandoff && (
+            <Input
+              label="Handoff Hint (modo Handoff)"
+              placeholder="Quando o LLM deve usar essa transição"
+              {...register(`edges.${idx}.handoffHint`)}
+            />
+          )}
+        </>
+      )}
 
       {edgeType === 'Conditional' && (
         <>
           {fromToGrid}
-          <Input
-            label="Condition"
-            placeholder="e.g. result.status === 'approved'"
-            {...register(`edges.${idx}.condition`)}
+          <EdgePredicateEditor
+            prefix={`edges.${idx}.predicate`}
+            control={control}
+            register={register}
+            schema={fromSchema}
+            current={predicateValue}
+            noSchema={!!fromId && !fromHasSchema}
+            warning={
+              fromId && !fromHasSchema
+                ? `Origem "${fromId}" não declara schema JSON. Conditional só funciona quando o produtor é structured.`
+                : undefined
+            }
           />
         </>
       )}
@@ -357,7 +472,13 @@ function EdgeItem({ idx, control, register, nodeOptions, onRemove }: EdgeItemPro
               <span className="text-xs font-medium text-text-secondary">Switch Cases</span>
               <button
                 type="button"
-                onClick={() => appendCase({ condition: '', target: '', isDefault: false })}
+                onClick={() =>
+                  appendCase({
+                    predicate: { ...EDGE_PREDICATE_DEFAULTS },
+                    target: '',
+                    isDefault: false,
+                  })
+                }
                 className="text-xs text-accent-blue hover:underline"
               >
                 + Add Case
@@ -366,49 +487,65 @@ function EdgeItem({ idx, control, register, nodeOptions, onRemove }: EdgeItemPro
             {caseFields.length === 0 && (
               <p className="text-xs text-text-dimmed italic">No cases defined.</p>
             )}
-            {caseFields.map((cf, ci) => (
-              <div
-                key={cf.id}
-                className="bg-bg-secondary border border-border-primary rounded-md p-3 flex flex-col gap-2"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-text-muted">Case #{ci + 1}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeCase(ci)}
-                    className="text-xs text-red-400 hover:text-red-300"
-                  >
-                    Remove
-                  </button>
-                </div>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    {...register(`edges.${idx}.cases.${ci}.isDefault`)}
-                    className="w-4 h-4 accent-accent-blue"
-                  />
-                  <span className="text-xs text-text-secondary">Default case (fallback)</span>
-                </label>
-                <Input
-                  label="Condition"
-                  placeholder="e.g. output === 'buy'"
-                  {...register(`edges.${idx}.cases.${ci}.condition`)}
-                />
-                <Controller
-                  control={control}
-                  name={`edges.${idx}.cases.${ci}.target`}
-                  render={({ field: f }) => (
-                    <Select
-                      label="Target Node"
-                      value={f.value}
-                      onChange={(e) => f.onChange(e.target.value)}
-                      placeholder="Select target node..."
-                      options={nodeOptions}
+            {caseFields.map((cf, ci) => {
+              const isDefault = caseValues?.[ci]?.isDefault ?? false
+              return (
+                <div
+                  key={cf.id}
+                  className="bg-bg-secondary border border-border-primary rounded-md p-3 flex flex-col gap-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-text-muted">Case #{ci + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeCase(ci)}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      {...register(`edges.${idx}.cases.${ci}.isDefault`)}
+                      className="w-4 h-4 accent-accent-blue"
+                    />
+                    <span className="text-xs text-text-secondary">Default case (fallback)</span>
+                  </label>
+                  {!isDefault && (
+                    <EdgePredicateEditor
+                      prefix={`edges.${idx}.cases.${ci}.predicate`}
+                      control={control}
+                      register={register}
+                      schema={fromSchema}
+                      current={
+                        caseValues?.[ci]?.predicate ??
+                        ({ ...EDGE_PREDICATE_DEFAULTS } as WorkflowFormValues['edges'][number]['predicate'])
+                      }
+                      noSchema={!!fromId && !fromHasSchema}
+                      warning={
+                        fromId && !fromHasSchema
+                          ? `Origem "${fromId}" não declara schema JSON. Switch só roteia tipado quando o produtor é structured.`
+                          : undefined
+                      }
                     />
                   )}
-                />
-              </div>
-            ))}
+                  <Controller
+                    control={control}
+                    name={`edges.${idx}.cases.${ci}.target`}
+                    render={({ field: f }) => (
+                      <Select
+                        label="Target Node"
+                        value={f.value}
+                        onChange={(e) => f.onChange(e.target.value)}
+                        placeholder="Select target node..."
+                        options={nodeOptions}
+                      />
+                    )}
+                  />
+                </div>
+              )
+            })}
           </div>
         </>
       )}
@@ -594,7 +731,13 @@ function HitlFields({
   )
 }
 
-export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: WorkflowFormProps) {
+export function WorkflowForm({
+  initialValues,
+  onSubmit,
+  loading,
+  isEdit,
+  apiErrors,
+}: WorkflowFormProps) {
   const [activeTab, setActiveTab] = useState('basic')
   const { data: availableAgents } = useAgents()
   const { data: availableFunctions } = useFunctions()
@@ -618,7 +761,36 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
 
   const watchedAgents = watch('agents')
   const watchedExecutors = watch('executors')
+  const orchestrationMode = watch('orchestrationMode')
   const triggerType = watch('trigger.type')
+
+  /**
+   * Mapa nodeId → schema do output. Origem schema-aware desbloqueia Conditional/Switch
+   * + alimenta o EdgePredicateEditor com paths/operadores.
+   * - Agentes: usa structuredOutput.schema quando responseFormat="json_schema".
+   * - Executores: usa codeExecutorInfo.outputSchema (gerado via Register&lt;TIn,TOut&gt;).
+   */
+  const nodeSchemas: Record<string, JsonSchemaObject | undefined> = {}
+  for (const a of watchedAgents) {
+    if (!a.agentId) continue
+    const agent = availableAgents?.find((ag) => ag.id === a.agentId)
+    const so = agent?.structuredOutput
+    if (
+      so &&
+      typeof so.responseFormat === 'string' &&
+      so.responseFormat.toLowerCase() === 'json_schema' &&
+      so.schema
+    ) {
+      nodeSchemas[a.agentId] = so.schema as JsonSchemaObject
+    } else {
+      nodeSchemas[a.agentId] = undefined
+    }
+  }
+  for (const ex of watchedExecutors) {
+    if (!ex.id) continue
+    const fn = availableFunctions?.codeExecutors?.find((c) => c.name === ex.functionName)
+    nodeSchemas[ex.id] = fn?.outputSchema
+  }
 
   const agentIdOptions = (availableAgents ?? []).map((a) => ({ label: `${a.name} (${a.id})`, value: a.id }))
   const executorNameOptions = (availableFunctions?.codeExecutors ?? [])
@@ -637,9 +809,23 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
       .map((e) => ({ label: `${e.functionName || e.id} [executor]`, value: e.id })),
   ]
 
+  const globalApiErrors = (apiErrors ?? []).filter((e) => e.edgeIndex === undefined || e.edgeIndex === null)
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6">
       <Tabs items={TAB_ITEMS} active={activeTab} onChange={setActiveTab} />
+
+      {globalApiErrors.length > 0 && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 flex flex-col gap-2">
+          <div className="text-sm font-semibold text-red-400">Workflow rejeitado pelo backend</div>
+          {globalApiErrors.map((err, i) => (
+            <div key={i} className="text-xs text-red-400">
+              <span className="font-mono font-semibold">{err.errorCode}</span>: {err.message}
+              {err.hint && <div className="text-[11px] text-red-300/80 mt-0.5">{err.hint}</div>}
+            </div>
+          ))}
+        </div>
+      )}
 
       {activeTab === 'basic' && (
         <Card title="Basic Information">
@@ -849,9 +1035,10 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
                   from: '',
                   to: '',
                   edgeType: 'Direct',
-                  condition: '',
+                  predicate: { ...EDGE_PREDICATE_DEFAULTS },
                   cases: [],
                   targets: [],
+                  handoffHint: '',
                   inputSource: '',
                 })
               }
@@ -873,6 +1060,9 @@ export function WorkflowForm({ initialValues, onSubmit, loading, isEdit }: Workf
                 control={control}
                 register={register}
                 nodeOptions={nodeOptions}
+                nodeSchemas={nodeSchemas}
+                edgeErrors={(apiErrors ?? []).filter((e) => e.edgeIndex === idx)}
+                orchestrationMode={orchestrationMode}
                 onRemove={() => edgeFields.remove(idx)}
               />
             ))}

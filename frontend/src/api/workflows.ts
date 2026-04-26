@@ -2,13 +2,60 @@ import { get, post, put, del } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 
+export type EdgeOperator =
+  | 'Eq'
+  | 'NotEq'
+  | 'Gt'
+  | 'Gte'
+  | 'Lt'
+  | 'Lte'
+  | 'Contains'
+  | 'StartsWith'
+  | 'EndsWith'
+  | 'MatchesRegex'
+  | 'In'
+  | 'NotIn'
+  | 'IsNull'
+  | 'IsNotNull'
+
+export type EdgePredicateValueType =
+  | 'Auto'
+  | 'String'
+  | 'Number'
+  | 'Integer'
+  | 'Boolean'
+  | 'Enum'
+
+export interface EdgePredicate {
+  /** JSONPath subset: $, $.field, $.a.b, $.list[N], $.results[0].status. */
+  path: string
+  operator: EdgeOperator
+  /** Preserva tipo (number ≠ string-de-number). Null em IsNull/IsNotNull. Array em In/NotIn. */
+  value?: unknown
+  valueType: EdgePredicateValueType
+  /** sha256 curto do schema do produtor no momento da criação — invalida em schema drift. */
+  sourceSchemaVersion?: string
+}
+
+export interface WorkflowSwitchCase {
+  predicate?: EdgePredicate
+  targets: string[]
+  isDefault: boolean
+}
+
 export interface WorkflowEdge {
   from?: string
   to?: string
   edgeType: 'Direct' | 'Conditional' | 'Switch' | 'FanOut' | 'FanIn'
-  condition?: string
+  /** Conditional: predicate tipado avaliado sobre o output JSON do produtor. */
+  predicate?: EdgePredicate
+  /** Switch: cases avaliados em ordem (primeiro match vence) + opcional default. */
+  cases?: WorkflowSwitchCase[]
+  /** FanOut/FanIn: targets/sources. */
   targets?: string[]
-  cases?: { condition?: string; targets: string[]; isDefault: boolean }[]
+  sources?: string[]
+  /** Hint textual em modo Handoff — metadata pro orquestrador, não predicate. */
+  handoffHint?: string
   inputSource?: string
 }
 

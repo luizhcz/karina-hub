@@ -19,6 +19,25 @@ import { Badge } from '../../shared/ui/Badge'
 import { PageLoader } from '../../shared/ui/LoadingSpinner'
 import { ErrorCard } from '../../shared/ui/ErrorCard'
 import { useWorkflow } from '../../api/workflows'
+import type { EdgePredicate } from '../../api/workflows'
+
+/**
+ * Renderiza um predicate como label curto na edge do diagrama.
+ * Mostra `path op value` (ex: `$.status Eq approved`); operadores unários omitem value.
+ */
+function labelForPredicate(p?: EdgePredicate): string | undefined {
+  if (!p?.path) return undefined
+  const isUnary = p.operator === 'IsNull' || p.operator === 'IsNotNull'
+  if (isUnary) return `${p.path} ${p.operator}`
+  if (p.value === undefined || p.value === null) return `${p.path} ${p.operator}`
+  return `${p.path} ${p.operator} ${formatValue(p.value)}`
+}
+
+function formatValue(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map((x) => String(x)).join(',')}]`
+  if (typeof v === 'string') return `"${v}"`
+  return String(v)
+}
 
 const NODE_W = 180
 const NODE_H = 72
@@ -308,7 +327,7 @@ export function WorkflowDiagramPage() {
               id: `e-${idx}-${ci}-${ti}`,
               source: e.from!,
               target,
-              label: c.isDefault ? 'default' : c.condition ?? 'Switch',
+              label: c.isDefault ? 'default' : labelForPredicate(c.predicate) ?? 'Switch',
               animated: false,
               style: { stroke: color },
               labelStyle: { fill: '#9ca3af', fontSize: 10 },
@@ -318,15 +337,16 @@ export function WorkflowDiagramPage() {
           })
         })
       } else if (e.from && e.to) {
+        const predicateLabel = labelForPredicate(e.predicate)
+        const handoffLabel = e.handoffHint
         rawEdges.push({
           id: `e-${idx}`,
           source: e.from!,
           target: e.to!,
-          label: e.condition
-            ? e.condition
-            : e.edgeType !== 'Direct'
-            ? e.edgeType
-            : undefined,
+          label:
+            predicateLabel ??
+            handoffLabel ??
+            (e.edgeType !== 'Direct' ? e.edgeType : undefined),
           animated: e.edgeType === 'Direct',
           style: { stroke: color },
           labelStyle: { fill: '#9ca3af', fontSize: 10 },
