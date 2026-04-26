@@ -88,16 +88,27 @@ public partial class ConversationService : IConversationLifecycle, IConversation
 
     // ── Helpers internos compartilhados ───────────────────────────────────────
 
+    /// <summary>
+    /// Constrói a entidade ChatMessage a partir do input. Resolução robot↔role↔actor:
+    ///   - Caller já passou actor=Robot explicitamente OU role legado="robot" → Role=user, Actor=Robot.
+    ///   - Demais casos: Role= input.Role lowercased, Actor=Human.
+    /// Manter Role=user em mensagens robot preserva os 5 canônicos AG-UI; o discriminador
+    /// fica no campo Actor. Ver ADR 0014.
+    /// </summary>
     private static ChatMessage BuildChatMessage(string conversationId, ChatMessageInput input)
     {
-        var role = input.Role.Equals("robot", StringComparison.OrdinalIgnoreCase) ? "assistant" : input.Role.ToLowerInvariant();
+        var legacyRobotRole = input.Role.Equals("robot", StringComparison.OrdinalIgnoreCase);
+        var actor = input.Actor == Actor.Robot || legacyRobotRole ? Actor.Robot : Actor.Human;
+        var role = legacyRobotRole ? "user" : input.Role.ToLowerInvariant();
+
         return new ChatMessage
         {
             MessageId = Guid.NewGuid().ToString("N"),
             ConversationId = conversationId,
             Role = role,
             Content = input.Message,
-            TokenCount = 0
+            TokenCount = 0,
+            Actor = actor
         };
     }
 
@@ -180,14 +191,20 @@ public partial class ConversationService : IConversationLifecycle, IConversation
         ConversationSession conversation, IReadOnlyList<ChatMessage> msgs)
     {
         if (conversation.Title is not null) return;
-        var first = msgs.FirstOrDefault(m => m.Role == "user");
+        // Robot mensagens carregam payload programático (ex: JSON de chamada externa)
+        // que não faz sentido virar título da conversa. Filtra Actor=Human.
+        var first = msgs.FirstOrDefault(m => m.Role == "user" && m.Actor == Actor.Human);
         if (first is not null)
             conversation.Title = TruncateTitle(first.Content);
     }
 }
 
-/// <summary>Input de mensagem vindo do request body do endpoint.</summary>
-public record ChatMessageInput(string Role, string Message);
+/// <summary>
+/// Input de mensagem vindo do request body do endpoint. <see cref="Actor"/> default
+/// <see cref="Conversations.Actor.Human"/>; robot é setado explicitamente pelo caller
+/// que processou o body AG-UI ou (legado) pelo controller que aceita role="robot".
+/// </summary>
+public record ChatMessageInput(string Role, string Message, Actor Actor = Actor.Human);
 
 /// <summary>Resultado de SendMessagesAsync.</summary>
 public record SendMessageResult(

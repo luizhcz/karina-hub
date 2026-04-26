@@ -421,6 +421,20 @@ public class AgentFwDbContext : DbContext
                     v => v == null ? null : v.RootElement.GetRawText(),
                     v => v == null ? null : ParseJsonDocument(v)));
 
+            // Actor armazenado como string lowercase pra ler bem em queries diretas no psql
+            // e bater com o default do schema ("human"). Conversion sem `out var` porque
+            // EF Core compila para expression tree que não aceita declaração de variável.
+            b.Property(e => e.Actor)
+                .HasColumnName("Actor")
+                .HasMaxLength(32)
+                .IsRequired()
+                .HasDefaultValue(Actor.Human)
+                .HasConversion(
+                    v => v.ToString().ToLowerInvariant(),
+                    v => string.Equals(v, "robot", StringComparison.OrdinalIgnoreCase)
+                        ? Actor.Robot
+                        : Actor.Human);
+
             b.HasIndex(e => e.ConversationId);
             b.HasIndex(e => new { e.ConversationId, e.CreatedAt });
         });

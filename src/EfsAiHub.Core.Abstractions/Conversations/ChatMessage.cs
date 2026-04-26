@@ -29,4 +29,11 @@ public class ChatMessage
 
     /// <summary>ExecutionId que gerou esta mensagem (apenas role: "assistant").</summary>
     public string? ExecutionId { get; init; }
+
+    /// <summary>
+    /// Proveniência da mensagem — Human (default) ou Robot (frontend/RPA).
+    /// Robot persiste com <see cref="Role"/>=user mantendo a spec AG-UI;
+    /// o discriminador é este campo, não a role. Ver ADR 0014.
+    /// </summary>
+    public Actor Actor { get; init; } = Actor.Human;
 }

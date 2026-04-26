@@ -336,14 +336,19 @@ CREATE INDEX IF NOT EXISTS "IX_conversations_LastMessageAt"
 CREATE TABLE IF NOT EXISTS aihub.chat_messages (
     "MessageId"        VARCHAR(64)  NOT NULL,
     "ConversationId"   VARCHAR(64)  NOT NULL,
-    "Role"             VARCHAR(32)  NOT NULL,           -- user | assistant | system | tool
+    "Role"             VARCHAR(32)  NOT NULL,           -- user | assistant | system | tool (5 canônicos AG-UI)
     "Content"          TEXT         NOT NULL,
     "StructuredOutput" JSONB        NULL,
     "CreatedAt"        TIMESTAMPTZ  NOT NULL,
     "TokenCount"       INTEGER      NOT NULL,
     "ExecutionId"      VARCHAR(64)  NULL,
+    "Actor"            VARCHAR(32)  NOT NULL DEFAULT 'human',  -- human | robot — proveniência aditiva à Role (ver ADR 0014)
     CONSTRAINT "PK_chat_messages" PRIMARY KEY ("MessageId")
 );
+
+-- ALTER aditivo idempotente: aplica a coluna Actor em bancos legados sem CREATE TABLE novo.
+ALTER TABLE aihub.chat_messages
+    ADD COLUMN IF NOT EXISTS "Actor" VARCHAR(32) NOT NULL DEFAULT 'human';
 
 CREATE INDEX IF NOT EXISTS "IX_chat_messages_ConversationId"
     ON aihub.chat_messages ("ConversationId");
