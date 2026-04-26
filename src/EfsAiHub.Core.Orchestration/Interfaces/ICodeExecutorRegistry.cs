@@ -35,6 +35,11 @@ public interface ICodeExecutorRegistry
     /// </summary>
     /// <param name="functionName">Nome único (referenciado em WorkflowExecutorStep.FunctionName).</param>
     /// <param name="handler">Função que recebe o input string e retorna o output string.</param>
+    /// <remarks>
+    /// Será marcado [Obsolete] no PR 6 do épico de edges tipados — após esse ponto,
+    /// novos executores devem usar <see cref="CodeExecutorRegistryExtensions.Register{TInput,TOutput}(ICodeExecutorRegistry,string,ICodeExecutor{TInput,TOutput})"/>
+    /// pra habilitar predicados tipados em edges Conditional/Switch.
+    /// </remarks>
     void Register(string functionName, Func<string, CancellationToken, Task<string>> handler);
 
     /// <summary>
@@ -63,4 +68,12 @@ public interface ICodeExecutorRegistry
     /// </summary>
     IReadOnlyDictionary<string, (string InputType, string OutputType)> GetTypeInfo()
         => new Dictionary<string, (string InputType, string OutputType)>();
+
+    /// <summary>
+    /// Retorna o mapeamento nome → (InputSchema, OutputSchema, OutputSchemaVersion) gerando JSON Schema
+    /// dos tipos via System.Text.Json.Schema (.NET 9+). Executors sem tipo declarado (registrados via lambda
+    /// destipada) ficam fora — predicados de edge tipados sobre eles não serão suportados pela UI.
+    /// </summary>
+    IReadOnlyDictionary<string, EfsAiHub.Core.Orchestration.Executors.ExecutorSchemaInfo> GetSchemas()
+        => new Dictionary<string, EfsAiHub.Core.Orchestration.Executors.ExecutorSchemaInfo>();
 }

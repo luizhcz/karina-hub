@@ -96,7 +96,8 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<ICodeExecutorRegistry>(sp =>
         {
-            var registry = new CodeExecutorRegistry();
+            var registry = new CodeExecutorRegistry(
+                sp.GetRequiredService<ILogger<CodeExecutorRegistry>>());
 
             registry.Register("search_single", (input, ct) => WebSearchBatchFunctions.SearchSingle(input, ct));
 

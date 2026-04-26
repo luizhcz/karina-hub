@@ -167,6 +167,27 @@ app.RegisterRedemptionTools();
 app.RegisterPixExecutors();
 app.RegisterDocumentIntelligenceExecutor();
 
+// Smoke: gera os JSON Schemas de todos os code executors tipados no startup.
+// Tipos com problemas no JsonSchemaExporter (generics abertos, polymorphism sem
+// [JsonDerivedType], etc) são silenciosamente puladados pelo registry — aqui
+// logamos quantos foram cobertos vs quantos tipados ficaram sem schema, pra
+// detectar regressões antes do tráfego real chegar.
+{
+    var codeRegistry = app.Services.GetRequiredService<ICodeExecutorRegistry>();
+    var typedNames = codeRegistry.GetTypeInfo().Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var schemas = codeRegistry.GetSchemas();
+    var missing = typedNames.Except(schemas.Keys, StringComparer.OrdinalIgnoreCase).ToArray();
+    var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+    if (missing.Length > 0)
+        startupLogger.LogWarning(
+            "[CodeExecutorSchemas] {Total} executores tipados, {Missing} sem schema gerado: {Names}",
+            typedNames.Count, missing.Length, string.Join(", ", missing));
+    else
+        startupLogger.LogInformation(
+            "[CodeExecutorSchemas] {Total} executores tipados com schemas JSON gerados.",
+            typedNames.Count);
+}
+
 // ── ConfirmBoleta — HITL simples (request_approval) via function tool ────────
 EfsAiHub.Platform.Runtime.Functions.ConfirmBoletaFunction.Configure(
     app.Services.GetRequiredService<EfsAiHub.Platform.Runtime.Services.IHumanInteractionService>(),
