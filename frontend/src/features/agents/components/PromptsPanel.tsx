@@ -372,7 +372,7 @@ export function PromptsPanel({ agentId, currentInstructions }: PromptsPanelProps
           )
         }}
         title="Restaurar Prompt Original"
-        message="Deseja desativar todas as versoes e voltar ao prompt original do agente?"
+        message="Cria/atualiza uma versão chamada &quot;original&quot; com o prompt base do agente e a torna a master. As outras versões ficam inativas mas continuam disponíveis."
         confirmLabel="Restaurar"
         loading={clearMasterMutation.isPending}
       />

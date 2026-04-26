@@ -101,22 +101,26 @@ public class AgentService : IAgentService
     }
 
     /// <summary>
-    /// Se o agente tem Instructions e ainda não possui nenhuma versão de prompt,
-    /// cria automaticamente "v1" como master.
+    /// Garante que todo agente tenha pelo menos uma versão de prompt ativa ("v1").
+    /// Usa Instructions como conteúdo inicial — se vazio/null, grava "" (sem system message).
+    /// Idempotente: se já existe alguma versão, não faz nada.
+    /// Por que: GET /api/agents/{id}/prompts/active retorna 404 quando não há versão; com
+    /// este seed garantido, o frontend e qualquer caller subsequente enxerga o estado
+    /// "agente recém-criado sem prompt customizado" como uma versão vazia (200 OK), não
+    /// como recurso ausente.
     /// </summary>
     public async Task SeedInitialPromptAsync(AgentDefinition definition, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(definition.Instructions)) return;
-
         var versions = await _promptRepo.ListVersionsAsync(definition.Id, ct);
         if (versions.Count > 0) return;
 
-        await _promptRepo.SaveVersionAsync(definition.Id, "v1", definition.Instructions, ct);
+        var initialContent = definition.Instructions ?? string.Empty;
+        await _promptRepo.SaveVersionAsync(definition.Id, "v1", initialContent, ct);
         await _promptRepo.SetMasterAsync(definition.Id, "v1", ct);
 
         _logger.LogInformation(
-            "[PromptSeed] Agente '{AgentId}' — versão 'v1' criada automaticamente a partir de instructions.",
-            definition.Id);
+            "[PromptSeed] Agente '{AgentId}' — versão 'v1' criada (size={Size}).",
+            definition.Id, initialContent.Length);
     }
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)

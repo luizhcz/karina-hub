@@ -115,17 +115,21 @@ public class AgentPromptsController : ControllerBase
         return Ok(new { agentId, master = request.VersionId });
     }
 
-    /// <summary>Desativa o master, voltando ao instructions base do agente.</summary>
+    /// <summary>
+    /// Restaura o master do agente para uma versão "original" cujo conteúdo é o
+    /// <c>Instructions</c> atual do agente. Mantém a invariante "sempre 1 versão ativa".
+    /// </summary>
     [HttpDelete("master")]
-    [SwaggerOperation(Summary = "Limpa o master — agente volta a usar instructions base")]
+    [SwaggerOperation(Summary = "Restaura o master para o prompt original do agente")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ClearMaster(string agentId, CancellationToken ct)
     {
-        if (!await _agentRepo.ExistsAsync(agentId, ct))
+        var agent = await _agentRepo.GetByIdAsync(agentId, ct);
+        if (agent is null)
             return NotFound($"Agente '{agentId}' não encontrado.");
 
-        await _promptRepo.ClearMasterAsync(agentId, ct);
+        await _promptRepo.RestoreOriginalAsync(agentId, agent.Instructions ?? string.Empty, ct);
         return NoContent();
     }
 

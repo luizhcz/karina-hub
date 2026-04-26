@@ -187,7 +187,7 @@ public class AgentPromptsControllerTests
     [Fact]
     public async Task ClearMaster_AgentNotFound_Returns404()
     {
-        _agentRepo.ExistsAsync("missing", Arg.Any<CancellationToken>()).Returns(false);
+        _agentRepo.GetByIdAsync("missing", Arg.Any<CancellationToken>()).Returns((AgentDefinition?)null);
 
         var result = await _sut.ClearMaster("missing", CancellationToken.None);
 
@@ -195,13 +195,22 @@ public class AgentPromptsControllerTests
     }
 
     [Fact]
-    public async Task ClearMaster_Valid_Returns204()
+    public async Task ClearMaster_Valid_RestoresOriginalAndReturns204()
     {
-        _agentRepo.ExistsAsync("agent-1", Arg.Any<CancellationToken>()).Returns(true);
+        var agent = new AgentDefinition
+        {
+            Id = "agent-1",
+            Name = "Test",
+            Model = new AgentModelConfig { DeploymentName = "gpt-4o" },
+            Instructions = "Você é um assistente útil."
+        };
+        _agentRepo.GetByIdAsync("agent-1", Arg.Any<CancellationToken>()).Returns(agent);
 
         var result = await _sut.ClearMaster("agent-1", CancellationToken.None);
 
         result.Should().BeOfType<NoContentResult>();
+        await _promptRepo.Received(1).RestoreOriginalAsync(
+            "agent-1", "Você é um assistente útil.", Arg.Any<CancellationToken>());
     }
 
     // ── DeleteVersion ─────────────────────────────────────────

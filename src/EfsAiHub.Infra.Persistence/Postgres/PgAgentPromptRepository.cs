@@ -167,20 +167,52 @@ public class PgAgentPromptRepository : IAgentPromptRepository
             versionId, agentId);
     }
 
-    public async Task ClearMasterAsync(string agentId, CancellationToken ct = default)
+    public async Task RestoreOriginalAsync(
+        string agentId, string originalContent, CancellationToken ct = default)
     {
+        const string OriginalVersionId = "original";
+
         await using var ctx = await _factory.CreateDbContextAsync(ct);
-        var activeVersions = await ctx.AgentPromptVersions
-            .Where(r => r.AgentId == agentId && r.IsActive)
+
+        var allVersions = await ctx.AgentPromptVersions
+            .Where(r => r.AgentId == agentId)
             .ToListAsync(ct);
 
-        foreach (var v in activeVersions)
-            v.IsActive = false;
+        var original = allVersions.FirstOrDefault(v => v.VersionId == OriginalVersionId);
+        if (original is null)
+        {
+            original = new AgentPromptVersionRow
+            {
+                AgentId = agentId,
+                VersionId = OriginalVersionId,
+                Content = originalContent,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            ctx.AgentPromptVersions.Add(original);
+        }
+        else
+        {
+            original.Content = originalContent;
+            original.IsActive = true;
+        }
+
+        foreach (var v in allVersions)
+        {
+            if (v.VersionId != OriginalVersionId)
+                v.IsActive = false;
+        }
 
         await ctx.SaveChangesAsync(ct);
-        await _cache.RemoveAsync(CacheKeyPrefix + agentId);
 
-        _logger.LogInformation("[PromptRepo] Master do agente '{AgentId}' limpo — fallback para instructions.",
-            agentId);
+        var cacheKey = CacheKeyPrefix + agentId;
+        var payload = JsonSerializer.Serialize(
+            new CachedPrompt(originalContent, OriginalVersionId), JsonDefaults.Domain);
+        var updated = await _cache.SetIfExistsAsync(cacheKey, payload, _cacheTtl);
+        if (!updated) await _cache.RemoveAsync(cacheKey);
+
+        _logger.LogInformation(
+            "[PromptRepo] Agente '{AgentId}' — master restaurado para versão 'original' (size={Size}).",
+            agentId, originalContent.Length);
     }
 }

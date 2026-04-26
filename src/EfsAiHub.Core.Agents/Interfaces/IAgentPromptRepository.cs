@@ -47,10 +47,12 @@ public interface IAgentPromptRepository
     Task DeleteVersionAsync(string agentId, string versionId, CancellationToken ct = default);
 
     /// <summary>
-    /// Desativa todas as versões do agente, fazendo o runtime voltar ao instructions base.
-    /// Invalida o cache do agente.
+    /// Restaura o prompt do agente para uma versão chamada "original" cujo conteúdo é
+    /// <paramref name="originalContent"/> (tipicamente o <c>Instructions</c> base atual do
+    /// agente). Cria a versão se não existir; sempre a marca como ativa e desativa as outras.
+    /// Garante a invariante "todo agente tem exatamente uma versão ativa". Invalida o cache.
     /// </summary>
-    Task ClearMasterAsync(string agentId, CancellationToken ct = default);
+    Task RestoreOriginalAsync(string agentId, string originalContent, CancellationToken ct = default);
 
     /// <summary>
     /// Remove a entrada do cache em memória para o agente especificado.
