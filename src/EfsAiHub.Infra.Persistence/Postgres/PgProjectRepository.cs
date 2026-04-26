@@ -87,7 +87,7 @@ public sealed class PgProjectRepository : IProjectRepository
         cmd.Parameters.AddWithValue("name", project.Name);
         cmd.Parameters.AddWithValue("tenantId", project.TenantId);
         cmd.Parameters.AddWithValue("description", (object?)project.Description ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("settings", JsonSerializer.Serialize(project.Settings));
+        cmd.Parameters.AddWithValue("settings", JsonSerializer.Serialize(project.Settings, JsonDefaults.Domain));
         cmd.Parameters.AddWithValue("llmConfig", (object?)SerializeLlmConfig(project.LlmConfig) ?? DBNull.Value);
         cmd.Parameters.AddWithValue("budget",
             (object?)project.Budget?.RootElement.GetRawText() ?? DBNull.Value);
@@ -112,7 +112,7 @@ public sealed class PgProjectRepository : IProjectRepository
         cmd.Parameters.AddWithValue("id", project.Id);
         cmd.Parameters.AddWithValue("name", project.Name);
         cmd.Parameters.AddWithValue("description", (object?)project.Description ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("settings", JsonSerializer.Serialize(project.Settings));
+        cmd.Parameters.AddWithValue("settings", JsonSerializer.Serialize(project.Settings, JsonDefaults.Domain));
         cmd.Parameters.AddWithValue("llmConfig", (object?)SerializeLlmConfig(project.LlmConfig) ?? DBNull.Value);
         cmd.Parameters.AddWithValue("budget",
             (object?)project.Budget?.RootElement.GetRawText() ?? DBNull.Value);
@@ -133,7 +133,7 @@ public sealed class PgProjectRepository : IProjectRepository
     private Project MapProject(NpgsqlDataReader reader)
     {
         var settingsJson = reader.GetString(4);
-        var settings = JsonSerializer.Deserialize<ProjectSettings>(settingsJson) ?? new ProjectSettings();
+        var settings = JsonSerializer.Deserialize<ProjectSettings>(settingsJson, JsonDefaults.Domain) ?? new ProjectSettings();
 
         return new Project
         {
@@ -171,7 +171,7 @@ public sealed class PgProjectRepository : IProjectRepository
         }
 
         var jsonConfig = new LlmConfigJson(jsonCreds, config.DefaultModel, config.DefaultProvider);
-        return JsonSerializer.Serialize(jsonConfig);
+        return JsonSerializer.Serialize(jsonConfig, JsonDefaults.Domain);
     }
 
     /// <summary>
@@ -180,7 +180,7 @@ public sealed class PgProjectRepository : IProjectRepository
     /// </summary>
     private ProjectLlmConfig? DeserializeLlmConfig(string json)
     {
-        var jsonConfig = JsonSerializer.Deserialize<LlmConfigJson>(json);
+        var jsonConfig = JsonSerializer.Deserialize<LlmConfigJson>(json, JsonDefaults.Domain);
         if (jsonConfig is null) return null;
 
         var creds = new Dictionary<string, ProviderCredentials>();

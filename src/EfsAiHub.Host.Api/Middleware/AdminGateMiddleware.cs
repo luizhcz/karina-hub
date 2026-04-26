@@ -20,6 +20,7 @@ namespace EfsAiHub.Host.Api.Middleware;
 ///   - GET  /api/users/{id}/conversations
 ///   - GET  /api/projects             (listar projetos)
 ///   - GET  /api/projects/{id}        (buscar projeto por ID)
+///                                    (sub-rotas como /blocklist NÃO são públicas)
 ///
 /// Retorna 403 Forbidden para demais endpoints sem account admin.
 /// Gate desabilitado se <see cref="AdminOptions.AccountIds"/> for vazia.
@@ -41,6 +42,11 @@ public sealed class AdminGateMiddleware
     // GET /api/users/{userId}/conversations
     private static readonly Regex UserConversationsPattern =
         new(@"^/api/users/[^/]+/conversations$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // GET /api/projects (lista) ou GET /api/projects/{id} (detalhe). Sub-rotas
+    // como /api/projects/{id}/blocklist são admin-only — caem fora desse pattern.
+    private static readonly Regex ProjectsReadPattern =
+        new(@"^/api/projects(/[^/]+)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public AdminGateMiddleware(RequestDelegate next, IOptions<AdminOptions> options, UserIdentityResolver identityResolver)
     {
@@ -114,9 +120,11 @@ public sealed class AdminGateMiddleware
             && UserConversationsPattern.IsMatch(path))
             return true;
 
-        // Projects — apenas leitura (GET lista e GET por ID)
+        // Projects — apenas leitura (GET lista e GET por ID). Sub-rotas
+        // (ex: /api/projects/{id}/blocklist, /api/projects/{id}/blocklist/violations)
+        // permanecem admin-only — fora do regex acima.
         if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
-            && path.StartsWith("/api/projects", StringComparison.OrdinalIgnoreCase))
+            && ProjectsReadPattern.IsMatch(path))
             return true;
 
         // Enums — dados não-sensíveis, necessários para todos os clientes

@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Identity;
 using Microsoft.Agents.AI;
 
 namespace EfsAiHub.Platform.Runtime.Services;
@@ -10,25 +12,30 @@ namespace EfsAiHub.Platform.Runtime.Services;
 ///   1. Carrega AgentSessionRecord do store (estado serializado)
 ///   2. Reconstrói o AIAgent via AgentFactory com a mesma AgentDefinition
 ///   3. Desserializa o AgentSession com agent.DeserializeSessionAsync()
-///   4. Executa agent.RunAsync(message, session)
-///   5. Re-serializa via agent.SerializeSession(session) e persiste
+///   4. Popula DelegateExecutor.Current.Value com ExecutionContext (ProjectId etc)
+///      pra que middlewares per-projeto (BlocklistChatClient, TokenTracking) tenham contexto
+///   5. Executa agent.RunAsync(message, session)
+///   6. Re-serializa via agent.SerializeSession(session) e persiste
 /// </summary>
 public class AgentSessionService
 {
     private readonly IAgentSessionStore _sessionStore;
     private readonly IAgentDefinitionRepository _agentRepo;
     private readonly IAgentFactory _agentFactory;
+    private readonly IProjectContextAccessor _projectContext;
     private readonly ILogger<AgentSessionService> _logger;
 
     public AgentSessionService(
         IAgentSessionStore sessionStore,
         IAgentDefinitionRepository agentRepo,
         IAgentFactory agentFactory,
+        IProjectContextAccessor projectContext,
         ILogger<AgentSessionService> logger)
     {
         _sessionStore = sessionStore;
         _agentRepo = agentRepo;
         _agentFactory = agentFactory;
+        _projectContext = projectContext;
         _logger = logger;
     }
 
@@ -77,6 +84,7 @@ public class AgentSessionService
         CancellationToken ct = default)
     {
         var (agent, session, record) = await LoadSessionAsync(sessionId, ct);
+        EnsureExecutionContext(record, message);
 
         _logger.LogInformation("Turn {Turn} na sessão '{SessionId}'.", record.TurnCount + 1, sessionId);
 
@@ -95,6 +103,8 @@ public class AgentSessionService
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
         var (agent, session, record) = await LoadSessionAsync(sessionId, ct);
+        EnsureExecutionContext(record, message);
+
         _logger.LogInformation("Turn streaming {Turn} na sessão '{SessionId}'.", record.TurnCount + 1, sessionId);
 
         await foreach (var update in agent.RunStreamingAsync(message, session, cancellationToken: ct))
@@ -155,5 +165,51 @@ public class AgentSessionService
         record.TurnCount++;
         record.LastAccessedAt = DateTime.UtcNow;
         await _sessionStore.UpdateAsync(record, ct);
+    }
+
+    /// <summary>
+    /// Standalone agent sessions não passam pelo WorkflowRunnerService — então não há
+    /// ExecutionContext criado upstream. Middlewares per-projeto (BlocklistChatClient)
+    /// leem ProjectId via DelegateExecutor.Current.Value e fail-secure se ausente.
+    /// Aqui preenchemos o mínimo necessário pro pipeline rodar com contexto correto.
+    /// <para>
+    /// Visibilidade <c>internal</c> (não <c>private</c>) pra permitir testes diretos sem
+    /// mock pesado de IAgentSessionStore + IAgentDefinitionRepository + IAgentFactory.
+    /// Platform.Runtime tem <c>InternalsVisibleTo("EfsAiHub.Tests.Unit")</c>.
+    /// </para>
+    /// </summary>
+    internal void EnsureExecutionContext(AgentSessionRecord record, string message)
+    {
+        var ctx = _projectContext.Current;
+
+        // Fail-secure: ProjectContext.IsExplicit=false significa que ninguém populou o
+        // AsyncLocal — caminho não-HTTP detectado. Guardrails per-projeto não podem ser
+        // aplicados corretamente nesse caso. Throw em vez de só warning evita config errada
+        // ser aplicada silenciosamente. (HTTP fallback "default" tem IsExplicit=true e passa.)
+        if (!ctx.IsExplicit)
+        {
+            _logger.LogError(
+                "[AgentSession] Sessão '{SessionId}': ProjectContext não foi populado pelo ProjectMiddleware " +
+                "(IsExplicit=false). Caminho não-HTTP — guardrails per-projeto não podem ser aplicados.",
+                record.SessionId);
+            throw new InvalidOperationException(
+                "ProjectContext deve ser populado pelo ProjectMiddleware antes de iniciar AgentSession. " +
+                "Verifique se o pipeline HTTP foi acionado ou popule o IProjectContextAccessor manualmente.");
+        }
+
+        var projectId = ctx.ProjectId;
+
+        DelegateExecutor.Current.Value = new EfsAiHub.Core.Agents.Execution.ExecutionContext(
+            ExecutionId: record.SessionId,
+            WorkflowId: $"agent-session:{record.AgentId}",
+            Input: message,
+            PromptVersions: new ConcurrentDictionary<string, string>(),
+            NodeCallback: null,
+            // Standalone session não tem cap de tokens configurado — sem enforcement (0 = off).
+            Budget: new EfsAiHub.Core.Agents.Execution.ExecutionBudget(maxTokensPerExecution: 0),
+            UserId: null,
+            GuardMode: EfsAiHub.Core.Agents.Execution.AccountGuardMode.None,
+            AgentVersions: new ConcurrentDictionary<string, string>(),
+            ProjectId: projectId);
     }
 }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Persistence;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Infra.Observability;
 using Microsoft.Extensions.DependencyInjection;
@@ -59,7 +60,7 @@ public sealed class PgEventBus : IWorkflowEventBus
 
         if (envelope.EventType == "token")
         {
-            notifyPayload = JsonSerializer.Serialize(envelope);
+            notifyPayload = JsonSerializer.Serialize(envelope, JsonDefaults.Domain);
         }
         else
         {
@@ -71,7 +72,7 @@ public sealed class PgEventBus : IWorkflowEventBus
                 SequenceId = sequenceId,
                 Timestamp = envelope.Timestamp,
                 Payload = string.Empty
-            });
+            }, JsonDefaults.Domain);
         }
 
         // Conexão do pool "general" — curta duração para NOTIFY.

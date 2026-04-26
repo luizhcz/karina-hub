@@ -168,6 +168,21 @@ public sealed class AgUiEventMapper
                 }
             ],
 
+            // ── Blocklist guardrail (PR 6) ──
+            // Terminal event — AgUiSseHandler trata SAFETY_VIOLATION como fim do stream.
+            // ErrorCode carrega a categoria pública (PII, SECRETS, etc); CustomValue tem
+            // o payload completo (violationId, phase, retryable) pra UI renderizar bubble.
+            "content_violation" => [
+                new AgUiEvent
+                {
+                    Type = "SAFETY_VIOLATION",
+                    RunId = runId,
+                    ErrorCode = GetString(payload, "category"),
+                    Error = GetString(payload, "message") ?? "Conteúdo violou política do projeto.",
+                    CustomValue = payload
+                }
+            ],
+
             // ── Escalation ──
             "escalation_requested" => [
                 new AgUiEvent

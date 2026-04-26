@@ -422,3 +422,44 @@ SELECT ad."Id", 'v1', ad."Data"::jsonb->>'Instructions', true, NOW()
 FROM aihub.agent_definitions ad
 WHERE COALESCE(ad."Data"::jsonb->>'Instructions', '') <> ''
   AND NOT EXISTS (SELECT 1 FROM aihub.agent_prompt_versions apv WHERE apv."AgentId" = ad."Id");
+
+-- ── 10. blocklist catálogo curado (Blocklist Guardrail v1) ──────────
+-- DBA edita esta seção e roda apply.sh. Trigger pg_notify('blocklist_changed')
+-- propaga para todos os pods em <2s. Override por projeto vive em
+-- ProjectSettings.Blocklist (JSONB), não aqui — esta tabela é read-only do app.
+
+INSERT INTO aihub.blocklist_pattern_groups ("Id", "Name", "Description") VALUES
+    ('PII',       'Dados Pessoais',        'CPF, CNPJ, email, telefone'),
+    ('FINANCIAL', 'Dados Financeiros',     'Cartão de crédito (Luhn-validado)'),
+    ('SECRETS',   'Credenciais e Secrets', 'JWT, AWS keys, GitHub tokens, OpenAI keys, PEM'),
+    ('INTERNAL',  'Recursos Internos',     'Nomes de ferramentas registradas no IFunctionToolRegistry')
+ON CONFLICT ("Id") DO UPDATE SET
+    "Name"        = EXCLUDED."Name",
+    "Description" = EXCLUDED."Description",
+    "Version"     = aihub.blocklist_pattern_groups."Version" + 1,
+    "UpdatedAt"   = NOW();
+
+INSERT INTO aihub.blocklist_patterns
+    ("Id", "GroupId", "Type", "Pattern", "ValidatorFn", "WholeWord", "CaseSensitive", "DefaultAction") VALUES
+    ('pii.cpf',               'PII',       'regex',   '\d{3}\.?\d{3}\.?\d{3}-?\d{2}',                          'mod11', TRUE,  FALSE, 'block'),
+    ('pii.cnpj',              'PII',       'regex',   '\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}',                   'mod11', TRUE,  FALSE, 'block'),
+    ('pii.email',             'PII',       'regex',   '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',        NULL,    TRUE,  FALSE, 'block'),
+    ('pii.phone_br',          'PII',       'regex',   '\(?\d{2}\)?\s?9?\d{4}-?\d{4}',                          NULL,    TRUE,  FALSE, 'block'),
+    ('financial.credit_card', 'FINANCIAL', 'regex',   '\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}',                'luhn',  TRUE,  FALSE, 'block'),
+    ('secrets.jwt',           'SECRETS',   'regex',   'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', NULL,    TRUE,  TRUE,  'block'),
+    ('secrets.aws_access_key','SECRETS',   'regex',   'AKIA[0-9A-Z]{16}',                                      NULL,    TRUE,  TRUE,  'block'),
+    ('secrets.github_token',  'SECRETS',   'regex',   'gh[psouar]_[A-Za-z0-9]{36,}',                           NULL,    TRUE,  TRUE,  'block'),
+    ('secrets.openai_key',    'SECRETS',   'regex',   'sk-[A-Za-z0-9]{32,}',                                   NULL,    TRUE,  TRUE,  'block'),
+    ('secrets.private_key',   'SECRETS',   'literal', '-----BEGIN',                                            NULL,    FALSE, FALSE, 'block'),
+    ('internal.tool_names',   'INTERNAL',  'builtin', 'internal_tools',                                        NULL,    TRUE,  FALSE, 'block')
+ON CONFLICT ("Id") DO UPDATE SET
+    "GroupId"       = EXCLUDED."GroupId",
+    "Type"          = EXCLUDED."Type",
+    "Pattern"       = EXCLUDED."Pattern",
+    "ValidatorFn"   = EXCLUDED."ValidatorFn",
+    "WholeWord"     = EXCLUDED."WholeWord",
+    "CaseSensitive" = EXCLUDED."CaseSensitive",
+    "DefaultAction" = EXCLUDED."DefaultAction",
+    "Enabled"       = EXCLUDED."Enabled",
+    "Version"       = aihub.blocklist_patterns."Version" + 1,
+    "UpdatedAt"     = NOW();

@@ -276,6 +276,16 @@ public static class ServiceCollectionExtensions
             PgProjectRepository>();
         services.AddSingleton<EfsAiHub.Core.Abstractions.Projects.IModelCatalogRepository,
             PgModelCatalogRepository>();
+        services.AddSingleton<EfsAiHub.Core.Abstractions.Blocklist.IBlocklistCatalogRepository,
+            PgBlocklistCatalogRepository>();
+
+        // Blocklist Guardrail — engine + built-in patterns dinâmicos.
+        // Engine é Singleton + IHostedService (subscreve NOTIFY no startup).
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Guards.BuiltIns.IBuiltInPatternHandler,
+            EfsAiHub.Platform.Runtime.Guards.BuiltIns.InternalToolsPattern>();
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Guards.BlocklistEngine>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<EfsAiHub.Platform.Runtime.Guards.BlocklistEngine>());
 
         // Sessions
         services.AddSingleton<IAgentSessionStore, PgAgentSessionStore>();

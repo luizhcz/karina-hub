@@ -44,7 +44,7 @@ public class PgAgentPromptRepository : IAgentPromptRepository
         var cached = await _cache.GetStringAsync(cacheKey);
         if (!string.IsNullOrEmpty(cached))
         {
-            var hit = JsonSerializer.Deserialize<CachedPrompt>(cached);
+            var hit = JsonSerializer.Deserialize<CachedPrompt>(cached, JsonDefaults.Domain);
             if (hit is not null)
             {
                 _logger.LogDebug("[PromptRepo] Cache hit para agente '{AgentId}'.", agentId);
@@ -64,7 +64,7 @@ public class PgAgentPromptRepository : IAgentPromptRepository
             return null;
         }
 
-        var payload = JsonSerializer.Serialize(new CachedPrompt(active.Content, active.VersionId));
+        var payload = JsonSerializer.Serialize(new CachedPrompt(active.Content, active.VersionId), JsonDefaults.Domain);
         await _cache.SetStringAsync(cacheKey, payload, _cacheTtl);
         return (active.Content, active.VersionId);
     }
@@ -138,7 +138,7 @@ public class PgAgentPromptRepository : IAgentPromptRepository
         // Regra: atualiza no Redis APENAS se a chave já existe; caso contrário,
         // apenas remove (defensivo) e deixa o próximo Get popular via read-through.
         var cacheKey = CacheKeyPrefix + agentId;
-        var payload = JsonSerializer.Serialize(new CachedPrompt(target.Content, target.VersionId));
+        var payload = JsonSerializer.Serialize(new CachedPrompt(target.Content, target.VersionId), JsonDefaults.Domain);
         var updated = await _cache.SetIfExistsAsync(cacheKey, payload, _cacheTtl);
         if (!updated) await _cache.RemoveAsync(cacheKey);
 

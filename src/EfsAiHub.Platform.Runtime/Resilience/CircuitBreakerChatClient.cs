@@ -165,8 +165,15 @@ public class CircuitBreakerChatClient : DelegatingChatClient
     }
 
     private static bool IsTransient(Exception ex)
-        => ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.TooManyRequests
+    {
+        // Defesa explícita: violações de política nunca são transientes — sobem direto
+        // sem RecordFailure pra evitar abrir o circuito por causa de blocklist (que é
+        // determinístico: mesmo input vai dar mesma violação independente do provider).
+        if (ex is EfsAiHub.Platform.Runtime.Guards.BlocklistViolationException) return false;
+
+        return ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.TooManyRequests
             or System.Net.HttpStatusCode.InternalServerError
             or System.Net.HttpStatusCode.BadGateway
             or System.Net.HttpStatusCode.ServiceUnavailable };
+    }
 }

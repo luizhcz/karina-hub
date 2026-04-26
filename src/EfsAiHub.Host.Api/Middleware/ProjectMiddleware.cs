@@ -46,7 +46,10 @@ public sealed class ProjectMiddleware
             return _next(context);
         }
 
-        // 4. Fallback: 'default' (retrocompatível)
+        // 4. Fallback: 'default' (retrocompatível). Seta explicitamente pra que
+        // ProjectContext.IsExplicit=true — guardrails distinguem este caso (HTTP sem header)
+        // do caminho não-HTTP (AsyncLocal vazio → ProjectContext.Default com IsExplicit=false).
+        accessor.Current = new ProjectContext("default", projectName: "Default", isExplicit: true);
         return _next(context);
     }
 }

@@ -109,7 +109,7 @@ public sealed class AgUiSseHandler
             {
                 await WriteEventAsync(response, evt, evt.BusSequenceId > 0 ? evt.BusSequenceId : null, ct);
 
-                if (evt.Type is "RUN_FINISHED" or "RUN_ERROR")
+                if (evt.Type is "RUN_FINISHED" or "RUN_ERROR" or "SAFETY_VIOLATION")
                 {
                     completedNormally = true;
                     break;

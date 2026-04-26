@@ -1,3 +1,5 @@
+using EfsAiHub.Core.Abstractions.Blocklist;
+
 namespace EfsAiHub.Core.Abstractions.Projects;
 
 /// <summary>
@@ -26,6 +28,12 @@ public sealed record ProjectSettings
     public int? MaxSandboxTokensPerDay { get; init; } = 50_000;
 
     /// <summary>
+    /// Override do projeto sobre o catálogo de blocklist curado pelo DBA.
+    /// Null preserva compat com projetos antigos — engine resolve com BlocklistSettings.Default.
+    /// </summary>
+    public BlocklistSettings? Blocklist { get; init; }
+
+    /// <summary>
     /// Migra settings de versões anteriores para a versão atual.
     /// Chamado pelo repositório ao deserializar do banco.
     /// </summary>
@@ -33,8 +41,8 @@ public sealed record ProjectSettings
     {
         return SchemaVersion switch
         {
-            1 => this,
-            _ => this
+            1 => this with { Blocklist = Blocklist ?? BlocklistSettings.Default },
+            _ => this with { Blocklist = Blocklist ?? BlocklistSettings.Default }
         };
     }
 }

@@ -6,3 +6,4 @@ export type LocalMsg =
   | { kind: 'tool-call'; toolCallId: string; toolName: string; done: boolean; args?: string; result?: string; startedAt?: number; endedAt?: number }
   | { kind: 'step'; stepId: string; stepName: string; done: boolean; timestamp?: number }
   | { kind: 'error'; text: string }
+  | { kind: 'safety'; category?: string; message: string; violationId?: string }

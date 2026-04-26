@@ -149,6 +149,40 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("agent.escalation.signals",
             description: "Sinais AgentEscalationSignal emitidos por agentes. Tags: category, routed");
 
+    /// <summary>
+    /// Violações de blocklist detectadas. Tags: phase (input|output),
+    /// category (PII|SECRETS|FINANCIAL|INTERNAL|CUSTOM), action (Block|Redact|Warn).
+    /// project_id deliberadamente fora das tags — high cardinality em SaaS multi-tenant;
+    /// breakdown por projeto vai pelo audit log (admin_audit_log.ProjectId).
+    /// </summary>
+    public static readonly Counter<long> BlocklistViolations =
+        _meter.CreateCounter<long>("blocklist.violations",
+            description: "Violações detectadas pelo BlocklistChatClient. Tags: phase, category, action");
+
+    /// <summary>
+    /// Scans completos (input/output) executados. Numerador da fórmula de taxa de violação
+    /// (violations/scans) pra detectar drift de patterns. Tag: phase.
+    /// </summary>
+    public static readonly Counter<long> BlocklistScans =
+        _meter.CreateCounter<long>("blocklist.scans",
+            description: "Scans de input/output executados pelo BlocklistChatClient. Tag: phase");
+
+    /// <summary>
+    /// Falhas no carregamento do catálogo (DB ou Redis indisponível). Engine mantém
+    /// última versão válida em memória — counter sinaliza degradação operacional.
+    /// </summary>
+    public static readonly Counter<long> BlocklistLoadErrors =
+        _meter.CreateCounter<long>("blocklist.load_errors",
+            description: "Falhas no carregamento do catálogo de blocklist. Engine reusa última versão válida.");
+
+    /// <summary>
+    /// Cache hits do BlocklistEngine. Tag: layer (l1|l2). Permite dashboard de eficiência
+    /// — hit ratio baixo em L1 pode indicar TTL agressivo demais ou churn de patterns.
+    /// </summary>
+    public static readonly Counter<long> BlocklistCacheHits =
+        _meter.CreateCounter<long>("blocklist.cache.hits",
+            description: "Cache hits do BlocklistEngine. Tag: layer (l1|l2)");
+
     /// <summary>Invocações de tool por fingerprint (tag: tool, fingerprint_prefix).</summary>
     public static readonly Counter<long> ToolInvocationsByFingerprint =
         _meter.CreateCounter<long>("tool.invocations.by_fingerprint",

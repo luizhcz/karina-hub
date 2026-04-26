@@ -21,7 +21,7 @@ public class PgAgentSessionStore(
         {
             SessionId = record.SessionId,
             AgentId = record.AgentId,
-            SerializedState = JsonSerializer.Serialize(record.SerializedState),
+            SerializedState = JsonSerializer.Serialize(record.SerializedState, JsonDefaults.Domain),
             TurnCount = record.TurnCount,
             CreatedAt = record.CreatedAt,
             LastAccessedAt = record.LastAccessedAt,
@@ -63,7 +63,7 @@ public class PgAgentSessionStore(
             return await CreateAsync(record, ct);
         }
 
-        row.SerializedState = JsonSerializer.Serialize(record.SerializedState);
+        row.SerializedState = JsonSerializer.Serialize(record.SerializedState, JsonDefaults.Domain);
         row.TurnCount = record.TurnCount;
         row.LastAccessedAt = record.LastAccessedAt;
         row.ExpiresAt = DateTime.UtcNow.Add(Ttl);
@@ -88,7 +88,7 @@ public class PgAgentSessionStore(
     {
         SessionId = row.SessionId,
         AgentId = row.AgentId,
-        SerializedState = JsonSerializer.Deserialize<JsonElement>(row.SerializedState),
+        SerializedState = JsonSerializer.Deserialize<JsonElement>(row.SerializedState, JsonDefaults.Domain),
         TurnCount = row.TurnCount,
         CreatedAt = row.CreatedAt,
         LastAccessedAt = row.LastAccessedAt

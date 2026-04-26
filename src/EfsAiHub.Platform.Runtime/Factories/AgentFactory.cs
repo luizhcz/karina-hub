@@ -4,7 +4,9 @@ using EfsAiHub.Core.Abstractions.Conversations;
 using EfsAiHub.Core.Abstractions.Identity.Persona;
 using EfsAiHub.Core.Abstractions.Projects;
 using EfsAiHub.Core.Agents.Skills;
+using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Platform.Runtime.Execution;
+using EfsAiHub.Platform.Runtime.Guards;
 using EfsAiHub.Platform.Runtime.Interfaces;
 using EfsAiHub.Platform.Runtime.Resilience;
 using Microsoft.Extensions.AI;
@@ -39,6 +41,11 @@ public class AgentFactory : IAgentFactory
     // ficam com null e o factory cai no prompt base puro.
     private readonly IPersonaPromptComposer? _personaComposer;
     private readonly ISystemMessageBuilder _systemMessageBuilder;
+    // Blocklist guardrail. Opcionais por design — null em testes unitários ou ambientes
+    // que não habilitaram a feature. Em produção ambos vêm do DI (Singleton).
+    private readonly BlocklistEngine? _blocklistEngine;
+    private readonly IWorkflowEventBus? _eventBus;
+    private readonly EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? _auditLogger;
 
     public AgentFactory(
         IEnumerable<ILlmClientProvider> providers,
@@ -58,7 +65,10 @@ public class AgentFactory : IAgentFactory
         IProjectRepository? projectRepo = null,
         IAgentVersionRepository? agentVersionRepo = null,
         IPersonaPromptComposer? personaComposer = null,
-        ISystemMessageBuilder? systemMessageBuilder = null)
+        ISystemMessageBuilder? systemMessageBuilder = null,
+        BlocklistEngine? blocklistEngine = null,
+        IWorkflowEventBus? eventBus = null,
+        EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? auditLogger = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
@@ -78,6 +88,9 @@ public class AgentFactory : IAgentFactory
         _agentVersionRepo = agentVersionRepo;
         _personaComposer = personaComposer;
         _systemMessageBuilder = systemMessageBuilder ?? new SystemMessageBuilder();
+        _blocklistEngine = blocklistEngine;
+        _eventBus = eventBus;
+        _auditLogger = auditLogger;
     }
 
     public async Task<ExecutableWorkflow> CreateAgentAsync(AgentDefinition definition, CancellationToken ct = default)
@@ -298,7 +311,7 @@ public class AgentFactory : IAgentFactory
     {
         var modelId = definition.Model.DeploymentName ?? "unknown";
 
-        // Cadeia: Retry → Circuit → [AccountGuard] → TokenTracking → Raw
+        // Cadeia: Retry → Circuit → Blocklist → [AccountGuard etc] → TokenTracking → Raw
         IChatClient current = new TokenTrackingChatClient(inner, definition.Id, modelId, _tokenPersistence.Writer, _logger, _pricingCache, _agUiTokenSink);
 
         foreach (var mw in definition.Middlewares.Where(m => m.Enabled))
@@ -308,6 +321,10 @@ public class AgentFactory : IAgentFactory
             else
                 current = wrapped;
         }
+
+        // Blocklist mais externo que TokenTracking + middlewares opt-in. Input bloqueado
+        // não consome token; output bloqueado conta tokens (já consumidos pelo provider).
+        current = WrapWithBlocklist(current, definition.Id);
 
         if (_circuitBreaker is not null)
         {
@@ -349,7 +366,20 @@ public class AgentFactory : IAgentFactory
             else
                 current = wrapped;
         }
+        // Blocklist também no Graph mode — coberto independente do pipeline ser via
+        // WrapWithTokenTracking ou direto via CreateLlmHandlerAsync.
+        current = WrapWithBlocklist(current, definition.Id);
         return current;
+    }
+
+    /// <summary>
+    /// Plug do BlocklistChatClient quando engine está disponível (sempre em produção;
+    /// null em testes unitários que não injetam o engine). No-op silencioso quando null.
+    /// </summary>
+    private IChatClient WrapWithBlocklist(IChatClient inner, string agentId)
+    {
+        if (_blocklistEngine is null) return inner;
+        return new BlocklistChatClient(inner, _blocklistEngine, _eventBus, _auditLogger, agentId, _logger);
     }
 
     private IChatClient LogAndSkipMiddleware(IChatClient current, string type, string agentId)

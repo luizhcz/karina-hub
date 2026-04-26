@@ -56,6 +56,7 @@ import { ProjectsListPage } from './features/projects/ProjectsListPage'
 import { ProjectCreatePage } from './features/projects/ProjectCreatePage'
 import { ProjectEditPage } from './features/projects/ProjectEditPage'
 import { ProjectStatsPage } from './features/projects/ProjectStatsPage'
+import { ProjectBlocklistPage } from './features/projects/ProjectBlocklistPage'
 import { ConfigPage } from './features/config/ConfigPage'
 import { BackgroundJobsPage } from './features/background/BackgroundJobsPage'
 import { McpServersListPage } from './features/mcp/McpServersListPage'
@@ -142,6 +143,7 @@ export const router = createBrowserRouter([
           { path: 'projects/new', element: <ProjectCreatePage /> },
           { path: 'projects/:id', element: <ProjectEditPage /> },
           { path: 'projects/:id/stats', element: <ProjectStatsPage /> },
+          { path: 'projects/:id/blocklist', element: <ProjectBlocklistPage /> },
           { path: 'config', element: <ConfigPage /> },
           { path: 'background', element: <BackgroundJobsPage /> },
           { path: 'admin/personas', element: <PersonasAdminPage /> },

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Persistence;
 using EfsAiHub.Core.Orchestration.Coordination;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -28,14 +29,14 @@ public sealed class PgCrossNodeBus : ICrossNodeBus
 
     public async Task PublishCancelAsync(string executionId, CancellationToken ct = default)
     {
-        var payload = JsonSerializer.Serialize(new { executionId });
+        var payload = JsonSerializer.Serialize(new { executionId }, JsonDefaults.Domain);
         await NotifyAsync(CancelChannel, payload, ct);
     }
 
     public async Task PublishHitlResolvedAsync(
         string interactionId, string resolution, bool approved, string resolvedBy, CancellationToken ct = default)
     {
-        var payload = JsonSerializer.Serialize(new { interactionId, resolution, approved, resolvedBy });
+        var payload = JsonSerializer.Serialize(new { interactionId, resolution, approved, resolvedBy }, JsonDefaults.Domain);
         await NotifyAsync(HitlResolvedChannel, payload, ct);
     }
 

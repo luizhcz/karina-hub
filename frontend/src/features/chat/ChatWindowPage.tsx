@@ -22,6 +22,7 @@ import { SystemBubble } from './components/SystemBubble'
 import { TypingBubble } from './components/TypingBubble'
 import { ToolCallCard } from './components/ToolCallCard'
 import { ErrorBubble } from './components/ErrorBubble'
+import { SafetyBubble } from './components/SafetyBubble'
 import { ApprovalBubble } from './components/ApprovalBubble'
 import { ProgressTracker } from './components/ProgressTracker'
 import { AgentIndicator } from './components/AgentIndicator'
@@ -328,6 +329,19 @@ export function ChatWindowPage() {
               done = true
               break
 
+            } else if (evt.type === 'SAFETY_VIOLATION') {
+              // Blocklist Guardrail: backend bloqueou conteúdo (input ou output).
+              // ErrorCode = categoria (PII, SECRETS, etc); customValue carrega
+              // {violationId, phase, retryable}. Stream encerra aqui (terminal event).
+              setActiveAgent(null)
+              const cat = typeof evt.errorCode === 'string' ? evt.errorCode : undefined
+              const msg = (typeof evt.error === 'string' && evt.error)
+                || 'Conteúdo violou política do projeto.'
+              const violationId = evt.customValue?.violationId
+              setLocalMsgs(prev => [...prev, { kind: 'safety', category: cat, message: msg, violationId }])
+              done = true
+              break
+
               } else if (evt.type === 'STATE_SNAPSHOT') {
                 handleStateSnapshot(evt.snapshot)
 
@@ -522,6 +536,16 @@ export function ChatWindowPage() {
             }
             if (item.kind === 'error') {
               return <ErrorBubble key={`err-${i}`} text={item.text} />
+            }
+            if (item.kind === 'safety') {
+              return (
+                <SafetyBubble
+                  key={`safety-${i}`}
+                  category={item.category}
+                  message={item.message}
+                  violationId={item.violationId}
+                />
+              )
             }
             return null
           })}

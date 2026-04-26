@@ -74,6 +74,13 @@ public static class AdminAuditActions
     /// (LGPD art. 37 pede trilha de consulta).
     /// </summary>
     public const string Read = "read";
+
+    /// <summary>
+    /// Violação detectada pelo BlocklistChatClient (PR Blocklist Guardrail v1).
+    /// PayloadAfter contém violation_id, pattern_id, category, action, content_hash,
+    /// context_obfuscated — nunca o conteúdo cru.
+    /// </summary>
+    public const string BlocklistViolation = "blocklist_violation";
 }
 
 public static class AdminAuditResources
@@ -88,4 +95,19 @@ public static class AdminAuditResources
     public const string PersonaCache = "persona_cache";
     public const string PersonaPromptTemplate = "persona_prompt_template";
     public const string PersonaPromptExperiment = "persona_prompt_experiment";
+
+    /// <summary>Recurso virtual representando a config de blocklist do projeto.</summary>
+    public const string Blocklist = "blocklist";
+}
+
+/// <summary>
+/// Tipos de actor canônicos. "human" cobre usuários reais, "agent" cobre ações
+/// disparadas pelo runtime (ex: BlocklistChatClient), "system" cobre tarefas
+/// agendadas/background sem usuário associado.
+/// </summary>
+public static class AdminAuditActorTypes
+{
+    public const string Human = "human";
+    public const string Agent = "agent";
+    public const string System = "system";
 }

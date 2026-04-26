@@ -1,5 +1,6 @@
 using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Events;
+using EfsAiHub.Core.Abstractions.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -50,7 +51,7 @@ public sealed class PgCacheInvalidationBus : ICacheInvalidationBus
             CacheName = cacheName,
             Key = key,
             SourcePodId = SourcePodId,
-        });
+        }, JsonDefaults.Domain);
 
         try
         {

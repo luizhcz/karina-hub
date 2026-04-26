@@ -354,6 +354,19 @@ public class WorkflowRunnerService
                 guardUserId, guardUserType ?? "cliente", ct);
         }
 
+        // ProjectId precisa ser propagado também no resume — guardrails per-projeto
+        // (BlocklistChatClient e similares) leem de DelegateExecutor.Current.Value.ProjectId.
+        // Sem isso, HITL recovery rodaria sem cobertura de blocklist (fail-secure derrubaria o resume).
+        string? resumeProjectId = null;
+        execution.Metadata?.TryGetValue("projectId", out resumeProjectId);
+        if (string.IsNullOrWhiteSpace(resumeProjectId))
+        {
+            _logger.LogWarning(
+                "[WorkflowRunner] Resume da execução '{ExecutionId}' SEM projectId no metadata. " +
+                "Guardrails per-projeto (blocklist) não terão contexto e podem derrubar o resume.",
+                execution.ExecutionId);
+        }
+
         // Extrai conversationId da metadata (Chat executions) para shared state
         string? resumeConversationId = null;
         execution.Metadata?.TryGetValue("conversationId", out resumeConversationId);
@@ -398,6 +411,7 @@ public class WorkflowRunnerService
             ConversationId: resumeConversationId,
             EnrichmentRules: null,
             Persona: resumePersona,
+            ProjectId: resumeProjectId,
             ExperimentAssignments: new System.Collections.Concurrent.ConcurrentDictionary<string, EfsAiHub.Core.Abstractions.Identity.Persona.ExperimentAssignment>());
 
         try

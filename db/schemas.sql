@@ -744,3 +744,64 @@ CREATE INDEX IF NOT EXISTS ix_llm_token_usage_experiment
 -- legada, DROP IF EXISTS remove.
 -- =============================================================================
 ALTER TABLE aihub.persona_prompt_templates DROP COLUMN IF EXISTS "UpdatedBy";
+
+-- =============================================================================
+-- Blocklist Guardrail v1 — catálogo curado de patterns
+--
+-- Catálogo é gerenciado pelo DBA via edição deste seeds.sql + apply.sh.
+-- Override por projeto vive em ProjectSettings.Blocklist (JSONB), não aqui.
+--
+-- Trigger pg_notify('blocklist_changed', '') propaga mudanças do catálogo
+-- para todos os pods (cache hybrid L1+L2 invalida via PgNotifyDispatcher).
+-- TTL do cache (60s) cobre falha de NOTIFY como fallback.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS aihub.blocklist_pattern_groups (
+    "Id"          VARCHAR(64)  PRIMARY KEY,
+    "Name"        VARCHAR(128) NOT NULL,
+    "Description" TEXT NULL,
+    "Version"     INT          NOT NULL DEFAULT 1,
+    "CreatedAt"   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    "UpdatedAt"   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS aihub.blocklist_patterns (
+    "Id"            VARCHAR(128) PRIMARY KEY,
+    "GroupId"       VARCHAR(64)  NOT NULL REFERENCES aihub.blocklist_pattern_groups("Id") ON DELETE CASCADE,
+    "Type"          VARCHAR(16)  NOT NULL CHECK ("Type" IN ('literal', 'regex', 'builtin')),
+    "Pattern"       TEXT         NOT NULL,
+    "ValidatorFn"   VARCHAR(32)  NULL CHECK ("ValidatorFn" IS NULL OR "ValidatorFn" IN ('mod11', 'luhn')),
+    "WholeWord"     BOOLEAN      NOT NULL DEFAULT TRUE,
+    "CaseSensitive" BOOLEAN      NOT NULL DEFAULT FALSE,
+    "DefaultAction" VARCHAR(16)  NOT NULL DEFAULT 'block' CHECK ("DefaultAction" IN ('block', 'redact', 'warn')),
+    "Enabled"       BOOLEAN      NOT NULL DEFAULT TRUE,
+    "Version"       INT          NOT NULL DEFAULT 1,
+    "CreatedAt"     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    "UpdatedAt"     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_blocklist_patterns_group
+    ON aihub.blocklist_patterns("GroupId")
+    WHERE "Enabled";
+
+-- Função + triggers: dispara pg_notify no canal 'blocklist_changed' a cada
+-- INSERT/UPDATE/DELETE em pattern_groups ou patterns. FOR EACH STATEMENT
+-- (1 notify por comando, mesmo em batch update — suficiente, app refaz fetch
+-- completo do catálogo no recv).
+CREATE OR REPLACE FUNCTION aihub.notify_blocklist_changed() RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM pg_notify('blocklist_changed', '');
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_blocklist_patterns_changed ON aihub.blocklist_patterns;
+CREATE TRIGGER trg_blocklist_patterns_changed
+    AFTER INSERT OR UPDATE OR DELETE ON aihub.blocklist_patterns
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION aihub.notify_blocklist_changed();
+
+DROP TRIGGER IF EXISTS trg_blocklist_groups_changed ON aihub.blocklist_pattern_groups;
+CREATE TRIGGER trg_blocklist_groups_changed
+    AFTER INSERT OR UPDATE OR DELETE ON aihub.blocklist_pattern_groups
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION aihub.notify_blocklist_changed();

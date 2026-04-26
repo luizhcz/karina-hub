@@ -1,6 +1,7 @@
 using EfsAiHub.Core.Abstractions.Exceptions;
 using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Guards;
+using EfsAiHub.Platform.Runtime.Guards;
 using EfsAiHub.Platform.Runtime.Resilience;
 
 namespace EfsAiHub.Host.Api.Middleware;
@@ -26,6 +27,22 @@ public sealed class GlobalExceptionMiddleware(
 
             if (!context.Response.HasStarted)
             {
+                // Envelope custom pra blocklist — categoria visível, pattern_id NUNCA exposto.
+                if (ex is BlocklistViolationException blockEx)
+                {
+                    context.Response.StatusCode = 422;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsJsonAsync(new
+                    {
+                        error = "policy_violation",
+                        category = blockEx.Violation.Category,
+                        violation_id = blockEx.Violation.ViolationId.ToString(),
+                        retryable = false,
+                        message = "Conteúdo violou política do projeto."
+                    });
+                    return;
+                }
+
                 context.Response.StatusCode = ex switch
                 {
                     DomainException => 400,    // Invariante de domínio violada

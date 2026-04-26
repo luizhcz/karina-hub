@@ -75,6 +75,22 @@ export function ProjectEditPage() {
 
       <LlmCredentialsSection existing={project?.llmConfig} onChange={setLlmConfig} />
 
+      <Card title="Blocklist (Guardrail)">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1">
+            <p className="text-sm text-text-secondary">
+              Bloqueia conteúdo proibido (PII, secrets, padrões customizados) em input/output dos agentes.
+            </p>
+            <p className="text-xs text-text-muted mt-1">
+              Ligar/desligar grupos curados, sobrescrever ações, adicionar patterns específicos do projeto.
+            </p>
+          </div>
+          <Button variant="ghost" onClick={() => navigate(`/projects/${id}/blocklist`)}>
+            Configurar →
+          </Button>
+        </div>
+      </Card>
+
       <div className="flex justify-end gap-3">
         <Button variant="ghost" onClick={() => navigate('/projects')}>Cancelar</Button>
         <Button onClick={handleSubmit} loading={updateProject.isPending}>Salvar Alterações</Button>

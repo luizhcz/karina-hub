@@ -23,7 +23,7 @@ public class PgHumanInteractionRepository(IDbContextFactory<AgentFwDbContext> fa
             Context = request.Context,
             InteractionType = request.InteractionType.ToString(),
             Options = request.Options is { Count: > 0 }
-                ? JsonSerializer.Serialize(request.Options)
+                ? JsonSerializer.Serialize(request.Options, JsonDefaults.Domain)
                 : null,
             Status = request.Status.ToString(),
             Resolution = request.Resolution,
@@ -148,7 +148,7 @@ WHERE  ""Status"" = 'Pending'
             ? it
             : InteractionType.Approval,
         Options = !string.IsNullOrEmpty(row.Options)
-            ? JsonSerializer.Deserialize<List<string>>(row.Options)
+            ? JsonSerializer.Deserialize<List<string>>(row.Options, JsonDefaults.Domain)
             : null,
         Status = Enum.Parse<HumanInteractionStatus>(row.Status),
         Resolution = row.Resolution,

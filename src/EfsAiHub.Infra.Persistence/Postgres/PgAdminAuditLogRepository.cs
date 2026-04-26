@@ -151,7 +151,7 @@ LIMIT {pageSize} OFFSET {offset};";
     }
 
     private static string? Serialize(JsonDocument? doc)
-        => doc is null ? null : JsonSerializer.Serialize(doc.RootElement);
+        => doc is null ? null : JsonSerializer.Serialize(doc.RootElement, JsonDefaults.Domain);
 
     private static NpgsqlParameter Nullable(string name, string? value)
         => new(name, NpgsqlDbType.Varchar) { Value = (object?)value ?? DBNull.Value };

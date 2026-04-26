@@ -101,7 +101,7 @@ public sealed class PgModelCatalogRepository : IModelCatalogRepository
     public async Task<ModelCatalog> UpsertAsync(ModelCatalog model, CancellationToken ct = default)
     {
         model.UpdatedAt = DateTime.UtcNow;
-        var capJson = JsonSerializer.Serialize(model.Capabilities);
+        var capJson = JsonSerializer.Serialize(model.Capabilities, JsonDefaults.Domain);
 
         await using var conn = await _dataSource.OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
@@ -155,7 +155,7 @@ public sealed class PgModelCatalogRepository : IModelCatalogRepository
         DisplayName  = r.GetString(2),
         Description  = r.IsDBNull(3) ? null : r.GetString(3),
         ContextWindow = r.IsDBNull(4) ? null : r.GetInt32(4),
-        Capabilities = JsonSerializer.Deserialize<List<string>>(r.GetString(5)) ?? [],
+        Capabilities = JsonSerializer.Deserialize<List<string>>(r.GetString(5), JsonDefaults.Domain) ?? [],
         IsActive     = r.GetBoolean(6),
         CreatedAt    = r.GetDateTime(7),
         UpdatedAt    = r.GetDateTime(8)

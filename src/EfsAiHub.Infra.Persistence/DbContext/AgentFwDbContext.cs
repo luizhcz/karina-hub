@@ -390,8 +390,8 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.Metadata)
                 .HasColumnType("jsonb")
                 .HasConversion(
-                    v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                    v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, (JsonSerializerOptions?)null) ?? new Dictionary<string, string>());
+                    v => JsonSerializer.Serialize(v, JsonDefaults.Domain),
+                    v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, JsonDefaults.Domain) ?? new Dictionary<string, string>());
 
             b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
             b.HasIndex(e => e.UserId);

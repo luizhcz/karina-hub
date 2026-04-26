@@ -36,6 +36,13 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
     /// <summary>Canal dedicado a invalidações de cache cross-pod.</summary>
     public const string CacheInvalidateChannel = "efs_cache_invalidate";
 
+    /// <summary>
+    /// Canal disparado pelos triggers em aihub.blocklist_pattern_groups e
+    /// aihub.blocklist_patterns sempre que o catálogo curado muda (DBA rodou apply.sh).
+    /// Payload é vazio — handler refaz fetch completo do catálogo.
+    /// </summary>
+    public const string BlocklistChangedChannel = "blocklist_changed";
+
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<PgNotifyDispatcher> _logger;
 
@@ -47,6 +54,11 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
     // sourcePodId é exposto pro bus de cache filtrar echo próprio. Dispatcher
     // não julga: só repassa.
     private readonly ConcurrentDictionary<string, List<Func<string, string, Task>>> _cacheInvalidateHandlers = new();
+
+    // Handlers do canal blocklist_changed. Sem cacheName/payload — basta sinalizar
+    // "catálogo mudou" para todos os pods refazerem fetch via repository.
+    private readonly List<Func<Task>> _blocklistChangedHandlers = new();
+    private readonly object _blocklistHandlersLock = new();
 
     private NpgsqlConnection? _conn;
     private Task? _listenLoop;
@@ -175,6 +187,9 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
             lock (list) list.Clear();
         _cacheInvalidateHandlers.Clear();
 
+        // Mesma lógica para handlers de blocklist_changed.
+        lock (_blocklistHandlersLock) _blocklistChangedHandlers.Clear();
+
         await _connMutex.WaitAsync(cancellationToken);
         try
         {
@@ -214,9 +229,9 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
             _conn.Notification += OnNotification;
 
             await using var cmd = _conn.CreateCommand();
-            // LISTEN em ambos os canais na mesma conn — Postgres aceita
+            // LISTEN em todos os canais na mesma conn — Postgres aceita
             // múltiplos LISTEN numa sessão sem custo extra.
-            cmd.CommandText = $"LISTEN {ChannelName}; LISTEN {CacheInvalidateChannel}";
+            cmd.CommandText = $"LISTEN {ChannelName}; LISTEN {CacheInvalidateChannel}; LISTEN {BlocklistChangedChannel}";
             await cmd.ExecuteNonQueryAsync(ct);
         }
         catch (Exception ex)
@@ -291,6 +306,12 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
                 return;
             }
 
+            if (string.Equals(args.Channel, BlocklistChangedChannel, StringComparison.Ordinal))
+            {
+                OnBlocklistChangedNotification();
+                return;
+            }
+
             // Canal default: workflow events.
             var env = JsonSerializer.Deserialize<WorkflowEventEnvelope>(args.Payload);
             if (env is null) return;
@@ -334,6 +355,68 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
                 if (list.Count == 0)
                     _cacheInvalidateHandlers.TryRemove(cacheName, out _);
             }
+        }
+    }
+
+    /// <summary>
+    /// Subscription do canal <c>blocklist_changed</c>. Handler é chamado sem payload —
+    /// catálogo é refeito completo (não há diff incremental no NOTIFY). Idempotente:
+    /// 1 NOTIFY por StatementChange, vários handlers podem disparar simultaneamente.
+    /// </summary>
+    public IDisposable SubscribeBlocklistChanged(Func<Task> handler)
+    {
+        lock (_blocklistHandlersLock)
+            _blocklistChangedHandlers.Add(handler);
+
+        return new BlocklistChangedSubscription(this, handler);
+    }
+
+    private void RemoveBlocklistChangedHandler(Func<Task> handler)
+    {
+        lock (_blocklistHandlersLock)
+            _blocklistChangedHandlers.Remove(handler);
+    }
+
+    private void OnBlocklistChangedNotification()
+    {
+        if (Volatile.Read(ref _stopped) == 1) return;
+
+        Func<Task>[] snapshot;
+        lock (_blocklistHandlersLock) snapshot = _blocklistChangedHandlers.ToArray();
+
+        // Fire-and-forget: handler típico só invalida cache local (rápido).
+        // Erros são logados em debug — não devem bloquear o NOTIFY thread do Npgsql.
+        foreach (var h in snapshot)
+        {
+            _ = Task.Run(async () =>
+            {
+                try { await h(); }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex,
+                        "[PgNotifyDispatcher] Handler de blocklist_changed falhou.");
+                }
+            });
+        }
+    }
+
+    private sealed class BlocklistChangedSubscription : IDisposable
+    {
+        private readonly PgNotifyDispatcher _dispatcher;
+        private readonly Func<Task> _handler;
+        private bool _disposed;
+
+        public BlocklistChangedSubscription(PgNotifyDispatcher dispatcher, Func<Task> handler)
+        {
+            _dispatcher = dispatcher;
+            _handler = handler;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _dispatcher.RemoveBlocklistChangedHandler(_handler);
         }
     }
 
