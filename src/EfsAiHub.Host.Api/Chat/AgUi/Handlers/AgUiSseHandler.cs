@@ -197,7 +197,8 @@ public sealed class AgUiSseHandler
             Type = "MESSAGES_SNAPSHOT",
             Messages = messages.Select(m => new AgUiMessage(
                 m.MessageId, m.Role, m.Content,
-                new DateTimeOffset(m.CreatedAt, TimeSpan.Zero))).ToArray()
+                new DateTimeOffset(m.CreatedAt, TimeSpan.Zero),
+                Actor: m.Actor == Actor.Robot ? "robot" : null)).ToArray()
         }, sequenceId: null, ct);
 
         // 4. RUN_FINISHED — encerra o turn sem output (não houve execução de workflow)
@@ -233,7 +234,8 @@ public sealed class AgUiSseHandler
             Type = "MESSAGES_SNAPSHOT",
             Messages = messages.Select(m => new AgUiMessage(
                 m.MessageId, m.Role, m.Content,
-                new DateTimeOffset(m.CreatedAt, TimeSpan.Zero))).ToArray()
+                new DateTimeOffset(m.CreatedAt, TimeSpan.Zero),
+                Actor: m.Actor == Actor.Robot ? "robot" : null)).ToArray()
         }, sequenceId: null, ct);
 
         await WriteEventAsync(response, new AgUiEvent

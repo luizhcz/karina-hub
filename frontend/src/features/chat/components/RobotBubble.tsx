@@ -17,6 +17,7 @@ export function RobotBubble({ text, time }: { text: string; time?: string }) {
             viewBox="0 0 20 20"
             fill="currentColor"
             className="w-3 h-3"
+            aria-hidden="true"
           >
             <path
               fillRule="evenodd"

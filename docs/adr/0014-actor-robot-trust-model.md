@@ -118,4 +118,4 @@ Sem esses artefatos, a próxima geração de devs vai tratar `actor` como fundam
 - `src/EfsAiHub.Host.Api/Chat/Services/ConversationService.cs` — `BuildChatMessage`, `UpdateConversationTitle`
 - `src/EfsAiHub.Host.Api/Chat/Services/ConversationService.Messaging.cs` — gate `lastIsRobot`
 - `frontend/src/features/chat/components/RobotBubble.tsx` — render
-- `db/schemas.sql:344` — coluna `Actor`
+- `db/schemas.sql:345` — coluna `Actor`
