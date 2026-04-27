@@ -153,7 +153,10 @@ public static class AgUiEndpoints
         //    na última posição). Quando presente, propaga via ChatMessageInput.Actor pro
         //    domínio fazer short-circuit em ConversationService.SendMessagesAsync.
         var lastInputMsg = input.Messages?[^1];
-        var isRobotTurn = string.Equals(lastInputMsg?.Actor, "robot", StringComparison.OrdinalIgnoreCase);
+        var isRobotTurn = string.Equals(
+            lastInputMsg?.Actor?.Trim(),
+            "robot",
+            StringComparison.OrdinalIgnoreCase);
 
         // Validação semântica: HITL pendente + actor=robot é erro de cliente. HITL deve ser
         // resolvido via /resolve-hitl, não via /stream com actor=robot. Robot durante turn
@@ -244,7 +247,11 @@ public static class AgUiEndpoints
     /// <summary>
     /// Valida o campo <c>actor</c> nas mensagens AG-UI:
     /// <list type="number">
-    ///   <item>Valor permitido: null/ausente, "human" ou "robot" (case-insensitive).</item>
+    ///   <item>Campo ausente (null) é ok — vira default human.</item>
+    ///   <item>Campo presente mas vazio/whitespace é misuse — 400 explícito (sem silent default,
+    ///   coerência com a rejeição de strings desconhecidas).</item>
+    ///   <item>Trim aplicado antes do compare pra ser amigável a clientes que mandam
+    ///   <c>" robot "</c>; conteúdo desconhecido pós-trim → 400.</item>
     ///   <item><c>actor="robot"</c> só pode aparecer na ÚLTIMA mensagem do batch — robot
     ///   "fecha turno". No meio do array é misuse de cliente.</item>
     /// </list>
@@ -256,13 +263,19 @@ public static class AgUiEndpoints
 
         for (int i = 0; i < messages.Count; i++)
         {
-            var actor = messages[i].Actor;
-            if (string.IsNullOrEmpty(actor)) continue;
+            var raw = messages[i].Actor;
+            if (raw is null) continue;  // ausência do campo → default human
+
+            var actor = raw.Trim();
+            if (actor.Length == 0)
+            {
+                return $"actor inválido em messages[{i}]: vazio/whitespace. Omita o campo ou use \"human\"/\"robot\".";
+            }
 
             if (!actor.Equals("human", StringComparison.OrdinalIgnoreCase)
                 && !actor.Equals("robot", StringComparison.OrdinalIgnoreCase))
             {
-                return $"actor inválido em messages[{i}]: '{actor}'. Valores aceitos: \"human\" ou \"robot\".";
+                return $"actor inválido em messages[{i}]: '{raw}'. Valores aceitos: \"human\" ou \"robot\".";
             }
 
             // robot só pode estar na última posição

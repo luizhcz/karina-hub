@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using EfsAiHub.Core.Orchestration.Enums;
 using EfsAiHub.Core.Orchestration.Workflows;
+using EfsAiHub.Platform.Runtime.Services;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace EfsAiHub.Tests.Integration.AgUi;
@@ -23,6 +24,7 @@ public class AgUiActorRobotTests : IAsyncLifetime
     private readonly IChatMessageRepository _msgRepo;
     private readonly IConversationRepository _convRepo;
     private readonly IWorkflowDefinitionRepository _wfRepo;
+    private readonly IHumanInteractionService _hitlService;
 
     public AgUiActorRobotTests(IntegrationWebApplicationFactory factory)
     {
@@ -30,6 +32,7 @@ public class AgUiActorRobotTests : IAsyncLifetime
         _msgRepo = factory.Services.GetRequiredService<IChatMessageRepository>();
         _convRepo = factory.Services.GetRequiredService<IConversationRepository>();
         _wfRepo = factory.Services.GetRequiredService<IWorkflowDefinitionRepository>();
+        _hitlService = factory.Services.GetRequiredService<IHumanInteractionService>();
     }
 
     public async Task InitializeAsync()
@@ -137,6 +140,52 @@ public class AgUiActorRobotTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.Content.ReadAsStringAsync();
         body.Should().Contain("actor inválido");
+    }
+
+    [Fact]
+    public async Task Post_ActorRobotComHitlPendente_Retorna400()
+    {
+        // Arrange — conversa com execução em curso e HITL pendente.
+        // actor=robot durante HITL é misuse: HITL programático deve usar /resolve-hitl,
+        // não /stream com actor=robot.
+        var threadId = $"conv-{Guid.NewGuid():N}";
+        var executionId = $"exec-{Guid.NewGuid():N}";
+        await _convRepo.CreateAsync(new ConversationSession
+        {
+            ConversationId = threadId,
+            UserId = "test-robot",
+            WorkflowId = TestWorkflowId,
+            ActiveExecutionId = executionId
+        });
+
+        _hitlService.InjectForRecovery(new HumanInteractionRequest
+        {
+            InteractionId = $"hitl-{Guid.NewGuid():N}",
+            ExecutionId = executionId,
+            WorkflowId = TestWorkflowId,
+            Prompt = "Aprovar boleta?",
+            InteractionType = InteractionType.Approval,
+            Status = HumanInteractionStatus.Pending
+        });
+
+        var payload = new
+        {
+            threadId,
+            messages = new[]
+            {
+                new { role = "user", content = "{\"approved\":true}", actor = "robot" }
+            }
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/chat/ag-ui/stream", payload);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("resolve-hitl");
+
+        // Assert — banco não persistiu mensagem (validação rejeitou antes).
+        var saved = await _msgRepo.ListAsync(threadId);
+        saved.Should().BeEmpty();
     }
 
     [Fact]

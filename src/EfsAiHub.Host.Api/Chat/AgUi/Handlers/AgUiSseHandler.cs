@@ -154,6 +154,14 @@ public sealed class AgUiSseHandler
     {
         if (!response.HasStarted) SetSseHeaders(response);
 
+        // 0. STATE_SNAPSHOT inicial — uniformidade com StreamAsync. Estado não muda no
+        //    robot turn, mas frontend que assume essa sequência inicial não faz race.
+        await WriteEventAsync(response, new AgUiEvent
+        {
+            Type = "STATE_SNAPSHOT",
+            Snapshot = sharedState.GetSnapshot()
+        }, sequenceId: null, ct);
+
         // 1. RUN_STARTED — turn começou
         await WriteEventAsync(response, new AgUiEvent
         {
