@@ -110,9 +110,56 @@ public sealed record AgUiRunInput
 public sealed record AgUiInputMessage(
     string Role,          // "user" | "assistant" | "tool"
     string Content,       // Texto da mensagem
-    string? ToolCallId    // Para role=tool: ID da interação HITL resolvida
+    string? ToolCallId,   // Para role=tool: ID da interação HITL resolvida
+    string? Actor         // Extensão proprietária aditiva — "human" | "robot" | null (default human). Ver "Extensão actor" abaixo.
 );
 ```
+
+#### Extensão `actor` (proprietária EFS, aditiva à spec AG-UI)
+
+Campo opcional na input message para distinguir mensagens humanas de mensagens
+postadas por automação (frontend executando código, RPA, sistema externo).
+**Não fere o protocolo AG-UI** — `role` permanece nos 5 canônicos da spec
+(`developer`/`system`/`user`/`assistant`/`tool`), e clientes que ignoram `actor`
+continuam funcionando.
+
+| Valor | Significado | Comportamento no backend |
+|---|---|---|
+| `null` (campo ausente) | Default — humano | Workflow dispara normalmente |
+| `"human"` | Explicitamente humano | Idem (equivalente a omitir o campo) |
+| `"robot"` | Postagem programática | **Persiste sem disparar workflow.** Backend responde com SSE sintético (`RUN_STARTED → CUSTOM(actor.persisted) → MESSAGES_SNAPSHOT → RUN_FINISHED`) e o turn é encerrado. |
+
+**Caso de uso canônico** — frontend-mediated function calling:
+
+```
+1. Humano: "Qual meu saldo?"
+2. Workflow → agente LLM produz objeto estruturado.
+3. Frontend chama backend EXTERNO (não EFS AI Hub) com auth próprio.
+4. Backend externo responde { "saldo": 12480.33 }.
+5. Frontend posta no AG-UI:
+     POST /api/chat/ag-ui/stream
+     {
+       "messages": [
+         ...histórico...,
+         { "role": "user", "content": "{...}", "actor": "robot" }
+       ]
+     }
+6. Backend persiste com Role=user + Actor=Robot, NÃO chama LLM, responde SSE
+   sintético em ms.
+7. Humano: "Pode transferir 5000 pra poupança"
+8. Workflow dispara — LLM vê o histórico completo (com a robot msg como user)
+   e age coerentemente.
+```
+
+**Validações de payload (400):**
+
+- `actor` com valor fora de `{null, "human", "robot"}` (após trim).
+- `actor="robot"` em mensagem que **não é** a última do batch (robot fecha turno por design).
+- `actor="robot"` quando há HITL pendente na execução ativa (HITL programático deve usar `POST /resolve-hitl`).
+
+**Trust model:** o backend confia no campo `actor` sem validação de auth — o trust
+boundary fica na camada de proxy upstream. Detalhes, invariantes e caminho de
+evolução em [ADR 0014](adr/0014-actor-robot-trust-model.md).
 
 ### POST /cancel — Request
 

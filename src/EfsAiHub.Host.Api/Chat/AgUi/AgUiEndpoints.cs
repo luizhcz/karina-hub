@@ -29,6 +29,13 @@ public static class AgUiEndpoints
             .Produces(200, contentType: "text/event-stream");
     }
 
+    /// <summary>
+    /// Endpoint principal AG-UI. Aceita extensão proprietária <c>actor</c> em messages
+    /// (ver <c>docs/adr/0014-actor-robot-trust-model.md</c>): quando a última mensagem
+    /// do batch tem <c>actor=robot</c>, o backend persiste sem disparar workflow e
+    /// responde com SSE sintético. Trust model: confia no body sem auth, boundary
+    /// fica no proxy upstream.
+    /// </summary>
     private static async Task StreamAsync(
         AgUiRunInput input,
         AgUiSseHandler sseHandler,

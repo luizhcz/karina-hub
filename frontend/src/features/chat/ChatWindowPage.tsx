@@ -18,6 +18,7 @@ import { KEYS } from '../../api/chat'
 import type { LocalMsg } from './types'
 import { UserBubble } from './components/UserBubble'
 import { AssistantBubble } from './components/AssistantBubble'
+import { RobotBubble } from './components/RobotBubble'
 import { SystemBubble } from './components/SystemBubble'
 import { TypingBubble } from './components/TypingBubble'
 import { ToolCallCard } from './components/ToolCallCard'
@@ -507,6 +508,10 @@ export function ChatWindowPage() {
           {persistedMsgs.map((msg) => {
             const time = new Date(msg.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
             const text = typeof msg.message === 'string' ? msg.message : JSON.stringify(msg.message ?? '')
+            // Robot persiste com role=user (spec AG-UI), discriminador é o campo actor.
+            // Bubble distinto evita confundir com fala humana — payload costuma ser JSON
+            // de chamada externa (ver ADR 0014).
+            if (msg.actor === 'robot') return <RobotBubble key={msg.messageId} text={text} time={time} />
             if (msg.role === 'user') return <UserBubble key={msg.messageId} text={text} time={time} />
             if (msg.role === 'system') return <SystemBubble key={msg.messageId} text={text} />
             return <AssistantBubble key={msg.messageId} text={text} time={time} />

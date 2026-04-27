@@ -249,6 +249,7 @@
   <a href="#minimal-client">Cliente mínimo (JS)</a>
   <a href="#hitl">Fluxo HITL</a>
   <a href="#custom-events">Custom Events</a>
+  <a href="#actor-extension">Extensão actor</a>
   <a href="#patterns">Patterns comuns</a>
   <a href="#safety-flow">Fluxo SAFETY_VIOLATION</a>
   <a href="#error-codes">Códigos de erro</a>
@@ -982,6 +983,8 @@ async function sendTurn(userText) {
           <span class="comment">// Discrimine por customName e ignore desconhecidos.</span>
           if (evt.customName === 'executor.lifecycle') {
             <span class="comment">// detalhe técnico — não criar bubble; loggar se útil pra observability</span>
+          } else if (evt.customName === 'actor.persisted') {
+            <span class="comment">// turn robot — backend persistiu sem disparar workflow; MESSAGES_SNAPSHOT a seguir tem histórico atualizado</span>
           }
           break
 
@@ -1083,6 +1086,12 @@ async function sendTurn(userText) {
           <td><code>{ nodeId, phase: "started"\|"finished", functionName?, durationMs? }</code></td>
           <td>Chat principal: <strong>ignorar</strong> (sem bubble). Timeline técnica / DevPortal: registrar como linha de progresso usando <code>nodeId</code> e <code>functionName</code>.</td>
         </tr>
+        <tr>
+          <td><code>actor.persisted</code></td>
+          <td>Mensagem com <code>actor=robot</code> foi persistida sem disparar workflow (short-circuit). Emitido no SSE sintético do turn robot. Ver seção <a href="#actor-extension">Actor extension</a>.</td>
+          <td><code>{ messageId, actor: "robot" }</code></td>
+          <td>Chat principal: marcar a mensagem como "registrada sem execução" (opcional). Cliente que ignora o evento ainda recebe <code>RUN_FINISHED</code> e fecha o turn corretamente.</td>
+        </tr>
       </tbody>
     </table>
 
@@ -1100,6 +1109,106 @@ async function sendTurn(userText) {
 <span class="comment">// Próximo nó é executor — sem STEP_*, sem bubble fake</span>
 <span class="arrow">stream ←</span> <span class="event">CUSTOM</span>                  { customName: <span class="resolve">"executor.lifecycle"</span>, customValue: { nodeId: <span class="resolve">"post_processor"</span>, phase: <span class="resolve">"started"</span>, functionName: <span class="resolve">"service_post_processor"</span> } }
 <span class="arrow">stream ←</span> <span class="event">CUSTOM</span>                  { customName: <span class="resolve">"executor.lifecycle"</span>, customValue: { nodeId: <span class="resolve">"post_processor"</span>, phase: <span class="resolve">"finished"</span>, functionName: <span class="resolve">"service_post_processor"</span> } }</code></pre>
+  </section>
+
+  <!-- Actor extension -->
+  <section id="actor-extension">
+    <h2>Extensão <code>actor</code> — registrar postagens de robô sem disparar workflow</h2>
+    <p>
+      Extensão proprietária aditiva à spec AG-UI. <strong>Não fere o protocolo</strong> —
+      <code>role</code> permanece nos 5 canônicos, e clientes AG-UI padrão (CopilotKit,
+      Mastra, Pydantic AI) ignoram o campo silenciosamente. Permite que frontend ou
+      automação (RPA, sistema externo) poste mensagens na conversa que entram no histórico
+      sem chamar LLM nem consumir budget.
+    </p>
+
+    <h3>Quando usar</h3>
+    <p>
+      <strong>Caso canônico — frontend-mediated function calling:</strong> agente LLM
+      retorna um objeto estruturado, o frontend chama um backend EXTERNO (não EFS AI Hub)
+      com a auth dele, recebe o resultado, e posta como <code>actor=robot</code> pra
+      registrar a ação na conversa. No turno seguinte, o LLM vê o resultado no histórico
+      e age coerentemente.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th><code>actor</code></th>
+          <th>Significado</th>
+          <th>Comportamento backend</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>null</code> / ausente</td>
+          <td>Default — humano</td>
+          <td>Workflow dispara normalmente</td>
+        </tr>
+        <tr>
+          <td><code>"human"</code></td>
+          <td>Explicitamente humano</td>
+          <td>Idem (equivalente a omitir)</td>
+        </tr>
+        <tr>
+          <td><code>"robot"</code></td>
+          <td>Postagem programática</td>
+          <td><strong>Persiste sem disparar workflow.</strong> SSE sintético com 4 eventos canônicos.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Sequência SSE no turn robot</h3>
+
+    <pre><code><span class="comment">// Cliente envia:</span>
+<span class="resolve">cliente →</span> POST /api/chat/ag-ui/stream
+              {
+                "messages": [
+                  ...histórico...,
+                  { "role": <span class="resolve">"user"</span>, "content": <span class="resolve">"{\"saldo\":12480.33}"</span>, "actor": <span class="resolve">"robot"</span> }
+                ]
+              }
+
+<span class="comment">// Backend responde com SSE sintético em ~ms (sem LLM, sem cobrança):</span>
+<span class="arrow">stream ←</span> <span class="event">STATE_SNAPSHOT</span>      { snapshot: { ... } }
+<span class="arrow">stream ←</span> <span class="event">RUN_STARTED</span>         { runId, threadId }
+<span class="arrow">stream ←</span> <span class="event">CUSTOM</span>              { customName: <span class="resolve">"actor.persisted"</span>, customValue: { messageId, actor: <span class="resolve">"robot"</span> } }
+<span class="arrow">stream ←</span> <span class="event">MESSAGES_SNAPSHOT</span>   { messages: [...histórico atualizado...] }
+<span class="arrow">stream ←</span> <span class="event">RUN_FINISHED</span>        { runId, threadId, output: <span class="resolve">""</span> }</code></pre>
+
+    <h3>Validações de payload (400)</h3>
+    <ul>
+      <li><code>actor</code> com valor fora de <code>{null, "human", "robot"}</code> (após trim) — mensagem de erro identifica a posição.</li>
+      <li><code>actor="robot"</code> em mensagem que <strong>não é</strong> a última do batch — robot fecha turno por design.</li>
+      <li><code>actor="robot"</code> quando há HITL pendente na execução ativa — HITL programático deve usar <code>POST /api/chat/ag-ui/resolve-hitl</code>.</li>
+    </ul>
+
+    <h3>Trust model — <strong>sem auth no backend</strong></h3>
+    <div class="callout callout-yellow">
+      <p>O backend <strong>confia</strong> no campo <code>actor</code> sem validação — o trust boundary fica na camada de proxy upstream. Cliente que conseguir falar diretamente com o backend (sem passar pelo proxy) bypassa cobrança e polui audit. Mitigação operacional, não aplicacional.</p>
+      <p>Razões da decisão (e quando promover pra v4 com JWT scope) em <a href="https://github.com/luizhcz/efs-ai-hub/blob/main/docs/adr/0014-actor-robot-trust-model.md" target="_blank">ADR 0014</a>.</p>
+    </div>
+
+    <h3>Cliente — handler de <code>CUSTOM actor.persisted</code></h3>
+    <pre class="language-javascript"><code class="language-javascript">case 'CUSTOM':
+  if (evtData.customName === <span class="resolve">'actor.persisted'</span>) {
+    <span class="comment">// Opcional: marcar a mensagem como "registrada sem execução"</span>
+    <span class="comment">// no UI. Mesmo ignorando, RUN_FINISHED encerra o turn corretamente.</span>
+    const v = evtData.customValue ?? {}
+    console.debug(<span class="resolve">'[robot]'</span>, v.messageId)
+  }
+  break</code></pre>
+
+    <h3>Quando NÃO usar <code>actor=robot</code></h3>
+    <ul>
+      <li><strong>Resposta a HITL pendente</strong> — use <code>POST /resolve-hitl</code>.
+      <code>actor=robot</code> + HITL pendente retorna 400.</li>
+      <li><strong>Mensagem do usuário humano sendo digitada na UI</strong> — mesmo que vinda de
+      formulário automático (autocomplete, etc), continua sendo humano. Robot é
+      especificamente postagem programática que não representa fala humana.</li>
+      <li><strong>Tool calls do LLM</strong> — fluxo <code>TOOL_CALL_*</code> existe pra isso e é dirigido
+      pelo agente. Robot é o oposto: <strong>frontend-driven</strong>, não LLM-driven.</li>
+    </ul>
   </section>
 
   <!-- Patterns comuns -->
@@ -2664,6 +2773,10 @@ while (!done) {
             // Detalhe técnico — útil pra timeline/observability, mas NÃO crie bubble no chat.
             const v = evtData.customValue ?? {}
             // console.debug('[executor]', v.phase, v.functionName ?? v.nodeId)
+          } else if (evtData.customName === 'actor.persisted') {
+            // Robot turn — backend persistiu sem disparar workflow.
+            // MESSAGES_SNAPSHOT logo a seguir traz o histórico atualizado;
+            // RUN_FINISHED encerra o turn.
           } else if (evtData.customName === 'ESCALATION') {
             // Renderizar banner de escalação ao operador, etc.
           }

@@ -17,6 +17,14 @@ export interface ConversationSession {
   metadata?: Record<string, string>
 }
 
+/**
+ * Proveniência da mensagem — dimensão paralela ao role (que segue spec AG-UI).
+ * Default 'human' quando ausente. Robot indica que a mensagem foi postada por
+ * automação (frontend executando código, RPA, etc) e não disparou workflow.
+ * Ver ADR 0014.
+ */
+export type Actor = 'human' | 'robot'
+
 export interface ChatMsg {
   messageId: string
   conversationId: string
@@ -25,6 +33,8 @@ export interface ChatMsg {
   output?: unknown
   createdAt: string
   executionId?: string
+  /** Default 'human' quando ausente em respostas legadas. */
+  actor?: Actor
 }
 
 export interface ChatSendResult {
