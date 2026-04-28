@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Card } from '../../shared/ui/Card'
 import { Input } from '../../shared/ui/Input'
+import { SecretReferenceInput } from '../../shared/ui/SecretReferenceInput'
 import type { EvaluationProjectSettings, FoundryEvaluationSettings } from '../../api/projects'
 
 interface Props {
@@ -8,16 +9,22 @@ interface Props {
   onChange: (settings: EvaluationProjectSettings | undefined) => void
 }
 
-// Backend preserva apiKeyRef existente quando input vem vazio (mesmo padrão
-// do LlmCredentialsSection).
+const AWS_PREFIX = 'secret://aws/'
+
 export function EvaluationSettingsSection({ existing, onChange }: Props) {
   const initial: FoundryEvaluationSettings = existing?.foundry ?? {}
-  const apiKeyConfigured = !!initial.apiKeyRef
+
+  // Backend retorna a referência AWS verbatim quando começa com `secret://`,
+  // e mascara legacy literal como "***". Detectamos pra pre-popular o input
+  // ou exibir o banner de legacy DPAPI.
+  const initialRef = initial.apiKeyRef ?? ''
+  const isAwsRef = initialRef.startsWith(AWS_PREFIX)
+  const isLegacyLiteral = initialRef === '***'
 
   const [enabled, setEnabled] = useState(initial.enabled ?? false)
   const [endpoint, setEndpoint] = useState(initial.endpoint ?? '')
   const [modelDeployment, setModelDeployment] = useState(initial.modelDeployment ?? '')
-  const [apiKey, setApiKey] = useState('')
+  const [apiKey, setApiKey] = useState(isAwsRef ? initialRef : '')
   const [projectEndpoint, setProjectEndpoint] = useState(initial.projectEndpoint ?? '')
 
   useEffect(() => {
@@ -32,7 +39,8 @@ export function EvaluationSettingsSection({ existing, onChange }: Props) {
       && !trimmedDeployment
       && !trimmedKey
       && !trimmedProjectEndpoint
-      && !apiKeyConfigured
+      && !isAwsRef
+      && !isLegacyLiteral
 
     if (noUserInput) {
       onChange(undefined)
@@ -44,12 +52,12 @@ export function EvaluationSettingsSection({ existing, onChange }: Props) {
         enabled,
         endpoint: trimmedEndpoint || null,
         modelDeployment: trimmedDeployment || null,
-        // Vazio = preservar chave existente (backend faz o merge).
+        // Vazio = preservar referência existente (backend faz o merge).
         apiKeyRef: trimmedKey || null,
         projectEndpoint: trimmedProjectEndpoint || null,
       },
     })
-  }, [enabled, endpoint, modelDeployment, apiKey, projectEndpoint, apiKeyConfigured, onChange])
+  }, [enabled, endpoint, modelDeployment, apiKey, projectEndpoint, isAwsRef, isLegacyLiteral, onChange])
 
   return (
     <Card title="Avaliação (Foundry-as-Judge)">
@@ -82,20 +90,12 @@ export function EvaluationSettingsSection({ existing, onChange }: Props) {
           onChange={(e) => setModelDeployment(e.target.value)}
           placeholder="gpt-4o-eval"
         />
-        <div>
-          <Input
-            label="API key (ou referência secret://)"
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder={apiKeyConfigured ? '••• já configurado — deixe vazio para manter' : 'sua-api-key ou secret://nome'}
-          />
-          {apiKeyConfigured && !apiKey && (
-            <p className="text-xs text-text-muted mt-1">
-              Chave já configurada. Deixe vazio para preservar; preencha para substituir.
-            </p>
-          )}
-        </div>
+        <SecretReferenceInput
+          label="API key (AWS Secrets Manager reference)"
+          value={apiKey}
+          onChange={setApiKey}
+          legacyDpapi={isLegacyLiteral}
+        />
         <div>
           <Input
             label="Project endpoint (Safety evaluators — opcional)"
@@ -105,13 +105,13 @@ export function EvaluationSettingsSection({ existing, onChange }: Props) {
           />
           <p className="text-xs text-text-muted mt-1">
             Necessário só para evaluators <code>Violence</code>, <code>Sexual</code>, <code>SelfHarm</code>, <code>HateAndUnfairness</code>.
-            Sem isso, esses bindings são pulados com warning. Auth via <code>DefaultAzureCredential</code>
-            (env vars <code>AZURE_TENANT_ID</code>/<code>AZURE_CLIENT_ID</code>/<code>AZURE_CLIENT_SECRET</code> no backend).
+            Sem isso, esses bindings são pulados com warning. Auth via Service Principal
+            (configurado em <code>Azure:ServicePrincipal:*</code> no backend, resolvido do AWS Secrets Manager).
           </p>
         </div>
       </div>
 
-      {enabled && (!endpoint.trim() || !modelDeployment.trim() || (!apiKey.trim() && !apiKeyConfigured)) && (
+      {enabled && (!endpoint.trim() || !modelDeployment.trim() || (!apiKey.trim() && !isAwsRef)) && (
         <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
           Habilitado mas faltam campos obrigatórios — runs com binding <code>kind=foundry</code> Quality retornarão 400
           até endpoint, deployment e api key estarem preenchidos.

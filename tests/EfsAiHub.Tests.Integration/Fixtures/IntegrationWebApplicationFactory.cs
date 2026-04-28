@@ -165,6 +165,25 @@ public sealed class IntegrationWebApplicationFactory : WebApplicationFactory<Pro
     }
 
     /// <summary>
+    /// Creates a client where IAmazonSecretsManager is replaced by the given mock.
+    /// Use in tests that exercise SecretsController without touching real AWS.
+    /// Optional canary override permite testar /api/secrets/health.
+    /// </summary>
+    public HttpClient CreateClientWithMockedAws(
+        Amazon.SecretsManager.IAmazonSecretsManager mock,
+        string? canaryReference = null) =>
+        WithWebHostBuilder(b => b.ConfigureServices(services =>
+        {
+            services.RemoveAll<Amazon.SecretsManager.IAmazonSecretsManager>();
+            services.AddSingleton(mock);
+            if (canaryReference is not null)
+            {
+                services.PostConfigure<EfsAiHub.Infra.Secrets.Options.AwsSecretsOptions>(o =>
+                    o.HealthCheckCanaryReference = canaryReference);
+            }
+        })).CreateClient();
+
+    /// <summary>
     /// Creates a client where the DefaultProjectGuard is active with the given admin account.
     /// Use this only in tests that specifically test the default-project protection gate.
     /// </summary>

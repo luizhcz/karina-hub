@@ -1,5 +1,6 @@
 using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Projects;
+using EfsAiHub.Core.Abstractions.Secrets;
 
 namespace EfsAiHub.Host.Api.Models.Responses;
 
@@ -43,8 +44,10 @@ public sealed record ProjectResponse(
 }
 
 /// <summary>
-/// LlmConfig exposto na resposta. ApiKey é sempre mascarada como "***" para
-/// não vazar credenciais em logs ou UIs. Endpoint é exibido normalmente.
+/// LlmConfig exposto na resposta. Refs AWS Secrets Manager voltam verbatim em
+/// <see cref="ProviderCredentialsResponse.SecretRef"/>; literais legacy DPAPI
+/// não voltam (apenas <see cref="ProviderCredentialsResponse.LegacyDpapi"/> = true
+/// pra UI mostrar nudge de recadastro).
 /// </summary>
 public sealed record ProjectLlmConfigResponse(
     Dictionary<string, ProviderCredentialsResponse>? Credentials,
@@ -56,16 +59,28 @@ public sealed record ProjectLlmConfigResponse(
         if (config is null) return null;
         var creds = config.Credentials.ToDictionary(
             kvp => kvp.Key,
-            kvp => new ProviderCredentialsResponse(
-                ApiKeySet: kvp.Value.ApiKey is not null,
-                Endpoint: kvp.Value.Endpoint,
-                KeyVersion: kvp.Value.KeyVersion));
+            kvp =>
+            {
+                var apiKey = kvp.Value.ApiKey;
+                var hasKey = !string.IsNullOrEmpty(apiKey);
+                var isAwsRef = hasKey && SecretReference.IsAwsReference(apiKey);
+                return new ProviderCredentialsResponse(
+                    ApiKeySet: hasKey,
+                    SecretRef: isAwsRef ? apiKey : null,
+                    LegacyDpapi: hasKey && !isAwsRef,
+                    Endpoint: kvp.Value.Endpoint,
+                    KeyVersion: kvp.Value.KeyVersion);
+            });
         return new ProjectLlmConfigResponse(creds, config.DefaultModel, config.DefaultProvider);
     }
 }
 
 public sealed record ProviderCredentialsResponse(
-    /// <summary>True se uma ApiKey foi configurada; a chave em si nunca é retornada.</summary>
+    /// <summary>True se alguma credencial está configurada (AWS ref OU literal legacy).</summary>
     bool ApiKeySet,
+    /// <summary>Referência AWS Secrets Manager (`secret://aws/...`) quando aplicável; null em legacy DPAPI.</summary>
+    string? SecretRef,
+    /// <summary>True quando a credencial ainda está em formato DPAPI legacy — UI deve mostrar nudge de recadastro.</summary>
+    bool LegacyDpapi,
     string? Endpoint,
     string? KeyVersion);

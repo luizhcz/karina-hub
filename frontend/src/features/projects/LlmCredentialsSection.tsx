@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Card } from '../../shared/ui/Card'
 import { Input } from '../../shared/ui/Input'
+import { SecretReferenceInput } from '../../shared/ui/SecretReferenceInput'
 import type { ProjectLlmConfigInput, ProjectLlmConfigResponse } from '../../api/projects'
 import { useModelCatalog } from '../../api/modelCatalog'
 
@@ -24,7 +25,14 @@ export function LlmCredentialsSection({ existing, onChange }: Props) {
   const [defaultModel, setDefaultModel] = useState(existing?.defaultModel ?? '')
   const [credentials, setCredentials] = useState<Record<Provider, ProviderState>>(() => {
     const init: Record<string, ProviderState> = {}
-    for (const p of PROVIDERS) init[p] = { apiKey: '', endpoint: existing?.credentials?.[p]?.endpoint ?? '' }
+    for (const p of PROVIDERS) {
+      init[p] = {
+        // Pre-popula com a referência AWS quando já existe; legacy DPAPI fica vazio
+        // (tratado via banner no SecretReferenceInput).
+        apiKey: existing?.credentials?.[p]?.secretRef ?? '',
+        endpoint: existing?.credentials?.[p]?.endpoint ?? '',
+      }
+    }
     return init as Record<Provider, ProviderState>
   })
 
@@ -65,8 +73,31 @@ export function LlmCredentialsSection({ existing, onChange }: Props) {
     emit(credentials, dp, dm)
   }
 
+  const anyConfigured = PROVIDERS.some((p) => existing?.credentials?.[p]?.apiKeySet)
+  const legacyProviders = PROVIDERS.filter((p) => existing?.credentials?.[p]?.legacyDpapi)
+  const anyLegacy = legacyProviders.length > 0
+
   return (
     <Card title="Configuração LLM">
+      {anyLegacy && (
+        <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+          <div className="flex items-start gap-3">
+            <span className="text-amber-400 text-lg leading-none">⚠</span>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-300">
+                Credenciais em formato legacy (DPAPI)
+              </p>
+              <p className="text-xs text-amber-300/80 mt-1">
+                {legacyProviders.length === 1 ? 'O provider' : 'Os providers'}{' '}
+                <span className="font-mono">{legacyProviders.join(', ')}</span>{' '}
+                {legacyProviders.length === 1 ? 'ainda usa' : 'ainda usam'} criptografia local.
+                Recadastre apontando uma referência <code>secret://aws/...</code> no AWS Secrets
+                Manager para finalizar a migração.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex flex-col gap-4">
         <div className="flex gap-3">
           <div className="flex flex-col gap-1 flex-1 min-w-0">
@@ -102,8 +133,11 @@ export function LlmCredentialsSection({ existing, onChange }: Props) {
         >
           <span className={`transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
           Credenciais por provider
-          {PROVIDERS.some((p) => existing?.credentials?.[p]?.apiKeySet) && (
+          {anyConfigured && (
             <span className="ml-1 px-1.5 py-0.5 bg-accent-blue/20 text-accent-blue rounded text-[10px]">configurado</span>
+          )}
+          {anyLegacy && (
+            <span className="ml-1 px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded text-[10px]">legacy DPAPI</span>
           )}
         </button>
 
@@ -115,30 +149,24 @@ export function LlmCredentialsSection({ existing, onChange }: Props) {
                 <div key={provider} className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-text-secondary">{provider}</span>
-                    {existingCred?.apiKeySet && (
-                      <span className="text-[10px] px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded">API Key configurada</span>
+                    {existingCred?.apiKeySet && !existingCred.legacyDpapi && (
+                      <span className="text-[10px] px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded">AWS Secrets Manager</span>
+                    )}
+                    {existingCred?.legacyDpapi && (
+                      <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded">legacy DPAPI</span>
                     )}
                   </div>
-                  <div className="flex gap-3">
-                    <div className="flex-1">
-                      <Input
-                        label="API Key"
-                        type="password"
-                        value={credentials[provider].apiKey}
-                        onChange={(e) => updateCred(provider, 'apiKey', e.target.value)}
-                        placeholder={existingCred?.apiKeySet ? '••••••••  (deixe vazio para manter)' : 'sk-proj-...'}
-                        autoComplete="new-password"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <Input
-                        label="Endpoint (opcional)"
-                        value={credentials[provider].endpoint}
-                        onChange={(e) => updateCred(provider, 'endpoint', e.target.value)}
-                        placeholder="https://..."
-                      />
-                    </div>
-                  </div>
+                  <SecretReferenceInput
+                    label="API Key reference"
+                    value={credentials[provider].apiKey}
+                    onChange={(v) => updateCred(provider, 'apiKey', v)}
+                  />
+                  <Input
+                    label="Endpoint (opcional)"
+                    value={credentials[provider].endpoint}
+                    onChange={(e) => updateCred(provider, 'endpoint', e.target.value)}
+                    placeholder="https://..."
+                  />
                 </div>
               )
             })}
