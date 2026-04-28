@@ -1,9 +1,9 @@
 namespace EfsAiHub.Core.Abstractions.Projects;
 
 /// <summary>
-/// Configuração LLM por projeto: credenciais por provider e defaults de modelo.
-/// As ApiKeys são armazenadas cifradas no banco (via IDataProtector) e
-/// descriptografadas pelo repositório antes de retornar ao domínio.
+/// Configuração LLM por projeto: referências AWS Secrets Manager por provider
+/// e defaults de modelo. ApiKey carrega a referência (`secret://aws/...`); a
+/// resolução do valor real acontece em runtime via ISecretResolver.
 /// </summary>
 public sealed record ProjectLlmConfig
 {
@@ -21,20 +21,15 @@ public sealed record ProjectLlmConfig
 }
 
 /// <summary>
-/// Credenciais de um provider específico para um projeto.
-/// ApiKey contém o valor em plaintext no domínio; a persistência cuida da cifragem.
+/// Credenciais de um provider específico para um projeto. ApiKey carrega a
+/// referência AWS Secrets Manager (formato `secret://aws/...`). O valor é
+/// resolvido em runtime pelo ISecretResolver.
 /// </summary>
 public sealed record ProviderCredentials
 {
-    /// <summary>API Key em plaintext. Null = usar credencial global do appsettings.</summary>
+    /// <summary>Referência AWS Secrets Manager. Null = usar credencial global do appsettings.</summary>
     public string? ApiKey { get; init; }
 
     /// <summary>Endpoint customizado. Null = usar endpoint global do appsettings.</summary>
     public string? Endpoint { get; init; }
-
-    /// <summary>
-    /// Timestamp de quando a ApiKey foi cifrada — usado para rastrear rotação de keys.
-    /// Preenchido automaticamente pelo repositório ao persistir.
-    /// </summary>
-    public string? KeyVersion { get; init; }
 }

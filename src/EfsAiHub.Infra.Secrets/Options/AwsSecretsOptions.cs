@@ -14,8 +14,6 @@ public sealed class AwsSecretsOptions
 
     public int L1MaxEntries { get; set; } = 500;
 
-    public bool EnableLegacyDpapi { get; set; } = true;
-
     public string CacheKeyPrefix { get; set; } = "secret:";
 
     public string? HealthCheckCanaryReference { get; set; }

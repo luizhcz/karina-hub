@@ -14,12 +14,11 @@ const AWS_PREFIX = 'secret://aws/'
 export function EvaluationSettingsSection({ existing, onChange }: Props) {
   const initial: FoundryEvaluationSettings = existing?.foundry ?? {}
 
-  // Backend retorna a referência AWS verbatim quando começa com `secret://`,
-  // e mascara legacy literal como "***". Detectamos pra pre-popular o input
-  // ou exibir o banner de legacy DPAPI.
+  // Backend retorna a referência AWS verbatim. Literais legacy não voltam mais
+  // (response devolve null), então o input começa vazio e o operador é forçado
+  // a recadastrar com uma referência válida.
   const initialRef = initial.apiKeyRef ?? ''
   const isAwsRef = initialRef.startsWith(AWS_PREFIX)
-  const isLegacyLiteral = initialRef === '***'
 
   const [enabled, setEnabled] = useState(initial.enabled ?? false)
   const [endpoint, setEndpoint] = useState(initial.endpoint ?? '')
@@ -40,7 +39,6 @@ export function EvaluationSettingsSection({ existing, onChange }: Props) {
       && !trimmedKey
       && !trimmedProjectEndpoint
       && !isAwsRef
-      && !isLegacyLiteral
 
     if (noUserInput) {
       onChange(undefined)
@@ -57,7 +55,7 @@ export function EvaluationSettingsSection({ existing, onChange }: Props) {
         projectEndpoint: trimmedProjectEndpoint || null,
       },
     })
-  }, [enabled, endpoint, modelDeployment, apiKey, projectEndpoint, isAwsRef, isLegacyLiteral, onChange])
+  }, [enabled, endpoint, modelDeployment, apiKey, projectEndpoint, isAwsRef, onChange])
 
   return (
     <Card title="Avaliação (Foundry-as-Judge)">
@@ -94,7 +92,6 @@ export function EvaluationSettingsSection({ existing, onChange }: Props) {
           label="API key (AWS Secrets Manager reference)"
           value={apiKey}
           onChange={setApiKey}
-          legacyDpapi={isLegacyLiteral}
         />
         <div>
           <Input

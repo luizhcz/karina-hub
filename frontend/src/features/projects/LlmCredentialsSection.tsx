@@ -74,30 +74,9 @@ export function LlmCredentialsSection({ existing, onChange }: Props) {
   }
 
   const anyConfigured = PROVIDERS.some((p) => existing?.credentials?.[p]?.apiKeySet)
-  const legacyProviders = PROVIDERS.filter((p) => existing?.credentials?.[p]?.legacyDpapi)
-  const anyLegacy = legacyProviders.length > 0
 
   return (
     <Card title="Configuração LLM">
-      {anyLegacy && (
-        <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3">
-          <div className="flex items-start gap-3">
-            <span className="text-amber-400 text-lg leading-none">⚠</span>
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-amber-300">
-                Credenciais em formato legacy (DPAPI)
-              </p>
-              <p className="text-xs text-amber-300/80 mt-1">
-                {legacyProviders.length === 1 ? 'O provider' : 'Os providers'}{' '}
-                <span className="font-mono">{legacyProviders.join(', ')}</span>{' '}
-                {legacyProviders.length === 1 ? 'ainda usa' : 'ainda usam'} criptografia local.
-                Recadastre apontando uma referência <code>secret://aws/...</code> no AWS Secrets
-                Manager para finalizar a migração.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
       <div className="flex flex-col gap-4">
         <div className="flex gap-3">
           <div className="flex flex-col gap-1 flex-1 min-w-0">
@@ -136,9 +115,6 @@ export function LlmCredentialsSection({ existing, onChange }: Props) {
           {anyConfigured && (
             <span className="ml-1 px-1.5 py-0.5 bg-accent-blue/20 text-accent-blue rounded text-[10px]">configurado</span>
           )}
-          {anyLegacy && (
-            <span className="ml-1 px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded text-[10px]">legacy DPAPI</span>
-          )}
         </button>
 
         {open && (
@@ -149,11 +125,8 @@ export function LlmCredentialsSection({ existing, onChange }: Props) {
                 <div key={provider} className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-text-secondary">{provider}</span>
-                    {existingCred?.apiKeySet && !existingCred.legacyDpapi && (
+                    {existingCred?.apiKeySet && (
                       <span className="text-[10px] px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded">AWS Secrets Manager</span>
-                    )}
-                    {existingCred?.legacyDpapi && (
-                      <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded">legacy DPAPI</span>
                     )}
                   </div>
                   <SecretReferenceInput

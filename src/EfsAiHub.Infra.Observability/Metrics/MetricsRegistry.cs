@@ -379,10 +379,6 @@ public static class MetricsRegistry
         _meter.CreateHistogram<double>("secrets.resolution_latency_ms", unit: "ms",
             description: "Latência de resolução de secret. Tags: cache_layer (L1|L2|aws).");
 
-    public static readonly Counter<long> SecretsLegacyDpapiResolutions =
-        _meter.CreateCounter<long>("secrets.legacy_dpapi_resolutions_total",
-            description: "Resoluções de credencial legacy DPAPI. Zera quando todos os projetos forem recadastrados via AWS Secrets Manager.");
-
     public static readonly Counter<long> SecretsLiteralDetected =
         _meter.CreateCounter<long>("secrets.literal_detected_total",
             description: "Valor literal (não-referência) chegou ao resolver. Indica que algum caminho ainda passa credencial em claro.");

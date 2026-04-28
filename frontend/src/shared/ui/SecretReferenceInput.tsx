@@ -10,8 +10,6 @@ interface SecretReferenceInputProps {
   onChange: (value: string) => void
   placeholder?: string
   disabled?: boolean
-  /** Quando true, mostra banner amarelo de "Legacy DPAPI credential — recadastrar". */
-  legacyDpapi?: boolean
 }
 
 const AWS_PREFIX = 'secret://aws/'
@@ -22,7 +20,6 @@ export function SecretReferenceInput({
   onChange,
   placeholder = 'secret://aws/efs-ai-hub/...',
   disabled,
-  legacyDpapi,
 }: SecretReferenceInputProps) {
   const [validation, setValidation] = useState<SecretValidateResponse | null>(null)
   const validate = useValidateSecret()
@@ -53,14 +50,6 @@ export function SecretReferenceInput({
 
   return (
     <div className="flex flex-col gap-2">
-      {legacyDpapi && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-          <strong>Legacy credential.</strong> Esta credencial está em formato DPAPI legacy.
-          Recadastre apontando uma referência <code>{AWS_PREFIX}…</code> para migrar pro
-          AWS Secrets Manager.
-        </div>
-      )}
-
       <div className="flex items-end gap-2">
         <div className="flex-1">
           <Input

@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using EfsAiHub.Core.Abstractions.Projects;
 using EfsAiHub.Core.Abstractions.Secrets;
-using Microsoft.AspNetCore.DataProtection;
 using Npgsql;
 
 namespace EfsAiHub.Infra.Persistence.Postgres;
@@ -10,26 +9,23 @@ namespace EfsAiHub.Infra.Persistence.Postgres;
 public sealed class PgProjectRepository : IProjectRepository
 {
     private readonly NpgsqlDataSource _dataSource;
-    private readonly IDataProtector _protector;
 
-    // DTO interno para o JSONB. `secretRef` é o formato novo (referência AWS
-    // Secrets Manager). `apiKeyCipher` é o formato legacy DPAPI — mantido em
-    // read-path até cleanup (PR 5) pra coexistência durante recadastro manual.
+    // DTO interno para o JSONB. Apenas `secretRef` (referência AWS Secrets
+    // Manager) é gravado/lido — campos legacy DPAPI (`apiKeyCipher`,
+    // `keyVersion`) permanecem ignorados em registros antigos por compat
+    // de deserialização, mas não são mais retornados ao domínio.
     private sealed record CredentialJson(
-        [property: JsonPropertyName("apiKeyCipher")] string? ApiKeyCipher,
-        [property: JsonPropertyName("keyVersion")]   string? KeyVersion,
-        [property: JsonPropertyName("endpoint")]     string? Endpoint,
-        [property: JsonPropertyName("secretRef")]    string? SecretRef = null);
+        [property: JsonPropertyName("endpoint")]   string? Endpoint,
+        [property: JsonPropertyName("secretRef")]  string? SecretRef = null);
 
     private sealed record LlmConfigJson(
         [property: JsonPropertyName("credentials")]    Dictionary<string, CredentialJson>? Credentials,
         [property: JsonPropertyName("defaultModel")]   string? DefaultModel,
         [property: JsonPropertyName("defaultProvider")] string? DefaultProvider);
 
-    public PgProjectRepository(NpgsqlDataSource dataSource, IDataProtectionProvider dpProvider)
+    public PgProjectRepository(NpgsqlDataSource dataSource)
     {
         _dataSource = dataSource;
-        _protector  = dpProvider.CreateProtector("ProjectLlmCredentials");
     }
 
     public async Task<Project?> GetByIdAsync(string projectId, CancellationToken ct = default)
@@ -154,36 +150,19 @@ public sealed class PgProjectRepository : IProjectRepository
     }
 
     /// <summary>
-    /// Serializa ProjectLlmConfig para JSON. Refs AWS (`secret://aws/...`) vão
-    /// verbatim em `secretRef`; literais (caminho legacy de testes/migração)
-    /// continuam cifrados com DPAPI em `apiKeyCipher`. Após PR 5, write-path
-    /// passa a aceitar somente refs.
+    /// Serializa ProjectLlmConfig para JSON. Apenas refs AWS (`secret://aws/...`)
+    /// são aceitas — write-path com literal é bloqueado upstream pelo
+    /// ProjectsController.ValidateSecretReferences.
     /// </summary>
-    private string? SerializeLlmConfig(ProjectLlmConfig? config)
+    private static string? SerializeLlmConfig(ProjectLlmConfig? config)
     {
         if (config is null) return null;
 
         var jsonCreds = new Dictionary<string, CredentialJson>();
         foreach (var (provider, cred) in config.Credentials)
         {
-            string? cipher = null;
-            string? keyVersion = null;
-            string? secretRef = null;
-
-            if (!string.IsNullOrEmpty(cred.ApiKey))
-            {
-                if (SecretReference.IsAwsReference(cred.ApiKey))
-                {
-                    secretRef  = cred.ApiKey;
-                    keyVersion = DateTime.UtcNow.ToString("O");
-                }
-                else
-                {
-                    cipher     = _protector.Protect(cred.ApiKey);
-                    keyVersion = DateTime.UtcNow.ToString("O");
-                }
-            }
-            jsonCreds[provider] = new CredentialJson(cipher, keyVersion, cred.Endpoint, secretRef);
+            string? secretRef = SecretReference.IsAwsReference(cred.ApiKey) ? cred.ApiKey : null;
+            jsonCreds[provider] = new CredentialJson(cred.Endpoint, secretRef);
         }
 
         var jsonConfig = new LlmConfigJson(jsonCreds, config.DefaultModel, config.DefaultProvider);
@@ -191,12 +170,11 @@ public sealed class PgProjectRepository : IProjectRepository
     }
 
     /// <summary>
-    /// Desserializa JSONB do banco. Prefere `secretRef` (formato novo —
-    /// retorna verbatim pro ISecretResolver tratar). Fallback decifra
-    /// `apiKeyCipher` legacy DPAPI; se o key ring rotacionou, ApiKey fica
-    /// null sem quebrar startup.
+    /// Desserializa JSONB do banco. Apenas `secretRef` é lido — registros
+    /// legacy DPAPI (`apiKeyCipher`) ficam com ApiKey null e devem ser
+    /// recadastrados via UI.
     /// </summary>
-    private ProjectLlmConfig? DeserializeLlmConfig(string json)
+    private static ProjectLlmConfig? DeserializeLlmConfig(string json)
     {
         var jsonConfig = JsonSerializer.Deserialize<LlmConfigJson>(json, JsonDefaults.Domain);
         if (jsonConfig is null) return null;
@@ -204,23 +182,10 @@ public sealed class PgProjectRepository : IProjectRepository
         var creds = new Dictionary<string, ProviderCredentials>();
         foreach (var (provider, jsonCred) in jsonConfig.Credentials ?? [])
         {
-            string? apiKey = null;
-
-            if (!string.IsNullOrEmpty(jsonCred.SecretRef))
-            {
-                apiKey = jsonCred.SecretRef;
-            }
-            else if (!string.IsNullOrEmpty(jsonCred.ApiKeyCipher))
-            {
-                try { apiKey = _protector.Unprotect(jsonCred.ApiKeyCipher); }
-                catch { /* key ring rotacionada — ApiKey irrecuperável, retorna null */ }
-            }
-
             creds[provider] = new ProviderCredentials
             {
-                ApiKey     = apiKey,
-                Endpoint   = jsonCred.Endpoint,
-                KeyVersion = jsonCred.KeyVersion
+                ApiKey   = string.IsNullOrEmpty(jsonCred.SecretRef) ? null : jsonCred.SecretRef,
+                Endpoint = jsonCred.Endpoint
             };
         }
 

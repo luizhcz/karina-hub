@@ -4,12 +4,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 export interface ProviderCredentialsResponse {
   apiKeySet: boolean
-  /** Referência AWS Secrets Manager (`secret://aws/...`) quando aplicável; null em legacy DPAPI. */
+  /** Referência AWS Secrets Manager (`secret://aws/...`). */
   secretRef?: string | null
-  /** True quando a credencial está em formato DPAPI legacy — UI mostra nudge de recadastro. */
-  legacyDpapi?: boolean
   endpoint?: string
-  keyVersion?: string
 }
 
 export interface ProjectLlmConfigResponse {

@@ -26,28 +26,23 @@ public sealed record ProjectResponse(
         p.CreatedAt,
         p.UpdatedAt);
 
-    // Mascara apiKeyRef quando é literal (não começa com "secret://").
-    // Mesmo padrão de ProjectLlmConfigResponse: chave nunca volta no response.
+    // Apenas referências AWS Secrets Manager voltam verbatim. Literais legacy
+    // (ainda presentes em registros antigos) retornam null — operador é forçado
+    // a recadastrar via UI com uma referência válida.
     private static ProjectSettings Sanitize(ProjectSettings s)
     {
         if (s.Evaluation?.Foundry is not { } foundry) return s;
-        var masked = foundry with
+        var sanitized = foundry with
         {
-            ApiKeyRef = string.IsNullOrEmpty(foundry.ApiKeyRef)
-                ? null
-                : (foundry.ApiKeyRef.StartsWith("secret://", StringComparison.Ordinal)
-                    ? foundry.ApiKeyRef
-                    : "***")
+            ApiKeyRef = SecretReference.IsAwsReference(foundry.ApiKeyRef) ? foundry.ApiKeyRef : null
         };
-        return s with { Evaluation = s.Evaluation! with { Foundry = masked } };
+        return s with { Evaluation = s.Evaluation! with { Foundry = sanitized } };
     }
 }
 
 /// <summary>
 /// LlmConfig exposto na resposta. Refs AWS Secrets Manager voltam verbatim em
-/// <see cref="ProviderCredentialsResponse.SecretRef"/>; literais legacy DPAPI
-/// não voltam (apenas <see cref="ProviderCredentialsResponse.LegacyDpapi"/> = true
-/// pra UI mostrar nudge de recadastro).
+/// <see cref="ProviderCredentialsResponse.SecretRef"/>.
 /// </summary>
 public sealed record ProjectLlmConfigResponse(
     Dictionary<string, ProviderCredentialsResponse>? Credentials,
@@ -62,25 +57,19 @@ public sealed record ProjectLlmConfigResponse(
             kvp =>
             {
                 var apiKey = kvp.Value.ApiKey;
-                var hasKey = !string.IsNullOrEmpty(apiKey);
-                var isAwsRef = hasKey && SecretReference.IsAwsReference(apiKey);
+                var isAwsRef = !string.IsNullOrEmpty(apiKey) && SecretReference.IsAwsReference(apiKey);
                 return new ProviderCredentialsResponse(
-                    ApiKeySet: hasKey,
+                    ApiKeySet: isAwsRef,
                     SecretRef: isAwsRef ? apiKey : null,
-                    LegacyDpapi: hasKey && !isAwsRef,
-                    Endpoint: kvp.Value.Endpoint,
-                    KeyVersion: kvp.Value.KeyVersion);
+                    Endpoint: kvp.Value.Endpoint);
             });
         return new ProjectLlmConfigResponse(creds, config.DefaultModel, config.DefaultProvider);
     }
 }
 
 public sealed record ProviderCredentialsResponse(
-    /// <summary>True se alguma credencial está configurada (AWS ref OU literal legacy).</summary>
+    /// <summary>True quando há referência AWS Secrets Manager configurada.</summary>
     bool ApiKeySet,
-    /// <summary>Referência AWS Secrets Manager (`secret://aws/...`) quando aplicável; null em legacy DPAPI.</summary>
+    /// <summary>Referência AWS Secrets Manager (`secret://aws/...`).</summary>
     string? SecretRef,
-    /// <summary>True quando a credencial ainda está em formato DPAPI legacy — UI deve mostrar nudge de recadastro.</summary>
-    bool LegacyDpapi,
-    string? Endpoint,
-    string? KeyVersion);
+    string? Endpoint);

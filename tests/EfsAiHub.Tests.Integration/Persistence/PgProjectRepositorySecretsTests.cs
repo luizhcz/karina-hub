@@ -1,5 +1,4 @@
 using EfsAiHub.Core.Abstractions.Projects;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
@@ -44,13 +43,16 @@ public class PgProjectRepositorySecretsTests(IntegrationWebApplicationFactory fa
     }
 
     [Fact]
-    public async Task LiteralLegacy_DpapiRoundTrip_StillWorks()
+    public async Task LiteralApiKey_NaoPersistido_RetornaApiKeyNull()
     {
-        var project = MakeProject($"proj-dpapi-{Guid.NewGuid():N}", new ProjectLlmConfig
+        // Após PR 5, write-path ignora literais — apenas refs AWS são gravadas.
+        // A camada controller já bloqueia literais com 400; este teste documenta
+        // que se um literal escapar pra repository, ele simplesmente não persiste.
+        var project = MakeProject($"proj-literal-{Guid.NewGuid():N}", new ProjectLlmConfig
         {
             Credentials = new Dictionary<string, ProviderCredentials>
             {
-                ["OPENAI"] = new() { ApiKey = "sk-test-literal-legacy", Endpoint = "https://e.example" }
+                ["OPENAI"] = new() { ApiKey = "sk-literal", Endpoint = "https://e.example" }
             }
         });
 
@@ -58,39 +60,12 @@ public class PgProjectRepositorySecretsTests(IntegrationWebApplicationFactory fa
         var fetched = await Repo.GetByIdAsync(project.Id);
 
         fetched.Should().NotBeNull();
-        fetched!.LlmConfig!.Credentials["OPENAI"].ApiKey.Should().Be("sk-test-literal-legacy");
+        fetched!.LlmConfig!.Credentials["OPENAI"].ApiKey.Should().BeNull();
+        fetched.LlmConfig.Credentials["OPENAI"].Endpoint.Should().Be("https://e.example");
     }
 
     [Fact]
-    public async Task Coexistence_TwoProjects_SecretRefAndDpapi_BothResolveCorrectly()
-    {
-        var newProject = MakeProject($"proj-new-{Guid.NewGuid():N}", new ProjectLlmConfig
-        {
-            Credentials = new Dictionary<string, ProviderCredentials>
-            {
-                ["OPENAI"] = new() { ApiKey = "secret://aws/efs-co-new" }
-            }
-        });
-        var legacyProject = MakeProject($"proj-legacy-{Guid.NewGuid():N}", new ProjectLlmConfig
-        {
-            Credentials = new Dictionary<string, ProviderCredentials>
-            {
-                ["OPENAI"] = new() { ApiKey = "sk-co-legacy" }
-            }
-        });
-
-        await Repo.CreateAsync(newProject);
-        await Repo.CreateAsync(legacyProject);
-
-        var newFetched = await Repo.GetByIdAsync(newProject.Id);
-        var legacyFetched = await Repo.GetByIdAsync(legacyProject.Id);
-
-        newFetched!.LlmConfig!.Credentials["OPENAI"].ApiKey.Should().Be("secret://aws/efs-co-new");
-        legacyFetched!.LlmConfig!.Credentials["OPENAI"].ApiKey.Should().Be("sk-co-legacy");
-    }
-
-    [Fact]
-    public async Task SecretRef_PersistedInJsonbField_NotInApiKeyCipher()
+    public async Task SecretRef_PersistedInJsonbField()
     {
         var project = MakeProject($"proj-jsonb-{Guid.NewGuid():N}", new ProjectLlmConfig
         {
@@ -113,6 +88,6 @@ public class PgProjectRepositorySecretsTests(IntegrationWebApplicationFactory fa
         raw.Should().NotBeNull();
         raw.Should().Contain("secretRef");
         raw.Should().Contain("efs-jsonb-check");
-        raw.Should().NotContain("apiKeyCipher\":\"C");
+        raw.Should().NotContain("apiKeyCipher");
     }
 }
