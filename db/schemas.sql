@@ -810,3 +810,417 @@ CREATE TRIGGER trg_blocklist_groups_changed
     AFTER INSERT OR UPDATE OR DELETE ON aihub.blocklist_pattern_groups
     FOR EACH STATEMENT
     EXECUTE FUNCTION aihub.notify_blocklist_changed();
+
+-- =============================================================================
+-- 21. AVALIAÇÃO DE AGENTES — TEST SETS (header + versions imutáveis + cases)
+--
+-- Ver docs/adr/0015-evaluation-subsystem-architecture.md.
+--
+-- Padrão: header mutável + versions append-only com ContentHash idempotente
+-- (mesmo de agent_versions/workflow_versions). Cases em tabela separada para
+-- paginação na UI, FK em evaluation_results, e índice por tag pra subset eval.
+--
+-- Visibility alinhado com workflow_definitions (project|global). Default
+-- 'project' — Visibility='global' exige permissão admin no controller.
+--
+-- ROLLBACK ORDER (em caso de necessidade — ver kill-switch operacional no
+-- plano de implementação):
+--   DROP VIEW evaluation_runs_with_progress;
+--   DROP TABLE evaluation_results, evaluation_run_progress, evaluation_runs,
+--              evaluator_config_versions, evaluator_configs,
+--              evaluation_test_cases, evaluation_test_set_versions,
+--              evaluation_test_sets;
+--   ALTER TABLE agent_definitions DROP COLUMN "RegressionTestSetId",
+--                                 DROP COLUMN "RegressionEvaluatorConfigVersionId",
+--                                 DROP COLUMN "RegressionBudgetUsdCap";
+--   ALTER TABLE llm_token_usage DROP COLUMN "Metadata";
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.evaluation_test_sets (
+    "Id"               VARCHAR(64)  NOT NULL,
+    "ProjectId"        VARCHAR(128) NOT NULL DEFAULT 'default',
+    "Visibility"       VARCHAR(32)  NOT NULL DEFAULT 'project',  -- project | global
+    "Name"             VARCHAR(256) NOT NULL,
+    "Description"      VARCHAR(1024) NULL,
+    "CurrentVersionId" VARCHAR(64)  NULL,                        -- aponta pra last Published
+    "CreatedAt"        TIMESTAMPTZ  NOT NULL,
+    "UpdatedAt"        TIMESTAMPTZ  NOT NULL,
+    "CreatedBy"        VARCHAR(256) NULL,
+    CONSTRAINT "PK_evaluation_test_sets" PRIMARY KEY ("Id"),
+    CONSTRAINT "CK_evaluation_test_sets_Visibility"
+        CHECK ("Visibility" IN ('project', 'global'))
+);
+
+CREATE INDEX IF NOT EXISTS "IX_evaluation_test_sets_ProjectId"
+    ON aihub.evaluation_test_sets ("ProjectId");
+
+CREATE INDEX IF NOT EXISTS "IX_evaluation_test_sets_Visibility"
+    ON aihub.evaluation_test_sets ("Visibility")
+    WHERE "Visibility" = 'global';
+
+CREATE TABLE IF NOT EXISTS aihub.evaluation_test_set_versions (
+    "TestSetVersionId" VARCHAR(64)   NOT NULL,
+    "TestSetId"        VARCHAR(64)   NOT NULL,
+    "Revision"         INTEGER       NOT NULL,
+    "Status"           VARCHAR(32)   NOT NULL,                   -- Draft | Published | Deprecated
+    "ContentHash"      VARCHAR(128)  NOT NULL,
+    "CreatedAt"        TIMESTAMPTZ   NOT NULL,
+    "CreatedBy"        VARCHAR(256)  NULL,
+    "ChangeReason"     VARCHAR(1024) NULL,
+    CONSTRAINT "PK_evaluation_test_set_versions" PRIMARY KEY ("TestSetVersionId"),
+    CONSTRAINT "FK_evaluation_test_set_versions_TestSetId"
+        FOREIGN KEY ("TestSetId") REFERENCES aihub.evaluation_test_sets("Id") ON DELETE CASCADE,
+    CONSTRAINT "CK_evaluation_test_set_versions_Status"
+        CHECK ("Status" IN ('Draft', 'Published', 'Deprecated'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "UX_evaluation_test_set_versions_TestSetId_Revision"
+    ON aihub.evaluation_test_set_versions ("TestSetId", "Revision");
+
+-- Idempotência: race em publish concorrente do mesmo conteúdo é no-op.
+-- Excluindo Deprecated permite re-publish do mesmo conteúdo após deprecate.
+CREATE UNIQUE INDEX IF NOT EXISTS "UX_evaluation_test_set_versions_TestSetId_ContentHash"
+    ON aihub.evaluation_test_set_versions ("TestSetId", "ContentHash")
+    WHERE "Status" != 'Deprecated';
+
+CREATE INDEX IF NOT EXISTS "IX_evaluation_test_set_versions_TestSetId"
+    ON aihub.evaluation_test_set_versions ("TestSetId");
+
+CREATE TABLE IF NOT EXISTS aihub.evaluation_test_cases (
+    "CaseId"             VARCHAR(64)  NOT NULL,
+    "TestSetVersionId"   VARCHAR(64)  NOT NULL,
+    "Index"              INTEGER      NOT NULL,
+    "Input"              TEXT         NOT NULL,
+    "ExpectedOutput"     TEXT         NULL,
+    "ExpectedToolCalls"  JSONB        NULL,                      -- array de {name, argsSchema?}
+    "Tags"               TEXT[]       NOT NULL DEFAULT '{}',
+    "Weight"             DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+    "CreatedAt"          TIMESTAMPTZ  NOT NULL,
+    CONSTRAINT "PK_evaluation_test_cases" PRIMARY KEY ("CaseId"),
+    CONSTRAINT "FK_evaluation_test_cases_TestSetVersionId"
+        FOREIGN KEY ("TestSetVersionId") REFERENCES aihub.evaluation_test_set_versions("TestSetVersionId") ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "UX_evaluation_test_cases_TestSetVersionId_Index"
+    ON aihub.evaluation_test_cases ("TestSetVersionId", "Index");
+
+CREATE INDEX IF NOT EXISTS "IX_evaluation_test_cases_TestSetVersionId"
+    ON aihub.evaluation_test_cases ("TestSetVersionId");
+
+-- Subset eval por tag.
+CREATE INDEX IF NOT EXISTS "IX_evaluation_test_cases_Tags"
+    ON aihub.evaluation_test_cases USING GIN ("Tags");
+
+-- =============================================================================
+-- 22. AVALIAÇÃO DE AGENTES — EVALUATOR CONFIGS (header + versions imutáveis)
+--
+-- Header mutável (mesmo padrão de agent_definitions) + version append-only
+-- com ContentHash idempotente. EvaluationRun pina EvaluatorConfigVersionId
+-- (snapshot) — mudar bindings cria nova revision, não reescreve histórico.
+--
+-- Bindings: array JSONB de EvaluatorBinding {kind, name, params, enabled,
+-- weight, bindingIndex}. Splitter como TEXT (mapeado para enum
+-- SplitterStrategy em código). NumRepetitions=3 por default (Zheng et al.
+-- 2023 — varianza de judge LLM ~0.1, n=1 mascara regressão).
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.evaluator_configs (
+    "Id"                VARCHAR(64)  NOT NULL,
+    "AgentDefinitionId" VARCHAR(256) NOT NULL,
+    "Name"              VARCHAR(256) NOT NULL,
+    "CurrentVersionId"  VARCHAR(64)  NULL,
+    "CreatedAt"         TIMESTAMPTZ  NOT NULL,
+    "UpdatedAt"         TIMESTAMPTZ  NOT NULL,
+    "CreatedBy"         VARCHAR(256) NULL,
+    CONSTRAINT "PK_evaluator_configs" PRIMARY KEY ("Id"),
+    CONSTRAINT "FK_evaluator_configs_AgentDefinitionId"
+        FOREIGN KEY ("AgentDefinitionId") REFERENCES aihub.agent_definitions("Id") ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "IX_evaluator_configs_AgentDefinitionId"
+    ON aihub.evaluator_configs ("AgentDefinitionId");
+
+CREATE TABLE IF NOT EXISTS aihub.evaluator_config_versions (
+    "EvaluatorConfigVersionId" VARCHAR(64)   NOT NULL,
+    "EvaluatorConfigId"        VARCHAR(64)   NOT NULL,
+    "Revision"                 INTEGER       NOT NULL,
+    "Status"                   VARCHAR(32)   NOT NULL,           -- Draft | Published | Deprecated
+    "ContentHash"              VARCHAR(128)  NOT NULL,
+    "Bindings"                 JSONB         NOT NULL DEFAULT '[]', -- array de EvaluatorBinding
+    "Splitter"                 VARCHAR(32)   NOT NULL DEFAULT 'LastTurn', -- LastTurn | Full | PerTurn
+    "NumRepetitions"           INTEGER       NOT NULL DEFAULT 3,
+    "CreatedAt"                TIMESTAMPTZ   NOT NULL,
+    "CreatedBy"                VARCHAR(256)  NULL,
+    "ChangeReason"             VARCHAR(1024) NULL,
+    CONSTRAINT "PK_evaluator_config_versions" PRIMARY KEY ("EvaluatorConfigVersionId"),
+    CONSTRAINT "FK_evaluator_config_versions_EvaluatorConfigId"
+        FOREIGN KEY ("EvaluatorConfigId") REFERENCES aihub.evaluator_configs("Id") ON DELETE CASCADE,
+    CONSTRAINT "CK_evaluator_config_versions_Status"
+        CHECK ("Status" IN ('Draft', 'Published', 'Deprecated')),
+    CONSTRAINT "CK_evaluator_config_versions_Splitter"
+        CHECK ("Splitter" IN ('LastTurn', 'Full', 'PerTurn')),
+    CONSTRAINT "CK_evaluator_config_versions_NumRepetitions"
+        CHECK ("NumRepetitions" >= 1 AND "NumRepetitions" <= 10)
+);
+
+-- Cleanup do removido conceito de budget no evaluation (decisão arquitetural).
+ALTER TABLE aihub.evaluator_config_versions
+    DROP CONSTRAINT IF EXISTS "CK_evaluator_config_versions_BudgetUsdCap";
+ALTER TABLE aihub.evaluator_config_versions
+    DROP COLUMN IF EXISTS "BudgetUsdCap";
+
+CREATE UNIQUE INDEX IF NOT EXISTS "UX_evaluator_config_versions_ConfigId_Revision"
+    ON aihub.evaluator_config_versions ("EvaluatorConfigId", "Revision");
+
+CREATE INDEX IF NOT EXISTS "IX_evaluator_config_versions_EvaluatorConfigId"
+    ON aihub.evaluator_config_versions ("EvaluatorConfigId");
+
+CREATE INDEX IF NOT EXISTS "IX_evaluator_config_versions_ContentHash"
+    ON aihub.evaluator_config_versions ("ContentHash");
+
+-- =============================================================================
+-- 23. AVALIAÇÃO DE AGENTES — RUNS + PROGRESS (contadores rolling em tabela
+--     auxiliar para evitar hot row contention).
+--
+-- evaluation_runs é o header pinado: AgentVersionId + TestSetVersionId +
+-- EvaluatorConfigVersionId fazem dela reproducível. BaselineRunId aponta
+-- pra última run Completed no mesmo tuple (rastreabilidade de regressão).
+--
+-- evaluation_run_progress: contadores rolling em tabela separada — INSERT
+-- ON CONFLICT DO UPDATE col = col + EXCLUDED.col reduz lock contention ~90%
+-- vs UPDATE evaluation_runs SET cases_completed = cases_completed + 1.
+--
+-- Idempotência do autotrigger: unique index parcial em (AgentVersionId)
+-- WHERE TriggerSource='AgentVersionPublished' AND Status IN ('Pending',
+-- 'Running', 'Completed') — re-publish da mesma version é no-op.
+--
+-- LastHeartbeatAt: usado pelo EvaluationReaperService (PR 2) para marcar
+-- runs Running sem heartbeat há > 5min como Failed (stale recovery).
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.evaluation_runs (
+    "RunId"                      VARCHAR(64)   NOT NULL,
+    "ProjectId"                  VARCHAR(128)  NOT NULL DEFAULT 'default',
+    "AgentDefinitionId"          VARCHAR(256)  NOT NULL,
+    "AgentVersionId"             VARCHAR(64)   NOT NULL,         -- snapshot pinado
+    "TestSetVersionId"           VARCHAR(64)   NOT NULL,         -- snapshot pinado
+    "EvaluatorConfigVersionId"   VARCHAR(64)   NOT NULL,         -- snapshot pinado
+    "BaselineRunId"              VARCHAR(64)   NULL,             -- última Completed no mesmo tuple
+    "Status"                     VARCHAR(32)   NOT NULL DEFAULT 'Pending',
+    "Priority"                   INTEGER       NOT NULL DEFAULT 0, -- Manual=0, AgentVersionPublished=10
+    "TriggeredBy"                VARCHAR(256)  NULL,             -- userId nullable em autotrigger
+    "TriggerSource"              VARCHAR(32)   NOT NULL,         -- Manual | AgentVersionPublished | ApiClient
+    "TriggerContext"             JSONB         NULL,             -- {agent_version_id, published_by, foundry_endpoint_snapshot}
+    "ExecutionId"                VARCHAR(128)  NOT NULL,         -- "eval:{RunId}"
+    "CasesTotal"                 INTEGER       NOT NULL DEFAULT 0,
+    "StartedAt"                  TIMESTAMPTZ   NULL,
+    "CompletedAt"                TIMESTAMPTZ   NULL,
+    "LastHeartbeatAt"            TIMESTAMPTZ   NULL,
+    "LastError"                  VARCHAR(2048) NULL,
+    "CreatedAt"                  TIMESTAMPTZ   NOT NULL,
+    CONSTRAINT "PK_evaluation_runs" PRIMARY KEY ("RunId"),
+    CONSTRAINT "FK_evaluation_runs_AgentVersionId"
+        FOREIGN KEY ("AgentVersionId") REFERENCES aihub.agent_versions("AgentVersionId"),
+    CONSTRAINT "FK_evaluation_runs_TestSetVersionId"
+        FOREIGN KEY ("TestSetVersionId") REFERENCES aihub.evaluation_test_set_versions("TestSetVersionId"),
+    CONSTRAINT "FK_evaluation_runs_EvaluatorConfigVersionId"
+        FOREIGN KEY ("EvaluatorConfigVersionId") REFERENCES aihub.evaluator_config_versions("EvaluatorConfigVersionId"),
+    CONSTRAINT "FK_evaluation_runs_BaselineRunId"
+        FOREIGN KEY ("BaselineRunId") REFERENCES aihub.evaluation_runs("RunId"),
+    CONSTRAINT "CK_evaluation_runs_Status"
+        CHECK ("Status" IN ('Pending', 'Running', 'Completed', 'Failed', 'Cancelled')),
+    CONSTRAINT "CK_evaluation_runs_TriggerSource"
+        CHECK ("TriggerSource" IN ('Manual', 'AgentVersionPublished', 'ApiClient'))
+);
+
+CREATE INDEX IF NOT EXISTS "IX_evaluation_runs_AgentDefinitionId_CreatedAt"
+    ON aihub.evaluation_runs ("AgentDefinitionId", "CreatedAt" DESC);
+
+CREATE INDEX IF NOT EXISTS "IX_evaluation_runs_Status_Priority_CreatedAt"
+    ON aihub.evaluation_runs ("Status", "Priority", "CreatedAt")
+    WHERE "Status" IN ('Pending', 'Running');
+
+CREATE INDEX IF NOT EXISTS "IX_evaluation_runs_LastHeartbeatAt"
+    ON aihub.evaluation_runs ("LastHeartbeatAt")
+    WHERE "Status" = 'Running';
+
+CREATE INDEX IF NOT EXISTS "IX_evaluation_runs_ProjectId"
+    ON aihub.evaluation_runs ("ProjectId");
+
+-- Idempotência do autotrigger: re-publish da mesma AgentVersion é no-op.
+-- Cancelled e Failed ficam de fora (permite re-trigger após falha).
+CREATE UNIQUE INDEX IF NOT EXISTS "UX_evaluation_runs_Autotrigger"
+    ON aihub.evaluation_runs ("AgentVersionId")
+    WHERE "TriggerSource" = 'AgentVersionPublished'
+      AND "Status" IN ('Pending', 'Running', 'Completed');
+
+CREATE TABLE IF NOT EXISTS aihub.evaluation_run_progress (
+    "RunId"          VARCHAR(64)   NOT NULL,
+    "CasesCompleted" INTEGER       NOT NULL DEFAULT 0,
+    "CasesPassed"    INTEGER       NOT NULL DEFAULT 0,
+    "CasesFailed"    INTEGER       NOT NULL DEFAULT 0,
+    "AvgScore"       NUMERIC(5,4)  NULL,                         -- 0..1
+    "TotalCostUsd"   NUMERIC(12,6) NOT NULL DEFAULT 0,
+    "TotalTokens"    BIGINT        NOT NULL DEFAULT 0,
+    "LastUpdated"    TIMESTAMPTZ   NOT NULL,
+    CONSTRAINT "PK_evaluation_run_progress" PRIMARY KEY ("RunId"),
+    CONSTRAINT "FK_evaluation_run_progress_RunId"
+        FOREIGN KEY ("RunId") REFERENCES aihub.evaluation_runs("RunId") ON DELETE CASCADE
+);
+
+-- =============================================================================
+-- 24. AVALIAÇÃO DE AGENTES — RESULTS (1:N por case+evaluator+binding+repetition)
+--
+-- PK composta com BindingIndex permite o mesmo evaluator (ex.: KeywordCheck)
+-- declarado 2x na config com keyword sets diferentes — sem colisão.
+--
+-- JudgeModel registrado para detecção de self-enhancement bias (banner UI
+-- alerta quando judge_model e agent_model pertencem à mesma família).
+--
+-- OutputContent truncado a 8KB (mesmo limite do TokenTrackingChatClient).
+-- Output integral em llm_token_usage.OutputContent correlacionado por
+-- ExecutionId='eval:{RunId}'.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.evaluation_results (
+    "ResultId"           VARCHAR(64)   NOT NULL,
+    "RunId"              VARCHAR(64)   NOT NULL,
+    "CaseId"             VARCHAR(64)   NOT NULL,
+    "EvaluatorName"      VARCHAR(128)  NOT NULL,
+    "BindingIndex"       INTEGER       NOT NULL DEFAULT 0,
+    "RepetitionIndex"    INTEGER       NOT NULL DEFAULT 0,
+    "Score"              NUMERIC(5,4)  NULL,                     -- 0..1
+    "Passed"             BOOLEAN       NOT NULL DEFAULT FALSE,
+    "Reason"             TEXT          NULL,                     -- explicação do judge
+    "OutputContent"      TEXT          NULL,                     -- truncado 8KB
+    "JudgeModel"         VARCHAR(128)  NULL,                     -- ex.: gpt-4o, claude-sonnet-4
+    "LatencyMs"          DOUBLE PRECISION NULL,
+    "CostUsd"            NUMERIC(12,6) NULL,
+    "InputTokens"        INTEGER       NULL,
+    "OutputTokens"       INTEGER       NULL,
+    "EvaluatorMetadata"  JSONB         NULL,                     -- payload bruto MEAI/Foundry
+    "CreatedAt"          TIMESTAMPTZ   NOT NULL,
+    CONSTRAINT "PK_evaluation_results" PRIMARY KEY ("RunId", "CaseId", "EvaluatorName", "BindingIndex", "RepetitionIndex"),
+    CONSTRAINT "FK_evaluation_results_RunId"
+        FOREIGN KEY ("RunId") REFERENCES aihub.evaluation_runs("RunId") ON DELETE CASCADE,
+    CONSTRAINT "FK_evaluation_results_CaseId"
+        FOREIGN KEY ("CaseId") REFERENCES aihub.evaluation_test_cases("CaseId")
+);
+
+CREATE INDEX IF NOT EXISTS "IX_evaluation_results_RunId"
+    ON aihub.evaluation_results ("RunId");
+
+CREATE INDEX IF NOT EXISTS "IX_evaluation_results_RunId_Passed"
+    ON aihub.evaluation_results ("RunId", "Passed");
+
+CREATE INDEX IF NOT EXISTS "IX_evaluation_results_CaseId"
+    ON aihub.evaluation_results ("CaseId");
+
+-- ResultId não é PK por si só (PK composta cobre unicidade) mas usado em
+-- referências externas (ex.: link direto pra row no UI). Unique adicional.
+CREATE UNIQUE INDEX IF NOT EXISTS "UX_evaluation_results_ResultId"
+    ON aihub.evaluation_results ("ResultId");
+
+-- =============================================================================
+-- 25. AVALIAÇÃO DE AGENTES — VIEW agregada (read path)
+--
+-- Read path da UI faz JOIN com run_progress pra ler contadores rolling sem
+-- bater na hot row do evaluation_runs.
+-- =============================================================================
+
+-- DROP necessário pra remover a coluna BudgetUsdCap removida em 25.x
+-- (CREATE OR REPLACE não permite drop de colunas).
+DROP VIEW IF EXISTS aihub.evaluation_runs_with_progress;
+CREATE VIEW aihub.evaluation_runs_with_progress AS
+SELECT
+    r."RunId",
+    r."ProjectId",
+    r."AgentDefinitionId",
+    r."AgentVersionId",
+    r."TestSetVersionId",
+    r."EvaluatorConfigVersionId",
+    r."BaselineRunId",
+    r."Status",
+    r."Priority",
+    r."TriggeredBy",
+    r."TriggerSource",
+    r."TriggerContext",
+    r."ExecutionId",
+    r."CasesTotal",
+    r."StartedAt",
+    r."CompletedAt",
+    r."LastHeartbeatAt",
+    r."LastError",
+    r."CreatedAt",
+    COALESCE(p."CasesCompleted", 0) AS "CasesCompleted",
+    COALESCE(p."CasesPassed",    0) AS "CasesPassed",
+    COALESCE(p."CasesFailed",    0) AS "CasesFailed",
+    p."AvgScore",
+    COALESCE(p."TotalCostUsd",   0) AS "TotalCostUsd",
+    COALESCE(p."TotalTokens",    0) AS "TotalTokens",
+    p."LastUpdated"                 AS "ProgressLastUpdated"
+FROM aihub.evaluation_runs r
+LEFT JOIN aihub.evaluation_run_progress p ON p."RunId" = r."RunId";
+
+-- =============================================================================
+-- 26. AVALIAÇÃO DE AGENTES — extensão de agent_definitions (regression config)
+--
+-- Colunas opcionais para autotrigger em publish de AgentVersion. Quando
+-- RegressionTestSetId IS NULL, autotrigger é no-op (warning UI, sem block).
+-- Todas NULLABLE para safe rolling deploy (instâncias antigas sem mapping
+-- ignoram colunas).
+-- =============================================================================
+
+ALTER TABLE aihub.agent_definitions
+    ADD COLUMN IF NOT EXISTS "RegressionTestSetId" VARCHAR(64) NULL,
+    ADD COLUMN IF NOT EXISTS "RegressionEvaluatorConfigVersionId" VARCHAR(64) NULL;
+
+-- Cleanup do removido conceito de budget no evaluation (decisão arquitetural).
+ALTER TABLE aihub.agent_definitions
+    DROP COLUMN IF EXISTS "RegressionBudgetUsdCap";
+
+-- Drop também a coluna na evaluation_runs.
+ALTER TABLE aihub.evaluation_runs
+    DROP COLUMN IF EXISTS "BudgetUsdCap";
+
+-- FKs adicionadas após colunas (idempotente — DO $$ ... $$ guard contra duplicar
+-- constraint quando schemas.sql é re-aplicado).
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'FK_agent_definitions_RegressionTestSetId'
+    ) THEN
+        ALTER TABLE aihub.agent_definitions
+            ADD CONSTRAINT "FK_agent_definitions_RegressionTestSetId"
+            FOREIGN KEY ("RegressionTestSetId")
+            REFERENCES aihub.evaluation_test_sets("Id")
+            ON DELETE SET NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'FK_agent_definitions_RegressionEvaluatorConfigVersionId'
+    ) THEN
+        ALTER TABLE aihub.agent_definitions
+            ADD CONSTRAINT "FK_agent_definitions_RegressionEvaluatorConfigVersionId"
+            FOREIGN KEY ("RegressionEvaluatorConfigVersionId")
+            REFERENCES aihub.evaluator_config_versions("EvaluatorConfigVersionId")
+            ON DELETE SET NULL;
+    END IF;
+END $$;
+
+-- =============================================================================
+-- 27. AVALIAÇÃO DE AGENTES — extensão de llm_token_usage (metadata genérico)
+--
+-- Coluna metadata JSONB para tagging cross-cutting. Eval persiste com
+-- {"source":"evaluation","run_id":"..."} para correlação. Outros usos
+-- futuros (replay, sandbox flag explícito) cabem aqui sem ALTER novo.
+-- =============================================================================
+
+ALTER TABLE aihub.llm_token_usage
+    ADD COLUMN IF NOT EXISTS "Metadata" JSONB NULL;
+
+CREATE INDEX IF NOT EXISTS "IX_llm_token_usage_Metadata_source"
+    ON aihub.llm_token_usage (("Metadata"->>'source'))
+    WHERE "Metadata" IS NOT NULL;

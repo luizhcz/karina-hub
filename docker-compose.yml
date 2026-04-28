@@ -83,6 +83,15 @@ services:
       # OpenTelemetry (desabilitado por padrão no compose — sem collector)
       OpenTelemetry__OtlpEndpoint: ""
 
+      # Azure Identity (Service Principal) — obrigatório só para evaluators
+      # Foundry Safety (Violence/Sexual/SelfHarm/HateAndUnfairness) que usam
+      # ContentSafetyServiceConfiguration via DefaultAzureCredential.
+      # Sem essas vars, Safety bindings são pulados com warning.
+      # SP precisa ter role "Cognitive Services User" ou "AI Developer" no Foundry Project.
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+
     depends_on:
       postgres:
         condition: service_healthy

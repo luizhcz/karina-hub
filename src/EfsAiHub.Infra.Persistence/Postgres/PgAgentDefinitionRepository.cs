@@ -87,7 +87,12 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
                 Data = data,
                 ProjectId = definition.ProjectId,
                 CreatedAt = now,
-                UpdatedAt = now
+                UpdatedAt = now,
+                // ADR 0015 — propaga as 3 colunas regression. Sem isso o
+                // AgentRegressionConfigController.Update salvaria silenciosamente
+                // só o Data JSON e o autotrigger nunca dispararia.
+                RegressionTestSetId = definition.RegressionTestSetId,
+                RegressionEvaluatorConfigVersionId = definition.RegressionEvaluatorConfigVersionId
             });
         }
         else
@@ -95,6 +100,8 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
             existing.Name = definition.Name;
             existing.Data = data;
             existing.UpdatedAt = now;
+            existing.RegressionTestSetId = definition.RegressionTestSetId;
+            existing.RegressionEvaluatorConfigVersionId = definition.RegressionEvaluatorConfigVersionId;
         }
 
         await ctx.SaveChangesAsync(ct);

@@ -276,6 +276,22 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentIntelligenceService, EfsAiHub.Platform.Runtime.Services.DocumentIntelligenceService>();
         services.AddSingleton<EfsAiHub.Platform.Runtime.Functions.DocumentIntelligenceFunctions>();
 
+        // Evaluation subsystem repositories (ADR 0015)
+        services.AddSingleton<EfsAiHub.Core.Agents.Evaluation.IEvaluationTestSetRepository,
+            EfsAiHub.Infra.Persistence.Postgres.PgEvaluationTestSetRepository>();
+        services.AddSingleton<EfsAiHub.Core.Agents.Evaluation.IEvaluationTestSetVersionRepository,
+            EfsAiHub.Infra.Persistence.Postgres.PgEvaluationTestSetVersionRepository>();
+        services.AddSingleton<EfsAiHub.Core.Agents.Evaluation.IEvaluationTestCaseRepository,
+            EfsAiHub.Infra.Persistence.Postgres.PgEvaluationTestCaseRepository>();
+        services.AddSingleton<EfsAiHub.Core.Agents.Evaluation.IEvaluatorConfigRepository,
+            EfsAiHub.Infra.Persistence.Postgres.PgEvaluatorConfigRepository>();
+        services.AddSingleton<EfsAiHub.Core.Agents.Evaluation.IEvaluatorConfigVersionRepository,
+            EfsAiHub.Infra.Persistence.Postgres.PgEvaluatorConfigVersionRepository>();
+        services.AddSingleton<EfsAiHub.Core.Agents.Evaluation.IEvaluationRunRepository,
+            EfsAiHub.Infra.Persistence.Postgres.PgEvaluationRunRepository>();
+        services.AddSingleton<EfsAiHub.Core.Agents.Evaluation.IEvaluationResultRepository,
+            EfsAiHub.Infra.Persistence.Postgres.PgEvaluationResultRepository>();
+
         return services;
     }
 
@@ -403,6 +419,26 @@ public static class ServiceCollectionExtensions
         // Background Service Registry — propagamos as opções pra refletir o que foi
         // efetivamente registrado (intervalos reais + gating do CrossNodeCoordinator).
         services.AddBackgroundServiceRegistry(engineOpts);
+
+        // Evaluation subsystem (ADR 0015)
+        services.Configure<EfsAiHub.Platform.Runtime.Evaluation.EvaluationOptions>(
+            configuration.GetSection(EfsAiHub.Platform.Runtime.Evaluation.EvaluationOptions.SectionName));
+        // INVARIANTE: IAgentFactory resolve para AgentFactory concreta.
+        // EvaluationRunnerService usa CreateBareAgentAsync (não exposto na
+        // interface). Decorar IAgentFactory quebra este cast em runtime.
+        services.AddScoped<EfsAiHub.Platform.Runtime.Factories.AgentFactory>(sp =>
+            (EfsAiHub.Platform.Runtime.Factories.AgentFactory)sp.GetRequiredService<IAgentFactory>());
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Evaluation.EvaluatorFactory>();
+        // FoundryJudgeClientFactory: Singleton para compartilhar cache (por
+        // projectId, TTL 5min) entre runs/scopes.
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Evaluation.IFoundryJudgeClientFactory,
+            EfsAiHub.Platform.Runtime.Evaluation.FoundryJudgeClientFactory>();
+        services.AddScoped<EfsAiHub.Platform.Runtime.Evaluation.IEvaluationService,
+            EfsAiHub.Platform.Runtime.Evaluation.EvaluationService>();
+        services.AddScoped<EfsAiHub.Host.Api.Services.Evaluation.IAgentDefinitionApplicationService,
+            EfsAiHub.Host.Api.Services.Evaluation.AgentDefinitionApplicationService>();
+        services.AddHostedService<EfsAiHub.Host.Worker.Services.EvaluationRunnerService>();
+        services.AddHostedService<EfsAiHub.Host.Worker.Services.EvaluationReaperService>();
 
         return services;
     }

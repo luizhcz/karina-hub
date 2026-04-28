@@ -5,7 +5,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>EfsAiHub.Platform.Runtime</RootNamespace>
-    <NoWarn>$(NoWarn);MAAIW001</NoWarn>
+    <!-- MAAIW001: Microsoft.Agents.AI workflows preview API.
+         AIEVAL001: Microsoft.Extensions.AI.Evaluation preview API (alguns evaluators
+         como ToolCallAccuracy, TaskAdherence, IntentResolution estão [Experimental]
+         em 10.5.0). Suprimido conscientemente — pin exato de versão + contract tests
+         em PR 3 garantem que upgrade quebra build, não comportamento silencioso. -->
+    <NoWarn>$(NoWarn);MAAIW001;AIEVAL001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,9 +19,16 @@
 
   <ItemGroup>
     <PackageReference Include="Azure.AI.DocumentIntelligence" Version="1.0.0" />
-<PackageReference Include="Microsoft.Extensions.AI" Version="10.5.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.5.0" />
     <PackageReference Include="Microsoft.Agents.AI" Version="1.1.0" />
     <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.1.0" />
+    <!-- ADR 0015 — pin exato. Upgrade só com PR explícito (contract tests em
+         tests/Fixtures/meai_payload_v*.json validam que campos críticos
+         (score, reason) ainda mapeiam após bump). Safety está em preview porque
+         a versão GA ainda não foi publicada — quando sair, atualizar aqui. -->
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation" Version="10.5.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.5.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Safety" Version="10.5.0-preview.1.26213.4" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.6" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.6" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.6" />

@@ -12,10 +12,11 @@ import { AgentForm } from './components/AgentForm'
 import { PromptsPanel } from './components/PromptsPanel'
 import { VersionsPanel } from './components/VersionsPanel'
 import { SandboxPanel } from './components/SandboxPanel'
+import { AgentEvaluationsTab } from './evaluations/AgentEvaluationsTab'
 import type { AgentFormValues } from './types'
 import type { CreateAgentRequest } from '../../api/agents'
 
-type TabKey = 'config' | 'prompts' | 'versions' | 'sandbox'
+type TabKey = 'config' | 'prompts' | 'versions' | 'sandbox' | 'evaluations'
 
 interface AgentDetailPageProps {
   initialTab?: TabKey
@@ -103,6 +104,7 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
     { key: 'prompts', label: 'Prompts', badge: promptVersions?.length },
     { key: 'versions', label: 'Versoes' },
     { key: 'sandbox', label: 'Sandbox' },
+    { key: 'evaluations', label: 'Evaluations' },
   ]
 
   return (
@@ -142,6 +144,10 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
 
       <div style={{ display: activeTab === 'sandbox' ? 'block' : 'none' }}>
         <SandboxPanel agentId={id!} agentName={agent.name} />
+      </div>
+
+      <div style={{ display: activeTab === 'evaluations' ? 'block' : 'none' }}>
+        <AgentEvaluationsTab agentId={id!} />
       </div>
     </div>
   )

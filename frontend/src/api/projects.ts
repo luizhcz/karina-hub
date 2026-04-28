@@ -14,11 +14,43 @@ export interface ProjectLlmConfigResponse {
   defaultProvider?: string
 }
 
+export interface FoundryEvaluationSettings {
+  enabled?: boolean
+  endpoint?: string | null
+  modelDeployment?: string | null
+  // GET retorna "***" quando literal e prefixo "secret://..." quando referência.
+  apiKeyRef?: string | null
+  // Obrigatório só para evaluators Safety (Violence/Sexual/SelfHarm/HateAndUnfairness).
+  // Auth via DefaultAzureCredential.
+  projectEndpoint?: string | null
+}
+
+export interface EvaluationProjectSettings {
+  foundry?: FoundryEvaluationSettings | null
+}
+
+export interface ProjectSettings {
+  schemaVersion?: number
+  defaultProvider?: string | null
+  defaultModel?: string | null
+  defaultTemperature?: number | null
+  maxTokensPerDay?: number | null
+  maxCostUsdPerDay?: number | null
+  maxConcurrentExecutions?: number | null
+  maxRequestsPerMinute?: number | null
+  maxConversationsPerUser?: number | null
+  hitlEnabled?: boolean
+  backgroundResponsesEnabled?: boolean
+  maxSandboxTokensPerDay?: number | null
+  evaluation?: EvaluationProjectSettings | null
+}
+
 export interface Project {
   id: string
   name: string
   tenantId?: string
   description?: string
+  settings?: ProjectSettings
   llmConfig?: ProjectLlmConfigResponse
   createdAt?: string
   updatedAt?: string
@@ -35,15 +67,22 @@ export interface ProjectLlmConfigInput {
   defaultProvider?: string
 }
 
+// Mesmo shape de ProjectSettings do response — input total (PUT
+// substitui o objeto inteiro, então o caller precisa ler current
+// settings, mesclar mudanças, e enviar de volta).
+export type ProjectSettingsInput = ProjectSettings
+
 export interface CreateProjectRequest {
   name: string
   description?: string
+  settings?: ProjectSettingsInput
   llmConfig?: ProjectLlmConfigInput
 }
 
 export interface UpdateProjectRequest {
   name?: string
   description?: string
+  settings?: ProjectSettingsInput
   llmConfig?: ProjectLlmConfigInput
 }
 

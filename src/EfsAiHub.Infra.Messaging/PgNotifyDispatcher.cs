@@ -43,6 +43,13 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
     /// </summary>
     public const string BlocklistChangedChannel = "blocklist_changed";
 
+    /// <summary>
+    /// ADR 0015 — canal de cancel de eval run. Payload é o RunId. Permite
+    /// o runner sinalizar o CancellationTokenSource local em menos de 1s,
+    /// sem esperar o polling fallback de 5s.
+    /// </summary>
+    public const string EvalRunCancelledChannel = "eval_run_cancelled";
+
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<PgNotifyDispatcher> _logger;
 
@@ -59,6 +66,11 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
     // "catálogo mudou" para todos os pods refazerem fetch via repository.
     private readonly List<Func<Task>> _blocklistChangedHandlers = new();
     private readonly object _blocklistHandlersLock = new();
+
+    // ADR 0015 — handlers de eval_run_cancelled. Múltiplos handlers (1 por
+    // instância de runner) recebem todos; cada runner filtra internamente.
+    private readonly List<Func<string, Task>> _evalRunCancelledHandlers = new();
+    private readonly object _evalRunCancelledHandlersLock = new();
 
     private NpgsqlConnection? _conn;
     private Task? _listenLoop;
@@ -239,7 +251,7 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
             await using var cmd = _conn.CreateCommand();
             // LISTEN em todos os canais na mesma conn — Postgres aceita
             // múltiplos LISTEN numa sessão sem custo extra.
-            cmd.CommandText = $"LISTEN {ChannelName}; LISTEN {CacheInvalidateChannel}; LISTEN {BlocklistChangedChannel}";
+            cmd.CommandText = $"LISTEN {ChannelName}; LISTEN {CacheInvalidateChannel}; LISTEN {BlocklistChangedChannel}; LISTEN {EvalRunCancelledChannel}";
             await cmd.ExecuteNonQueryAsync(ct);
         }
         catch (Exception ex)
@@ -317,6 +329,12 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
             if (string.Equals(args.Channel, BlocklistChangedChannel, StringComparison.Ordinal))
             {
                 OnBlocklistChangedNotification();
+                return;
+            }
+
+            if (string.Equals(args.Channel, EvalRunCancelledChannel, StringComparison.Ordinal))
+            {
+                OnEvalRunCancelledNotification(args.Payload);
                 return;
             }
 
@@ -491,5 +509,67 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
         public string CacheName { get; set; } = "";
         public string Key { get; set; } = "";
         public string SourcePodId { get; set; } = "";
+    }
+
+    /// <summary>
+    /// ADR 0015 — registra handler para <c>eval_run_cancelled</c>. Payload
+    /// é o RunId em formato literal (sem JSON wrapper). Múltiplos handlers
+    /// recebem todos; cada runner filtra internamente.
+    /// </summary>
+    public IDisposable SubscribeEvalRunCancelled(Func<string, Task> handler)
+    {
+        lock (_evalRunCancelledHandlersLock)
+            _evalRunCancelledHandlers.Add(handler);
+
+        return new EvalRunCancelledSubscription(this, handler);
+    }
+
+    private void RemoveEvalRunCancelledHandler(Func<string, Task> handler)
+    {
+        lock (_evalRunCancelledHandlersLock)
+            _evalRunCancelledHandlers.Remove(handler);
+    }
+
+    private void OnEvalRunCancelledNotification(string payload)
+    {
+        if (Volatile.Read(ref _stopped) == 1) return;
+        if (string.IsNullOrEmpty(payload)) return;
+
+        Func<string, Task>[] snapshot;
+        lock (_evalRunCancelledHandlersLock) snapshot = _evalRunCancelledHandlers.ToArray();
+
+        foreach (var h in snapshot)
+        {
+            _ = Task.Run(async () =>
+            {
+                try { await h(payload); }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex,
+                        "[PgNotifyDispatcher] Handler de eval_run_cancelled falhou para runId={RunId}.",
+                        payload);
+                }
+            });
+        }
+    }
+
+    private sealed class EvalRunCancelledSubscription : IDisposable
+    {
+        private readonly PgNotifyDispatcher _dispatcher;
+        private readonly Func<string, Task> _handler;
+        private bool _disposed;
+
+        public EvalRunCancelledSubscription(PgNotifyDispatcher dispatcher, Func<string, Task> handler)
+        {
+            _dispatcher = dispatcher;
+            _handler = handler;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _dispatcher.RemoveEvalRunCancelledHandler(_handler);
+        }
     }
 }

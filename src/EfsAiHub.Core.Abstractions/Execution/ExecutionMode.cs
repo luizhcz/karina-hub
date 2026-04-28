@@ -1,19 +1,22 @@
 namespace EfsAiHub.Core.Abstractions.Execution;
 
 /// <summary>
-/// Modo de execução de um workflow/agente.
-/// Propagado via ExecutionContext (AsyncLocal) para que cada camada
-/// ajuste seu comportamento sem um filter centralizado.
+/// Modo de execução de um workflow/agente. Propagado via ExecutionContext (AsyncLocal).
 /// </summary>
 public enum ExecutionMode
 {
-    /// <summary>Execução normal com persistência, billing e métricas de produção.</summary>
     Production,
 
     /// <summary>
-    /// Execução sandbox/playground: LLM real, tools mockadas (via ToolMocker),
-    /// sem persistência de ChatMessage, métricas tagueadas mode=sandbox,
-    /// TokenUsage persiste com flag IsSandbox=true (para custo estimado).
+    /// Sandbox/playground: LLM real, tools mockadas, sem persistência de ChatMessage.
+    /// TokenUsage persiste com IsSandbox=true para custo estimado.
     /// </summary>
-    Sandbox
+    Sandbox,
+
+    /// <summary>
+    /// Eval run: LLM real, tools reais (ToolCalledCheck depende de tools executando),
+    /// sem persistência de ChatMessage. LlmTokenUsage persiste com
+    /// Metadata.source='evaluation' e ExecutionId='eval:{RunId}'. Custo conta no budget cap.
+    /// </summary>
+    Evaluation
 }

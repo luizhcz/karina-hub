@@ -49,8 +49,15 @@ public sealed class DefaultProjectGuard
             return;
         }
 
-        // Projeto "default" requer identidade admin
-        var identity = _identityResolver.TryResolve(context.Request.Headers, out _);
+        // Projeto "default" requer identidade admin.
+        // Para rotas SSE (path /stream), aceita query param fallback porque
+        // EventSource no browser não envia headers customizados. Restrito a
+        // /stream pra evitar vazar identidade em URLs de outras rotas.
+        var path = context.Request.Path.Value ?? string.Empty;
+        var isSseRoute = path.EndsWith("/stream", StringComparison.OrdinalIgnoreCase);
+        var identity = isSseRoute
+            ? _identityResolver.TryResolve(context.Request, out _)
+            : _identityResolver.TryResolve(context.Request.Headers, out _);
         if (identity != null && _adminAccountIds.Contains(identity.UserId))
         {
             await _next(context);

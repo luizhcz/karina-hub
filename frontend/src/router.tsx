@@ -57,6 +57,10 @@ import { ProjectCreatePage } from './features/projects/ProjectCreatePage'
 import { ProjectEditPage } from './features/projects/ProjectEditPage'
 import { ProjectStatsPage } from './features/projects/ProjectStatsPage'
 import { ProjectBlocklistPage } from './features/projects/ProjectBlocklistPage'
+import { TestSetsListPage } from './features/evaluations/TestSetsListPage'
+import { TestSetEditorPage } from './features/evaluations/TestSetEditorPage'
+import { EvaluationRunDetailPage } from './features/evaluations/EvaluationRunDetailPage'
+import { RunComparePage } from './features/evaluations/RunComparePage'
 import { ConfigPage } from './features/config/ConfigPage'
 import { BackgroundJobsPage } from './features/background/BackgroundJobsPage'
 import { McpServersListPage } from './features/mcp/McpServersListPage'
@@ -87,6 +91,7 @@ export const router = createBrowserRouter([
           { path: 'agents/:id/versions', element: <AgentDetailPage initialTab="versions" /> },
           { path: 'agents/:id/sandbox', element: <AgentDetailPage initialTab="sandbox" /> },
           { path: 'agents/:id/prompts', element: <AgentDetailPage initialTab="prompts" /> },
+          { path: 'agents/:id/evaluations', element: <AgentDetailPage initialTab="evaluations" /> },
 
           { path: 'workflows', element: <WorkflowsListPage /> },
           { path: 'workflows/new', element: <WorkflowCreatePage /> },
@@ -152,6 +157,11 @@ export const router = createBrowserRouter([
           { path: 'admin/persona-templates/:id', element: <PersonaTemplateEditPage /> },
           { path: 'admin/persona-templates/:id/versions', element: <PersonaTemplateVersionsPage /> },
           { path: 'admin/persona-experiments', element: <PersonaExperimentsPage /> },
+
+          { path: 'evaluations/test-sets', element: <TestSetsListPage /> },
+          { path: 'evaluations/test-sets/:id', element: <TestSetEditorPage /> },
+          { path: 'evaluations/runs/:runId', element: <EvaluationRunDetailPage /> },
+          { path: 'evaluations/compare', element: <RunComparePage /> },
 
           { path: '*', element: <NotFound /> },
         ],

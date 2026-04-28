@@ -27,7 +27,18 @@ public sealed record ProjectSettingsInput(
     int? MaxConversationsPerUser,
     bool? HitlEnabled,
     bool? BackgroundResponsesEnabled,
-    int? MaxSandboxTokensPerDay);
+    int? MaxSandboxTokensPerDay,
+    EvaluationSettingsInput? Evaluation);
+
+public sealed record EvaluationSettingsInput(
+    FoundryEvaluationSettingsInput? Foundry);
+
+public sealed record FoundryEvaluationSettingsInput(
+    bool? Enabled,
+    string? Endpoint,
+    string? ModelDeployment,
+    string? ApiKeyRef,
+    string? ProjectEndpoint);
 
 /// <summary>
 /// Configuração LLM enviada pelo cliente. ApiKey é plaintext na request

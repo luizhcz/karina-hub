@@ -47,6 +47,20 @@ public class AgentDefinition
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
+    /// TestSet usado pelo autotrigger em publish de AgentVersion. Quando null,
+    /// autotrigger é no-op (warning UI sinalizando regression baseline missing,
+    /// sem bloquear o publish).
+    /// </summary>
+    public string? RegressionTestSetId { get; init; }
+
+    /// <summary>
+    /// Snapshot de EvaluatorConfig usado pelo autotrigger. Aponta para uma
+    /// version específica (não o header) — mudar bindings cria nova revision
+    /// sem invalidar histórico de runs.
+    /// </summary>
+    public string? RegressionEvaluatorConfigVersionId { get; init; }
+
+    /// <summary>
     /// Factory method validante. Única forma correta de construir em código imperativo.
     /// Para deserialização, use <c>new AgentDefinition { ... }</c> + <see cref="EnsureInvariants"/>.
     /// </summary>

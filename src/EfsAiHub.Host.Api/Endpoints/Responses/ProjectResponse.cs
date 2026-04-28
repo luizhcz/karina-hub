@@ -19,11 +19,27 @@ public sealed record ProjectResponse(
         p.Name,
         p.TenantId,
         p.Description,
-        p.Settings,
+        Sanitize(p.Settings),
         ProjectLlmConfigResponse.From(p.LlmConfig),
         p.Budget?.RootElement.Clone(),
         p.CreatedAt,
         p.UpdatedAt);
+
+    // Mascara apiKeyRef quando é literal (não começa com "secret://").
+    // Mesmo padrão de ProjectLlmConfigResponse: chave nunca volta no response.
+    private static ProjectSettings Sanitize(ProjectSettings s)
+    {
+        if (s.Evaluation?.Foundry is not { } foundry) return s;
+        var masked = foundry with
+        {
+            ApiKeyRef = string.IsNullOrEmpty(foundry.ApiKeyRef)
+                ? null
+                : (foundry.ApiKeyRef.StartsWith("secret://", StringComparison.Ordinal)
+                    ? foundry.ApiKeyRef
+                    : "***")
+        };
+        return s with { Evaluation = s.Evaluation! with { Foundry = masked } };
+    }
 }
 
 /// <summary>

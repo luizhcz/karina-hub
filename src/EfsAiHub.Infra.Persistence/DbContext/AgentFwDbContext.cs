@@ -26,6 +26,11 @@ internal class AgentDefinitionRow
     public string ProjectId { get; set; } = "default";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+
+    // ADR 0015 — regression config. NULLABLE pra rolling deploy: instâncias
+    // antigas sem mapping ignoram silenciosamente.
+    public string? RegressionTestSetId { get; set; }
+    public string? RegressionEvaluatorConfigVersionId { get; set; }
 }
 
 internal class ProjectRow
@@ -171,6 +176,8 @@ internal class LlmTokenUsageRow
     public DateTime CreatedAt { get; set; }
     public int? ExperimentId { get; set; }
     public string? ExperimentVariant { get; set; }  // 'A' | 'B' | null
+    // ADR 0015 — tagging cross-cutting (eval persiste source/run_id).
+    public string? Metadata { get; set; }
 }
 
 internal class ModelPricingRow
@@ -324,6 +331,129 @@ internal class AdminAuditLogRow
     public DateTime Timestamp { get; set; }
 }
 
+// ADR 0015 — Evaluation rows. PK strings VARCHAR alinha com AgentVersionRow/
+// WorkflowVersionRow. JSONB como string evita conversão dupla pelo EF.
+
+internal class EvaluationTestSetRow
+{
+    public string Id { get; set; } = "";
+    public string ProjectId { get; set; } = "default";
+    public string Visibility { get; set; } = "project";
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
+    public string? CurrentVersionId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public string? CreatedBy { get; set; }
+}
+
+internal class EvaluationTestSetVersionRow
+{
+    public string TestSetVersionId { get; set; } = "";
+    public string TestSetId { get; set; } = "";
+    public int Revision { get; set; }
+    public string Status { get; set; } = "Draft";
+    public string ContentHash { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+    public string? CreatedBy { get; set; }
+    public string? ChangeReason { get; set; }
+}
+
+internal class EvaluationTestCaseRow
+{
+    public string CaseId { get; set; } = "";
+    public string TestSetVersionId { get; set; } = "";
+    public int Index { get; set; }
+    public string Input { get; set; } = "";
+    public string? ExpectedOutput { get; set; }
+    public string? ExpectedToolCalls { get; set; } // JSONB serializado como string
+    public string[] Tags { get; set; } = Array.Empty<string>();
+    public double Weight { get; set; } = 1.0;
+    public DateTime CreatedAt { get; set; }
+}
+
+internal class EvaluatorConfigRow
+{
+    public string Id { get; set; } = "";
+    public string AgentDefinitionId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? CurrentVersionId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public string? CreatedBy { get; set; }
+}
+
+internal class EvaluatorConfigVersionRow
+{
+    public string EvaluatorConfigVersionId { get; set; } = "";
+    public string EvaluatorConfigId { get; set; } = "";
+    public int Revision { get; set; }
+    public string Status { get; set; } = "Draft";
+    public string ContentHash { get; set; } = "";
+    public string Bindings { get; set; } = "[]"; // JSONB array serializado
+    public string Splitter { get; set; } = "LastTurn";
+    public int NumRepetitions { get; set; } = 3;
+    public DateTime CreatedAt { get; set; }
+    public string? CreatedBy { get; set; }
+    public string? ChangeReason { get; set; }
+}
+
+internal class EvaluationRunRow
+{
+    public string RunId { get; set; } = "";
+    public string ProjectId { get; set; } = "default";
+    public string AgentDefinitionId { get; set; } = "";
+    public string AgentVersionId { get; set; } = "";
+    public string TestSetVersionId { get; set; } = "";
+    public string EvaluatorConfigVersionId { get; set; } = "";
+    public string? BaselineRunId { get; set; }
+    public string Status { get; set; } = "Pending";
+    public int Priority { get; set; }
+    public string? TriggeredBy { get; set; }
+    public string TriggerSource { get; set; } = "Manual";
+    public string? TriggerContext { get; set; } // JSONB serializado
+    public string ExecutionId { get; set; } = "";
+    public int CasesTotal { get; set; }
+    public DateTime? StartedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
+    public DateTime? LastHeartbeatAt { get; set; }
+    public string? LastError { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+internal class EvaluationRunProgressRow
+{
+    public string RunId { get; set; } = "";
+    public int CasesCompleted { get; set; }
+    public int CasesPassed { get; set; }
+    public int CasesFailed { get; set; }
+    public decimal? AvgScore { get; set; }
+    public decimal TotalCostUsd { get; set; }
+    public long TotalTokens { get; set; }
+    public DateTime LastUpdated { get; set; }
+}
+
+internal class EvaluationResultRow
+{
+    public string ResultId { get; set; } = "";
+    public string RunId { get; set; } = "";
+    public string CaseId { get; set; } = "";
+    public string EvaluatorName { get; set; } = "";
+    public int BindingIndex { get; set; }
+    public int RepetitionIndex { get; set; }
+    public decimal? Score { get; set; }
+    public bool Passed { get; set; }
+    public string? Reason { get; set; }
+    public string? OutputContent { get; set; }
+    public string? JudgeModel { get; set; }
+    public double? LatencyMs { get; set; }
+    public decimal? CostUsd { get; set; }
+    public int? InputTokens { get; set; }
+    public int? OutputTokens { get; set; }
+    public string? EvaluatorMetadata { get; set; } // JSONB serializado
+    public DateTime CreatedAt { get; set; }
+}
+
 public class AgentFwDbContext : DbContext
 {
     private readonly IProjectContextAccessor? _projectAccessor;
@@ -367,6 +497,14 @@ public class AgentFwDbContext : DbContext
     internal DbSet<AdminAuditLogRow> AdminAuditLogs => Set<AdminAuditLogRow>();
     internal DbSet<McpServerRow> McpServers => Set<McpServerRow>();
     internal DbSet<BackgroundResponseJobRow> BackgroundResponseJobs => Set<BackgroundResponseJobRow>();
+    internal DbSet<EvaluationTestSetRow> EvaluationTestSets => Set<EvaluationTestSetRow>();
+    internal DbSet<EvaluationTestSetVersionRow> EvaluationTestSetVersions => Set<EvaluationTestSetVersionRow>();
+    internal DbSet<EvaluationTestCaseRow> EvaluationTestCases => Set<EvaluationTestCaseRow>();
+    internal DbSet<EvaluatorConfigRow> EvaluatorConfigs => Set<EvaluatorConfigRow>();
+    internal DbSet<EvaluatorConfigVersionRow> EvaluatorConfigVersions => Set<EvaluatorConfigVersionRow>();
+    internal DbSet<EvaluationRunRow> EvaluationRuns => Set<EvaluationRunRow>();
+    internal DbSet<EvaluationRunProgressRow> EvaluationRunProgress => Set<EvaluationRunProgressRow>();
+    internal DbSet<EvaluationResultRow> EvaluationResults => Set<EvaluationResultRow>();
 
     private static JsonDocument ParseJsonDocument(string json)
         => JsonDocument.Parse(json, new JsonDocumentOptions());
@@ -480,6 +618,8 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
             b.Property(e => e.CreatedAt).IsRequired();
             b.Property(e => e.UpdatedAt).IsRequired();
+            b.Property(e => e.RegressionTestSetId).HasMaxLength(64);
+            b.Property(e => e.RegressionEvaluatorConfigVersionId).HasMaxLength(64);
             b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
         });
 
@@ -627,6 +767,7 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.CreatedAt).IsRequired();
             b.Property(e => e.ExperimentId);
             b.Property(e => e.ExperimentVariant).HasMaxLength(1);
+            b.Property(e => e.Metadata).HasColumnType("jsonb");
             b.HasIndex(e => e.AgentId);
             b.HasIndex(e => e.ExecutionId);
             b.HasIndex(e => e.CreatedAt);
@@ -849,6 +990,160 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => new { e.ActorUserId, e.Timestamp })
              .HasDatabaseName("IX_admin_audit_log_ActorUserId_Timestamp")
              .IsDescending(false, true);
+        });
+
+        modelBuilder.Entity<EvaluationTestSetRow>(b =>
+        {
+            b.ToTable("evaluation_test_sets");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(64);
+            b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
+            b.Property(e => e.Visibility).HasMaxLength(32).HasDefaultValue("project");
+            b.Property(e => e.Name).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Description).HasMaxLength(1024);
+            b.Property(e => e.CurrentVersionId).HasMaxLength(64);
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.Property(e => e.CreatedBy).HasMaxLength(256);
+            b.HasIndex(e => e.ProjectId);
+            // Sem HasQueryFilter: lookup por ID exato (cross-project Copy) e
+            // ops admin precisam acessar testsets de qualquer project.
+            // Listagem project-scoped usa ListByProjectAsync explícito.
+        });
+
+        modelBuilder.Entity<EvaluationTestSetVersionRow>(b =>
+        {
+            b.ToTable("evaluation_test_set_versions");
+            b.HasKey(e => e.TestSetVersionId);
+            b.Property(e => e.TestSetVersionId).HasMaxLength(64);
+            b.Property(e => e.TestSetId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Revision).IsRequired();
+            b.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            b.Property(e => e.ContentHash).HasMaxLength(128).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.CreatedBy).HasMaxLength(256);
+            b.Property(e => e.ChangeReason).HasMaxLength(1024);
+            b.HasIndex(e => new { e.TestSetId, e.Revision }).IsUnique();
+            b.HasIndex(e => e.TestSetId);
+        });
+
+        modelBuilder.Entity<EvaluationTestCaseRow>(b =>
+        {
+            b.ToTable("evaluation_test_cases");
+            b.HasKey(e => e.CaseId);
+            b.Property(e => e.CaseId).HasMaxLength(64);
+            b.Property(e => e.TestSetVersionId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Index).IsRequired();
+            b.Property(e => e.Input).HasColumnType("text").IsRequired();
+            b.Property(e => e.ExpectedOutput).HasColumnType("text");
+            b.Property(e => e.ExpectedToolCalls).HasColumnType("jsonb");
+            b.Property(e => e.Tags).HasColumnType("text[]").IsRequired();
+            b.Property(e => e.Weight).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.HasIndex(e => new { e.TestSetVersionId, e.Index }).IsUnique();
+            b.HasIndex(e => e.TestSetVersionId);
+        });
+
+        modelBuilder.Entity<EvaluatorConfigRow>(b =>
+        {
+            b.ToTable("evaluator_configs");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(64);
+            b.Property(e => e.AgentDefinitionId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Name).HasMaxLength(256).IsRequired();
+            b.Property(e => e.CurrentVersionId).HasMaxLength(64);
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.Property(e => e.CreatedBy).HasMaxLength(256);
+            b.HasIndex(e => e.AgentDefinitionId);
+        });
+
+        modelBuilder.Entity<EvaluatorConfigVersionRow>(b =>
+        {
+            b.ToTable("evaluator_config_versions");
+            b.HasKey(e => e.EvaluatorConfigVersionId);
+            b.Property(e => e.EvaluatorConfigVersionId).HasMaxLength(64);
+            b.Property(e => e.EvaluatorConfigId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Revision).IsRequired();
+            b.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            b.Property(e => e.ContentHash).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Bindings).HasColumnType("jsonb").IsRequired();
+            b.Property(e => e.Splitter).HasMaxLength(32).IsRequired();
+            b.Property(e => e.NumRepetitions).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.CreatedBy).HasMaxLength(256);
+            b.Property(e => e.ChangeReason).HasMaxLength(1024);
+            b.HasIndex(e => new { e.EvaluatorConfigId, e.Revision }).IsUnique();
+            b.HasIndex(e => e.EvaluatorConfigId);
+            b.HasIndex(e => e.ContentHash);
+        });
+
+        modelBuilder.Entity<EvaluationRunRow>(b =>
+        {
+            b.ToTable("evaluation_runs");
+            b.HasKey(e => e.RunId);
+            b.Property(e => e.RunId).HasMaxLength(64);
+            b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
+            b.Property(e => e.AgentDefinitionId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.AgentVersionId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.TestSetVersionId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.EvaluatorConfigVersionId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.BaselineRunId).HasMaxLength(64);
+            b.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            b.Property(e => e.Priority).IsRequired();
+            b.Property(e => e.TriggeredBy).HasMaxLength(256);
+            b.Property(e => e.TriggerSource).HasMaxLength(32).IsRequired();
+            b.Property(e => e.TriggerContext).HasColumnType("jsonb");
+            b.Property(e => e.ExecutionId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.CasesTotal).IsRequired();
+            b.Property(e => e.LastError).HasMaxLength(2048);
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.HasIndex(e => new { e.AgentDefinitionId, e.CreatedAt })
+             .IsDescending(false, true)
+             .HasDatabaseName("IX_evaluation_runs_AgentDefinitionId_CreatedAt");
+            b.HasIndex(e => e.ProjectId);
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+        });
+
+        modelBuilder.Entity<EvaluationRunProgressRow>(b =>
+        {
+            b.ToTable("evaluation_run_progress");
+            b.HasKey(e => e.RunId);
+            b.Property(e => e.RunId).HasMaxLength(64);
+            b.Property(e => e.CasesCompleted).IsRequired();
+            b.Property(e => e.CasesPassed).IsRequired();
+            b.Property(e => e.CasesFailed).IsRequired();
+            b.Property(e => e.AvgScore).HasColumnType("numeric(5,4)");
+            b.Property(e => e.TotalCostUsd).HasColumnType("numeric(12,6)").IsRequired();
+            b.Property(e => e.TotalTokens).IsRequired();
+            b.Property(e => e.LastUpdated).IsRequired();
+        });
+
+        modelBuilder.Entity<EvaluationResultRow>(b =>
+        {
+            b.ToTable("evaluation_results");
+            b.HasKey(e => new { e.RunId, e.CaseId, e.EvaluatorName, e.BindingIndex, e.RepetitionIndex });
+            b.Property(e => e.ResultId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.RunId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.CaseId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.EvaluatorName).HasMaxLength(128).IsRequired();
+            b.Property(e => e.BindingIndex).IsRequired();
+            b.Property(e => e.RepetitionIndex).IsRequired();
+            b.Property(e => e.Score).HasColumnType("numeric(5,4)");
+            b.Property(e => e.Passed).IsRequired();
+            b.Property(e => e.Reason).HasColumnType("text");
+            b.Property(e => e.OutputContent).HasColumnType("text");
+            b.Property(e => e.JudgeModel).HasMaxLength(128);
+            b.Property(e => e.LatencyMs);
+            b.Property(e => e.CostUsd).HasColumnType("numeric(12,6)");
+            b.Property(e => e.InputTokens);
+            b.Property(e => e.OutputTokens);
+            b.Property(e => e.EvaluatorMetadata).HasColumnType("jsonb");
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.HasIndex(e => e.RunId);
+            b.HasIndex(e => new { e.RunId, e.Passed });
+            b.HasIndex(e => e.CaseId);
+            b.HasIndex(e => e.ResultId).IsUnique();
         });
     }
 }

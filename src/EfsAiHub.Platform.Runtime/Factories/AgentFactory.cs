@@ -119,6 +119,24 @@ public class AgentFactory : IAgentFactory
         return ExecutableWorkflow.FromAgent(await provider.CreateAgentAsync(definition, options, ct));
     }
 
+    /// <summary>Cria <see cref="IChatClient"/> bare com pipeline completo (sem wrapper de workflow) — usado pelo subsistema de avaliação.</summary>
+    public async Task<IChatClient> CreateBareAgentAsync(AgentDefinition definition, CancellationToken ct = default)
+    {
+        _logger.LogInformation(
+            "Creating bare agent '{AgentName}' (id: {AgentId}) for evaluation",
+            definition.Name, definition.Id);
+
+        DelegateExecutor.CurrentLogger.Value = _logger;
+
+        definition = await InjectProjectCredentials(definition, ct);
+        definition = await ResolveActivePrompt(definition, ct);
+        definition = await ResolveSkills(definition, ct);
+        await TrackAgentVersionAsync(definition.Id, ct);
+        var provider = ResolveProvider(definition);
+        var rawClient = provider.CreateChatClient(definition);
+        return WrapWithTokenTracking(rawClient, definition);
+    }
+
     public async Task<IReadOnlyDictionary<string, ExecutableWorkflow>> CreateAgentsForWorkflowAsync(
         WorkflowDefinition workflow, CancellationToken ct = default)
     {

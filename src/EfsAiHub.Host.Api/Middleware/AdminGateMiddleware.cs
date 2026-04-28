@@ -70,7 +70,14 @@ public sealed class AdminGateMiddleware
             return;
         }
 
-        var identity = _identityResolver.TryResolve(context.Request.Headers, out _);
+        // Rotas SSE (EventSource no browser não envia headers customizados):
+        // aceita identidade via query param como fallback. Restrito a /stream
+        // pra evitar vazar identidade em URLs de outras rotas.
+        var path = context.Request.Path.Value ?? string.Empty;
+        var isSseRoute = path.EndsWith("/stream", StringComparison.OrdinalIgnoreCase);
+        var identity = isSseRoute
+            ? _identityResolver.TryResolve(context.Request, out _)
+            : _identityResolver.TryResolve(context.Request.Headers, out _);
         if (identity != null && _adminAccountIds.Contains(identity.UserId))
         {
             await _next(context);

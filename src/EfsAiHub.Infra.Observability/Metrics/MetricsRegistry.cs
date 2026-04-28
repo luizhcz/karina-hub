@@ -283,4 +283,91 @@ public static class MetricsRegistry
     public static readonly Counter<long> PersonaExperimentOrphanedVariants =
         _meter.CreateCounter<long>("persona.experiment.orphaned_variants",
             description: "Experiments cuja variant aponta pra VersionId órfã. Tags: experiment_id.");
+
+    // ADR 0015 — Evaluation metrics. Tags low-cardinality apenas
+    // (agent_definition_name, trigger_source, evaluator_kind). agent_id UUID
+    // vai pra exemplars/structured logs, nunca como tag.
+
+    /// <summary>Duração total de uma eval run. Tags: agent_definition_name, status, trigger_source.</summary>
+    public static readonly Histogram<double> EvaluationsRunDurationMs =
+        _meter.CreateHistogram<double>("evaluations.run.duration_ms", unit: "ms",
+            description: "Duração de eval runs. Tags: agent_definition_name, status, trigger_source.");
+
+    /// <summary>Custo em USD por run. Tags: agent_definition_name, evaluator_kind.</summary>
+    public static readonly Histogram<double> EvaluationsRunCostUsd =
+        _meter.CreateHistogram<double>("evaluations.run.cost_usd",
+            description: "Custo (USD) por eval run. Tags: agent_definition_name, evaluator_kind.");
+
+    /// <summary>Score 0..1 por case+evaluator. Tags: agent_definition_name, evaluator_name.</summary>
+    public static readonly Histogram<double> EvaluationsCaseScore =
+        _meter.CreateHistogram<double>("evaluations.case.score",
+            description: "Score (0..1) por case+evaluator. Tags: agent_definition_name, evaluator_name.");
+
+    /// <summary>Runs disparadas. Tag: trigger_source (Manual|AgentVersionPublished|ApiClient).</summary>
+    public static readonly Counter<long> EvaluationsRunsTriggered =
+        _meter.CreateCounter<long>("evaluations.runs.triggered",
+            description: "Eval runs enfileiradas. Tag: trigger_source.");
+
+    public static readonly Counter<long> EvaluationsRunsStarted =
+        _meter.CreateCounter<long>("evaluations.runs.started",
+            description: "Eval runs que transitaram Pending→Running. Tag: trigger_source.");
+
+    public static readonly Counter<long> EvaluationsRunsCompleted =
+        _meter.CreateCounter<long>("evaluations.runs.completed",
+            description: "Eval runs Completed. Tag: trigger_source.");
+
+    public static readonly Counter<long> EvaluationsRunsFailed =
+        _meter.CreateCounter<long>("evaluations.runs.failed",
+            description: "Eval runs Failed. Tags: trigger_source, error_category.");
+
+    public static readonly Counter<long> EvaluationsRunsCancelled =
+        _meter.CreateCounter<long>("evaluations.runs.cancelled",
+            description: "Eval runs Cancelled pelo operador via API.");
+
+    /// <summary>
+    /// Pass rate caiu vs run anterior no mesmo (agent_def, testset_version,
+    /// evaluator_config_version). Threshold em ADR 0015. Tag: agent_definition_name.
+    /// </summary>
+    public static readonly Counter<long> EvaluationsRegressionDetected =
+        _meter.CreateCounter<long>("evaluations.regression.detected",
+            description: "Regressão detectada vs baseline run. Tag: agent_definition_name.");
+
+    /// <summary>
+    /// Handler de autotrigger crashou após publish do AgentVersion commitar
+    /// (enqueue de eval falhou). Não bloqueia publish; alerta operacional.
+    /// </summary>
+    public static readonly Counter<long> EvaluationsAutotriggerFailed =
+        _meter.CreateCounter<long>("evaluations.autotrigger.failed",
+            description: "Handler de autotrigger crashou ao tentar enqueue. Publish do AgentVersion não foi afetado.");
+
+    /// <summary>
+    /// Autotrigger no-op: AgentDefinition sem regression_test_set_id. Não é
+    /// falha — sinaliza nudge pro operador configurar baseline.
+    /// </summary>
+    public static readonly Counter<long> EvaluationsAutotriggerSkippedNoConfig =
+        _meter.CreateCounter<long>("evaluations.autotrigger.skipped_no_config",
+            description: "Autotrigger no-op: AgentDefinition sem regression_test_set_id configurado.");
+
+    /// <summary>Heartbeat age (segundos) do runner mais antigo Running. Gauge observável.</summary>
+    private static long _evaluationsHeartbeatAgeSeconds;
+    public static void SetEvaluationsHeartbeatAgeSeconds(long value) =>
+        Interlocked.Exchange(ref _evaluationsHeartbeatAgeSeconds, value);
+    public static readonly ObservableGauge<long> EvaluationsHeartbeatAgeSeconds =
+        _meter.CreateObservableGauge<long>("evaluations.runner.heartbeat_age_seconds",
+            () => Interlocked.Read(ref _evaluationsHeartbeatAgeSeconds),
+            description: "Idade em segundos do heartbeat mais antigo (run Running mais defasada).");
+
+    /// <summary>Profundidade da fila Pending. Gauge observável.</summary>
+    private static long _evaluationsQueueDepth;
+    public static void SetEvaluationsQueueDepth(long value) =>
+        Interlocked.Exchange(ref _evaluationsQueueDepth, value);
+    public static readonly ObservableGauge<long> EvaluationsQueueDepth =
+        _meter.CreateObservableGauge<long>("evaluations.run.queue_depth",
+            () => Interlocked.Read(ref _evaluationsQueueDepth),
+            description: "Eval runs em status Pending aguardando pickup do runner.");
+
+    /// <summary>Reaper marcou run Running como Failed por timeout de heartbeat.</summary>
+    public static readonly Counter<long> EvaluationsRunsReaped =
+        _meter.CreateCounter<long>("evaluations.runs.reaped",
+            description: "Runs Running sem heartbeat há > timeout marcadas Failed pelo reaper.");
 }

@@ -122,7 +122,25 @@ public class ProjectsController : ControllerBase
 
         if (request.Name is not null) project.Name = request.Name;
         if (request.Description is not null) project.Description = request.Description;
-        if (request.Settings is not null) project.Settings = MapSettings(request.Settings);
+        if (request.Settings is not null)
+        {
+            var newSettings = MapSettings(request.Settings);
+            // Preserva ApiKeyRef existente quando input vem vazio — mesmo princípio
+            // do LlmConfig (cliente edita endpoint sem reenviar chave).
+            if (newSettings.Evaluation?.Foundry is { } incoming
+                && string.IsNullOrEmpty(incoming.ApiKeyRef)
+                && project.Settings.Evaluation?.Foundry is { ApiKeyRef: { Length: > 0 } existing })
+            {
+                newSettings = newSettings with
+                {
+                    Evaluation = newSettings.Evaluation with
+                    {
+                        Foundry = incoming with { ApiKeyRef = existing }
+                    }
+                };
+            }
+            project.Settings = newSettings;
+        }
         if (request.LlmConfig is not null)
         {
             var newConfig = MapLlmConfig(request.LlmConfig);
@@ -202,7 +220,30 @@ public class ProjectsController : ControllerBase
             MaxConversationsPerUser = input.MaxConversationsPerUser,
             HitlEnabled = input.HitlEnabled ?? true,
             BackgroundResponsesEnabled = input.BackgroundResponsesEnabled ?? true,
-            MaxSandboxTokensPerDay = input.MaxSandboxTokensPerDay ?? 50_000
+            MaxSandboxTokensPerDay = input.MaxSandboxTokensPerDay ?? 50_000,
+            Evaluation = MapEvaluation(input.Evaluation)
+        };
+    }
+
+    private static EvaluationProjectSettings? MapEvaluation(EvaluationSettingsInput? input)
+    {
+        if (input is null) return null;
+        return new EvaluationProjectSettings
+        {
+            Foundry = MapFoundry(input.Foundry)
+        };
+    }
+
+    private static FoundryEvaluationSettings? MapFoundry(FoundryEvaluationSettingsInput? input)
+    {
+        if (input is null) return null;
+        return new FoundryEvaluationSettings
+        {
+            Enabled = input.Enabled ?? false,
+            Endpoint = string.IsNullOrWhiteSpace(input.Endpoint) ? null : input.Endpoint.Trim(),
+            ModelDeployment = string.IsNullOrWhiteSpace(input.ModelDeployment) ? null : input.ModelDeployment.Trim(),
+            ApiKeyRef = string.IsNullOrWhiteSpace(input.ApiKeyRef) ? null : input.ApiKeyRef.Trim(),
+            ProjectEndpoint = string.IsNullOrWhiteSpace(input.ProjectEndpoint) ? null : input.ProjectEndpoint.Trim()
         };
     }
 }
