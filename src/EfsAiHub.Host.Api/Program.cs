@@ -61,7 +61,28 @@ builder.Services.Configure<EfsAiHub.Platform.Runtime.Options.DocumentIntelligenc
     builder.Configuration.GetSection(EfsAiHub.Platform.Runtime.Options.DocumentIntelligenceOptions.SectionName));
 
 // ── Azure Identity ────────────────────────────────────────────────────────────
-builder.Services.AddSingleton<TokenCredential, DefaultAzureCredential>();
+// SP do Azure deve vir resolvido do AWS Secrets Manager (via Secrets:Bootstrap)
+// apontando 3 refs (TenantId/ClientId/ClientSecret). Sem isso, fail-fast.
+builder.Services.AddSingleton<TokenCredential>(sp =>
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    var tenantId     = config["Azure:ServicePrincipal:TenantId"];
+    var clientId     = config["Azure:ServicePrincipal:ClientId"];
+    var clientSecret = config["Azure:ServicePrincipal:ClientSecret"];
+
+    if (string.IsNullOrWhiteSpace(tenantId)
+        || string.IsNullOrWhiteSpace(clientId)
+        || string.IsNullOrWhiteSpace(clientSecret))
+    {
+        throw new InvalidOperationException(
+            "Azure Service Principal credentials missing. Configure the 3 keys " +
+            "Azure:ServicePrincipal:TenantId, Azure:ServicePrincipal:ClientId, " +
+            "Azure:ServicePrincipal:ClientSecret — em prod via Secrets:Bootstrap " +
+            "apontando refs AWS Secrets Manager; em dev via dotnet user-secrets " +
+            "ou appsettings.Development.json.");
+    }
+    return new ClientSecretCredential(tenantId, clientId, clientSecret);
+});
 
 // ── AWS Secrets Manager (resolver + cache 2-tier) ─────────────────────────────
 builder.Services.AddAwsSecretsManager(builder.Configuration);

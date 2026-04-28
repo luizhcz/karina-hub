@@ -57,7 +57,8 @@ services:
       ASPNETCORE_URLS: http://+:5189
       ASPNETCORE_HTTP_PORTS: ""
 
-      # PostgreSQL — uma linha só para evitar problemas de parsing YAML
+      # PostgreSQL — uma linha só para evitar problemas de parsing YAML.
+      # Em prod, mover pra Secrets:Bootstrap apontando ref AWS Secrets Manager.
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-efs_ai_hub};Username=${POSTGRES_USER:-efs_ai_hub};Password=${POSTGRES_PASSWORD};Search Path=aihub"
 
       # Redis
@@ -66,31 +67,26 @@ services:
       # CORS — permite o frontend via browser (origin = localhost:3000)
       Cors__AllowedOrigins__0: http://localhost:3000
 
-      # Azure AI Foundry
+      # Azure AI Foundry — endpoints/deployments NÃO são secrets, ApiKey vem
+      # de Secrets:Bootstrap (ref AWS) quando configurada.
       AzureAI__Endpoint: ${AZURE_AI_ENDPOINT:-https://efs-ai-hub-resource.services.ai.azure.com}
-      AzureAI__ApiKey: ${AZURE_AI_API_KEY:-}
       AzureAI__DefaultDeploymentName: ${AZURE_AI_DEFAULT_DEPLOYMENT:-gpt-4o}
 
-      # OpenAI
-      OpenAI__ApiKey: ${OPENAI_API_KEY}
+      # OpenAI — DefaultModel não é secret; ApiKey vem de Secrets:Bootstrap.
       OpenAI__DefaultModel: ${OPENAI_DEFAULT_MODEL:-gpt-4o}
 
-      # Document Intelligence
+      # Document Intelligence — endpoint não é secret; ApiKey vem de Secrets:Bootstrap.
       DocumentIntelligence__Endpoint: ${DOCUMENT_INTELLIGENCE_ENDPOINT:-https://efs-ai-hub-resource.cognitiveservices.azure.com}
-      DocumentIntelligence__ApiKey: ${DOCUMENT_INTELLIGENCE_API_KEY:-}
       DocumentIntelligence__UseManagedIdentity: "false"
 
       # OpenTelemetry (desabilitado por padrão no compose — sem collector)
       OpenTelemetry__OtlpEndpoint: ""
 
-      # Azure Identity (Service Principal) — obrigatório só para evaluators
-      # Foundry Safety (Violence/Sexual/SelfHarm/HateAndUnfairness) que usam
-      # ContentSafetyServiceConfiguration via DefaultAzureCredential.
-      # Sem essas vars, Safety bindings são pulados com warning.
-      # SP precisa ter role "Cognitive Services User" ou "AI Developer" no Foundry Project.
-      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
-      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
-      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      # AWS Secrets Manager — credentials via default chain (IAM role em prod,
+      # AWS_PROFILE em dev). AWS_REGION é obrigatório quando Secrets:Bootstrap
+      # tem entries.
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_PROFILE: ${AWS_PROFILE:-}
 
     depends_on:
       postgres:

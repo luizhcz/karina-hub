@@ -23,8 +23,9 @@ public static class AwsSecretsBootstrapExtensions
         IAmazonSecretsManager? client = null)
     {
         var bootstrapSection = manager.GetSection(BootstrapSection);
-        var entries = bootstrapSection.GetChildren()
-            .Select(c => new KeyValuePair<string, string?>(c.Key, c.Value))
+        // AsEnumerable retorna todas as leaves (incluindo nested colon-separated)
+        // com paths relativos à seção. Filtra placeholders vazios.
+        var entries = bootstrapSection.AsEnumerable(makePathsRelative: true)
             .Where(kv => !string.IsNullOrWhiteSpace(kv.Value))
             .ToArray();
 
