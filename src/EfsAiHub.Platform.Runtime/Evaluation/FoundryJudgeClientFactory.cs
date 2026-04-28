@@ -1,6 +1,7 @@
 using Azure;
 using Azure.Core;
 using EfsAiHub.Core.Abstractions.Projects;
+using EfsAiHub.Core.Abstractions.Secrets;
 using Microsoft.Extensions.AI;
 using MeaiSafety = Microsoft.Extensions.AI.Evaluation.Safety;
 
@@ -11,6 +12,7 @@ public sealed class FoundryJudgeClientFactory : IFoundryJudgeClientFactory
 {
     private readonly IProjectRepository _projectRepo;
     private readonly TokenCredential _credential;
+    private readonly ISecretResolver _secretResolver;
     private readonly ILogger<FoundryJudgeClientFactory> _logger;
     private readonly TimeSpan _cacheTtl = TimeSpan.FromMinutes(5);
 
@@ -21,10 +23,12 @@ public sealed class FoundryJudgeClientFactory : IFoundryJudgeClientFactory
     public FoundryJudgeClientFactory(
         IProjectRepository projectRepo,
         TokenCredential credential,
+        ISecretResolver secretResolver,
         ILogger<FoundryJudgeClientFactory> logger)
     {
         _projectRepo = projectRepo;
         _credential = credential;
+        _secretResolver = secretResolver;
         _logger = logger;
     }
 
@@ -56,26 +60,13 @@ public sealed class FoundryJudgeClientFactory : IFoundryJudgeClientFactory
             return null;
         }
 
-        // Guard contra "***" — chave mascarada do GET response. Sem isso,
-        // AzureKeyCredential("***") gera 401 em todo case × evaluator × repetição.
-        if (foundry.ApiKeyRef == "***")
-        {
-            _logger.LogError(
-                "[FoundryJudgeClientFactory] Project '{ProjectId}' tem ApiKeyRef='***' (mascarado). " +
-                "Reconfigure a chave via UI — o response do GET mascara chaves literais.", projectId);
-            return null;
-        }
+        var apiKey = await _secretResolver.ResolveAsync(
+            foundry.ApiKeyRef, SecretContext.Foundry(projectId), ct);
 
         var endpoint = new Uri(foundry.Endpoint!);
-        Azure.AI.OpenAI.AzureOpenAIClient azureClient;
-        if (!string.IsNullOrWhiteSpace(foundry.ApiKeyRef) && !foundry.ApiKeyRef!.StartsWith("secret://", StringComparison.OrdinalIgnoreCase))
-        {
-            azureClient = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, new AzureKeyCredential(foundry.ApiKeyRef!));
-        }
-        else
-        {
-            azureClient = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, _credential);
-        }
+        var azureClient = !string.IsNullOrWhiteSpace(apiKey)
+            ? new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, new AzureKeyCredential(apiKey))
+            : new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, _credential);
 
         var chatClient = azureClient.GetChatClient(foundry.ModelDeployment!).AsIChatClient();
 

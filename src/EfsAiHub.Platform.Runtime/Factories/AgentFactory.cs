@@ -111,8 +111,8 @@ public class AgentFactory : IAgentFactory
 
         if (provider.ProviderType is "AZUREOPENAI" or "OPENAI")
         {
-            var rawClient = provider.CreateChatClient(definition);
-            var wrappedClient = WrapWithTokenTracking(rawClient, definition);
+            var rawClient = await provider.CreateChatClientAsync(definition, ct);
+            var wrappedClient = await WrapWithTokenTrackingAsync(rawClient, definition, ct);
             return ExecutableWorkflow.FromAgent(wrappedClient.AsAIAgent(options));
         }
 
@@ -133,8 +133,8 @@ public class AgentFactory : IAgentFactory
         definition = await ResolveSkills(definition, ct);
         await TrackAgentVersionAsync(definition.Id, ct);
         var provider = ResolveProvider(definition);
-        var rawClient = provider.CreateChatClient(definition);
-        return WrapWithTokenTracking(rawClient, definition);
+        var rawClient = await provider.CreateChatClientAsync(definition, ct);
+        return await WrapWithTokenTrackingAsync(rawClient, definition, ct);
     }
 
     public async Task<IReadOnlyDictionary<string, ExecutableWorkflow>> CreateAgentsForWorkflowAsync(
@@ -163,7 +163,7 @@ public class AgentFactory : IAgentFactory
         definition = await InjectProjectCredentials(definition, ct);
         var agentVersionId = await TrackAgentVersionAsync(agentId, ct);
         var provider = ResolveProvider(definition);
-        var rawChatClient = provider.CreateChatClient(definition);
+        var rawChatClient = await provider.CreateChatClientAsync(definition, ct);
         var chatOptions = ChatOptionsBuilder.BuildGraphChatOptions(definition, _functionRegistry, _toolPersistence.Writer, _trackedFnLogger, _logger, _allowFingerprintMismatch, projectId: definition.ProjectId);
 
         // Envolve com FunctionInvokingChatClient para tratar chamadas de ferramentas automaticamente no modo Graph.
@@ -325,7 +325,7 @@ public class AgentFactory : IAgentFactory
         return SkillMerger.ApplySkills(definition, resolved);
     }
 
-    private IChatClient WrapWithTokenTracking(IChatClient inner, AgentDefinition definition)
+    private async Task<IChatClient> WrapWithTokenTrackingAsync(IChatClient inner, AgentDefinition definition, CancellationToken ct)
     {
         var modelId = definition.Model.DeploymentName ?? "unknown";
 
@@ -357,7 +357,7 @@ public class AgentFactory : IAgentFactory
                 if (_providers.TryGetValue(fb.Type, out var fallbackProvider))
                 {
                     var fallbackDef = CopyWithProvider(definition, fb);
-                    fallbackClient = fallbackProvider.CreateChatClient(fallbackDef);
+                    fallbackClient = await fallbackProvider.CreateChatClientAsync(fallbackDef, ct);
                     fallbackProviderType = fb.Type;
                 }
             }

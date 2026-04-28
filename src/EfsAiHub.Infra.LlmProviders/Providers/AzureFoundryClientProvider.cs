@@ -1,5 +1,6 @@
 using Azure.AI.Agents.Persistent;
 using Azure.Core;
+using EfsAiHub.Core.Abstractions.Secrets;
 using EfsAiHub.Core.Agents.McpServers;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -18,17 +19,20 @@ public class AzureFoundryClientProvider : ILlmClientProvider
     private readonly AzureAIOptions _options;
     private readonly TokenCredential _credential;
     private readonly IMcpServerRepository _mcpRepo;
+    private readonly ISecretResolver _secretResolver;
     private readonly ILogger<AzureFoundryClientProvider> _logger;
 
     public AzureFoundryClientProvider(
         IOptions<AzureAIOptions> options,
         TokenCredential credential,
         IMcpServerRepository mcpRepo,
+        ISecretResolver secretResolver,
         ILogger<AzureFoundryClientProvider> logger)
     {
         _options = options.Value;
         _credential = credential;
         _mcpRepo = mcpRepo;
+        _secretResolver = secretResolver;
         _logger = logger;
     }
 
@@ -57,10 +61,13 @@ public class AzureFoundryClientProvider : ILlmClientProvider
         return chatClient.AsAIAgent(options);
     }
 
-    public IChatClient CreateChatClient(AgentDefinition definition)
+    public async Task<IChatClient> CreateChatClientAsync(AgentDefinition definition, CancellationToken ct = default)
     {
         // Foundry no modo Graph usa a mesma API compatível com OpenAI
-        var apiKey = definition.Provider.ApiKey;
+        var scope = string.IsNullOrWhiteSpace(definition.ProjectId)
+            ? SecretContext.Global($"azurefoundry:agent:{definition.Id}")
+            : SecretContext.Project(definition.ProjectId, "azurefoundry", definition.Id);
+        var apiKey = await _secretResolver.ResolveAsync(definition.Provider.ApiKey, scope, ct);
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
             var client = new OpenAI.OpenAIClient(apiKey);

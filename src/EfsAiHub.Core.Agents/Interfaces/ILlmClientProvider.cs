@@ -16,6 +16,6 @@ public interface ILlmClientProvider
     /// <summary>Cria um agente completo do framework.</summary>
     Task<object> CreateAgentAsync(AgentDefinition definition, ChatClientAgentOptions options, CancellationToken ct = default);
 
-    /// <summary>Cria um IChatClient direto (para Graph mode / LLM handler).</summary>
-    IChatClient CreateChatClient(AgentDefinition definition);
+    /// <summary>Cria um IChatClient direto (para Graph mode / LLM handler). Async porque resolve secrets via ISecretResolver (AWS).</summary>
+    Task<IChatClient> CreateChatClientAsync(AgentDefinition definition, CancellationToken ct = default);
 }

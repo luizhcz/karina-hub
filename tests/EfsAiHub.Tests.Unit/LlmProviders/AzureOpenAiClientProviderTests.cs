@@ -1,4 +1,5 @@
 using Azure.Core;
+using EfsAiHub.Core.Abstractions.Secrets;
 using EfsAiHub.Infra.LlmProviders.Configuration;
 using EfsAiHub.Infra.LlmProviders.Providers;
 using Microsoft.Agents.AI;
@@ -11,6 +12,12 @@ public class AzureOpenAiClientProviderTests
 {
     private const string ValidEndpoint = "https://my-resource.openai.azure.com";
 
+    private sealed class PassthroughResolver : ISecretResolver
+    {
+        public Task<string?> ResolveAsync(string? referenceOrLiteral, SecretContext context, CancellationToken ct = default)
+            => Task.FromResult(string.IsNullOrWhiteSpace(referenceOrLiteral) ? null : referenceOrLiteral);
+    }
+
     private static AzureOpenAiClientProvider Build(
         string endpoint = ValidEndpoint,
         string deployment = "gpt-4o",
@@ -21,7 +28,7 @@ public class AzureOpenAiClientProviderTests
             Endpoint = endpoint,
             DefaultDeploymentName = deployment
         });
-        return new AzureOpenAiClientProvider(options, credential ?? Substitute.For<TokenCredential>());
+        return new AzureOpenAiClientProvider(options, credential ?? Substitute.For<TokenCredential>(), new PassthroughResolver());
     }
 
     private static AgentDefinition MakeDefinition(
@@ -47,93 +54,81 @@ public class AzureOpenAiClientProviderTests
         Name = "Test Agent"
     };
 
-    // ── ProviderType ───────────────────────────────────────────────────────────
-
     [Fact]
     public void ProviderType_EhAZUREOPENAI()
     {
         Build().ProviderType.Should().Be("AZUREOPENAI");
     }
 
-    // ── ApiKey path ────────────────────────────────────────────────────────────
-
     [Fact]
-    public void CreateChatClient_ComApiKey_NaoLanca()
+    public async Task CreateChatClientAsync_ComApiKey_NaoLanca()
     {
-        var act = () => Build().CreateChatClient(MakeDefinition(providerApiKey: "az-api-key-test"));
+        var act = async () => await Build().CreateChatClientAsync(MakeDefinition(providerApiKey: "az-api-key-test"));
 
-        act.Should().NotThrow();
+        await act.Should().NotThrowAsync();
     }
 
-    // ── TokenCredential path ───────────────────────────────────────────────────
-
     [Fact]
-    public void CreateChatClient_SemApiKey_UsaTokenCredential_NaoLanca()
+    public async Task CreateChatClientAsync_SemApiKey_UsaTokenCredential_NaoLanca()
     {
         var credential = Substitute.For<TokenCredential>();
-        var act = () => Build(credential: credential).CreateChatClient(MakeDefinition(providerApiKey: null));
+        var act = async () => await Build(credential: credential).CreateChatClientAsync(MakeDefinition(providerApiKey: null));
 
-        act.Should().NotThrow();
+        await act.Should().NotThrowAsync();
     }
 
-    // ── Definition ApiKey overrides global ─────────────────────────────────────
-
     [Fact]
-    public void CreateChatClient_DefinitionApiKeySobreescreveGlobal_NaoLanca()
+    public async Task CreateChatClientAsync_DefinitionApiKeySobreescreveGlobal_NaoLanca()
     {
-        var act = () => Build().CreateChatClient(MakeDefinition(providerApiKey: "definition-specific-key"));
+        var act = async () => await Build().CreateChatClientAsync(MakeDefinition(providerApiKey: "definition-specific-key"));
 
-        act.Should().NotThrow();
+        await act.Should().NotThrowAsync();
     }
 
-    // ── Invalid URI ────────────────────────────────────────────────────────────
-
     [Fact]
-    public void CreateChatClient_EndpointInvalido_LancaUriFormatException()
+    public async Task CreateChatClientAsync_EndpointInvalido_LancaUriFormatException()
     {
         var provider = Build(endpoint: "NOT_A_VALID_URI");
         var definition = MakeDefinition(providerApiKey: "some-key");
 
-        var act = () => provider.CreateChatClient(definition);
+        var act = async () => await provider.CreateChatClientAsync(definition);
 
-        act.Should().Throw<UriFormatException>();
+        await act.Should().ThrowAsync<UriFormatException>();
     }
 
     [Fact]
-    public void CreateChatClient_EndpointInvalidoViaDefinition_LancaUriFormatException()
+    public async Task CreateChatClientAsync_EndpointInvalidoViaDefinition_LancaUriFormatException()
     {
         var definition = MakeDefinition(providerApiKey: "some-key", providerEndpoint: "NOT_VALID");
 
-        var act = () => Build().CreateChatClient(definition);
+        var act = async () => await Build().CreateChatClientAsync(definition);
 
-        act.Should().Throw<UriFormatException>();
+        await act.Should().ThrowAsync<UriFormatException>();
     }
 
-    // ── Client caching ─────────────────────────────────────────────────────────
-
     [Fact]
-    public void CreateChatClient_MesmaApiKeyEEndpoint_AmbosSucedem()
+    public async Task CreateChatClientAsync_MesmaApiKeyEEndpoint_AmbosSucedem()
     {
         var provider = Build();
         var def1 = MakeDefinition("agent-1", providerApiKey: "same-key");
         var def2 = MakeDefinition("agent-2", providerApiKey: "same-key");
 
-        provider.CreateChatClient(def1).Should().NotBeNull();
-        provider.CreateChatClient(def2).Should().NotBeNull();
+        (await provider.CreateChatClientAsync(def1)).Should().NotBeNull();
+        (await provider.CreateChatClientAsync(def2)).Should().NotBeNull();
     }
 
     [Fact]
-    public void CreateChatClient_ApiKeysDiferentes_RetornaInstanciasDiferentes()
+    public async Task CreateChatClientAsync_ApiKeysDiferentes_RetornaInstanciasDiferentes()
     {
         var provider = Build();
-        var clientA = provider.CreateChatClient(MakeDefinition("a", providerApiKey: "key-alpha"));
-        var clientB = provider.CreateChatClient(MakeDefinition("b", providerApiKey: "key-beta"));
+        var clientA = await provider.CreateChatClientAsync(MakeDefinition("a", providerApiKey: "key-alpha"));
+        var clientB = await provider.CreateChatClientAsync(MakeDefinition("b", providerApiKey: "key-beta"));
 
         clientA.Should().NotBeSameAs(clientB);
     }
 
     [Fact]
-    public void CreateChatClient_EndpointsDiferentes_RetornaInstanciasDiferentes()
+    public async Task CreateChatClientAsync_EndpointsDiferentes_RetornaInstanciasDiferentes()
     {
         var credential = Substitute.For<TokenCredential>();
         var provider = Build(credential: credential);
@@ -141,10 +136,11 @@ public class AzureOpenAiClientProviderTests
         var defA = MakeDefinition("a", providerEndpoint: "https://resource-a.openai.azure.com");
         var defB = MakeDefinition("b", providerEndpoint: "https://resource-b.openai.azure.com");
 
-        provider.CreateChatClient(defA).Should().NotBeSameAs(provider.CreateChatClient(defB));
-    }
+        var clientA = await provider.CreateChatClientAsync(defA);
+        var clientB = await provider.CreateChatClientAsync(defB);
 
-    // ── CreateAgentAsync ───────────────────────────────────────────────────────
+        clientA.Should().NotBeSameAs(clientB);
+    }
 
     [Fact]
     public async Task CreateAgentAsync_ComApiKey_RetornaObjetoNaoNulo()

@@ -6,6 +6,7 @@ using EfsAiHub.Host.Api.Models.Responses;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Abstractions.Projects;
+using EfsAiHub.Core.Abstractions.Secrets;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.Annotations;
@@ -56,6 +57,9 @@ public class ProjectsController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.Name))
             return BadRequest("Name is required.");
+
+        if (ValidateSecretReferences(request.LlmConfig, request.Settings) is { } validationError)
+            return BadRequest(validationError);
 
         var tenantId = _tenantAccessor.Current.TenantId;
         // Create() valida invariantes de domínio — lança DomainException (mapeado para 400)
@@ -115,6 +119,9 @@ public class ProjectsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateProjectRequest request, CancellationToken ct)
     {
+        if (ValidateSecretReferences(request.LlmConfig, request.Settings) is { } validationError)
+            return BadRequest(validationError);
+
         var project = await _repo.GetByIdAsync(id, ct);
         if (project is null) return NotFound();
 
@@ -245,5 +252,37 @@ public class ProjectsController : ControllerBase
             ApiKeyRef = string.IsNullOrWhiteSpace(input.ApiKeyRef) ? null : input.ApiKeyRef.Trim(),
             ProjectEndpoint = string.IsNullOrWhiteSpace(input.ProjectEndpoint) ? null : input.ProjectEndpoint.Trim()
         };
+    }
+
+    /// <summary>
+    /// Bloqueia API keys literais em writes. Aceita apenas referências AWS
+    /// (`secret://aws/...`) ou vazio (campo omitido pelo cliente). Valor mascarado
+    /// `***` é rejeitado — a UI tem que enviar a referência completa.
+    /// </summary>
+    private static string? ValidateSecretReferences(ProjectLlmConfigInput? llm, ProjectSettingsInput? settings)
+    {
+        if (llm?.Credentials is not null)
+        {
+            foreach (var (provider, cred) in llm.Credentials)
+            {
+                if (cred.ApiKey is null) continue;
+                var trimmed = cred.ApiKey.Trim();
+                if (trimmed.Length == 0) continue;
+                if (!SecretReference.IsAwsReference(trimmed))
+                {
+                    return $"Provider '{provider}': literal API key not accepted. " +
+                           $"Use AWS Secrets Manager reference (prefix '{SecretReference.AwsPrefix}').";
+                }
+            }
+        }
+
+        var foundry = settings?.Evaluation?.Foundry?.ApiKeyRef;
+        if (!string.IsNullOrWhiteSpace(foundry) && !SecretReference.IsAwsReference(foundry))
+        {
+            return "Foundry evaluation: literal API key not accepted. " +
+                   $"Use AWS Secrets Manager reference (prefix '{SecretReference.AwsPrefix}').";
+        }
+
+        return null;
     }
 }

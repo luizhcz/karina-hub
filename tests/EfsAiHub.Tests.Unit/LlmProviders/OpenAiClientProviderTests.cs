@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Abstractions.Secrets;
 using EfsAiHub.Infra.LlmProviders.Configuration;
 using EfsAiHub.Infra.LlmProviders.Providers;
 using Microsoft.Agents.AI;
@@ -8,10 +9,16 @@ namespace EfsAiHub.Tests.Unit.LlmProviders;
 [Trait("Category", "Unit")]
 public class OpenAiClientProviderTests
 {
+    private sealed class PassthroughResolver : ISecretResolver
+    {
+        public Task<string?> ResolveAsync(string? referenceOrLiteral, SecretContext context, CancellationToken ct = default)
+            => Task.FromResult(string.IsNullOrWhiteSpace(referenceOrLiteral) ? null : referenceOrLiteral);
+    }
+
     private static OpenAiClientProvider Build(string? apiKey = "sk-test-key", string defaultModel = "gpt-4o")
     {
         var options = Options.Create(new OpenAIOptions { ApiKey = apiKey, DefaultModel = defaultModel });
-        return new OpenAiClientProvider(options);
+        return new OpenAiClientProvider(options, new PassthroughResolver());
     }
 
     private static AgentDefinition MakeDefinition(
@@ -37,77 +44,67 @@ public class OpenAiClientProviderTests
         Name = "Test Agent"
     };
 
-    // ── ProviderType ───────────────────────────────────────────────────────────
-
     [Fact]
     public void ProviderType_EhOPENAI()
     {
         Build().ProviderType.Should().Be("OPENAI");
     }
 
-    // ── API key resolution ─────────────────────────────────────────────────────
-
     [Fact]
-    public void CreateChatClient_ApiKeyGlobal_NaoLanca()
+    public async Task CreateChatClientAsync_ApiKeyGlobal_NaoLanca()
     {
-        var act = () => Build(apiKey: "sk-global-key").CreateChatClient(MakeDefinition());
+        var act = async () => await Build(apiKey: "sk-global-key").CreateChatClientAsync(MakeDefinition());
 
-        act.Should().NotThrow();
+        await act.Should().NotThrowAsync();
     }
 
     [Fact]
-    public void CreateChatClient_ApiKeyAusente_LancaInvalidOperationException()
+    public async Task CreateChatClientAsync_ApiKeyAusente_LancaInvalidOperationException()
     {
         var provider = Build(apiKey: null);
 
-        var act = () => provider.CreateChatClient(MakeDefinition(providerApiKey: null));
+        var act = async () => await provider.CreateChatClientAsync(MakeDefinition(providerApiKey: null));
 
-        act.Should().Throw<InvalidOperationException>()
+        await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*OpenAI*");
     }
 
     [Fact]
-    public void CreateChatClient_DefinitionApiKeySobreescreveGlobal_NaoLanca()
+    public async Task CreateChatClientAsync_DefinitionApiKeySobreescreveGlobal_NaoLanca()
     {
-        var act = () => Build(apiKey: null).CreateChatClient(MakeDefinition(providerApiKey: "sk-def-key"));
+        var act = async () => await Build(apiKey: null).CreateChatClientAsync(MakeDefinition(providerApiKey: "sk-def-key"));
 
-        act.Should().NotThrow();
+        await act.Should().NotThrowAsync();
     }
 
-    // ── Client caching ─────────────────────────────────────────────────────────
-
     [Fact]
-    public void CreateChatClient_MesmaApiKey_AmbosSucedem()
+    public async Task CreateChatClientAsync_MesmaApiKey_AmbosSucedem()
     {
         var provider = Build(apiKey: "sk-same");
-        var client1 = provider.CreateChatClient(MakeDefinition("agent-1"));
-        var client2 = provider.CreateChatClient(MakeDefinition("agent-2"));
+        var client1 = await provider.CreateChatClientAsync(MakeDefinition("agent-1"));
+        var client2 = await provider.CreateChatClientAsync(MakeDefinition("agent-2"));
 
         client1.Should().NotBeNull();
         client2.Should().NotBeNull();
     }
 
     [Fact]
-    public void CreateChatClient_ApiKeysDiferentes_RetornaInstanciasDiferentes()
+    public async Task CreateChatClientAsync_ApiKeysDiferentes_RetornaInstanciasDiferentes()
     {
         var provider = Build(apiKey: "sk-fallback");
-        var clientA = provider.CreateChatClient(MakeDefinition("a", providerApiKey: "sk-key-a"));
-        var clientB = provider.CreateChatClient(MakeDefinition("b", providerApiKey: "sk-key-b"));
+        var clientA = await provider.CreateChatClientAsync(MakeDefinition("a", providerApiKey: "sk-key-a"));
+        var clientB = await provider.CreateChatClientAsync(MakeDefinition("b", providerApiKey: "sk-key-b"));
 
         clientA.Should().NotBeSameAs(clientB);
     }
 
-    // ── Deployment resolution ──────────────────────────────────────────────────
-
     [Fact]
-    public void CreateChatClient_DeploymentNaDefinicao_NaoLanca()
+    public async Task CreateChatClientAsync_DeploymentNaDefinicao_NaoLanca()
     {
-        var act = () => Build().CreateChatClient(MakeDefinition(deploymentName: "gpt-4o-mini"));
+        var act = async () => await Build().CreateChatClientAsync(MakeDefinition(deploymentName: "gpt-4o-mini"));
 
-        act.Should().NotThrow();
+        await act.Should().NotThrowAsync();
     }
-
-    // ── CreateAgentAsync ───────────────────────────────────────────────────────
 
     [Fact]
     public async Task CreateAgentAsync_ChatCompletion_RetornaObjetoNaoNulo()
