@@ -5,12 +5,18 @@ using Azure.Identity;
 using EfsAiHub.Host.Api.Extensions;
 using EfsAiHub.Infra.Messaging.Extensions;
 using EfsAiHub.Infra.Persistence.CheckpointStore;
+using EfsAiHub.Infra.Secrets.Configuration;
+using EfsAiHub.Infra.Secrets.Health;
 using EfsAiHub.Platform.Runtime.Interfaces;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Resolve refs em Secrets:Bootstrap contra AWS antes que qualquer outra config
+// seja lida. No-op quando a seção está vazia (ex: dev sem AWS configurado).
+builder.Configuration.AddAwsSecretsBootstrap();
 
 var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
     ?? ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"];
@@ -56,6 +62,9 @@ builder.Services.Configure<EfsAiHub.Platform.Runtime.Options.DocumentIntelligenc
 
 // ── Azure Identity ────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<TokenCredential, DefaultAzureCredential>();
+
+// ── AWS Secrets Manager (resolver + cache 2-tier) ─────────────────────────────
+builder.Services.AddAwsSecretsManager(builder.Configuration);
 
 // ── CheckpointStore: InMemory (dev) ou Postgres (produção) ───────────────────
 var engineOptions = builder.Configuration
@@ -107,7 +116,8 @@ builder.Services.AddEfsApplicationServices(builder.Configuration);
 var redisConnectionString = builder.Configuration.GetValue<string>("Redis:ConnectionString") ?? "localhost:6379";
 builder.Services.AddHealthChecks()
     .AddNpgSql(pgConnectionString, name: "postgres", tags: ["ready"])
-    .AddRedis(redisConnectionString, name: "redis", tags: ["ready"]);
+    .AddRedis(redisConnectionString, name: "redis", tags: ["ready"])
+    .AddCheck<AwsSecretsHealthCheck>("aws-secrets", tags: ["ready"]);
 
 // ── Controllers + JSON ──���─────────────────────────────────────────────────────
 builder.Services.AddControllers()

@@ -42,6 +42,7 @@
     <ProjectReference Include="..\EfsAiHub.Infra.Persistence\EfsAiHub.Infra.Persistence.csproj" />
     <ProjectReference Include="..\EfsAiHub.Infra.Messaging\EfsAiHub.Infra.Messaging.csproj" />
     <ProjectReference Include="..\EfsAiHub.Infra.Observability\EfsAiHub.Infra.Observability.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Infra.Secrets\EfsAiHub.Infra.Secrets.csproj" />
 
     <ProjectReference Include="..\EfsAiHub.Host.Worker\EfsAiHub.Host.Worker.csproj" />
     <ProjectReference Include="..\EfsAiHub.Infra.LlmProviders\EfsAiHub.Infra.LlmProviders.csproj" />
