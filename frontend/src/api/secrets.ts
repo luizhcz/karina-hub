@@ -21,7 +21,7 @@ export const validateSecret = (reference: string) =>
   post<SecretValidateResponse>('/secrets/validate', { reference } as SecretValidateRequest)
 
 export const invalidateSecretCache = (reference: string) =>
-  del<void>(`/secrets/cache?reference=${encodeURIComponent(reference)}`)
+  del(`/secrets/cache?reference=${encodeURIComponent(reference)}`)
 
 export const getSecretsHealth = () => get<SecretHealthResponse>('/secrets/health')
 

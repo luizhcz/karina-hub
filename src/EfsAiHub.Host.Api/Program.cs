@@ -8,6 +8,7 @@ using EfsAiHub.Infra.Persistence.CheckpointStore;
 using EfsAiHub.Infra.Secrets.Configuration;
 using EfsAiHub.Infra.Secrets.Health;
 using EfsAiHub.Platform.Runtime.Interfaces;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -174,6 +175,17 @@ builder.Services.AddOpenTelemetry()
         if (!string.IsNullOrWhiteSpace(otelOptions.OtlpEndpoint))
             m.AddOtlpExporter(o => o.Endpoint = new Uri(otelOptions.OtlpEndpoint));
     });
+
+builder.Logging.AddOpenTelemetry(o =>
+{
+    o.SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(otelOptions.ServiceName));
+    o.IncludeFormattedMessage = true;
+    o.IncludeScopes = true;
+    o.ParseStateValues = true;
+
+    if (!string.IsNullOrWhiteSpace(otelOptions.OtlpEndpoint))
+        o.AddOtlpExporter(e => e.Endpoint = new Uri(otelOptions.OtlpEndpoint));
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 var app = builder.Build();

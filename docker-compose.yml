@@ -79,8 +79,10 @@ services:
       DocumentIntelligence__Endpoint: ${DOCUMENT_INTELLIGENCE_ENDPOINT:-https://efs-ai-hub-resource.cognitiveservices.azure.com}
       DocumentIntelligence__UseManagedIdentity: "false"
 
-      # OpenTelemetry (desabilitado por padrão no compose — sem collector)
-      OpenTelemetry__OtlpEndpoint: ""
+      # OpenTelemetry — aponta pro Aspire Dashboard (OTLP gRPC). Guard em
+      # Program.cs continua: se ficar vazio, exporters/logger OTel não são
+      # anexados e logs caem só no console.
+      OpenTelemetry__OtlpEndpoint: http://aspire-dashboard:18889
 
       # AWS Secrets Manager — credentials via default chain (IAM role em prod,
       # AWS_PROFILE em dev). AWS_REGION é obrigatório quando Secrets:Bootstrap
@@ -88,11 +90,31 @@ services:
       AWS_REGION: ${AWS_REGION:-}
       AWS_PROFILE: ${AWS_PROFILE:-}
 
+    # Monta ~/.aws (host) dentro do container pro SDK encontrar o profile.
+    # Backend roda como `appuser` (não-root) — ver Dockerfile.backend.
+    volumes:
+      - ~/.aws:/home/appuser/.aws:ro
+
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      aspire-dashboard:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── Observability ────────────────────────────────────────────────────────────
+
+  # Aspire Dashboard — recebe OTLP (gRPC 18889) e expõe UI (18888) com
+  # logs, traces e métricas integrados. Imagem oficial Microsoft, single
+  # container, sem persistência (memória apenas; perfeito pra dev).
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
+    ports:
+      - "18888:18888"
+    environment:
+      DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
     restart: unless-stopped
 
   # ── Frontend ─────────────────────────────────────────────────────────────────

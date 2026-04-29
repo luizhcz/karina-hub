@@ -13,6 +13,7 @@ COPY EfsAiHub.Infra.LlmProviders/EfsAiHub.Infra.LlmProviders.csproj       EfsAiH
 COPY EfsAiHub.Infra.Messaging/EfsAiHub.Infra.Messaging.csproj             EfsAiHub.Infra.Messaging/
 COPY EfsAiHub.Infra.Observability/EfsAiHub.Infra.Observability.csproj     EfsAiHub.Infra.Observability/
 COPY EfsAiHub.Infra.Persistence/EfsAiHub.Infra.Persistence.csproj         EfsAiHub.Infra.Persistence/
+COPY EfsAiHub.Infra.Secrets/EfsAiHub.Infra.Secrets.csproj                 EfsAiHub.Infra.Secrets/
 COPY EfsAiHub.Platform.Guards/EfsAiHub.Platform.Guards.csproj             EfsAiHub.Platform.Guards/
 COPY EfsAiHub.Platform.Runtime/EfsAiHub.Platform.Runtime.csproj           EfsAiHub.Platform.Runtime/
 
