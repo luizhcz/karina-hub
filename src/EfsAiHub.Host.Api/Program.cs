@@ -1,8 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Azure.Core;
-using Azure.Identity;
 using EfsAiHub.Host.Api.Extensions;
+using EfsAiHub.Host.Api.Identity;
 using EfsAiHub.Infra.Messaging.Extensions;
 using EfsAiHub.Infra.Persistence.CheckpointStore;
 using EfsAiHub.Infra.Secrets.Configuration;
@@ -61,28 +61,11 @@ builder.Services.Configure<EfsAiHub.Platform.Runtime.Options.DocumentIntelligenc
     builder.Configuration.GetSection(EfsAiHub.Platform.Runtime.Options.DocumentIntelligenceOptions.SectionName));
 
 // ── Azure Identity ────────────────────────────────────────────────────────────
-// SP do Azure deve vir resolvido do AWS Secrets Manager (via Secrets:Bootstrap)
-// apontando 3 refs (TenantId/ClientId/ClientSecret). Sem isso, fail-fast.
-builder.Services.AddSingleton<TokenCredential>(sp =>
-{
-    var config = sp.GetRequiredService<IConfiguration>();
-    var tenantId     = config["Azure:ServicePrincipal:TenantId"];
-    var clientId     = config["Azure:ServicePrincipal:ClientId"];
-    var clientSecret = config["Azure:ServicePrincipal:ClientSecret"];
-
-    if (string.IsNullOrWhiteSpace(tenantId)
-        || string.IsNullOrWhiteSpace(clientId)
-        || string.IsNullOrWhiteSpace(clientSecret))
-    {
-        throw new InvalidOperationException(
-            "Azure Service Principal credentials missing. Configure the 3 keys " +
-            "Azure:ServicePrincipal:TenantId, Azure:ServicePrincipal:ClientId, " +
-            "Azure:ServicePrincipal:ClientSecret — em prod via Secrets:Bootstrap " +
-            "apontando refs AWS Secrets Manager; em dev via dotnet user-secrets " +
-            "ou appsettings.Development.json.");
-    }
-    return new ClientSecretCredential(tenantId, clientId, clientSecret);
-});
+// SP do Azure é resolvido lazy a partir de Azure:ServicePrincipal:* (populado
+// via Secrets:Bootstrap → AWS Secrets Manager). App sobe sem SP cadastrado;
+// o factory só lança quando algum SDK Azure de fato pede um token. Mensagem
+// contextual aponta o que precisa ser cadastrado no AWS.
+builder.Services.AddSingleton<TokenCredential, LazyAzureServicePrincipalCredential>();
 
 // ── AWS Secrets Manager (resolver + cache 2-tier) ─────────────────────────────
 builder.Services.AddAwsSecretsManager(builder.Configuration);

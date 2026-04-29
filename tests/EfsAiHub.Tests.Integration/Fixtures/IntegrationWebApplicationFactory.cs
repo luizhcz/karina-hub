@@ -66,11 +66,6 @@ public sealed class IntegrationWebApplicationFactory : WebApplicationFactory<Pro
             {
                 ["ConnectionStrings:Postgres"] = AiHubConnectionString(),
                 ["OpenAI:DefaultModel"] = "gpt-4o",
-                // Service Principal fake — testes não chamam Azure de fato, mas a
-                // factory de TokenCredential é fail-fast na ausência das 3 chaves.
-                ["Azure:ServicePrincipal:TenantId"]     = "00000000-0000-0000-0000-000000000000",
-                ["Azure:ServicePrincipal:ClientId"]     = "00000000-0000-0000-0000-000000000000",
-                ["Azure:ServicePrincipal:ClientSecret"] = "test-secret",
             });
             config.AddEnvironmentVariables();
         });
