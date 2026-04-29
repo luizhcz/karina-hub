@@ -4,7 +4,7 @@ using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Agents.DocumentIntelligence;
 using EfsAiHub.Core.Orchestration.Executors;
 using EfsAiHub.Platform.Runtime.Execution;
-using EfsAiHub.Platform.Runtime.Functions;
+using EfsAiHub.Platform.Runtime.Executors;
 using EfsAiHub.Platform.Runtime.Options;
 using EfsAiHub.Infra.Persistence.Cache;
 using Microsoft.Extensions.Logging;

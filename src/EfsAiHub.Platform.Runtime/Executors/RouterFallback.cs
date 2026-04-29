@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using EfsAiHub.Core.Agents.Trading;
 
-namespace EfsAiHub.Platform.Runtime.Functions;
+namespace EfsAiHub.Platform.Runtime.Executors;
 
 /// <summary>
 /// Executor terminal alcançado quando o router de atendimento decide

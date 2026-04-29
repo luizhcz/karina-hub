@@ -12,7 +12,7 @@ using EfsAiHub.Platform.Runtime.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
-namespace EfsAiHub.Platform.Runtime.Functions;
+namespace EfsAiHub.Platform.Runtime.Executors;
 
 /// <summary>
 /// Executor que usa Azure Document Intelligence para extrair dados estruturados de PDFs.

@@ -8,10 +8,11 @@ using EfsAiHub.Core.Abstractions.Persistence;
 using EfsAiHub.Core.Orchestration.Executors;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Infra.Observability;
+using EfsAiHub.Platform.Runtime.Guards;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
-namespace EfsAiHub.Platform.Runtime.Guards;
+namespace EfsAiHub.Platform.Runtime.Middlewares;
 
 /// <summary>
 /// Middleware fail-secure que aplica a blocklist do projeto ao input (pre-LLM)

@@ -217,7 +217,7 @@ app.RegisterDocumentIntelligenceExecutor();
 }
 
 // ── ConfirmBoleta — HITL simples (request_approval) via function tool ────────
-EfsAiHub.Platform.Runtime.Functions.ConfirmBoletaFunction.Configure(
+EfsAiHub.Platform.Runtime.Tools.ConfirmBoletaFunction.Configure(
     app.Services.GetRequiredService<EfsAiHub.Platform.Runtime.Services.IHumanInteractionService>(),
     app.Services.GetRequiredService<EfsAiHub.Core.Orchestration.Workflows.IWorkflowEventBus>(),
     app.Services.GetRequiredService<IFunctionToolRegistry>());

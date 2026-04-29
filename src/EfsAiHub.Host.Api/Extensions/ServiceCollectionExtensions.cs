@@ -274,7 +274,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Core.Agents.McpServers.IMcpServerRepository, PgMcpServerRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentExtractionRepository, PgDocumentExtractionRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentIntelligenceService, EfsAiHub.Platform.Runtime.Services.DocumentIntelligenceService>();
-        services.AddSingleton<EfsAiHub.Platform.Runtime.Functions.DocumentIntelligenceFunctions>();
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Executors.DocumentIntelligenceFunctions>();
 
         // Evaluation subsystem repositories (ADR 0015)
         services.AddSingleton<EfsAiHub.Core.Agents.Evaluation.IEvaluationTestSetRepository,

@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 
-namespace EfsAiHub.Platform.Runtime.Functions;
+namespace EfsAiHub.Platform.Runtime.Tools;
 
 /// <summary>
 /// Tools usadas pelo agente de boletas.

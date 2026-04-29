@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using EfsAiHub.Core.Agents.Trading;
 
-namespace EfsAiHub.Platform.Runtime.Functions;
+namespace EfsAiHub.Platform.Runtime.Executors;
 
 /// <summary>
 /// Post-Processor para workflows de atendimento. Aceita envelope (com payload aninhado)

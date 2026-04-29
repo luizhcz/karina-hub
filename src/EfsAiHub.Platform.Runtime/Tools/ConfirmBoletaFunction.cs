@@ -5,7 +5,7 @@ using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Core.Orchestration.Executors;
 using Microsoft.Extensions.AI;
 
-namespace EfsAiHub.Platform.Runtime.Functions;
+namespace EfsAiHub.Platform.Runtime.Tools;
 
 /// <summary>
 /// Function tool que solicita confirmação humana (HITL) para uma boleta.

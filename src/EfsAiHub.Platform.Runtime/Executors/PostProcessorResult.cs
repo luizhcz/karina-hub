@@ -1,6 +1,6 @@
 using EfsAiHub.Core.Agents.Trading;
 
-namespace EfsAiHub.Platform.Runtime.Functions;
+namespace EfsAiHub.Platform.Runtime.Executors;
 
 /// <summary>
 /// Output tipado do <c>service_post_processor</c>. Expõe <see cref="HasErrors"/> como

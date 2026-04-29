@@ -1,7 +1,7 @@
 using System.Text.Json;
 using EfsAiHub.Core.Agents.Trading;
 
-namespace EfsAiHub.Platform.Runtime.Functions;
+namespace EfsAiHub.Platform.Runtime.Executors;
 
 /// <summary>
 /// Classifica o output em texto livre do agente <c>revisor-analise-ativo</c>:

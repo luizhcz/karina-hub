@@ -3,7 +3,7 @@ using EfsAiHub.Core.Abstractions.Conversations;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace EfsAiHub.Platform.Runtime.Functions;
+namespace EfsAiHub.Platform.Runtime.Executors;
 
 /// <summary>
 /// Pre-Processor DelegateExecutor para workflows de atendimento.

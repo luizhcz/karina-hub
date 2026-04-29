@@ -1,4 +1,4 @@
-namespace EfsAiHub.Platform.Runtime.Functions;
+namespace EfsAiHub.Platform.Runtime.Executors;
 
 /// <summary>
 /// Wrappers que consomem o <see cref="PostProcessorResult"/> tipado e emitem strings
