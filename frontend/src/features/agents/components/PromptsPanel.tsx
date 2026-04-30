@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '../../../shared/ui/Button'
 import { Card } from '../../../shared/ui/Card'
 import { Badge } from '../../../shared/ui/Badge'
@@ -32,7 +32,7 @@ export function PromptsPanel({ agentId, currentInstructions }: PromptsPanelProps
 
   const [mode, setMode] = useState<Mode>('editor')
   const [editorContent, setEditorContent] = useState('')
-  const [editorInitialized, setEditorInitialized] = useState(false)
+  const initRef = useRef(false)
   const [newVersionId, setNewVersionId] = useState('')
   const [selectedVersion, setSelectedVersion] = useState<AgentPromptVersion | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AgentPromptVersion | null>(null)
@@ -46,20 +46,22 @@ export function PromptsPanel({ agentId, currentInstructions }: PromptsPanelProps
 
   const ORIGINAL_ID = '__original__'
 
-  // Auto-load: select the active version, or the original instructions
+  // Auto-load init-once: prioriza versão ativa; senão cai pra instructions do agent.
+  // initRef evita re-run quando versions/currentInstructions mudam depois (ex: save
+  // de nova versão atualiza o cache do React Query e dispara este effect).
   useEffect(() => {
-    if (editorInitialized || isLoading) return
+    if (initRef.current || isLoading) return
     const active = versions?.find((v) => v.isActive)
     if (active) {
       setSelectedVersion(active)
       setEditorContent(active.content)
+      initRef.current = true
     } else if (currentInstructions) {
       setSelectedVersion({ versionId: ORIGINAL_ID, content: currentInstructions, isActive: true })
       setEditorContent(currentInstructions)
+      initRef.current = true
     }
-    setEditorInitialized(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [versions, isLoading])
+  }, [versions, isLoading, currentInstructions])
 
   const handleSave = () => {
     if (!newVersionId.trim() || !editorContent.trim()) return

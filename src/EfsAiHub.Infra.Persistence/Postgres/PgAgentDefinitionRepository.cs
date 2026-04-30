@@ -62,6 +62,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
         var rows = await ctx.AgentDefinitions.ToListAsync(ct);
         return rows
             .Select(r => JsonSerializer.Deserialize<AgentDefinition>(r.Data, JsonDefaults.Domain)!)
+            .OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 

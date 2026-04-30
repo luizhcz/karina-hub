@@ -6,6 +6,7 @@ import { Tabs } from '../../shared/ui/Tabs'
 import { PageLoader } from '../../shared/ui/LoadingSpinner'
 import { ErrorCard } from '../../shared/ui/ErrorCard'
 import { useAgent, useUpdateAgent } from '../../api/agents'
+import { ApiError } from '../../api/client'
 import { usePromptVersions } from '../../api/prompts'
 import { useActivePrompt } from '../../api/prompts'
 import { AgentForm } from './components/AgentForm'
@@ -13,69 +14,14 @@ import { PromptsPanel } from './components/PromptsPanel'
 import { VersionsPanel } from './components/VersionsPanel'
 import { SandboxPanel } from './components/SandboxPanel'
 import { AgentEvaluationsTab } from './evaluations/AgentEvaluationsTab'
+import { formToRequest } from './formToRequest'
+import { toast } from '../../stores/toast'
 import type { AgentFormValues } from './types'
-import type { CreateAgentRequest } from '../../api/agents'
 
 type TabKey = 'config' | 'prompts' | 'versions' | 'sandbox' | 'evaluations'
 
 interface AgentDetailPageProps {
   initialTab?: TabKey
-}
-
-function formToRequest(values: AgentFormValues): CreateAgentRequest {
-  return {
-    id: values.id,
-    name: values.name,
-    description: values.description || undefined,
-    model: {
-      deploymentName: values.model.deploymentName,
-      temperature: values.model.temperature,
-      maxTokens: values.model.maxTokens,
-    },
-    provider: values.provider.type
-      ? {
-          type: values.provider.type,
-          clientType: values.provider.clientType || undefined,
-          endpoint: values.provider.endpoint || undefined,
-        }
-      : undefined,
-    instructions: values.instructions || undefined,
-    // Array heterogêneo: function tools + mcp tools (id-based). A UI só emite
-    // a forma id-based; agents com MCP inline legacy continuam válidos no domain
-    // mas precisam ser re-editados aqui via picker (o inline não aparece no form).
-    tools: (() => {
-      const merged = [
-        ...values.tools.map((name) => ({ type: 'function', name })),
-        ...values.mcpServerIds.map((mcpServerId) => ({ type: 'mcp', mcpServerId })),
-      ]
-      return merged.length > 0 ? merged : undefined
-    })(),
-    structuredOutput: values.structuredOutput.responseFormat !== 'text'
-      ? {
-          responseFormat: values.structuredOutput.responseFormat,
-          schemaName: values.structuredOutput.schemaName || undefined,
-          schemaDescription: values.structuredOutput.schemaDescription || undefined,
-          schema: values.structuredOutput.schema
-            ? JSON.parse(values.structuredOutput.schema)
-            : undefined,
-        }
-      : undefined,
-    middlewares: values.middlewares.length > 0
-      ? values.middlewares.map((m) => ({ type: m.type, enabled: true, settings: m.settings }))
-      : undefined,
-    resilience: {
-      maxRetries: values.resilience.maxRetries,
-      initialDelayMs: values.resilience.initialDelayMs,
-      backoffMultiplier: values.resilience.backoffMultiplier,
-    },
-    costBudget: values.budget.maxCostUsd > 0
-      ? { maxCostUsd: values.budget.maxCostUsd }
-      : undefined,
-    skillRefs: values.skills.length > 0
-      ? values.skills.map((skillId) => ({ skillId }))
-      : undefined,
-    metadata: Object.keys(values.metadata).length > 0 ? values.metadata : undefined,
-  }
 }
 
 export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps) {
@@ -92,10 +38,20 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
   if (error || !agent) return <ErrorCard message="Erro ao carregar agente." onRetry={refetch} />
 
   const handleSubmit = (values: AgentFormValues) => {
-    const body = formToRequest(values)
+    const result = formToRequest(values)
+    if (!result.ok) {
+      toast.error(result.error)
+      return
+    }
     updateMutation.mutate(
-      { id: id!, body },
-      { onSuccess: () => navigate('/agents') },
+      { id: id!, body: result.body },
+      {
+        onSuccess: () => navigate('/agents'),
+        onError: (err) => {
+          const msg = err instanceof ApiError ? err.message : 'Erro ao salvar agente.'
+          toast.error(msg)
+        },
+      },
     )
   }
 

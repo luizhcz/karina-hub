@@ -1,71 +1,30 @@
 import { Link, useNavigate } from 'react-router'
 import { Button } from '../../shared/ui/Button'
-import { useCreateAgent } from '../../api/agents'
+import { useCreateAgent, useAgents } from '../../api/agents'
+import { ApiError } from '../../api/client'
 import { AgentForm } from './components/AgentForm'
+import { formToRequest } from './formToRequest'
+import { toast } from '../../stores/toast'
 import type { AgentFormValues } from './types'
-import type { CreateAgentRequest } from '../../api/agents'
-
-function formToRequest(values: AgentFormValues): CreateAgentRequest {
-  return {
-    id: values.id,
-    name: values.name,
-    description: values.description || undefined,
-    model: {
-      deploymentName: values.model.deploymentName,
-      temperature: values.model.temperature,
-      maxTokens: values.model.maxTokens,
-    },
-    provider: values.provider.type
-      ? {
-          type: values.provider.type,
-          clientType: values.provider.clientType || undefined,
-          endpoint: values.provider.endpoint || undefined,
-        }
-      : undefined,
-    instructions: values.instructions || undefined,
-    tools: (() => {
-      const merged = [
-        ...values.tools.map((name) => ({ type: 'function', name })),
-        ...values.mcpServerIds.map((mcpServerId) => ({ type: 'mcp', mcpServerId })),
-      ]
-      return merged.length > 0 ? merged : undefined
-    })(),
-    structuredOutput: values.structuredOutput.responseFormat !== 'text'
-      ? {
-          responseFormat: values.structuredOutput.responseFormat,
-          schemaName: values.structuredOutput.schemaName || undefined,
-          schemaDescription: values.structuredOutput.schemaDescription || undefined,
-          schema: values.structuredOutput.schema
-            ? JSON.parse(values.structuredOutput.schema)
-            : undefined,
-        }
-      : undefined,
-    middlewares: values.middlewares.length > 0
-      ? values.middlewares.map((m) => ({ type: m.type, enabled: true, settings: m.settings }))
-      : undefined,
-    resilience: {
-      maxRetries: values.resilience.maxRetries,
-      initialDelayMs: values.resilience.initialDelayMs,
-      backoffMultiplier: values.resilience.backoffMultiplier,
-    },
-    costBudget: values.budget.maxCostUsd > 0
-      ? { maxCostUsd: values.budget.maxCostUsd }
-      : undefined,
-    skillRefs: values.skills.length > 0
-      ? values.skills.map((skillId) => ({ skillId }))
-      : undefined,
-    metadata: Object.keys(values.metadata).length > 0 ? values.metadata : undefined,
-  }
-}
 
 export function AgentCreatePage() {
   const navigate = useNavigate()
   const createMutation = useCreateAgent()
+  const { data: existingAgents } = useAgents()
+  const existingIds = new Set((existingAgents ?? []).map((a) => a.id))
 
   const handleSubmit = (values: AgentFormValues) => {
-    const body = formToRequest(values)
-    createMutation.mutate(body, {
+    const result = formToRequest(values)
+    if (!result.ok) {
+      toast.error(result.error)
+      return
+    }
+    createMutation.mutate(result.body, {
       onSuccess: () => navigate('/agents'),
+      onError: (err) => {
+        const msg = err instanceof ApiError ? err.message : 'Erro ao criar agente.'
+        toast.error(msg)
+      },
     })
   }
 
@@ -83,7 +42,11 @@ export function AgentCreatePage() {
         </div>
       </div>
 
-      <AgentForm onSubmit={handleSubmit} loading={createMutation.isPending} />
+      <AgentForm
+        onSubmit={handleSubmit}
+        loading={createMutation.isPending}
+        existingIds={existingIds}
+      />
     </div>
   )
 }

@@ -11,6 +11,7 @@ import { useAgents, useDeleteAgent } from '../../api/agents'
 import type { AgentDef } from '../../api/agents'
 import { ApiError } from '../../api/client'
 import { useFunctions } from '../../api/tools'
+import { toast } from '../../stores/toast'
 import { ActivePromptBadge } from './components/ActivePromptBadge'
 
 const PHASE_STYLE: Record<string, { label: string; bg: string }> = {
@@ -161,6 +162,11 @@ export function AgentsListPage() {
           if (deleteTarget) {
             deleteMutation.mutate(deleteTarget.id, {
               onSuccess: () => setDeleteTarget(null),
+              onError: (err) => {
+                setDeleteTarget(null)
+                const msg = err instanceof ApiError ? err.message : 'Erro ao excluir agente.'
+                toast.error(msg)
+              },
             })
           }
         }}

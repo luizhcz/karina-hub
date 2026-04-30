@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useForm, FormProvider, useFormContext } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -187,7 +188,8 @@ function ModelSection() {
   const handleModelChange = (modelId: string) => {
     setValue('model.deploymentName', modelId)
     const catalogEntry = models.find((m) => m.id === modelId)
-    if (catalogEntry) {
+    const currentProvider = watch('provider.type')
+    if (catalogEntry && !currentProvider) {
       setValue('provider.type', CATALOG_TO_PROVIDER[catalogEntry.provider] ?? '')
     }
   }
@@ -568,13 +570,22 @@ interface AgentFormProps {
   initialValues?: AgentDef
   onSubmit: (values: AgentFormValues) => void
   loading?: boolean
+  existingIds?: Set<string>
 }
 
-export function AgentForm({ initialValues, onSubmit, loading }: AgentFormProps) {
+export function AgentForm({ initialValues, onSubmit, loading, existingIds }: AgentFormProps) {
   const isEdit = !!initialValues
 
+  const schema = useMemo(() => {
+    if (isEdit || !existingIds || existingIds.size === 0) return agentFormSchema
+    return agentFormSchema.refine((vals) => !existingIds.has(vals.id), {
+      path: ['id'],
+      message: 'Já existe um agente com esse ID.',
+    })
+  }, [isEdit, existingIds])
+
   const methods = useForm<AgentFormValues>({
-    resolver: zodResolver(agentFormSchema) as never,
+    resolver: zodResolver(schema) as never,
     defaultValues: initialValues ? agentToFormValues(initialValues) : defaultValues,
   })
 
