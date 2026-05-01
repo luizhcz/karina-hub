@@ -67,6 +67,13 @@ public class AgentService : IAgentService
         var existing = await _repository.GetByIdAsync(definition.Id, ct)
             ?? throw new KeyNotFoundException($"Agente '{definition.Id}' não encontrado.");
 
+        // Phase 2 — Preserva Visibility/ProjectId/TenantId do existing.
+        // Request DTO não carrega esses campos por design; sem isso o PUT silenciosamente
+        // resetaria Visibility="project". PATCH /agents/{id}/visibility é o único caminho.
+        definition.ProjectId = existing.ProjectId;
+        definition.TenantId = existing.TenantId;
+        definition.Visibility = existing.Visibility;
+
         var (isValid, errors) = await ValidateAsync(definition, ct);
         if (!isValid)
             throw new ArgumentException($"Definição de agente inválida: {string.Join(", ", errors)}");
@@ -121,6 +128,35 @@ public class AgentService : IAgentService
         _logger.LogInformation(
             "[PromptSeed] Agente '{AgentId}' — versão 'v1' criada (size={Size}).",
             definition.Id, initialContent.Length);
+    }
+
+    public async Task<AgentDefinition> UpdateVisibilityAsync(string id, string newVisibility, CancellationToken ct = default)
+    {
+        var existing = await _repository.GetByIdAsync(id, ct)
+            ?? throw new KeyNotFoundException($"Agente '{id}' não encontrado.");
+
+        // Owner gate: só o projeto dono pode alterar visibility.
+        var currentProjectId = _projectAccessor.Current.ProjectId;
+        if (!string.Equals(existing.ProjectId, currentProjectId, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException(
+                $"Agente '{id}' não pertence ao projeto atual; apenas o projeto dono pode alterar visibility.");
+
+        if (!AgentDefinition.AllowedVisibilities.Contains(newVisibility))
+            throw new ArgumentException(
+                $"Visibility '{newVisibility}' inválida. Permitidos: {string.Join(", ", AgentDefinition.AllowedVisibilities)}.");
+
+        // Idempotência: sem mudança, retorna existing sem audit/cache churn.
+        if (string.Equals(existing.Visibility, newVisibility, StringComparison.OrdinalIgnoreCase))
+            return existing;
+
+        existing.Visibility = newVisibility;
+        existing.UpdatedAt = DateTime.UtcNow;
+
+        _logger.LogInformation(
+            "[AgentService] Visibility do agent '{AgentId}' alterada para '{Visibility}' por projeto '{ProjectId}'.",
+            id, newVisibility, currentProjectId);
+
+        return await _repository.UpsertAsync(existing, ct);
     }
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)

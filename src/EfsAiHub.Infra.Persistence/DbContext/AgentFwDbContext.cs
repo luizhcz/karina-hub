@@ -27,6 +27,10 @@ internal class AgentDefinitionRow
     public string Name { get; set; } = "";
     public string Data { get; set; } = "{}";
     public string ProjectId { get; set; } = "default";
+    /// <summary>"project" | "global". Visível só dentro do tenant quando "global".</summary>
+    public string Visibility { get; set; } = "project";
+    /// <summary>Denormalizado de projects.tenant_id; populado no upsert pelo repository.</summary>
+    public string TenantId { get; set; } = "default";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
@@ -176,6 +180,12 @@ internal class LlmTokenUsageRow
     public string? OutputContent { get; set; }
     public int RetryCount { get; set; }
     public string? ProjectId { get; set; }
+    /// <summary>
+    /// Quando o agent que gerou esta entrada é cross-project (workflow caller != agent owner),
+    /// guarda o ProjectId do **owner** do agent. Null quando agent é local ao caller.
+    /// Permite analytics dual ("qual projeto consumiu vs qual projeto produziu").
+    /// </summary>
+    public string? OriginAgentProjectId { get; set; }
     public DateTime CreatedAt { get; set; }
     public int? ExperimentId { get; set; }
     public string? ExperimentVariant { get; set; }  // 'A' | 'B' | null
@@ -630,11 +640,18 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.Name).HasMaxLength(512).IsRequired();
             b.Property(e => e.Data).HasColumnType("text").IsRequired();
             b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
+            b.Property(e => e.Visibility).HasMaxLength(32).HasDefaultValue("project");
+            b.Property(e => e.TenantId).HasMaxLength(128).HasDefaultValue("default");
             b.Property(e => e.CreatedAt).IsRequired();
             b.Property(e => e.UpdatedAt).IsRequired();
             b.Property(e => e.RegressionTestSetId).HasMaxLength(64);
             b.Property(e => e.RegressionEvaluatorConfigVersionId).HasMaxLength(64);
-            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+            // Tenant-aware visibility: project (estrito) OU global dentro do mesmo tenant.
+            // Workflow do projeto A pode resolver agent global de B (mesmo tenant) sem
+            // bypass de filter — query filter padrão já cobre.
+            b.HasQueryFilter(e =>
+                e.ProjectId == CurrentProjectId
+                || (e.Visibility == "global" && e.TenantId == CurrentTenantId));
         });
 
         modelBuilder.Entity<AgentVersionRow>(b =>
@@ -778,6 +795,7 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.RetryCount).HasDefaultValue(0);
             b.Property(e => e.CachedTokens).HasDefaultValue(0);
             b.Property(e => e.ProjectId).HasMaxLength(128);
+            b.Property(e => e.OriginAgentProjectId).HasMaxLength(128).HasColumnName("OriginAgentProjectId");
             b.Property(e => e.CreatedAt).IsRequired();
             b.Property(e => e.ExperimentId);
             b.Property(e => e.ExperimentVariant).HasMaxLength(1);
@@ -786,6 +804,9 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.ExecutionId);
             b.HasIndex(e => e.CreatedAt);
             b.HasIndex(e => e.ExperimentId);
+            // Index pra analytics dual: "qual projeto pagou X de tokens com agent global de Y".
+            b.HasIndex(e => new { e.ProjectId, e.OriginAgentProjectId, e.CreatedAt })
+                .HasDatabaseName("IX_llm_token_usage_caller_origin");
             // Mesma tolerância de NodeExecutionRow — rows legadas e execuções
             // sem projectId no metadata ficam com null e passam. Analytics
             // globais (GetAllAgentsSummaryAsync, GetThroughputAsync) usam SQL

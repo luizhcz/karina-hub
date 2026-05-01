@@ -27,6 +27,12 @@ public class CreateAgentRequest
 
     public Dictionary<string, string> Metadata { get; init; } = [];
 
+    /// <summary>
+    /// "project" (default) | "global". Quando ausente em UPDATE, AgentService preserva
+    /// existing.Visibility — não cair pra default "project".
+    /// </summary>
+    public string? Visibility { get; init; }
+
     public AgentDefinition ToDomain() => new()
     {
         Id = Id,
@@ -41,6 +47,8 @@ public class CreateAgentRequest
         Resilience = Resilience,
         CostBudget = CostBudget,
         SkillRefs = SkillRefs ?? [],
-        Metadata = Metadata
+        Metadata = Metadata,
+        // Default "project" pra Create; Update preserva existing via AgentService.
+        Visibility = Visibility ?? "project"
     };
 }

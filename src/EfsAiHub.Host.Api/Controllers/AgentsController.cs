@@ -106,6 +106,61 @@ public class AgentsController : ControllerBase
         }
     }
 
+    [HttpPatch("{id}/visibility")]
+    [SwaggerOperation(Summary = "Phase 2 — Altera Visibility de um agent (project | global)")]
+    [ProducesResponseType(typeof(AgentResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateVisibility(
+        string id,
+        [FromBody] UpdateAgentVisibilityRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var existing = await _agentService.GetAsync(id, ct);
+            if (existing is null) return NotFound();
+
+            var beforeVisibility = existing.Visibility;
+            var updated = await _agentService.UpdateVisibilityAsync(id, request.Visibility, ct);
+
+            // No-op: visibility já era a desejada — sem audit/metric.
+            if (string.Equals(beforeVisibility, updated.Visibility, StringComparison.OrdinalIgnoreCase))
+                return Ok(AgentResponse.FromDomain(updated));
+
+            await _audit.RecordAsync(_auditContext.Build(
+                AdminAuditActions.AgentVisibilityChanged,
+                AdminAuditResources.Agent,
+                updated.Id,
+                payloadBefore: AdminAuditContext.Snapshot(new { visibility = beforeVisibility }),
+                payloadAfter: AdminAuditContext.Snapshot(new
+                {
+                    visibility = updated.Visibility,
+                    reason = request.Reason
+                })), ct);
+
+            EfsAiHub.Infra.Observability.MetricsRegistry.AgentVisibilityChanges.Add(1,
+                new KeyValuePair<string, object?>("from", beforeVisibility),
+                new KeyValuePair<string, object?>("to", updated.Visibility),
+                new KeyValuePair<string, object?>("tenant", updated.TenantId));
+
+            return Ok(AgentResponse.FromDomain(updated));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
     [HttpDelete("{id}")]
     [SwaggerOperation(Summary = "Remove uma definição de agente")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

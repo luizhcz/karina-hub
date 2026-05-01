@@ -22,6 +22,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
     private readonly IModelPricingCache? _pricingCache;
     private readonly IAgUiTokenSink? _tokenSink;
     private readonly decimal? _agentMaxCostUsd;
+    private readonly string? _agentOwnerProjectId;
 
     public TokenTrackingChatClient(
         IChatClient innerClient,
@@ -31,7 +32,8 @@ public class TokenTrackingChatClient : DelegatingChatClient
         ILogger logger,
         IModelPricingCache? pricingCache = null,
         IAgUiTokenSink? tokenSink = null,
-        decimal? agentMaxCostUsd = null)
+        decimal? agentMaxCostUsd = null,
+        string? agentOwnerProjectId = null)
         : base(innerClient)
     {
         _agentId = agentId;
@@ -41,6 +43,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
         _pricingCache = pricingCache;
         _tokenSink = tokenSink;
         _agentMaxCostUsd = agentMaxCostUsd;
+        _agentOwnerProjectId = agentOwnerProjectId;
     }
 
     public override async Task<ChatResponse> GetResponseAsync(
@@ -241,6 +244,16 @@ public class TokenTrackingChatClient : DelegatingChatClient
             experimentVariant = assignment.Variant;
         }
 
+        // Phase 2 — Cross-project billing: ProjectId = caller (paga); OriginAgentProjectId = owner do agent.
+        // Quando agent é local (caller == owner), OriginAgentProjectId fica null pra preservar BC.
+        var callerProjectId = ctx?.ProjectId;
+        var originAgentProjectId =
+            !string.IsNullOrEmpty(_agentOwnerProjectId)
+            && !string.IsNullOrEmpty(callerProjectId)
+            && !string.Equals(_agentOwnerProjectId, callerProjectId, StringComparison.OrdinalIgnoreCase)
+                ? _agentOwnerProjectId
+                : null;
+
         _usageWriter.TryWrite(new LlmTokenUsage
         {
             AgentId = _agentId,
@@ -251,7 +264,8 @@ public class TokenTrackingChatClient : DelegatingChatClient
             OutputTokens = outputTokens,
             TotalTokens = totalTokens,
             CachedTokens = cachedTokens,
-            ProjectId = ctx?.ProjectId,
+            ProjectId = callerProjectId,
+            OriginAgentProjectId = originAgentProjectId,
             DurationMs = durationMs,
             PromptVersionId = promptVersionId,
             OutputContent = outputContent,

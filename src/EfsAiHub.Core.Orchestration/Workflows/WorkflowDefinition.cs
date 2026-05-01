@@ -153,6 +153,14 @@ public class WorkflowAgentReference
 
     /// <summary>Configuração HITL declarativa — pausa antes/depois da execução do agente.</summary>
     public NodeHitlConfig? Hitl { get; init; }
+
+    /// <summary>
+    /// Project owner do agent referenciado. Snapshot informativo populado em runtime
+    /// pelo AgentFactory quando o agent é cross-project (Visibility=global de outro projeto).
+    /// Não é validado nem persistido como source of truth — serve pra audit e UI.
+    /// Null em referências locais (caller == owner).
+    /// </summary>
+    public string? OriginProjectId { get; init; }
 }
 
 /// <summary>

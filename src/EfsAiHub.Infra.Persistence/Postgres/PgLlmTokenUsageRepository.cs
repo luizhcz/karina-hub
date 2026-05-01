@@ -23,6 +23,7 @@ public class PgLlmTokenUsageRepository : ILlmTokenUsageRepository
             TotalTokens = usage.TotalTokens,
             CachedTokens = usage.CachedTokens,
             ProjectId = usage.ProjectId,
+            OriginAgentProjectId = usage.OriginAgentProjectId,
             DurationMs = usage.DurationMs,
             PromptVersionId = usage.PromptVersionId,
             AgentVersionId = usage.AgentVersionId,

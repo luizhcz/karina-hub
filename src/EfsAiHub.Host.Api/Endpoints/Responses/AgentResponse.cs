@@ -25,6 +25,16 @@ public class AgentResponse
     public IReadOnlyList<SkillRef>? SkillRefs { get; init; }
 
     public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>Phase 2 — "project" (default) | "global".</summary>
+    public required string Visibility { get; init; }
+
+    /// <summary>Phase 2 — Project owner do agent (distingue do caller que está consumindo).</summary>
+    public required string OriginProjectId { get; init; }
+
+    /// <summary>Phase 2 — Tenant do owner. Reforça boundary cross-tenant na UI.</summary>
+    public required string OriginTenantId { get; init; }
+
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 
@@ -43,6 +53,9 @@ public class AgentResponse
         CostBudget = def.CostBudget,
         SkillRefs = def.SkillRefs is { Count: > 0 } ? def.SkillRefs : null,
         Metadata = def.Metadata,
+        Visibility = def.Visibility,
+        OriginProjectId = def.ProjectId,
+        OriginTenantId = def.TenantId,
         CreatedAt = def.CreatedAt,
         UpdatedAt = def.UpdatedAt
     };

@@ -88,6 +88,20 @@ public static class AdminAuditActions
     /// Emitido pelo PATCH /api/workflows/{id}/visibility.
     /// </summary>
     public const string WorkflowVisibilityChanged = "workflow.visibility_changed";
+
+    /// <summary>
+    /// Phase 2 — Mudança de visibilidade em AgentDefinition (project ↔ global).
+    /// Emitido pelo PATCH /api/agents/{id}/visibility.
+    /// </summary>
+    public const string AgentVisibilityChanged = "agent.visibility_changed";
+
+    /// <summary>
+    /// Phase 2 — Workflow do projeto X resolveu agent global do projeto Y.
+    /// Evento operacional emitido em cada execução cross-project pelo AgentFactory.
+    /// PayloadAfter inclui callerProjectId, ownerProjectId, workflowId, agentId.
+    /// Phase 3 vai adicionar throttle pra evitar inflar audit em loops.
+    /// </summary>
+    public const string CrossProjectInvoke = "cross_project_invoke";
 }
 
 public static class AdminAuditResources

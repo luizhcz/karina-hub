@@ -43,6 +43,28 @@ public class AgentDefinition
     public IReadOnlyList<SkillRef> SkillRefs { get; init; } = [];
 
     public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>
+    /// "project" (default) — agent visível apenas dentro do projeto dono.
+    /// "global" — agent visível a todos os projetos do mesmo tenant; outros projetos
+    /// podem referenciá-lo em workflows. Cross-tenant é proibido.
+    /// </summary>
+    /// <remarks>
+    /// Mutável (não init-only) pra permitir hidratação consistente após deserialização —
+    /// PgAgentDefinitionRepository.Hydrate sobrescreve com row.Visibility (single source of truth).
+    /// </remarks>
+    public string Visibility { get; set; } = "project";
+
+    /// <summary>
+    /// Tenant denormalizado de projects.tenant_id. Usado pelo HasQueryFilter pra
+    /// enforçar tenant boundary em listagens cross-project (Visibility=global).
+    /// Populado no upsert via lookup do owner project; default 'default' pra BC.
+    /// </summary>
+    public string TenantId { get; set; } = "default";
+
+    public static readonly IReadOnlySet<string> AllowedVisibilities =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "project", "global" };
+
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
@@ -118,6 +140,9 @@ public class AgentDefinition
             throw new DomainException("AgentDefinition.Model.DeploymentName é obrigatório.");
         if (Model.Temperature is < 0 or > 2)
             throw new DomainException("AgentDefinition.Model.Temperature deve estar em [0, 2] quando presente.");
+        if (!AllowedVisibilities.Contains(Visibility))
+            throw new DomainException(
+                $"AgentDefinition.Visibility inválida: '{Visibility}'. Permitidos: {string.Join(", ", AllowedVisibilities)}.");
     }
 }
 

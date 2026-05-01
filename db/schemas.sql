@@ -52,10 +52,45 @@ CREATE TABLE IF NOT EXISTS aihub.agent_definitions (
     "Name"       VARCHAR(512) NOT NULL,
     "Data"       TEXT         NOT NULL,                 -- JSON serializado do AgentDef
     "ProjectId"  VARCHAR(128) NOT NULL DEFAULT 'default',
+    "Visibility" VARCHAR(32)  NOT NULL DEFAULT 'project', -- project | global (Phase 2)
+    "TenantId"   VARCHAR(128) NOT NULL DEFAULT 'default', -- denormalizado de projects.tenant_id
     "CreatedAt"  TIMESTAMPTZ  NOT NULL,
     "UpdatedAt"  TIMESTAMPTZ  NOT NULL,
-    CONSTRAINT "PK_agent_definitions" PRIMARY KEY ("Id")
+    CONSTRAINT "PK_agent_definitions" PRIMARY KEY ("Id"),
+    CONSTRAINT "CK_agent_definitions_Visibility" CHECK ("Visibility" IN ('project', 'global'))
 );
+
+-- ALTER idempotente pra DBs existentes (Phase 2 — agent sharing).
+ALTER TABLE aihub.agent_definitions
+    ADD COLUMN IF NOT EXISTS "Visibility" VARCHAR(32) NOT NULL DEFAULT 'project';
+ALTER TABLE aihub.agent_definitions
+    ADD COLUMN IF NOT EXISTS "TenantId" VARCHAR(128) NOT NULL DEFAULT 'default';
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'CK_agent_definitions_Visibility'
+    ) THEN
+        ALTER TABLE aihub.agent_definitions
+            ADD CONSTRAINT "CK_agent_definitions_Visibility"
+            CHECK ("Visibility" IN ('project', 'global')) NOT VALID;
+        ALTER TABLE aihub.agent_definitions
+            VALIDATE CONSTRAINT "CK_agent_definitions_Visibility";
+    END IF;
+END $$;
+
+-- Backfill TenantId via JOIN com projects (idempotente).
+UPDATE aihub.agent_definitions ad
+SET "TenantId" = p.tenant_id
+FROM aihub.projects p
+WHERE ad."ProjectId" = p.id
+  AND ad."TenantId" = 'default'
+  AND p.tenant_id <> 'default';
+
+-- Index parcial: listagens cross-project só atravessam agents globais.
+CREATE INDEX IF NOT EXISTS "IX_agent_definitions_TenantId_Visibility"
+    ON aihub.agent_definitions ("TenantId")
+    WHERE "Visibility" = 'global';
 
 CREATE TABLE IF NOT EXISTS aihub.workflow_definitions (
     "Id"         VARCHAR(256) NOT NULL,
@@ -492,10 +527,15 @@ CREATE TABLE IF NOT EXISTS aihub.llm_token_usage (
     "AgentVersionId"  VARCHAR(64)      NULL,  -- rastreia snapshot do agente na execução
     "OutputContent"   TEXT             NULL,
     "RetryCount"      INTEGER          NOT NULL DEFAULT 0,
-    "ProjectId"       VARCHAR(128)     NULL,  -- F4 — boundary de isolamento (ADR 003)
-    "CreatedAt"       TIMESTAMPTZ      NOT NULL,
+    "ProjectId"            VARCHAR(128) NULL,  -- F4 — boundary de isolamento (ADR 003) / caller (consumer)
+    "OriginAgentProjectId" VARCHAR(128) NULL,  -- Phase 2 — owner do agent quando cross-project (NULL se local)
+    "CreatedAt"            TIMESTAMPTZ  NOT NULL,
     CONSTRAINT "PK_llm_token_usage" PRIMARY KEY ("Id")
 );
+
+-- ALTER idempotente pra DBs existentes (Phase 2 — agent sharing).
+ALTER TABLE aihub.llm_token_usage
+    ADD COLUMN IF NOT EXISTS "OriginAgentProjectId" VARCHAR(128) NULL;
 
 CREATE INDEX IF NOT EXISTS "IX_llm_token_usage_AgentId"
     ON aihub.llm_token_usage ("AgentId");
@@ -508,6 +548,10 @@ CREATE INDEX IF NOT EXISTS "IX_llm_token_usage_CreatedAt"
 
 CREATE INDEX IF NOT EXISTS ix_llm_token_usage_project_created
     ON aihub.llm_token_usage ("ProjectId", "CreatedAt" DESC);
+
+-- Phase 2 — analytics dual: "qual projeto pagou X tokens com agent global de Y".
+CREATE INDEX IF NOT EXISTS "IX_llm_token_usage_caller_origin"
+    ON aihub.llm_token_usage ("ProjectId", "OriginAgentProjectId", "CreatedAt" DESC);
 
 -- =============================================================================
 -- 15. OBSERVABILIDADE — INVOCAÇÕES DE TOOLS

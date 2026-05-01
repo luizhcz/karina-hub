@@ -81,6 +81,22 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("workflows.visibility_changes_total",
             description: "Mudanças de Visibility em WorkflowDefinition. Tags: from, to, tenant.");
 
+    /// <summary>
+    /// Phase 2 — Contador de mudanças de Visibility em AgentDefinition.
+    /// Tags: from=project|global, to=project|global, tenant.
+    /// </summary>
+    public static readonly Counter<long> AgentVisibilityChanges =
+        _meter.CreateCounter<long>("agents.visibility_changes_total",
+            description: "Mudanças de Visibility em AgentDefinition. Tags: from, to, tenant.");
+
+    /// <summary>
+    /// Phase 2 — Contador de execuções onde workflow caller resolveu agent global de outro projeto.
+    /// Tags: caller_project, owner_project, tenant. Cuidado de cardinalidade em deploys com 100+ projetos.
+    /// </summary>
+    public static readonly Counter<long> AgentCrossProjectInvocations =
+        _meter.CreateCounter<long>("agents.cross_project_invocations_total",
+            description: "Execuções cross-project de agents globais. Tags: caller_project, owner_project, tenant.");
+
     public static readonly Counter<long> StaleExecutionCompletionSkipped =
         _meter.CreateCounter<long>("chat.stale_completion.skipped",
             description: "Completions ignoradas por corresponderem a execução não mais ativa na conversa");

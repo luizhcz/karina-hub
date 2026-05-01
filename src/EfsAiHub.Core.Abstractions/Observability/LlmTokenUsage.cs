@@ -25,6 +25,13 @@ public class LlmTokenUsage
     /// Permite analytics cross-project e HasQueryFilter no DbContext.
     /// </summary>
     public string? ProjectId { get; set; }
+
+    /// <summary>
+    /// Phase 2 — Quando o agent que gerou esta chamada é cross-project (caller workflow
+    /// !=  owner do agent global), guarda o ProjectId do owner. Null quando agent é local.
+    /// Permite analytics dual ("qual projeto consumiu vs qual projeto produziu").
+    /// </summary>
+    public string? OriginAgentProjectId { get; set; }
     public double DurationMs { get; set; }
     public string? PromptVersionId { get; set; }
     public string? AgentVersionId { get; set; }

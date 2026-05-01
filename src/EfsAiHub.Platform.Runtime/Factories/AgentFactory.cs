@@ -149,6 +149,52 @@ public class AgentFactory : IAgentFactory
                 ?? throw new InvalidOperationException(
                     $"Agent '{agentRef.AgentId}' referenced in workflow '{workflow.Id}' not found.");
 
+            // Detecta agent cross-project (Phase 2): caller workflow.ProjectId != agent.ProjectId.
+            // Ocorre quando workflow referencia agent global de outro projeto do mesmo tenant.
+            // Emite log estruturado + métrica + audit pra rastreabilidade — não bloqueia.
+            if (!string.Equals(workflow.ProjectId, definition.ProjectId, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation(
+                    "[AgentFactory] Cross-project agent resolved. Workflow={WorkflowId} CallerProject={CallerProject} AgentId={AgentId} OwnerProject={OwnerProject} Visibility={Visibility}",
+                    workflow.Id, workflow.ProjectId, definition.Id, definition.ProjectId, definition.Visibility);
+
+                EfsAiHub.Infra.Observability.MetricsRegistry.AgentCrossProjectInvocations.Add(1,
+                    new KeyValuePair<string, object?>("caller_project", workflow.ProjectId),
+                    new KeyValuePair<string, object?>("owner_project", definition.ProjectId),
+                    new KeyValuePair<string, object?>("tenant", definition.TenantId));
+
+                if (_auditLogger is not null)
+                {
+                    try
+                    {
+                        var payload = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                            callerProjectId = workflow.ProjectId,
+                            ownerProjectId = definition.ProjectId,
+                            workflowId = workflow.Id,
+                            agentId = definition.Id,
+                        }));
+                        await _auditLogger.RecordAsync(new EfsAiHub.Core.Abstractions.Observability.AdminAuditEntry
+                        {
+                            ActorUserId = "system:agent-factory",
+                            ActorUserType = "system",
+                            Action = EfsAiHub.Core.Abstractions.Observability.AdminAuditActions.CrossProjectInvoke,
+                            ResourceType = EfsAiHub.Core.Abstractions.Observability.AdminAuditResources.Agent,
+                            ResourceId = definition.Id,
+                            ProjectId = workflow.ProjectId,
+                            TenantId = definition.TenantId,
+                            PayloadAfter = payload,
+                            Timestamp = DateTime.UtcNow,
+                        }, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "[AgentFactory] Falha ao registrar audit cross_project_invoke (não-bloqueante).");
+                    }
+                }
+            }
+
             result[agentRef.AgentId] = await CreateAgentAsync(definition, ct);
         }
 
@@ -334,9 +380,12 @@ public class AgentFactory : IAgentFactory
         // agentMaxCostUsd: quando setado em AgentDefinition.CostBudget.MaxCostUsd, o
         // TokenTrackingChatClient emite LogCritical (warning-only) quando o custo
         // acumulado da execução cruza esse teto. Não bloqueia.
+        // agentOwnerProjectId: Phase 2 — propaga pro audit dual em llm_token_usage. Quando
+        // o caller != owner, OriginAgentProjectId é populado; senão null (preserva BC).
         IChatClient current = new TokenTrackingChatClient(
             inner, definition.Id, modelId, _tokenPersistence.Writer, _logger, _pricingCache, _agUiTokenSink,
-            agentMaxCostUsd: definition.CostBudget?.MaxCostUsd);
+            agentMaxCostUsd: definition.CostBudget?.MaxCostUsd,
+            agentOwnerProjectId: definition.ProjectId);
 
         foreach (var mw in definition.Middlewares.Where(m => m.Enabled))
         {

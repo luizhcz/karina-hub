@@ -1,4 +1,6 @@
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Identity;
+using EfsAiHub.Core.Abstractions.Projects;
 using EfsAiHub.Core.Agents;
 using EfsAiHub.Core.Agents.Skills;
 using EfsAiHub.Infra.Persistence.Cache;
@@ -12,19 +14,25 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
     private readonly IEfsRedisCache _cache;
     private readonly IAgentVersionRepository _versionRepo;
     private readonly IAgentPromptRepository _promptRepo;
+    private readonly IProjectRepository _projectRepo;
+    private readonly ITenantContextAccessor _tenantAccessor;
     private readonly ISkillVersionRepository? _skillVersionRepo;
     private readonly IFunctionToolRegistry? _functionRegistry;
     private readonly ILogger<PgAgentDefinitionRepository> _logger;
     private readonly TimeSpan _ttl;
 
-    // Chave Redis: efs-ai-hub:agent-def:{id} (prefixo aplicado pelo wrapper).
+    // Cache tenant-aware: efs-ai-hub:agent-def:{tenantId}:{id}. Tenant A nunca compartilha
+    // slot com tenant B — se algum caminho bypass query filter, cache não vaza.
     private const string CacheKeyPrefix = "agent-def:";
+    private string CacheKey(string id) => $"{CacheKeyPrefix}{_tenantAccessor.Current.TenantId}:{id}";
 
     public PgAgentDefinitionRepository(
         IDbContextFactory<AgentFwDbContext> factory,
         IEfsRedisCache cache,
         IAgentVersionRepository versionRepo,
         IAgentPromptRepository promptRepo,
+        IProjectRepository projectRepo,
+        ITenantContextAccessor tenantAccessor,
         ILogger<PgAgentDefinitionRepository> logger,
         IConfiguration config,
         ISkillVersionRepository? skillVersionRepo = null,
@@ -34,34 +42,52 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
         _cache = cache;
         _versionRepo = versionRepo;
         _promptRepo = promptRepo;
+        _projectRepo = projectRepo;
+        _tenantAccessor = tenantAccessor;
         _skillVersionRepo = skillVersionRepo;
         _functionRegistry = functionRegistry;
         _logger = logger;
         _ttl = TimeSpan.FromSeconds(config.GetValue<int>("Redis:DefinitionCacheTtlSeconds", 300));
     }
 
+    /// <summary>
+    /// Hidrata Visibility/ProjectId/TenantId da row sobre o domain — defesa contra JSON
+    /// pré-Phase 2 (sem campos novos) ou inconsistência transient. Row é source of truth.
+    /// </summary>
+    private static AgentDefinition Hydrate(AgentDefinitionRow row, AgentDefinition def)
+    {
+        def.ProjectId = row.ProjectId;
+        def.TenantId = row.TenantId;
+        def.Visibility = row.Visibility;
+        return def;
+    }
+
     public async Task<AgentDefinition?> GetByIdAsync(string id, CancellationToken ct = default)
     {
-        var cacheKey = CacheKeyPrefix + id;
+        var cacheKey = CacheKey(id);
 
         var cached = await _cache.GetStringAsync(cacheKey);
         if (!string.IsNullOrEmpty(cached))
             return JsonSerializer.Deserialize<AgentDefinition>(cached, JsonDefaults.Domain);
 
         await using var ctx = await _factory.CreateDbContextAsync(ct);
-        var row = await ctx.AgentDefinitions.FindAsync([id], ct);
+        // FirstOrDefaultAsync respeita HasQueryFilter (project OR global+tenant) — caller
+        // de outro tenant não vê. Nunca usar FindAsync aqui (bypass de filter).
+        var row = await ctx.AgentDefinitions.FirstOrDefaultAsync(r => r.Id == id, ct);
         if (row is null) return null;
 
         await _cache.SetStringAsync(cacheKey, row.Data, _ttl);
-        return JsonSerializer.Deserialize<AgentDefinition>(row.Data, JsonDefaults.Domain);
+        var def = JsonSerializer.Deserialize<AgentDefinition>(row.Data, JsonDefaults.Domain)!;
+        return Hydrate(row, def);
     }
 
     public async Task<IReadOnlyList<AgentDefinition>> GetAllAsync(CancellationToken ct = default)
     {
         await using var ctx = await _factory.CreateDbContextAsync(ct);
+        // ToListAsync respeita HasQueryFilter — retorna agents do projeto atual + globais do tenant.
         var rows = await ctx.AgentDefinitions.ToListAsync(ct);
         return rows
-            .Select(r => JsonSerializer.Deserialize<AgentDefinition>(r.Data, JsonDefaults.Domain)!)
+            .Select(r => Hydrate(r, JsonSerializer.Deserialize<AgentDefinition>(r.Data, JsonDefaults.Domain)!))
             .OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -74,11 +100,24 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
         // Snapshots subsequentes de AgentVersion herdam esse hash via AgentVersion.FromDefinition.
         definition = StampFunctionFingerprints(definition);
 
+        // Lookup do tenant do project owner — denormaliza pra row pra que o
+        // query filter no DbContext consiga enforçar tenant boundary sem JOIN.
+        var ownerProject = await _projectRepo.GetByIdAsync(definition.ProjectId, ct);
+        var tenantId = ownerProject?.TenantId ?? "default";
+        // Sincroniza no domain pra que serializações futuras carreguem o valor correto.
+        definition.TenantId = tenantId;
+
         await using var ctx = await _factory.CreateDbContextAsync(ct);
         var data = JsonSerializer.Serialize(definition, JsonDefaults.Domain);
         var now = DateTime.UtcNow;
 
-        var existing = await ctx.AgentDefinitions.FindAsync([definition.Id], ct);
+        // IgnoreQueryFilters: precisamos achar a row mesmo quando o caller não enxerga
+        // o agent pelo filter atual (raro — apenas com bypass owner-gated upstream).
+        var existing = await ctx.AgentDefinitions
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(r => r.Id == definition.Id, ct);
+        var visibilityChanged = existing is not null && existing.Visibility != definition.Visibility;
+
         if (existing is null)
         {
             ctx.AgentDefinitions.Add(new AgentDefinitionRow
@@ -87,6 +126,8 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
                 Name = definition.Name,
                 Data = data,
                 ProjectId = definition.ProjectId,
+                Visibility = definition.Visibility,
+                TenantId = tenantId,
                 CreatedAt = now,
                 UpdatedAt = now,
                 // ADR 0015 — propaga as 3 colunas regression. Sem isso o
@@ -100,6 +141,8 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
         {
             existing.Name = definition.Name;
             existing.Data = data;
+            existing.Visibility = definition.Visibility;
+            existing.TenantId = tenantId;
             existing.UpdatedAt = now;
             existing.RegressionTestSetId = definition.RegressionTestSetId;
             existing.RegressionEvaluatorConfigVersionId = definition.RegressionEvaluatorConfigVersionId;
@@ -107,8 +150,12 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
 
         await ctx.SaveChangesAsync(ct);
 
-        // Atualiza no Redis APENAS se a chave já existia.
-        await _cache.SetIfExistsAsync(CacheKeyPrefix + definition.Id, data, _ttl);
+        // Cache tenant-aware: invalida total em mudança de visibility (outros projetos
+        // do tenant podem estar com cache stale); senão atualiza só se já existia.
+        if (visibilityChanged)
+            await _cache.RemoveAsync(CacheKey(definition.Id));
+        else
+            await _cache.SetIfExistsAsync(CacheKey(definition.Id), data, _ttl);
 
         // Dual-write: append de snapshot imutável atômico.
         // Idempotente por ContentHash: upserts consecutivos sem mudança real não criam nova revision.
@@ -169,12 +216,13 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
     public async Task<bool> DeleteAsync(string id, CancellationToken ct = default)
     {
         await using var ctx = await _factory.CreateDbContextAsync(ct);
-        var row = await ctx.AgentDefinitions.FindAsync([id], ct);
+        // Respeita filter — caller só consegue deletar agents visíveis ao project/tenant atual.
+        var row = await ctx.AgentDefinitions.FirstOrDefaultAsync(r => r.Id == id, ct);
         if (row is null) return false;
         ctx.AgentDefinitions.Remove(row);
         await ctx.SaveChangesAsync(ct);
 
-        await _cache.RemoveAsync(CacheKeyPrefix + id);
+        await _cache.RemoveAsync(CacheKey(id));
         return true;
     }
 
