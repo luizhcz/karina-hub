@@ -802,8 +802,9 @@ public class WorkflowRunnerService
 
     private static ErrorCategory ClassifyError(Exception ex)
     {
-        if (ex is EfsAiHub.Platform.Guards.BudgetExceededException)
-            return ErrorCategory.BudgetExceeded;
+        // BudgetExceeded foi removido como exception (política warning-only) — quando
+        // o teto é cruzado, TokenTrackingChatClient apenas loga e segue. ErrorCategory
+        // ainda existe mas é dead branch aqui.
         // Classifica exceções por tipo para agregar métricas de erro
         if (ex is HttpRequestException httpEx)
         {

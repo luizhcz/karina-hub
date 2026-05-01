@@ -320,7 +320,6 @@ The backend's `GlobalExceptionMiddleware` maps known exceptions to HTTP statuses
 |---|---|---|
 | 400 | `DomainException` | Invariante de domínio violada (Create() rejeitou) |
 | 400 | `ArgumentException` | Argumento inválido |
-| 402 | `BudgetExceededException` | Teto diário de custo/tokens atingido |
 | 403 | `DefaultProjectGuard` / `AdminGateMiddleware` | Permissão negada |
 | 404 | `KeyNotFoundException` | Recurso não encontrado (ou HITL já resolvido por race) |
 | 429 | `ProjectRateLimitMiddleware` | Rate limit por projeto |

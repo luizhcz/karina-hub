@@ -27,7 +27,6 @@
     <ProjectReference Include="..\EfsAiHub.Core.Abstractions\EfsAiHub.Core.Abstractions.csproj" />
     <ProjectReference Include="..\EfsAiHub.Core.Agents\EfsAiHub.Core.Agents.csproj" />
     <ProjectReference Include="..\EfsAiHub.Core.Orchestration\EfsAiHub.Core.Orchestration.csproj" />
-    <ProjectReference Include="..\EfsAiHub.Platform.Guards\EfsAiHub.Platform.Guards.csproj" />
     <ProjectReference Include="..\EfsAiHub.Platform.Runtime\EfsAiHub.Platform.Runtime.csproj" />
     <ProjectReference Include="..\EfsAiHub.Infra.Persistence\EfsAiHub.Infra.Persistence.csproj" />
     <ProjectReference Include="..\EfsAiHub.Infra.Messaging\EfsAiHub.Infra.Messaging.csproj" />

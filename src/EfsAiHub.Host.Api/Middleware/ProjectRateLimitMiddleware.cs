@@ -5,11 +5,17 @@ using StackExchange.Redis;
 namespace EfsAiHub.Host.Api.Middleware;
 
 /// <summary>
-/// Middleware que aplica rate limiting e budget guard por projeto.
+/// Middleware que aplica rate limiting por projeto.
 /// Deve ser registrado APÓS ProjectMiddleware (que resolve o ProjectId).
-/// Retorna 429 se rate limit excedido, 402 se budget excedido.
+/// Retorna 429 se rate limit excedido.
 /// Se Redis estiver indisponível, adota estratégia fail-open (request liberado com warning).
 /// </summary>
+/// <remarks>
+/// Política: budget é <b>SOFT/warning-only</b>. O check de
+/// <c>MaxCostUsdPerDay</c>/<c>MaxTokensPerDay</c> que vivia aqui foi removido — o
+/// <c>ProjectBudgetGuard</c> agora apenas observa e emite log/métrica via
+/// <c>CheckAsync</c> (não bloqueia request). Ver <see cref="ProjectBudgetGuard"/>.
+/// </remarks>
 public sealed class ProjectRateLimitMiddleware
 {
     private readonly RequestDelegate _next;
@@ -58,25 +64,14 @@ public sealed class ProjectRateLimitMiddleware
             _logger.LogWarning(ex, "[RateLimit] Redis indisponível para projeto '{ProjectId}' — rate limiting desabilitado temporariamente.", projectId);
         }
 
-        // Budget check (402 Payment Required)
-        // Fail-open: se Redis indisponível, loga warning e libera o request
+        // Budget observation (não bloqueia — apenas log/métrica quando teto diário é cruzado).
         try
         {
-            var (allowed, reason) = await budgetGuard.CheckAsync(projectId, context.RequestAborted);
-            if (!allowed)
-            {
-                context.Response.StatusCode = StatusCodes.Status402PaymentRequired;
-                await context.Response.WriteAsJsonAsync(new
-                {
-                    error = reason,
-                    projectId
-                });
-                return;
-            }
+            await budgetGuard.CheckAsync(projectId, context.RequestAborted);
         }
         catch (Exception ex) when (ex is RedisException or InvalidOperationException)
         {
-            _logger.LogWarning(ex, "[BudgetGuard] Redis indisponível para projeto '{ProjectId}' — budget check desabilitado temporariamente.", projectId);
+            _logger.LogWarning(ex, "[BudgetGuard] Redis indisponível para projeto '{ProjectId}' — observação de budget pulada.", projectId);
         }
 
         await _next(context);

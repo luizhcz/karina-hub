@@ -908,27 +908,17 @@ public class ExecutionBudget
 }
 ```
 
-### Enforcement
+### Enforcement (warning-only)
 
-1. **TokenTrackingChatClient** verifica `Budget.IsExceeded` antes de cada chamada LLM
-2. Se excedido → `BudgetExceededException` → workflow falha com `ErrorCategory.BudgetExceeded`
-3. **Compartilhado:** Budget único por execução, compartilhado entre todos os nós via `ExecutionContext` (AsyncLocal)
-4. **Thread-safe:** Tokens via `Interlocked`, custo via `lock`
-
-### BudgetExceededException
-
-```
-src/EfsAiHub.Platform.Guards/BudgetExceededException.cs
-```
-
-Inclui:
-- `TotalTokens` / `MaxTokensPerExecution` — para budget de tokens
-- `TotalCostUsd` / `MaxCostUsd` — para budget de custo
-- `IsCostCause` — indica se o custo foi a causa
+1. **TokenTrackingChatClient** observa `Budget.IsExceeded` antes de cada chamada LLM.
+2. Se excedido → emite `LogCritical` + métrica `llm.budget.exceeded{scope=workflow|agent,cause=cost|tokens}` e **continua a execução**. Não bloqueia, não throw.
+3. **Log único por causa:** flags `TryMark*Logged` em `ExecutionBudget` evitam flood quando o agente faz N chamadas LLM seguidas após estourar.
+4. **Compartilhado:** Budget único por execução, compartilhado entre todos os nós via `ExecutionContext` (AsyncLocal).
+5. **Thread-safe:** Tokens via `Interlocked`, custo via `lock`, flags via `Interlocked.Exchange`.
 
 ### Project Budget Guard
 
-Budget diário por projeto usando Redis counters (`ProjectBudgetGuard`). Independente do budget por execução.
+Budget diário por projeto usando Redis counters (`ProjectBudgetGuard`). Também **warning-only** — quando `MaxCostUsdPerDay`/`MaxTokensPerDay` é cruzado, emite log critical + métrica `llm.budget.exceeded{scope=project}` e libera o request.
 
 ---
 

@@ -331,7 +331,12 @@ public class AgentFactory : IAgentFactory
         var modelId = definition.Model.DeploymentName ?? "unknown";
 
         // Cadeia: Retry → Circuit → Blocklist → [AccountGuard etc] → TokenTracking → Raw
-        IChatClient current = new TokenTrackingChatClient(inner, definition.Id, modelId, _tokenPersistence.Writer, _logger, _pricingCache, _agUiTokenSink);
+        // agentMaxCostUsd: quando setado em AgentDefinition.CostBudget.MaxCostUsd, o
+        // TokenTrackingChatClient emite LogCritical (warning-only) quando o custo
+        // acumulado da execução cruza esse teto. Não bloqueia.
+        IChatClient current = new TokenTrackingChatClient(
+            inner, definition.Id, modelId, _tokenPersistence.Writer, _logger, _pricingCache, _agUiTokenSink,
+            agentMaxCostUsd: definition.CostBudget?.MaxCostUsd);
 
         foreach (var mw in definition.Middlewares.Where(m => m.Enabled))
         {

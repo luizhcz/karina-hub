@@ -69,9 +69,9 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("tool.account.output_anomaly",
             description: "Anomalias detectadas pelo AccountGuardChatClient no output final do LLM");
 
-    public static readonly Counter<long> BudgetExceededKills =
+    public static readonly Counter<long> BudgetExceededWarnings =
         _meter.CreateCounter<long>("llm.budget.exceeded",
-            description: "Execuções mortas por estourar MaxTokensPerExecution");
+            description: "Execuções que ultrapassaram budget cap (warning-only — não bloqueia). Tags: scope=workflow|agent|project, cause=cost|tokens.");
 
     public static readonly Counter<long> StaleExecutionCompletionSkipped =
         _meter.CreateCounter<long>("chat.stale_completion.skipped",

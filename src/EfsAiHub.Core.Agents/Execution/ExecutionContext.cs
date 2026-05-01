@@ -78,6 +78,14 @@ public enum AccountGuardMode
 /// <see cref="ExecutionContext"/> (AsyncLocal) com o TokenTrackingChatClient.
 /// Thread-safe via Interlocked — múltiplas tools/agentes em paralelo incrementam o mesmo contador.
 /// </summary>
+/// <remarks>
+/// <b>Política: SOFT budget (warning-only).</b> Os tetos
+/// (<see cref="MaxTokensPerExecution"/>, <see cref="MaxCostUsd"/>) não bloqueiam mais a
+/// execução — quando ultrapassados, o TokenTrackingChatClient apenas emite um
+/// <c>LogCritical</c> + métrica <c>llm.budget.exceeded</c> e segue. Os flags
+/// <see cref="TryMarkTokenLogged"/> / <see cref="TryMarkCostLogged"/> garantem que o log
+/// não é repetido a cada chamada LLM subsequente da mesma execução.
+/// </remarks>
 public sealed class ExecutionBudget
 {
     private long _totalTokens;
@@ -85,10 +93,17 @@ public sealed class ExecutionBudget
     private readonly object _costLock = new();
     private decimal _totalCostUsd;
 
+    private int _tokenLoggedFlag;
+    private int _costLoggedFlag;
+    private int _agentCostLoggedFlag;
+
     public int MaxTokensPerExecution { get; }
 
-    /// <summary>Teto de custo em USD para a execução. null/≤0 = sem enforcement.</summary>
+    /// <summary>Teto de custo em USD por execução (workflow-level). null/≤0 = sem warning.</summary>
     public decimal? MaxCostUsd { get; }
+
+    /// <summary>Teto de custo em USD por agente (agent-level). null/≤0 = sem warning.</summary>
+    public decimal? AgentMaxCostUsd { get; }
 
     public long TotalTokens => Interlocked.Read(ref _totalTokens);
 
@@ -97,10 +112,11 @@ public sealed class ExecutionBudget
         get { lock (_costLock) return _totalCostUsd; }
     }
 
-    public ExecutionBudget(int maxTokensPerExecution, decimal? maxCostUsd = null)
+    public ExecutionBudget(int maxTokensPerExecution, decimal? maxCostUsd = null, decimal? agentMaxCostUsd = null)
     {
         MaxTokensPerExecution = maxTokensPerExecution;
         MaxCostUsd = maxCostUsd;
+        AgentMaxCostUsd = agentMaxCostUsd;
     }
 
     public void Add(long tokens) => Interlocked.Add(ref _totalTokens, tokens);
@@ -127,4 +143,20 @@ public sealed class ExecutionBudget
             lock (_costLock) return _totalCostUsd >= MaxCostUsd.Value;
         }
     }
+
+    public bool IsAgentCostExceeded
+    {
+        get
+        {
+            if (AgentMaxCostUsd is null || AgentMaxCostUsd.Value <= 0) return false;
+            lock (_costLock) return _totalCostUsd >= AgentMaxCostUsd.Value;
+        }
+    }
+
+    /// <summary>Idempotente: retorna true só na primeira chamada por execução.</summary>
+    public bool TryMarkTokenLogged() => Interlocked.Exchange(ref _tokenLoggedFlag, 1) == 0;
+    /// <summary>Idempotente: retorna true só na primeira chamada por execução.</summary>
+    public bool TryMarkCostLogged() => Interlocked.Exchange(ref _costLoggedFlag, 1) == 0;
+    /// <summary>Idempotente: retorna true só na primeira chamada por execução.</summary>
+    public bool TryMarkAgentCostLogged() => Interlocked.Exchange(ref _agentCostLoggedFlag, 1) == 0;
 }

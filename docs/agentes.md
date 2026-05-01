@@ -281,7 +281,7 @@ public class Skill : IProjectScoped
 | Camada | Mecanismo |
 |--------|-----------|
 | Anti-alucinação | `AccountGuardChatClient` — reescreve contas hallucinated |
-| Budget tokens | `TokenTrackingChatClient` — hard cap + BudgetExceededException |
+| Budget tokens/USD | `TokenTrackingChatClient` — soft cap (LogCritical + métrica `llm.budget.exceeded`, **não bloqueia**) |
 | Budget USD | `IModelPricingCache` — custo incremental |
 | Tool guard | `TrackedAIFunction.ApplyAccountGuard` — params sensíveis reescritos |
 | Circuit breaker | Failover automático para fallback provider |
@@ -617,9 +617,10 @@ Request do Workflow
 **Fluxo a cada chamada LLM:**
 
 ```
-1. ANTES: Verifica budget
-   ├─ TotalTokens ≥ MaxTokensPerExecution? → throw BudgetExceededException
-   └─ TotalCostUsd ≥ MaxCostUsd? → throw BudgetExceededException
+1. ANTES: Observa budget (soft cap — não bloqueia execução)
+   ├─ TotalTokens ≥ MaxTokensPerExecution?     → LogCritical + counter (uma vez por execução)
+   ├─ TotalCostUsd ≥ MaxCostUsd?                → LogCritical + counter (uma vez por execução)
+   └─ TotalCostUsd ≥ AgentMaxCostUsd?           → LogCritical + counter (uma vez por execução)
 
 2. DURANTE: Chama inner client (LLM real)
 

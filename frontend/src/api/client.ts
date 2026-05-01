@@ -22,7 +22,6 @@ export function getIdentityHeaders(): Record<string, string> {
  *
  * O backend retorna payload JSON `{ error: "mensagem" }` em erros conhecidos:
  * - 400 DomainException (invariante de domínio violada) — mensagem técnica da regra
- * - 402 BudgetExceededException (teto diário atingido)
  * - 403 DefaultProjectGuard ou permissão
  * - 404 recurso não encontrado (ou HITL CAS perdido em `/resolve`)
  * - 409 conflict (ex: versionamento otimista)

@@ -4,44 +4,39 @@ using EfsAiHub.Core.Abstractions.Projects;
 namespace EfsAiHub.Platform.Runtime.Guards;
 
 /// <summary>
-/// Verifica se o projeto excedeu o budget diário (MaxCostUsdPerDay / MaxTokensPerDay).
-/// Usa Redis para acumular contadores diários por projeto (incrementados pelo TokenUsagePersistenceService).
-/// Retorna 402 quando o orçamento diário é excedido.
+/// Observa o consumo diário de tokens/custo por projeto contra os tetos
+/// (<c>MaxTokensPerDay</c> / <c>MaxCostUsdPerDay</c>) configurados em
+/// <c>ProjectSettings</c>. <b>Não bloqueia.</b> Quando o teto é cruzado,
+/// emite um <see cref="ILogger.LogCritical"/> + métrica
+/// <c>llm.budget.exceeded{scope=project}</c> e segue.
 /// </summary>
 /// <remarks>
-/// <para>
-/// <b>Semântica: SOFT budget.</b> <see cref="CheckAsync"/> bloqueia requisições novas
-/// apenas DEPOIS que o contador Redis já ultrapassou o teto (read-then-compare).
-/// Como o contador é incrementado post-LLM-call pelo <c>TokenUsagePersistenceService</c>,
-/// requisições concorrentes próximas do limite podem passar juntas no check, rodar, e
-/// somadas exceder o limite em alguns pontos percentuais.
-/// </para>
-/// <para>
-/// <b>Implicação de produto:</b> o label visível na UI ("Limite diário") sugere
-/// comportamento <i>hard</i>. Alinhar com Product Owner se a percepção do usuário precisa
-/// ser ajustada (ex: "Uso diário estimado") ou se o comportamento deve virar hard.
-/// </para>
-/// <para>
-/// <b>Para budget HARD</b> (impossível exceder), o design exigiria reserva upfront
-/// — estimar <c>max_tokens</c> da request antes de chamar o LLM, decrementar atomicamente
-/// com Lua script, executar, reconciliar com tokens reais depois. Esforço ~1 semana.
-/// Ver GitHub issue #1 para discussão com produto.
-/// </para>
+/// Mudança de política (warning-only): antes este guard retornava <c>(false, reason)</c>
+/// e o <c>ProjectRateLimitMiddleware</c> respondia 402 Payment Required. Agora retorna
+/// sempre <c>true</c>; a observação fica como sinal pra ops sem travar a aplicação.
+/// O <see cref="IncrementAsync"/> continua sendo chamado pelo
+/// <c>TokenUsagePersistenceService</c> pra alimentar os contadores Redis (também
+/// usados pela UI de uso/billing).
 /// </remarks>
 public sealed class ProjectBudgetGuard
 {
     private readonly IEfsRedisCache _cache;
     private readonly IProjectRepository _projectRepo;
+    private readonly ILogger<ProjectBudgetGuard> _logger;
 
-    public ProjectBudgetGuard(IEfsRedisCache cache, IProjectRepository projectRepo)
+    public ProjectBudgetGuard(
+        IEfsRedisCache cache,
+        IProjectRepository projectRepo,
+        ILogger<ProjectBudgetGuard> logger)
     {
         _cache = cache;
         _projectRepo = projectRepo;
+        _logger = logger;
     }
 
     /// <summary>
-    /// Verifica se o projeto está dentro do budget diário.
-    /// Retorna (allowed, reason) — allowed=false inclui motivo para o 402.
+    /// Observa o consumo diário do projeto. Sempre retorna <c>(true, null)</c>;
+    /// emite log critical + métrica quando algum teto está cruzado.
     /// </summary>
     public async Task<(bool Allowed, string? Reason)> CheckAsync(
         string projectId, CancellationToken ct = default)
@@ -53,25 +48,35 @@ public sealed class ProjectBudgetGuard
         var settings = project.Settings;
         var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
 
-        // Check token budget
         if (settings.MaxTokensPerDay is > 0)
         {
             var tokensKey = $"budget:tokens:{projectId}:{today}";
             var tokensStr = await _cache.GetStringAsync(tokensKey);
             if (long.TryParse(tokensStr, out var tokens) && tokens >= settings.MaxTokensPerDay.Value)
             {
-                return (false, $"Daily token budget exceeded ({tokens}/{settings.MaxTokensPerDay.Value} tokens).");
+                MetricsRegistry.BudgetExceededWarnings.Add(1,
+                    new KeyValuePair<string, object?>("scope", "project"),
+                    new KeyValuePair<string, object?>("cause", "tokens"),
+                    new KeyValuePair<string, object?>("project_id", projectId));
+                _logger.LogCritical(
+                    "[Budget] Project daily token cap excedido — request continua. ProjectId={ProjectId} Tokens={Tokens} MaxTokensPerDay={MaxTokensPerDay}",
+                    projectId, tokens, settings.MaxTokensPerDay.Value);
             }
         }
 
-        // Check cost budget
         if (settings.MaxCostUsdPerDay is > 0)
         {
             var costKey = $"budget:cost:{projectId}:{today}";
             var costStr = await _cache.GetStringAsync(costKey);
             if (decimal.TryParse(costStr, out var cost) && cost >= settings.MaxCostUsdPerDay.Value)
             {
-                return (false, $"Daily cost budget exceeded (${cost:F4}/${settings.MaxCostUsdPerDay.Value:F2} USD).");
+                MetricsRegistry.BudgetExceededWarnings.Add(1,
+                    new KeyValuePair<string, object?>("scope", "project"),
+                    new KeyValuePair<string, object?>("cause", "cost"),
+                    new KeyValuePair<string, object?>("project_id", projectId));
+                _logger.LogCritical(
+                    "[Budget] Project daily cost cap excedido — request continua. ProjectId={ProjectId} CostUsd={CostUsd:F4} MaxCostUsdPerDay={MaxCostUsdPerDay:F2}",
+                    projectId, cost, settings.MaxCostUsdPerDay.Value);
             }
         }
 

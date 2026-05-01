@@ -1,6 +1,5 @@
 using EfsAiHub.Core.Abstractions.Exceptions;
 using EfsAiHub.Infra.Observability;
-using EfsAiHub.Platform.Guards;
 using EfsAiHub.Platform.Runtime.Guards;
 using EfsAiHub.Platform.Runtime.Resilience;
 
@@ -48,7 +47,6 @@ public sealed class GlobalExceptionMiddleware(
                     DomainException => 400,    // Invariante de domínio violada
                     ArgumentException => 400,
                     KeyNotFoundException => 404,
-                    BudgetExceededException => 429,
                     CircuitOpenException => 503,
                     _ => 500
                 };

@@ -419,7 +419,7 @@ Request chega →
             ├─ Lê ProjectSettings do banco
             ├─ Verifica tokens acumulados vs MaxTokensPerDay
             ├─ Verifica custo acumulado vs MaxCostUsdPerDay
-            └─ Se excedido → 402 Payment Required
+            └─ Se excedido → LogCritical + métrica `llm.budget.exceeded{scope=project}` (não bloqueia)
 
 Após cada chamada LLM →
     TokenUsagePersistenceService →

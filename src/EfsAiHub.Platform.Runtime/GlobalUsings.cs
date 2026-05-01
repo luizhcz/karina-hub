@@ -22,7 +22,6 @@ global using EfsAiHub.Core.Agents.Services;
 global using EfsAiHub.Core.Agents.Execution;
 global using EfsAiHub.Core.Orchestration.Executors;
 global using EfsAiHub.Platform.Runtime.Factories;
-global using EfsAiHub.Platform.Guards;
 global using EfsAiHub.Platform.Runtime.Middlewares;
 global using EfsAiHub.Platform.Runtime.Execution;
 global using EfsAiHub.Core.Orchestration.Validation;

@@ -21,6 +21,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
     private readonly ILogger _logger;
     private readonly IModelPricingCache? _pricingCache;
     private readonly IAgUiTokenSink? _tokenSink;
+    private readonly decimal? _agentMaxCostUsd;
 
     public TokenTrackingChatClient(
         IChatClient innerClient,
@@ -29,7 +30,8 @@ public class TokenTrackingChatClient : DelegatingChatClient
         ChannelWriter<LlmTokenUsage> usageWriter,
         ILogger logger,
         IModelPricingCache? pricingCache = null,
-        IAgUiTokenSink? tokenSink = null)
+        IAgUiTokenSink? tokenSink = null,
+        decimal? agentMaxCostUsd = null)
         : base(innerClient)
     {
         _agentId = agentId;
@@ -38,6 +40,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
         _logger = logger;
         _pricingCache = pricingCache;
         _tokenSink = tokenSink;
+        _agentMaxCostUsd = agentMaxCostUsd;
     }
 
     public override async Task<ChatResponse> GetResponseAsync(
@@ -112,19 +115,57 @@ public class TokenTrackingChatClient : DelegatingChatClient
         TrackUsage(lastUsage, sw.Elapsed.TotalMilliseconds, streamedOutput, activity);
     }
 
-    private static void EnforceBudget()
+    private void EnforceBudget()
     {
-        var budget = DelegateExecutor.Current.Value?.Budget;
+        // Política: SOFT budget. Tetos não bloqueiam mais a execução — apenas
+        // emitem LogCritical + métrica e seguem. Flags TryMark*Logged garantem
+        // log único por causa por execução (evita flood quando agent faz N chamadas
+        // LLM seguidas após estourar o teto).
+        var ctx = DelegateExecutor.Current.Value;
+        var budget = ctx?.Budget;
         if (budget is null) return;
-        if (budget.IsCostExceeded)
+
+        // 1) Workflow-level cost cap.
+        if (budget.IsCostExceeded && budget.TryMarkCostLogged())
         {
-            MetricsRegistry.BudgetExceededKills.Add(1);
-            throw new BudgetExceededException(budget.TotalCostUsd, budget.MaxCostUsd ?? 0m, budget.TotalTokens);
+            MetricsRegistry.BudgetExceededWarnings.Add(1,
+                new KeyValuePair<string, object?>("scope", "workflow"),
+                new KeyValuePair<string, object?>("cause", "cost"),
+                new KeyValuePair<string, object?>("agent_id", _agentId));
+            _logger.LogCritical(
+                "[Budget] Workflow cost cap excedido — execução continua. ExecutionId={ExecutionId} WorkflowId={WorkflowId} AgentId={AgentId} TotalCostUsd={TotalCostUsd:F6} MaxCostUsd={MaxCostUsd:F6}",
+                ctx?.ExecutionId, ctx?.WorkflowId, _agentId, budget.TotalCostUsd, budget.MaxCostUsd ?? 0m);
         }
-        if (budget.IsExceeded)
+
+        // 2) Workflow-level token cap.
+        if (budget.MaxTokensPerExecution > 0
+            && budget.TotalTokens >= budget.MaxTokensPerExecution
+            && budget.TryMarkTokenLogged())
         {
-            MetricsRegistry.BudgetExceededKills.Add(1);
-            throw new BudgetExceededException(budget.TotalTokens, budget.MaxTokensPerExecution);
+            MetricsRegistry.BudgetExceededWarnings.Add(1,
+                new KeyValuePair<string, object?>("scope", "workflow"),
+                new KeyValuePair<string, object?>("cause", "tokens"),
+                new KeyValuePair<string, object?>("agent_id", _agentId));
+            _logger.LogCritical(
+                "[Budget] Workflow token cap excedido — execução continua. ExecutionId={ExecutionId} WorkflowId={WorkflowId} AgentId={AgentId} TotalTokens={TotalTokens} MaxTokens={MaxTokens}",
+                ctx?.ExecutionId, ctx?.WorkflowId, _agentId, budget.TotalTokens, budget.MaxTokensPerExecution);
+        }
+
+        // 3) Agent-level cost cap (vem do AgentDefinition.CostBudget.MaxCostUsd).
+        // Comparação usa o mesmo TotalCostUsd da execução (não isolado por agent),
+        // pois o ExecutionBudget é per-execution. Quando o workflow tem múltiplos
+        // agentes, qualquer um que estoure aciona o log do seu próprio teto.
+        if (_agentMaxCostUsd is > 0
+            && budget.IsAgentCostExceeded
+            && budget.TryMarkAgentCostLogged())
+        {
+            MetricsRegistry.BudgetExceededWarnings.Add(1,
+                new KeyValuePair<string, object?>("scope", "agent"),
+                new KeyValuePair<string, object?>("cause", "cost"),
+                new KeyValuePair<string, object?>("agent_id", _agentId));
+            _logger.LogCritical(
+                "[Budget] Agent cost cap excedido — execução continua. ExecutionId={ExecutionId} AgentId={AgentId} TotalCostUsd={TotalCostUsd:F6} AgentMaxCostUsd={AgentMaxCostUsd:F6}",
+                ctx?.ExecutionId, _agentId, budget.TotalCostUsd, _agentMaxCostUsd);
         }
     }
 

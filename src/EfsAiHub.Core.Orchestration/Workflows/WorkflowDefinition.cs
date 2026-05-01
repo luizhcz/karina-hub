@@ -256,16 +256,18 @@ public class WorkflowConfiguration
     public int MaxAgentInvocations { get; set; } = 10;
 
     /// <summary>
-    /// Hard cap de tokens LLM totais consumidos por execução (input + output, somados em todas as chamadas).
-    /// Ao ultrapassar, a próxima chamada LLM lança BudgetExceededException e a execução é marcada como Failed.
-    /// Default: 50000 tokens.
+    /// Soft cap de tokens LLM totais consumidos por execução (input + output, somados em todas as chamadas).
+    /// Ao ultrapassar, o TokenTrackingChatClient emite LogCritical + métrica
+    /// <c>llm.budget.exceeded{scope=workflow,cause=tokens}</c> e a execução continua —
+    /// não bloqueia (warning-only). Default: 50000 tokens.
     /// </summary>
     public int MaxTokensPerExecution { get; init; } = 50000;
 
     /// <summary>
-    /// Fase 2 — Hard cap de custo em USD por execução. Calculado a partir de
+    /// Soft cap de custo em USD por execução. Calculado a partir de
     /// <see cref="Domain.Observability.ModelPricing"/> no TokenTrackingChatClient.
-    /// null ou ≤0 = sem enforcement de custo (mantém comportamento legado).
+    /// Ao ultrapassar, emite LogCritical + métrica
+    /// <c>llm.budget.exceeded{scope=workflow,cause=cost}</c> — não bloqueia. null ou ≤0 = sem warning.
     /// </summary>
     public decimal? MaxCostUsdPerExecution { get; init; }
 

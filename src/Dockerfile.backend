@@ -14,7 +14,6 @@ COPY EfsAiHub.Infra.Messaging/EfsAiHub.Infra.Messaging.csproj             EfsAiH
 COPY EfsAiHub.Infra.Observability/EfsAiHub.Infra.Observability.csproj     EfsAiHub.Infra.Observability/
 COPY EfsAiHub.Infra.Persistence/EfsAiHub.Infra.Persistence.csproj         EfsAiHub.Infra.Persistence/
 COPY EfsAiHub.Infra.Secrets/EfsAiHub.Infra.Secrets.csproj                 EfsAiHub.Infra.Secrets/
-COPY EfsAiHub.Platform.Guards/EfsAiHub.Platform.Guards.csproj             EfsAiHub.Platform.Guards/
 COPY EfsAiHub.Platform.Runtime/EfsAiHub.Platform.Runtime.csproj           EfsAiHub.Platform.Runtime/
 
 RUN dotnet restore EfsAiHub.Host.Api/EfsAiHub.Host.Api.csproj
