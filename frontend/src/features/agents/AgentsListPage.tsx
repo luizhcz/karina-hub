@@ -37,7 +37,16 @@ export function AgentsListPage() {
       accessorKey: 'name',
       header: 'Name',
       cell: ({ row }) => (
-        <span className="font-medium text-text-primary">{row.original.name}</span>
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-text-primary">{row.original.name}</span>
+          {row.original.visibility === 'global' && (
+            <Badge variant="purple">
+              🌐 {row.original.originProjectId
+                ? `Global · ${row.original.originProjectId}`
+                : 'Global'}
+            </Badge>
+          )}
+        </div>
       ),
     },
     {

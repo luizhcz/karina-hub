@@ -27,7 +27,20 @@ public sealed class PgSkillRepository : ISkillRepository
     public async Task<Skill?> GetByIdAsync(string id, CancellationToken ct = default)
     {
         await using var ctx = await _factory.CreateDbContextAsync(ct);
-        var row = await ctx.Skills.FindAsync([id], ct);
+        // FirstOrDefaultAsync respeita HasQueryFilter; FindAsync bypassa.
+        var row = await ctx.Skills.FirstOrDefaultAsync(r => r.Id == id, ct);
+        return row is null ? null : JsonSerializer.Deserialize<Skill>(row.Data, JsonDefaults.Domain);
+    }
+
+    public async Task<Skill?> GetByIdForOwnerAsync(
+        string id, string ownerProjectId, CancellationToken ct = default)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        // Cross-project: bypass query filter + filtro explícito por owner. Usado pelo
+        // SkillResolver quando agent global referencia skill local do owner.
+        var row = await ctx.Skills
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(r => r.Id == id && r.ProjectId == ownerProjectId, ct);
         return row is null ? null : JsonSerializer.Deserialize<Skill>(row.Data, JsonDefaults.Domain);
     }
 

@@ -1,4 +1,4 @@
-import { get, post, put, del } from './client'
+import { get, post, put, patch, del } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 
@@ -52,6 +52,8 @@ export interface AgentSkillRef {
   skillVersionId?: string
 }
 
+export type AgentVisibility = 'project' | 'global'
+
 export interface AgentDef {
   id: string
   name: string
@@ -67,6 +69,12 @@ export interface AgentDef {
   costBudget?: AgentCostBudget
   skillRefs?: AgentSkillRef[]
   metadata?: Record<string, string>
+  /** Phase 2 — "project" (default) | "global". Global agents visíveis em todos os projetos do tenant. */
+  visibility?: AgentVisibility
+  /** Phase 2 — Project owner do agent. */
+  originProjectId?: string
+  /** Phase 2 — Tenant do owner. */
+  originTenantId?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -85,6 +93,8 @@ export interface CreateAgentRequest {
   costBudget?: AgentCostBudget
   skillRefs?: AgentSkillRef[]
   metadata?: Record<string, string>
+  /** Phase 2 — opcional. Default "project" em Create; preserved em Update (PATCH /visibility é o caminho). */
+  visibility?: AgentVisibility
 }
 
 export interface AgentValidationResult {
@@ -127,6 +137,8 @@ export const validateAgent = (id: string) => post<AgentValidationResult>(`/agent
 export const getAgentVersions = (id: string) => get<AgentVersion[]>(`/agents/${id}/versions`)
 export const getAgentVersion = (id: string, vid: string) => get<AgentDef>(`/agents/${id}/versions/${vid}`)
 export const rollbackAgent = (id: string, body?: { versionId?: string }) => post<AgentDef>(`/agents/${id}/rollback`, body)
+export const updateAgentVisibility = (id: string, body: { visibility: AgentVisibility; reason?: string }) =>
+  patch<AgentDef>(`/agents/${id}/visibility`, body)
 export const sandboxAgent = (id: string, body: { input: string }) => post<SandboxResult>(`/agents/${id}/sandbox`, body)
 export const compareAgent = (id: string, body: { versionA: string; versionB: string }) =>
   post<CompareResult>(`/agents/${id}/compare`, body)
@@ -172,6 +184,18 @@ export function useDeleteAgent() {
   return useMutation({
     mutationFn: deleteAgent,
     onSuccess: () => { qc.invalidateQueries({ queryKey: KEYS.all }) },
+  })
+}
+
+export function useUpdateAgentVisibility() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, visibility, reason }: { id: string; visibility: AgentVisibility; reason?: string }) =>
+      updateAgentVisibility(id, { visibility, reason }),
+    onSuccess: (_d, { id }) => {
+      qc.invalidateQueries({ queryKey: KEYS.all })
+      qc.invalidateQueries({ queryKey: KEYS.detail(id) })
+    },
   })
 }
 

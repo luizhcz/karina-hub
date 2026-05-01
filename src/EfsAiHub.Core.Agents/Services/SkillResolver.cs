@@ -19,7 +19,12 @@ public interface ISkillResolver
     /// Resolve uma skill por id+version. Se <see cref="SkillRef.SkillVersionId"/> for null,
     /// retorna a revisão corrente. null se não encontrada.
     /// </summary>
-    Task<Skill?> ResolveAsync(SkillRef reference, CancellationToken ct = default);
+    /// <param name="ownerProjectId">
+    /// Phase 2 — Quando setado, força resolution no contexto do project owner (cross-project).
+    /// Usado pelo AgentFactory quando agent global de outro project é resolvido em workflow caller.
+    /// Null = comportamento legacy (project atual, respeita query filter).
+    /// </param>
+    Task<Skill?> ResolveAsync(SkillRef reference, string? ownerProjectId = null, CancellationToken ct = default);
 }
 
 public sealed class SkillResolver : ISkillResolver
@@ -43,8 +48,9 @@ public sealed class SkillResolver : ISkillResolver
         _logger = logger;
     }
 
-    public async Task<Skill?> ResolveAsync(SkillRef reference, CancellationToken ct = default)
+    public async Task<Skill?> ResolveAsync(SkillRef reference, string? ownerProjectId = null, CancellationToken ct = default)
     {
+        // Versões pinadas: SkillVersionRow não tem HasQueryFilter — funciona cross-project nativamente.
         if (!string.IsNullOrEmpty(reference.SkillVersionId))
         {
             if (_byVersion.TryGetValue(reference.SkillVersionId, out var cachedVersion))
@@ -55,14 +61,25 @@ public sealed class SkillResolver : ISkillResolver
             return snap;
         }
 
+        // Current version (sem pin): cross-project precisa bypass de query filter.
+        // Cache key separado quando ownerProjectId != null pra não misturar projects.
         var now = DateTime.UtcNow;
-        if (_current.TryGetValue(reference.SkillId, out var entry) && entry.ExpiresAt > now)
+        var cacheKey = string.IsNullOrEmpty(ownerProjectId)
+            ? reference.SkillId
+            : $"{ownerProjectId}:{reference.SkillId}";
+
+        if (_current.TryGetValue(cacheKey, out var entry) && entry.ExpiresAt > now)
             return entry.Value;
 
-        var skill = await _skills.GetByIdAsync(reference.SkillId, ct);
-        _current[reference.SkillId] = (skill, now + CurrentTtl);
+        var skill = !string.IsNullOrEmpty(ownerProjectId)
+            ? await _skills.GetByIdForOwnerAsync(reference.SkillId, ownerProjectId, ct)
+            : await _skills.GetByIdAsync(reference.SkillId, ct);
+
+        _current[cacheKey] = (skill, now + CurrentTtl);
         if (skill is null)
-            _logger.LogWarning("[SkillResolver] Skill '{SkillId}' não encontrada.", reference.SkillId);
+            _logger.LogWarning(
+                "[SkillResolver] Skill '{SkillId}' não encontrada (owner={OwnerProjectId}).",
+                reference.SkillId, ownerProjectId ?? "<current>");
         return skill;
     }
 }

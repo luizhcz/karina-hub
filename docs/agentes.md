@@ -1653,3 +1653,78 @@ Configuração em `appsettings.json`:
 | **PredictiveState** | UI otimista via tool args → state updates |
 | **EnrichmentRule** | Pós-processamento declarativo (disclaimers, defaults) |
 | **BackgroundResponseJob** | Execução assíncrona com webhook callback |
+
+---
+
+## Sharing & Visibility (Phase 2 do épico multi-projeto)
+
+`AgentDefinition.Visibility` controla a abrangência do agent:
+
+| Valor | Comportamento |
+|---|---|
+| `project` (default) | Visível e usável apenas no projeto dono. |
+| `global` | Visível a todos os projetos do **mesmo tenant** (`TenantId` denormalizado de `projects.tenant_id`). Workflows de outros projetos podem referenciar este agent. Cross-tenant é **proibido**. |
+
+### API
+
+- `PATCH /api/agents/{id}/visibility` body `{visibility, reason?}` — endpoint dedicado com audit `agent.visibility_changed`.
+- Owner gate: somente o `ProjectId` dono pode alterar visibility (caller de outro projeto recebe `403`, mensagem genérica sem expor o ProjectId real).
+- Idempotência: re-marcar pra mesmo valor é no-op.
+- `GET /api/agents` retorna agents do projeto + globais do tenant.
+- `AgentResponse` expõe `visibility`, `originProjectId`, `originTenantId`.
+
+### Persistence
+
+- Coluna `TenantId` denormalizada em `aihub.agent_definitions` (idempotente, backfill via JOIN com `projects`).
+- Index parcial `IX_agent_definitions_TenantId_Visibility WHERE Visibility='global'` cobre listagens cross-project.
+- CHECK `Visibility IN ('project','global')` aplicado via `NOT VALID + VALIDATE`.
+- `PgAgentDefinitionRepository.UpsertAsync` lookuppa `Project.TenantId` e popula a row; cache Redis migrou pra `agent-def:{tenantId}:{id}` (tenant-aware).
+- `Hydrate(row, def)` força `Visibility/ProjectId/TenantId` da row em todos os reads — defesa contra JSON pré-Phase 2.
+
+### Runtime cross-project
+
+Quando `workflow.ProjectId != agent.ProjectId` (workflow caller resolveu agent global de outro project):
+
+```
+1. AgentFactory.CreateAgentsForWorkflowAsync detecta cross-project
+   ├─ Log estruturado (ExecutionId, CallerProject, AgentId, OwnerProject, Visibility)
+   ├─ Métrica agents.cross_project_invocations_total{caller_project, owner_project, tenant}
+   └─ Audit cross_project_invoke (payload completo, sem throttle em Phase 2)
+
+2. AgentFactory.InjectProjectCredentials lê _projectRepo.GetByIdAsync(definition.ProjectId)
+   → ProjectId = owner. Caller nunca vê secrets do owner.
+
+3. AgentFactory.ResolveSkills calcula ownerProjectId = definition.ProjectId
+   ├─ Pin (SkillVersionId): bypassa filter nativamente (SkillVersionRow é append-only).
+   └─ Current (sem pin): ISkillRepository.GetByIdForOwnerAsync(skillId, ownerProjectId)
+      bypass de query filter restrito ao owner.
+
+4. TokenTrackingChatClient registra
+   ├─ ProjectId = caller (paga)
+   └─ OriginAgentProjectId = owner (analytics dual)
+```
+
+### Frontend
+
+- `useAgents()` retorna agents locais + globais com badge "🌐 Global".
+- `useUpdateAgentVisibility` hook pra PATCH endpoint.
+- `AgentDetailPage` Card "Compartilhamento" com toggle gateado por `isOwnedByCurrentProject` (compara `agent.originProjectId` com `useProjectStore().projectId`); banner amber + disabled quando não-owner.
+
+### Princípios de segurança
+
+1. **Tenant boundary é estrito.** Agent global do tenant A nunca aparece em listagens do tenant B. Enforced no `HasQueryFilter` (`ProjectId == CurrentProjectId OR (Visibility=="global" AND TenantId == CurrentTenantId)`) e no cache key tenant-aware.
+2. **Owner é único editor.** Apenas requests no projeto dono podem mudar visibility (mensagem 403 sanitizada).
+3. **Credentials no owner.** `InjectProjectCredentials` sempre consulta `definition.ProjectId` (owner), nunca o caller.
+4. **Skills/MCP no owner.** Resolution cross-project usa overloads `GetByIdForOwnerAsync` que bypassam filter mas restringem ao owner project.
+5. **Caller paga.** `LlmTokenUsage.ProjectId` = caller (cobrado); `OriginAgentProjectId` = owner (audit).
+
+### Phase 3 (próxima)
+
+- Whitelist `AllowedProjectIds[]?` em `AgentDefinition`.
+- Pin opcional de versão em `WorkflowAgentReference.AgentVersionId?`.
+- MCP cross-project resolution (overload no PgMcpServerRepository).
+- `SecretContext.OriginProjectId` + cache segregado.
+- Health check `SharedAgentsHealthCheck` pra orphans.
+- Throttle LRU em `cross_project_invoke`.
+- Feature flags `Sharing:*` via `IOptionsMonitor` pra rollback.
+- Performance benchmark p99 < 50ms.

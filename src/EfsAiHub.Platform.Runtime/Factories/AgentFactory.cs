@@ -47,6 +47,7 @@ public class AgentFactory : IAgentFactory
     private readonly BlocklistEngine? _blocklistEngine;
     private readonly IWorkflowEventBus? _eventBus;
     private readonly EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? _auditLogger;
+    private readonly EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor? _projectContextAccessor;
 
     public AgentFactory(
         IEnumerable<ILlmClientProvider> providers,
@@ -69,7 +70,8 @@ public class AgentFactory : IAgentFactory
         ISystemMessageBuilder? systemMessageBuilder = null,
         BlocklistEngine? blocklistEngine = null,
         IWorkflowEventBus? eventBus = null,
-        EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? auditLogger = null)
+        EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? auditLogger = null,
+        EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor? projectContextAccessor = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
@@ -92,6 +94,7 @@ public class AgentFactory : IAgentFactory
         _blocklistEngine = blocklistEngine;
         _eventBus = eventBus;
         _auditLogger = auditLogger;
+        _projectContextAccessor = projectContextAccessor;
     }
 
     public async Task<ExecutableWorkflow> CreateAgentAsync(AgentDefinition definition, CancellationToken ct = default)
@@ -357,16 +360,27 @@ public class AgentFactory : IAgentFactory
     {
         if (_skillResolver is null || definition.SkillRefs.Count == 0) return definition;
 
+        // Phase 2 — Quando agent é cross-project (caller != owner), skills do owner precisam
+        // ser resolvidas no contexto do owner project (bypass do query filter normal).
+        // _projectContextAccessor é injetado opcionalmente; sem ele caímos no comportamento legacy.
+        var callerProjectId = _projectContextAccessor?.Current.ProjectId;
+        var ownerProjectId =
+            !string.IsNullOrEmpty(callerProjectId)
+            && !string.IsNullOrEmpty(definition.ProjectId)
+            && !string.Equals(callerProjectId, definition.ProjectId, StringComparison.OrdinalIgnoreCase)
+                ? definition.ProjectId
+                : null;
+
         var resolved = new List<Skill>(definition.SkillRefs.Count);
         foreach (var skillRef in definition.SkillRefs)
         {
-            var skill = await _skillResolver.ResolveAsync(skillRef, ct);
+            var skill = await _skillResolver.ResolveAsync(skillRef, ownerProjectId, ct);
             if (skill is not null)
                 resolved.Add(skill);
             else
                 _logger.LogWarning(
-                    "Skill '{SkillId}' (version={VersionId}) referenced by agent '{AgentId}' not found — ignored.",
-                    skillRef.SkillId, skillRef.SkillVersionId, definition.Id);
+                    "Skill '{SkillId}' (version={VersionId}) referenced by agent '{AgentId}' not found — ignored. owner={OwnerProjectId}",
+                    skillRef.SkillId, skillRef.SkillVersionId, definition.Id, ownerProjectId ?? "<local>");
         }
 
         return SkillMerger.ApplySkills(definition, resolved);

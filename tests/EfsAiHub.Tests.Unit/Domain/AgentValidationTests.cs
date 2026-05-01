@@ -149,4 +149,45 @@ public class AgentValidationTests
         isValid.Should().BeFalse();
         errors.Should().Contain(e => e.Contains("id"));
     }
+
+    // ── Phase 2 — Visibility ─────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("project")]
+    [InlineData("global")]
+    [InlineData("PROJECT")]
+    [InlineData("Global")]
+    public void EnsureInvariants_VisibilityValida_Passa(string visibility)
+    {
+        var def = new AgentDefinition
+        {
+            Id = "agent-vis",
+            Name = "Visibility test",
+            Model = new AgentModelConfig { DeploymentName = "gpt-4o" },
+            Visibility = visibility,
+        };
+
+        var act = () => def.EnsureInvariants();
+        act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData("public")]
+    [InlineData("private")]
+    [InlineData("")]
+    [InlineData("garbage")]
+    public void EnsureInvariants_VisibilityInvalida_Throws(string visibility)
+    {
+        var def = new AgentDefinition
+        {
+            Id = "agent-vis-bad",
+            Name = "Visibility inválida",
+            Model = new AgentModelConfig { DeploymentName = "gpt-4o" },
+            Visibility = visibility,
+        };
+
+        var act = () => def.EnsureInvariants();
+        act.Should().Throw<EfsAiHub.Core.Abstractions.Exceptions.DomainException>()
+            .WithMessage("*Visibility*");
+    }
 }

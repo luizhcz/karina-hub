@@ -18,6 +18,14 @@ public sealed record SkillVersion(
 public interface ISkillRepository
 {
     Task<Skill?> GetByIdAsync(string id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Phase 2 — Busca skill bypassing project query filter, restrita ao project dono
+    /// fornecido. Uso exclusivo de cross-project resolution (agent global referenciando
+    /// skill local do owner). Retorna null se skill não existe ou não pertence ao owner.
+    /// </summary>
+    Task<Skill?> GetByIdForOwnerAsync(string id, string ownerProjectId, CancellationToken ct = default);
+
     Task<IReadOnlyList<Skill>> GetAllAsync(CancellationToken ct = default);
     Task<IReadOnlyList<Skill>> GetAllAsync(int page, int pageSize, CancellationToken ct = default);
     Task<int> CountAsync(CancellationToken ct = default);
