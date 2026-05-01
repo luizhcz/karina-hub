@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Exceptions;
 using EfsAiHub.Core.Agents.Skills;
 using EfsAiHub.Core.Abstractions.Persistence;
 
@@ -13,6 +14,11 @@ namespace EfsAiHub.Core.Agents;
 ///
 /// Append-only: UpsertAsync de AgentDefinition cria um novo AgentVersion com Revision = MAX+1
 /// e atualiza o ponteiro na mesma transação.
+///
+/// SchemaVersion=1 (legado): snapshots por campo, lossy. Tools só com fingerprints (hashes);
+/// faltam Description/Metadata/FallbackProvider. AgentFactory cai no path legado quando vê v1.
+/// SchemaVersion=2: snapshot lossless — <see cref="ToDefinition"/> reconstrói AgentDefinition
+/// determinístico. Tools cheias persistidas em <see cref="Tools"/>.
 /// </summary>
 public sealed record AgentVersion(
     string AgentVersionId,
@@ -34,11 +40,18 @@ public sealed record AgentVersion(
     AgentCostBudget? CostBudget,
     // Referências a skills materializadas com SkillVersionId explícito para rollback determinístico.
     IReadOnlyList<SkillRef> SkillRefs,
-    string ContentHash)
+    string ContentHash,
+    // Lossless additions (SchemaVersion >= 2). Default null/false/1 pra preservar BC com snapshots v1.
+    string? Description = null,
+    IReadOnlyDictionary<string, string>? Metadata = null,
+    AgentProviderSnapshot? FallbackProvider = null,
+    IReadOnlyList<AgentToolSnapshot>? Tools = null,
+    bool? BreakingChange = null,
+    int SchemaVersion = 1)
 {
     /// <summary>
     /// Constrói um snapshot a partir de uma AgentDefinition viva + conteúdo de prompt resolvido.
-    /// Calcula ContentHash canônico (sha256) para rollback idempotente.
+    /// Calcula ContentHash canônico (sha256) para rollback idempotente. Sempre emite SchemaVersion=2.
     /// </summary>
     public static AgentVersion FromDefinition(
         AgentDefinition definition,
@@ -47,7 +60,8 @@ public sealed record AgentVersion(
         string? promptVersionId,
         string? createdBy = null,
         string? changeReason = null,
-        IReadOnlyList<SkillRef>? skillRefs = null)
+        IReadOnlyList<SkillRef>? skillRefs = null,
+        bool? breakingChange = null)
     {
         var model = new AgentModelSnapshot(
             definition.Model.DeploymentName,
@@ -60,8 +74,22 @@ public sealed record AgentVersion(
             definition.Provider.Endpoint,
             HasValue: !string.IsNullOrEmpty(definition.Provider.ApiKey));
 
+        AgentProviderSnapshot? fallbackProvider = null;
+        if (definition.FallbackProvider is { } fb)
+        {
+            fallbackProvider = new AgentProviderSnapshot(
+                fb.Type,
+                fb.ClientType,
+                fb.Endpoint,
+                HasValue: !string.IsNullOrEmpty(fb.ApiKey));
+        }
+
         var fingerprints = definition.Tools
             .Select(t => ToolFingerprint.FromDefinition(t))
+            .ToList();
+
+        var tools = definition.Tools
+            .Select(t => AgentToolSnapshot.FromDefinition(t))
             .ToList();
 
         var middlewares = definition.Middlewares
@@ -78,13 +106,29 @@ public sealed record AgentVersion(
                 definition.StructuredOutput.Schema?.RootElement.GetRawText());
         }
 
+        IReadOnlyDictionary<string, string>? metadata = definition.Metadata.Count == 0
+            ? null
+            : new Dictionary<string, string>(definition.Metadata);
+
         var canonical = JsonSerializer.Serialize(new
         {
+            schemaVersion = 2,
             agentId = definition.Id,
+            description = definition.Description,
+            metadata,
             prompt = promptContent,
             model,
             provider = new { provider.Type, provider.ClientType, provider.Endpoint, provider.HasValue },
-            tools = fingerprints,
+            fallbackProvider = fallbackProvider is null
+                ? null
+                : new
+                {
+                    fallbackProvider.Type,
+                    fallbackProvider.ClientType,
+                    fallbackProvider.Endpoint,
+                    fallbackProvider.HasValue,
+                },
+            tools,
             middlewares,
             outputSchema,
             resilience = definition.Resilience,
@@ -112,7 +156,149 @@ public sealed record AgentVersion(
             Resilience: definition.Resilience,
             CostBudget: definition.CostBudget,
             SkillRefs: skillRefs ?? (IReadOnlyList<SkillRef>)definition.SkillRefs,
-            ContentHash: hash);
+            ContentHash: hash,
+            Description: definition.Description,
+            Metadata: metadata,
+            FallbackProvider: fallbackProvider,
+            Tools: tools,
+            BreakingChange: breakingChange,
+            SchemaVersion: 2);
+    }
+
+    /// <summary>
+    /// Reconstrói <see cref="AgentDefinition"/> determinístico a partir do snapshot.
+    /// <paramref name="governanceSource"/> (opcional) injeta Visibility/ProjectId/TenantId/AllowedProjectIds
+    /// da row corrente — esses campos são cross-cutting e mutáveis (mudança de visibility do owner
+    /// deve afetar workflows pinados). Quando null, defaults seguros: project-scoped, default tenant,
+    /// sem whitelist.
+    ///
+    /// SchemaVersion=1 (legado): <see cref="Tools"/> é null; reconstrói de melhor-esforço a partir
+    /// dos <see cref="ToolFingerprints"/> (apenas Type/Name/FingerprintHash). Caller deve detectar
+    /// SchemaVersion=1 e cair pro path legado em AgentFactory.
+    /// </summary>
+    public AgentDefinition ToDefinition(AgentDefinition? governanceSource = null)
+    {
+        var modelConfig = new AgentModelConfig
+        {
+            DeploymentName = Model.DeploymentName,
+            Temperature = Model.Temperature,
+            MaxTokens = Model.MaxTokens,
+        };
+
+        // ApiKey não é persistida no snapshot. Hidratada em runtime via InjectProjectCredentials
+        // (lê do owner project). Endpoint/Type/ClientType vêm do snapshot.
+        var providerConfig = new AgentProviderConfig
+        {
+            Type = Provider.Type,
+            ClientType = Provider.ClientType,
+            Endpoint = Provider.Endpoint,
+        };
+
+        AgentProviderConfig? fallbackConfig = null;
+        if (FallbackProvider is { } fb)
+        {
+            fallbackConfig = new AgentProviderConfig
+            {
+                Type = fb.Type,
+                ClientType = fb.ClientType,
+                Endpoint = fb.Endpoint,
+            };
+        }
+
+        IReadOnlyList<AgentToolDefinition> tools;
+        if (Tools is { Count: > 0 })
+        {
+            tools = Tools.Select(t => t.ToDefinition()).ToList();
+        }
+        else if (ToolFingerprints.Count > 0)
+        {
+            tools = ToolFingerprints
+                .Select(f => new AgentToolDefinition
+                {
+                    Type = f.Type,
+                    Name = f.Name,
+                    FingerprintHash = f.SignatureHash,
+                    ServerLabel = f.ServerLabel,
+                    ServerUrl = f.ServerUrl,
+                })
+                .ToList();
+        }
+        else
+        {
+            tools = [];
+        }
+
+        AgentStructuredOutputDefinition? outputDef = null;
+        if (OutputSchema is { } output)
+        {
+            outputDef = new AgentStructuredOutputDefinition
+            {
+                ResponseFormat = output.ResponseFormat,
+                SchemaName = output.SchemaName,
+                SchemaDescription = output.SchemaDescription,
+                Schema = output.SchemaJson is null ? null : JsonDocument.Parse(output.SchemaJson),
+            };
+        }
+
+        var middlewares = MiddlewarePipeline
+            .Select(m => new AgentMiddlewareConfig
+            {
+                Type = m.Type,
+                Enabled = m.Enabled,
+                Settings = new Dictionary<string, string>(m.Settings),
+            })
+            .ToList();
+
+        IReadOnlyDictionary<string, string> metadata = Metadata is null
+            ? new Dictionary<string, string>()
+            : new Dictionary<string, string>(Metadata);
+
+        return new AgentDefinition
+        {
+            Id = AgentDefinitionId,
+            Name = governanceSource?.Name ?? AgentDefinitionId,
+            Description = Description,
+            Model = modelConfig,
+            Provider = providerConfig,
+            FallbackProvider = fallbackConfig,
+            Instructions = PromptContent,
+            Tools = tools,
+            StructuredOutput = outputDef,
+            Middlewares = middlewares,
+            Resilience = Resilience,
+            CostBudget = CostBudget,
+            SkillRefs = SkillRefs,
+            Metadata = metadata,
+            // Governança vem do estado vivo (mutável, cross-cutting).
+            ProjectId = governanceSource?.ProjectId ?? "default",
+            Visibility = governanceSource?.Visibility ?? "project",
+            TenantId = governanceSource?.TenantId ?? "default",
+            AllowedProjectIds = governanceSource?.AllowedProjectIds,
+            CreatedAt = governanceSource?.CreatedAt ?? CreatedAt,
+            UpdatedAt = governanceSource?.UpdatedAt ?? CreatedAt,
+            RegressionTestSetId = governanceSource?.RegressionTestSetId,
+            RegressionEvaluatorConfigVersionId = governanceSource?.RegressionEvaluatorConfigVersionId,
+        };
+    }
+
+    /// <summary>
+    /// Valida invariantes do snapshot. Idempotente.
+    /// </summary>
+    /// <exception cref="DomainException">Quando alguma invariante é violada.</exception>
+    public void EnsureInvariants()
+    {
+        if (string.IsNullOrWhiteSpace(AgentVersionId))
+            throw new DomainException("AgentVersion.AgentVersionId é obrigatório.");
+        if (string.IsNullOrWhiteSpace(AgentDefinitionId))
+            throw new DomainException("AgentVersion.AgentDefinitionId é obrigatório.");
+        if (string.IsNullOrWhiteSpace(ContentHash))
+            throw new DomainException("AgentVersion.ContentHash é obrigatório.");
+
+        // BreakingChange=true exige ChangeReason explícito (rastreabilidade pra caller decidir migrar).
+        // BreakingChange=null (legacy) é permitido — versions antigas pré-flag não declaravam intent.
+        if (BreakingChange == true && string.IsNullOrWhiteSpace(ChangeReason))
+            throw new DomainException(
+                "AgentVersion.BreakingChange=true exige ChangeReason não-vazio (justifica a quebra pra workflows pinados).");
     }
 
     private static string ComputeSha256(string input)
@@ -178,6 +364,58 @@ public sealed record ToolFingerprint(
             ServerLabel: tool.ServerLabel,
             ServerUrl: tool.ServerUrl);
     }
+}
+
+/// <summary>
+/// Snapshot lossless de uma <see cref="AgentToolDefinition"/>. Persistido em
+/// <see cref="AgentVersion.Tools"/> (SchemaVersion >= 2) pra reconstrução determinística
+/// via <see cref="ToDefinition"/>. Difere de <see cref="ToolFingerprint"/> (que carrega só
+/// hash + identificadores básicos): AgentToolSnapshot carrega TODOS os campos da tool.
+/// </summary>
+public sealed record AgentToolSnapshot(
+    string Type,
+    string? Name,
+    bool RequiresApproval,
+    string? FingerprintHash,
+    string? McpServerId,
+    string? ServerLabel,
+    string? ServerUrl,
+    IReadOnlyList<string> AllowedTools,
+    string? RequireApproval,
+    IReadOnlyDictionary<string, string> Headers,
+    string? ConnectionId)
+{
+    public static AgentToolSnapshot FromDefinition(AgentToolDefinition tool) => new(
+        Type: tool.Type,
+        Name: tool.Name,
+        RequiresApproval: tool.RequiresApproval,
+        FingerprintHash: tool.FingerprintHash,
+        McpServerId: tool.McpServerId,
+        ServerLabel: tool.ServerLabel,
+        ServerUrl: tool.ServerUrl,
+        // Headers ordenado por chave: garante hash canônico independente da ordem
+        // de inserção do Dictionary original (defesa contra divergência cross-instância).
+        AllowedTools: tool.AllowedTools.ToList(),
+        RequireApproval: tool.RequireApproval,
+        Headers: tool.Headers
+            .OrderBy(h => h.Key, StringComparer.Ordinal)
+            .ToDictionary(h => h.Key, h => h.Value, StringComparer.Ordinal),
+        ConnectionId: tool.ConnectionId);
+
+    public AgentToolDefinition ToDefinition() => new()
+    {
+        Type = Type,
+        Name = Name,
+        RequiresApproval = RequiresApproval,
+        FingerprintHash = FingerprintHash,
+        McpServerId = McpServerId,
+        ServerLabel = ServerLabel,
+        ServerUrl = ServerUrl,
+        AllowedTools = new List<string>(AllowedTools),
+        RequireApproval = RequireApproval,
+        Headers = new Dictionary<string, string>(Headers),
+        ConnectionId = ConnectionId,
+    };
 }
 
 public sealed record AgentModelSnapshot(
