@@ -67,13 +67,13 @@ public class AgentService : IAgentService
         var existing = await _repository.GetByIdAsync(definition.Id, ct)
             ?? throw new KeyNotFoundException($"Agente '{definition.Id}' não encontrado.");
 
-        // Phase 2 — Preserva Visibility/ProjectId/TenantId do existing.
+        // Preserva Visibility/ProjectId/TenantId do existing.
         // Request DTO não carrega esses campos por design; sem isso o PUT silenciosamente
         // resetaria Visibility="project". PATCH /agents/{id}/visibility é o único caminho.
         definition.ProjectId = existing.ProjectId;
         definition.TenantId = existing.TenantId;
         definition.Visibility = existing.Visibility;
-        // Phase 3 — preserve AllowedProjectIds quando o caller não envia (CreateAgentRequest
+        // Preserve AllowedProjectIds quando o caller não envia (CreateAgentRequest
         // pode trazer null tanto pra "remover whitelist" quanto pra "não mexer". Pra evitar
         // ambiguidade, PATCH /visibility é o único caminho de mudar AllowedProjectIds).
         if (definition.AllowedProjectIds is null)

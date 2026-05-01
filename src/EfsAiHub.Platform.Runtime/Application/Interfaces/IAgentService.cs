@@ -9,7 +9,7 @@ public interface IAgentService
     Task<AgentDefinition> UpdateAsync(AgentDefinition definition, CancellationToken ct = default);
 
     /// <summary>
-    /// Phase 2 — Muda Visibility ('project' | 'global') do agent. Apenas o projeto
+    /// Muda Visibility ('project' | 'global') do agent. Apenas o projeto
     /// dono pode alterar; caller de outro projeto recebe UnauthorizedAccessException
     /// (mapeado pra 403). Lança KeyNotFoundException se agent não existir, ArgumentException
     /// se newVisibility for inválido.

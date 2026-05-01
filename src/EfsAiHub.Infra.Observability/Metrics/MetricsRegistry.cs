@@ -82,7 +82,7 @@ public static class MetricsRegistry
             description: "Mudanças de Visibility em WorkflowDefinition. Tags: from, to, tenant.");
 
     /// <summary>
-    /// Phase 2 — Contador de mudanças de Visibility em AgentDefinition.
+    /// Contador de mudanças de Visibility em AgentDefinition.
     /// Tags: from=project|global, to=project|global, tenant.
     /// </summary>
     public static readonly Counter<long> AgentVisibilityChanges =
@@ -90,7 +90,7 @@ public static class MetricsRegistry
             description: "Mudanças de Visibility em AgentDefinition. Tags: from, to, tenant.");
 
     /// <summary>
-    /// Phase 2 — Contador de execuções onde workflow caller resolveu agent global de outro projeto.
+    /// Contador de execuções onde workflow caller resolveu agent global de outro projeto.
     /// Tags: caller_project, owner_project, tenant. Cuidado de cardinalidade em deploys com 100+ projetos.
     /// </summary>
     public static readonly Counter<long> AgentCrossProjectInvocations =
@@ -98,7 +98,7 @@ public static class MetricsRegistry
             description: "Execuções cross-project de agents globais. Tags: caller_project, owner_project, tenant.");
 
     /// <summary>
-    /// Phase 3 — Contador de tentativas bloqueadas pela whitelist (AllowedProjectIds).
+    /// Contador de tentativas bloqueadas pela whitelist (AllowedProjectIds).
     /// Tags: caller_project, owner_project, agent_id. Útil pra detectar configurações
     /// erradas (workflow referencia agent que não tá liberado).
     /// </summary>
@@ -107,7 +107,7 @@ public static class MetricsRegistry
             description: "Resoluções de agent bloqueadas pela whitelist. Tags: caller_project, owner_project, agent_id.");
 
     /// <summary>
-    /// Phase 3 — Eviction counter pra in-memory LRU usado em throttle de cross_project_invoke.
+    /// Eviction counter pra in-memory LRU usado em throttle de cross_project_invoke.
     /// Esse counter dispara quando a LRU enche e descarta entries — indica throttle saturado.
     /// </summary>
     public static readonly Counter<long> AuditThrottleLruEvictions =
@@ -115,7 +115,7 @@ public static class MetricsRegistry
             description: "Entries despejadas da LRU de throttle de audit cross-project.");
 
     /// <summary>
-    /// Phase 3 — Contador de resoluções de secret cross-project (caller != owner do agent).
+    /// Contador de resoluções de secret cross-project (caller != owner do agent).
     /// Tags: caller, owner. Mostra que a separação de credentials por owner está funcionando.
     /// </summary>
     public static readonly Counter<long> SecretCrossProjectResolutions =

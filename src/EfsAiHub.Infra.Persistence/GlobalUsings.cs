@@ -1,4 +1,4 @@
-// Phase 4 — Infra.Persistence global usings. Namespaces preservados (ADR).
+// Infra.Persistence global usings. Namespaces preservados (ADR).
 global using Microsoft.EntityFrameworkCore;
 global using Microsoft.Extensions.Logging;
 global using Microsoft.Extensions.Configuration;

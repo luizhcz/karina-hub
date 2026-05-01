@@ -81,7 +81,7 @@ if (engineOptions.CheckpointMode == "Postgres")
 else
     builder.Services.AddSingleton<ICheckpointStore, InMemoryCheckpointStore>();
 
-// ── Fase 3 — Infra.Messaging (PgEventBus SSE backbone + PgCrossNodeBus coordination)
+// ── Infra.Messaging (PgEventBus SSE backbone + PgCrossNodeBus coordination)
 builder.Services.AddMessaging();
 
 // ── Extension Points ─────────────────────────────────────────────────────────
@@ -123,7 +123,7 @@ builder.Services.AddHealthChecks()
     .AddNpgSql(pgConnectionString, name: "postgres", tags: ["ready"])
     .AddRedis(redisConnectionString, name: "redis", tags: ["ready"])
     .AddCheck<AwsSecretsHealthCheck>("aws-secrets", tags: ["ready"])
-    // Phase 3 — Reporta agents globais com owner project deletado (Degraded, não Unhealthy).
+    // Reporta agents globais com owner project deletado (Degraded, não Unhealthy).
     .AddCheck<EfsAiHub.Host.Api.Health.SharedAgentsHealthCheck>("shared-agents", tags: ["ready", "sharing"]);
 
 // ── Controllers + JSON ──���─────────────────────────────────────────────────────

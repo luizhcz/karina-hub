@@ -16,13 +16,13 @@ public class CreateAgentRequest
     public AgentStructuredOutputDefinition? StructuredOutput { get; init; }
     public List<AgentMiddlewareConfig> Middlewares { get; init; } = [];
 
-    /// <summary>Fase 2 — política de retry/backoff. Null = defaults do engine.</summary>
+    /// <summary>Política de retry/backoff. Null = defaults do engine.</summary>
     public ResiliencePolicy? Resilience { get; init; }
 
-    /// <summary>Fase 2 — teto de custo em USD por execução. Null = sem enforcement.</summary>
+    /// <summary>Teto de custo em USD por execução. Null = sem enforcement.</summary>
     public AgentCostBudget? CostBudget { get; init; }
 
-    /// <summary>Fase 3 — skills referenciadas (id + versão opcional). Null ou vazio = sem skills.</summary>
+    /// <summary>Skills referenciadas (id + versão opcional). Null ou vazio = sem skills.</summary>
     public List<SkillRef>? SkillRefs { get; init; }
 
     public Dictionary<string, string> Metadata { get; init; } = [];
@@ -34,7 +34,7 @@ public class CreateAgentRequest
     public string? Visibility { get; init; }
 
     /// <summary>
-    /// Phase 3 — Whitelist opcional de projetos autorizados a referenciar este agent
+    /// Whitelist opcional de projetos autorizados a referenciar este agent
     /// quando Visibility=global. Null = qualquer projeto do tenant.
     /// </summary>
     public List<string>? AllowedProjectIds { get; init; }

@@ -27,8 +27,8 @@ public class LlmTokenUsage
     public string? ProjectId { get; set; }
 
     /// <summary>
-    /// Phase 2 — Quando o agent que gerou esta chamada é cross-project (caller workflow
-    /// !=  owner do agent global), guarda o ProjectId do owner. Null quando agent é local.
+    /// Quando o agent que gerou esta chamada é cross-project (caller workflow
+    /// != owner do agent global), guarda o ProjectId do owner. Null quando agent é local.
     /// Permite analytics dual ("qual projeto consumiu vs qual projeto produziu").
     /// </summary>
     public string? OriginAgentProjectId { get; set; }

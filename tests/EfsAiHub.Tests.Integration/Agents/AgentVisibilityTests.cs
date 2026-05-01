@@ -1,7 +1,7 @@
 namespace EfsAiHub.Tests.Integration.Agents;
 
 /// <summary>
-/// Cobre PATCH /api/agents/{id}/visibility (Phase 2 do épico multi-projeto) +
+/// Cobre PATCH /api/agents/{id}/visibility +
 /// critérios de aceitação: owner gate (403, sem vazar ProjectId), preservação no
 /// PUT, hidratação no GET, audit/metric.
 /// </summary>

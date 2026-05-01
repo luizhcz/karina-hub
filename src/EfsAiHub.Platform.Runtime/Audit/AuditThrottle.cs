@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 namespace EfsAiHub.Platform.Runtime.Audit;
 
 /// <summary>
-/// Phase 3 — LRU thread-safe pra throttle de eventos de audit que podem inflar log
+/// LRU thread-safe pra throttle de eventos de audit que podem inflar log
 /// (ex: cross_project_invoke em workloads alto). Marca uma chave como "logged" por
 /// uma janela de tempo; subsequentes ShouldLog retornam false até expirar.
 ///

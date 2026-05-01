@@ -4,7 +4,7 @@ using EfsAiHub.Core.Agents.Skills;
 namespace EfsAiHub.Host.Api.Models.Responses;
 
 /// <summary>
-/// Fase 1 — DTO de snapshot imutável de AgentVersion. Inclui todos os campos
+/// DTO de snapshot imutável de AgentVersion. Inclui todos os campos
 /// versionados (prompt, model, tools, middlewares, resilience, cost budget, skills)
 /// + metadados de auditoria (<c>ContentHash</c>, <c>Revision</c>, <c>CreatedBy</c>).
 /// </summary>
@@ -52,7 +52,7 @@ public class AgentVersionResponse
     };
 }
 
-/// <summary>Fase 1 — body opcional para /rollback.</summary>
+/// <summary>Body opcional para /rollback.</summary>
 public class RollbackAgentRequest
 {
     public required string TargetVersionId { get; init; }

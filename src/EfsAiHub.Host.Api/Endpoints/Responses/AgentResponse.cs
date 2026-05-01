@@ -15,28 +15,25 @@ public class AgentResponse
     public AgentStructuredOutputDefinition? StructuredOutput { get; init; }
     public IReadOnlyList<AgentMiddlewareConfig> Middlewares { get; init; } = [];
 
-    /// <summary>Fase 2.</summary>
     public ResiliencePolicy? Resilience { get; init; }
 
-    /// <summary>Fase 2.</summary>
     public AgentCostBudget? CostBudget { get; init; }
 
-    /// <summary>Fase 3.</summary>
     public IReadOnlyList<SkillRef>? SkillRefs { get; init; }
 
     public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
 
-    /// <summary>Phase 2 — "project" (default) | "global".</summary>
+    /// <summary>"project" (default) | "global".</summary>
     public required string Visibility { get; init; }
 
-    /// <summary>Phase 2 — Project owner do agent (distingue do caller que está consumindo).</summary>
+    /// <summary>Project owner do agent (distingue do caller que está consumindo).</summary>
     public required string OriginProjectId { get; init; }
 
-    /// <summary>Phase 2 — Tenant do owner. Reforça boundary cross-tenant na UI.</summary>
+    /// <summary>Tenant do owner. Reforça boundary cross-tenant na UI.</summary>
     public required string OriginTenantId { get; init; }
 
     /// <summary>
-    /// Phase 3 — Whitelist opcional de projetos autorizados a referenciar quando
+    /// Whitelist opcional de projetos autorizados a referenciar quando
     /// Visibility=global. Null = qualquer projeto do tenant pode.
     /// </summary>
     public IReadOnlyList<string>? AllowedProjectIds { get; init; }

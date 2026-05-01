@@ -150,7 +150,7 @@ public class AgentValidationTests
         errors.Should().Contain(e => e.Contains("id"));
     }
 
-    // ── Phase 2 — Visibility ─────────────────────────────────────────────────
+    // ── Visibility ───────────────────────────────────────────────────────────
 
     [Theory]
     [InlineData("project")]

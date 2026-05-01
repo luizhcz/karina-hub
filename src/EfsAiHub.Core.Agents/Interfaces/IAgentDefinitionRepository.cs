@@ -15,7 +15,7 @@ public interface IAgentDefinitionRepository
     Task<IReadOnlySet<string>> GetExistingIdsAsync(IEnumerable<string> ids, CancellationToken ct = default);
 
     /// <summary>
-    /// Phase 3 — Lista até <paramref name="limit"/> agents globais cujo project owner foi
+    /// Lista até <paramref name="limit"/> agents globais cujo project owner foi
     /// deletado (orphans). Bypass do query filter (cross-project + cross-tenant). Read-only,
     /// usado por health checks e operações admin.
     /// </summary>

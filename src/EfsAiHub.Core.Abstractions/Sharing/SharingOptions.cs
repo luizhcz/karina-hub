@@ -1,7 +1,7 @@
 namespace EfsAiHub.Core.Abstractions.Sharing;
 
 /// <summary>
-/// Phase 3 — Feature flags pra rollback graceful do épico multi-projeto. Bound via
+/// Feature flags pra rollback graceful do sharing cross-project. Bound via
 /// <c>IOptionsMonitor&lt;SharingOptions&gt;</c> — alterações em runtime sem restart.
 ///
 /// Mora em Core.Abstractions porque é consumido por Platform.Runtime (AgentFactory),
@@ -33,7 +33,7 @@ public sealed class SharingOptions
     /// <summary>
     /// Quando false: skip do audit <c>cross_project_invoke</c> (mantém métrica + log,
     /// só não persiste em <c>admin_audit_log</c>). Default true. Use pra reduzir
-    /// pressão na tabela em workloads alto até Phase 4 introduzir partitioning.
+    /// pressão na tabela em workloads alto.
     /// </summary>
     public bool AuditCrossInvoke { get; init; } = true;
 

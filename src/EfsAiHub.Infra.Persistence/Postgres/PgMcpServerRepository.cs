@@ -28,7 +28,7 @@ public sealed class PgMcpServerRepository : IMcpServerRepository
         string id, string ownerProjectId, CancellationToken ct = default)
     {
         await using var ctx = await _factory.CreateDbContextAsync(ct);
-        // Phase 3 — Cross-project: bypass query filter + filtro explícito por owner.
+        // Cross-project: bypass query filter + filtro explícito por owner.
         // Usado pelo FoundryToolBuilder quando agent global referencia MCP local do owner.
         var row = await ctx.McpServers
             .IgnoreQueryFilters()

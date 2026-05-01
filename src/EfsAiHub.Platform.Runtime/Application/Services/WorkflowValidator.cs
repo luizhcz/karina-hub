@@ -58,12 +58,9 @@ public class WorkflowValidator
     }
 
     /// <summary>
-    /// Valida transição de visibilidade. Promote (project→global) requer que todos os
-    /// agents referenciados estejam acessíveis pra outros projetos do tenant — ou seja,
-    /// agents do mesmo projeto (locais ao owner) ou já marcados como globais.
-    /// Note que na Fase 1 só workflow é compartilhado (agents shared chegam na Fase 2);
-    /// até lá, promote é permitido apenas em workflows cujos agents sejam todos do
-    /// próprio projeto (uso futuro depois que agent sharing estiver disponível).
+    /// Valida transição de visibilidade. Promote (project→global) é permitido —
+    /// visibilidade é metadata; workflow só falha se outro projeto tentar executar
+    /// referenciando agents inacessíveis (validação acontece em runtime).
     /// </summary>
     public Task<(bool IsValid, IReadOnlyList<string> Errors)> ValidateVisibilityChangeAsync(
         WorkflowDefinition definition, string newVisibility, CancellationToken ct = default)
@@ -77,11 +74,9 @@ public class WorkflowValidator
             return Task.FromResult<(bool, IReadOnlyList<string>)>((false, errors));
         }
         // Demote (global→project) é sempre permitido.
-        // Promote (project→global): garante que workflow não vai quebrar quando outro
-        // projeto tentar executar. Phase 1 não tem agents globais ainda, então qualquer
-        // referência cross-project hoje resultaria em erro de runtime. Aceitamos promote
-        // mesmo assim — visibilidade é metadata; o workflow só falha se alguém tentar
-        // executar de outro projeto. UI orienta o operador.
+        // Promote (project→global): aceitamos sem validar refs cross-project — visibilidade
+        // é metadata; o workflow só falha se alguém tentar executar de outro projeto
+        // referenciando agents inacessíveis. UI orienta o operador.
         return Task.FromResult<(bool, IReadOnlyList<string>)>((true, errors));
     }
 

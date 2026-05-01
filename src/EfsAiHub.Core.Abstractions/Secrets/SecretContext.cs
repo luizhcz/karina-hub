@@ -20,7 +20,7 @@ public sealed record SecretContext(
         => new(SecretScope.Foundry, projectId);
 
     /// <summary>
-    /// Phase 3 — Cria contexto cross-project: o caller (request scope) é
+    /// Cria contexto cross-project: o caller (request scope) é
     /// <paramref name="callerProjectId"/>, mas o secret deve ser resolvido
     /// no contexto do <paramref name="ownerProjectId"/> (project dono do agent global).
     /// Resolver e cache devem segregar por OriginProjectId pra evitar leak entre projetos.
@@ -30,7 +30,7 @@ public sealed record SecretContext(
         => new(SecretScope.Project, callerProjectId, provider, label, ownerProjectId);
 
     /// <summary>
-    /// Phase 3 — Project usado para resolver o secret de fato. Quando <see cref="OriginProjectId"/>
+    /// Project usado para resolver o secret de fato. Quando <see cref="OriginProjectId"/>
     /// é setado e diferente de <see cref="ProjectId"/>, retorna OriginProjectId (owner do agent global).
     /// Senão retorna ProjectId (caller normal).
     /// </summary>
