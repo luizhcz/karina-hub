@@ -1,4 +1,4 @@
-import { get, post, put, del } from './client'
+import { get, post, put, patch, del } from './client'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 
@@ -104,6 +104,8 @@ export interface WorkflowConfiguration {
   outputNodes?: string[]
 }
 
+export type WorkflowVisibility = 'project' | 'global'
+
 export interface WorkflowDef {
   id: string
   name: string
@@ -116,6 +118,12 @@ export interface WorkflowDef {
   trigger?: WorkflowTrigger
   configuration?: WorkflowConfiguration
   metadata?: Record<string, string>
+  /** "project" (default) | "global" — global é visível a todos os projetos do tenant. */
+  visibility?: WorkflowVisibility
+  /** Project owner do workflow. Distingue de quem está consumindo. */
+  originProjectId?: string
+  /** Tenant do owner. */
+  originTenantId?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -199,6 +207,8 @@ export const cloneWorkflow = (id: string, body?: { newId?: string }) => post<Wor
 export const getWorkflowVersions = (id: string) => get<WorkflowVersion[]>(`/workflows/${id}/versions`)
 export const getWorkflowVersion = (id: string, vid: string) => get<WorkflowDef>(`/workflows/${id}/versions/${vid}`)
 export const rollbackWorkflow = (id: string, body?: { versionId?: string }) => post<WorkflowDef>(`/workflows/${id}/rollback`, body)
+export const updateWorkflowVisibility = (id: string, body: { visibility: WorkflowVisibility; reason?: string }) =>
+  patch<WorkflowDef>(`/workflows/${id}/visibility`, body)
 
 export const toggleWorkflowTrigger = (workflow: WorkflowDef, enabled: boolean) => {
   const body = { ...workflow, trigger: workflow.trigger ? { ...workflow.trigger, enabled } : undefined }
@@ -314,6 +324,19 @@ export function useToggleWorkflowTrigger() {
     onSuccess: (_d, { workflow }) => {
       qc.invalidateQueries({ queryKey: KEYS.all })
       qc.invalidateQueries({ queryKey: KEYS.detail(workflow.id) })
+    },
+  })
+}
+
+export function useUpdateWorkflowVisibility() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, visibility, reason }: { id: string; visibility: WorkflowVisibility; reason?: string }) =>
+      updateWorkflowVisibility(id, { visibility, reason }),
+    onSuccess: (_d, { id }) => {
+      qc.invalidateQueries({ queryKey: KEYS.all })
+      qc.invalidateQueries({ queryKey: KEYS.visible })
+      qc.invalidateQueries({ queryKey: KEYS.detail(id) })
     },
   })
 }

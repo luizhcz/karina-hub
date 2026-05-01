@@ -73,6 +73,14 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("llm.budget.exceeded",
             description: "Execuções que ultrapassaram budget cap (warning-only — não bloqueia). Tags: scope=workflow|agent|project, cause=cost|tokens.");
 
+    /// <summary>
+    /// Contador incrementado quando admin troca a visibilidade de um workflow.
+    /// Tags: from=project|global, to=project|global, tenant=&lt;tenantId&gt;.
+    /// </summary>
+    public static readonly Counter<long> WorkflowVisibilityChanges =
+        _meter.CreateCounter<long>("workflows.visibility_changes_total",
+            description: "Mudanças de Visibility em WorkflowDefinition. Tags: from, to, tenant.");
+
     public static readonly Counter<long> StaleExecutionCompletionSkipped =
         _meter.CreateCounter<long>("chat.stale_completion.skipped",
             description: "Completions ignoradas por corresponderem a execução não mais ativa na conversa");

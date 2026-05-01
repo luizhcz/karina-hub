@@ -60,7 +60,8 @@ public class WorkflowDefinition
     public IReadOnlyList<RoutingRule> RoutingRules { get; init; } = [];
     public WorkflowConfiguration Configuration { get; init; } = new();
     public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
-    public string Visibility { get; init; } = "project";
+    public string Visibility { get; init; } = "project";  // "project" | "global" — global é visível a todo o tenant
+    public string TenantId { get; set; } = "default";     // denormalizado pra enforçar tenant boundary nas listagens cross-project
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
@@ -1618,3 +1619,44 @@ POST /api/workflows
 | Controller | `src/EfsAiHub.Host.Api/Controllers/WorkflowsController.cs` |
 | AG-UI | `src/EfsAiHub.Host.Api/Chat/AgUi/` |
 | Persistence | `src/EfsAiHub.Infra.Persistence/Postgres/Pg*Repository.cs` |
+
+---
+
+## Visibility & sharing (Fase 1 do épico multi-projeto)
+
+`WorkflowDefinition.Visibility` controla a abrangência do workflow:
+
+| Valor | Comportamento |
+|---|---|
+| `project` (default) | Visível apenas no projeto dono (`ProjectId`). |
+| `global` | Visível a todos os projetos do **mesmo tenant** (`TenantId` denormalizado de `projects.tenant_id`). Cross-tenant é **proibido**. |
+
+### API
+
+- `PATCH /api/workflows/{id}/visibility` — body `{ visibility: "project" \| "global", reason?: string }`. Endpoint dedicado pra que o audit log emita `Action="workflow.visibility_changed"` com payloadBefore/After mínimos (só `{visibility}`, não polui índices).
+- Owner gate: somente o `ProjectId` dono pode alterar visibility. Caller de outro projeto recebe `403`.
+- Idempotência: re-marcar pra mesmo valor é no-op (não emite audit/metric).
+- `GET /api/workflows` continua filtrado por projeto + globais do tenant via `HasQueryFilter` no `AgentFwDbContext` (que injeta `ITenantContextAccessor` desde Phase 1).
+
+### Persistence
+
+- Coluna `TenantId` em `aihub.workflow_definitions` (denormalizada pra evitar JOIN em hot path). Backfill via `UPDATE ... FROM aihub.projects` (idempotente).
+- Index parcial `IX_workflow_definitions_TenantId_Visibility WHERE Visibility='global'` cobre listagens cross-project.
+- CHECK constraint `Visibility IN ('project','global')` aplicado via `NOT VALID + VALIDATE` (online-safe).
+- `PgWorkflowDefinitionRepository.UpsertAsync` lookuppa `Project.TenantId` e popula a row; cache Redis `workflow-def:{id}` é **invalidado** ao mudar visibility (outros projetos podem estar com cache stale).
+
+### Telemetry e audit
+
+- Métrica OTel: `workflows.visibility_changes_total{from, to, tenant}` (counter).
+- Audit: `Action="workflow.visibility_changed"`, `ResourceType="workflow"`, payloads mínimos.
+
+### Princípios de segurança
+
+1. **Tenant boundary é estrito.** Workflow global do tenant A nunca aparece em listagens do tenant B. Enforced no `HasQueryFilter` (`ProjectId == CurrentProjectId OR (Visibility=="global" AND TenantId == CurrentTenantId)`) e em `ListVisibleAsync` (query explícita).
+2. **Owner é único editor.** Apenas requests no projeto dono podem mudar visibility (ou clonar/deletar).
+3. **Cache key inclui tenant** (Phase 2 estende isso a agent-def). Phase 1: chave por `id` apenas, mas invalidação no upsert previne staleness.
+
+### Próximas fases (épico multi-projeto)
+
+- **Fase 2** — Shared agents (workflow A pode referenciar agent global de B no mesmo tenant). Inclui credential isolation no projeto dono, skill/MCP resolution no owner, billing dual (`OriginAgentProjectId` em `llm_token_usage`).
+- **Fase 3** — Whitelist (`AllowedProjectIds[]?`), pin de versão (`WorkflowAgentReference.AgentVersionId?`), feature flags `Sharing:*` via `IOptionsMonitor`, métricas cross-project, health check de orphans.

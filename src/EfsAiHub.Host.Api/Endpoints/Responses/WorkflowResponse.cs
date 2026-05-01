@@ -14,6 +14,12 @@ public class WorkflowResponse
     public IReadOnlyList<WorkflowEdge> Edges { get; init; } = [];
     public WorkflowConfiguration Configuration { get; init; } = new();
     public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
+    /// <summary>"project" (default) | "global"</summary>
+    public required string Visibility { get; init; }
+    /// <summary>Project owner do workflow. Distingue de quem está consumindo (caller pode ser outro).</summary>
+    public required string OriginProjectId { get; init; }
+    /// <summary>Tenant do owner. Reforça boundary cross-tenant na UI.</summary>
+    public required string OriginTenantId { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 
@@ -29,6 +35,9 @@ public class WorkflowResponse
         Edges = def.Edges,
         Configuration = def.Configuration,
         Metadata = def.Metadata,
+        Visibility = def.Visibility,
+        OriginProjectId = def.ProjectId,
+        OriginTenantId = def.TenantId,
         CreatedAt = def.CreatedAt,
         UpdatedAt = def.UpdatedAt
     };

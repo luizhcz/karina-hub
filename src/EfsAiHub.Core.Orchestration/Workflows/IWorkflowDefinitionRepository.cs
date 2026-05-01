@@ -9,7 +9,8 @@ public interface IWorkflowDefinitionRepository
     Task<bool> ExistsAsync(string id, CancellationToken ct = default);
 
     /// <summary>
-    /// Lista workflows visíveis para um projeto: workflows do projeto + workflows globais.
+    /// Lista workflows visíveis para um projeto: workflows do projeto +
+    /// workflows globais do mesmo tenant. Tenant boundary é enforced.
     /// </summary>
-    Task<IReadOnlyList<WorkflowDefinition>> ListVisibleAsync(string projectId, CancellationToken ct = default);
+    Task<IReadOnlyList<WorkflowDefinition>> ListVisibleAsync(string projectId, string tenantId, CancellationToken ct = default);
 }

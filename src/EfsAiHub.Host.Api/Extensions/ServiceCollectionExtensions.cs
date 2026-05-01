@@ -353,8 +353,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Host.Api.Chat.AgUi.Handlers.AgUiFrontendToolHandler>();
         services.AddSingleton<EfsAiHub.Host.Api.Chat.AgUi.Handlers.AgUiReconnectionHandler>();
 
-        // Multi-tenant context
-        services.AddScoped<EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor,
+        // Multi-tenant context — ambos singleton com AsyncLocal pra fluir através de
+        // escopos internos (IDbContextFactory, hosted services, background tasks).
+        services.AddSingleton<EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor,
             EfsAiHub.Host.Api.Middleware.TenantContextAccessor>();
         services.AddSingleton<EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor,
             EfsAiHub.Host.Api.Middleware.ProjectContextAccessor>();

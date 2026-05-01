@@ -81,6 +81,13 @@ public static class AdminAuditActions
     /// context_obfuscated — nunca o conteúdo cru.
     /// </summary>
     public const string BlocklistViolation = "blocklist_violation";
+
+    /// <summary>
+    /// Mudança de visibilidade ('project' → 'global' ou vice-versa) em
+    /// WorkflowDefinition. PayloadBefore/After mínimos — apenas {visibility}.
+    /// Emitido pelo PATCH /api/workflows/{id}/visibility.
+    /// </summary>
+    public const string WorkflowVisibilityChanged = "workflow.visibility_changed";
 }
 
 public static class AdminAuditResources

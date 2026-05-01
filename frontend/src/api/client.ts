@@ -168,6 +168,14 @@ export function put<T>(path: string, body: unknown): Promise<T> {
   })
 }
 
+export function patch<T>(path: string, body: unknown): Promise<T> {
+  return safeFetch<T>(`${BASE}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 export function del(path: string): Promise<void> {
   return safeFetch<void>(`${BASE}${path}`, { method: 'DELETE' })
 }

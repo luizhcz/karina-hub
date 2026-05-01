@@ -8,6 +8,14 @@ public interface IWorkflowService
     Task<WorkflowDefinition?> GetAsync(string id, CancellationToken ct = default);
     Task<IReadOnlyList<WorkflowDefinition>> ListAsync(CancellationToken ct = default);
     Task<WorkflowDefinition> UpdateAsync(WorkflowDefinition definition, CancellationToken ct = default);
+
+    /// <summary>
+    /// Muda a visibilidade ('project' | 'global') de um workflow existente.
+    /// Retorna a definição atualizada. Lança <see cref="KeyNotFoundException"/> se workflow não
+    /// existir, e <see cref="ArgumentException"/> se newVisibility for inválido.
+    /// </summary>
+    Task<WorkflowDefinition> UpdateVisibilityAsync(string id, string newVisibility, CancellationToken ct = default);
+
     Task DeleteAsync(string id, CancellationToken ct = default);
 
     /// <summary>

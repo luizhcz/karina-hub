@@ -13,7 +13,10 @@ internal class WorkflowDefinitionRow
     public string Name { get; set; } = "";
     public string Data { get; set; } = "{}";
     public string ProjectId { get; set; } = "default";
+    /// <summary>"project" | "global". Visível só dentro do tenant quando "global".</summary>
     public string Visibility { get; set; } = "project";
+    /// <summary>Denormalizado de projects.tenant_id; populado no upsert pelo repository.</summary>
+    public string TenantId { get; set; } = "default";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
@@ -457,17 +460,24 @@ internal class EvaluationResultRow
 public class AgentFwDbContext : DbContext
 {
     private readonly IProjectContextAccessor? _projectAccessor;
+    private readonly ITenantContextAccessor? _tenantAccessor;
 
     public AgentFwDbContext(
         DbContextOptions<AgentFwDbContext> options,
-        IProjectContextAccessor? projectAccessor = null)
+        IProjectContextAccessor? projectAccessor = null,
+        ITenantContextAccessor? tenantAccessor = null)
         : base(options)
     {
         _projectAccessor = projectAccessor;
+        _tenantAccessor = tenantAccessor;
     }
 
     /// <summary>ProjectId do scope atual. Usado pelo HasQueryFilter.</summary>
     private string CurrentProjectId => _projectAccessor?.Current.ProjectId ?? "default";
+
+    /// <summary>TenantId do scope atual. Usado pelo HasQueryFilter pra enforçar tenant boundary
+    /// em listagens cross-project (Visibility=global).</summary>
+    private string CurrentTenantId => _tenantAccessor?.Current.TenantId ?? "default";
 
     public DbSet<ConversationSession> Conversations => Set<ConversationSession>();
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
@@ -603,9 +613,13 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.Data).HasColumnType("text").IsRequired();
             b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
             b.Property(e => e.Visibility).HasMaxLength(32).HasDefaultValue("project");
+            b.Property(e => e.TenantId).HasMaxLength(128).HasDefaultValue("default");
             b.Property(e => e.CreatedAt).IsRequired();
             b.Property(e => e.UpdatedAt).IsRequired();
-            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+            // Visibilidade: project (filtro estrito por projeto) OU global dentro do mesmo tenant.
+            b.HasQueryFilter(e =>
+                e.ProjectId == CurrentProjectId
+                || (e.Visibility == "global" && e.TenantId == CurrentTenantId));
         });
 
         modelBuilder.Entity<AgentDefinitionRow>(b =>

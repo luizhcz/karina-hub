@@ -63,10 +63,46 @@ CREATE TABLE IF NOT EXISTS aihub.workflow_definitions (
     "Data"       TEXT         NOT NULL,                 -- JSON serializado do WorkflowDef
     "ProjectId"  VARCHAR(128) NOT NULL DEFAULT 'default',
     "Visibility" VARCHAR(32)  NOT NULL DEFAULT 'project', -- project | global
+    "TenantId"   VARCHAR(128) NOT NULL DEFAULT 'default', -- denormalizado de projects.tenant_id (tenant boundary em listagens cross-project)
     "CreatedAt"  TIMESTAMPTZ  NOT NULL,
     "UpdatedAt"  TIMESTAMPTZ  NOT NULL,
-    CONSTRAINT "PK_workflow_definitions" PRIMARY KEY ("Id")
+    CONSTRAINT "PK_workflow_definitions" PRIMARY KEY ("Id"),
+    CONSTRAINT "CK_workflow_definitions_Visibility" CHECK ("Visibility" IN ('project', 'global'))
 );
+
+-- ALTER idempotente pra DBs existentes (DatabaseBootstrapService re-roda este script no startup).
+-- ADD COLUMN com DEFAULT é metadata-only no PG 11+ (sem rewrite).
+ALTER TABLE aihub.workflow_definitions
+    ADD COLUMN IF NOT EXISTS "TenantId" VARCHAR(128) NOT NULL DEFAULT 'default';
+
+-- CHECK constraint adicionado em duas etapas pra ser safe em DBs com dados antigos
+-- (NOT VALID + VALIDATE) — porém como a constraint só existe se a tabela for nova,
+-- aplicamos via DO block que ignora se já existe.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'CK_workflow_definitions_Visibility'
+    ) THEN
+        ALTER TABLE aihub.workflow_definitions
+            ADD CONSTRAINT "CK_workflow_definitions_Visibility"
+            CHECK ("Visibility" IN ('project', 'global')) NOT VALID;
+        ALTER TABLE aihub.workflow_definitions
+            VALIDATE CONSTRAINT "CK_workflow_definitions_Visibility";
+    END IF;
+END $$;
+
+-- Backfill TenantId via JOIN com projects (idempotente — só atualiza rows com 'default' inconsistente).
+UPDATE aihub.workflow_definitions wd
+SET "TenantId" = p.tenant_id
+FROM aihub.projects p
+WHERE wd."ProjectId" = p.id
+  AND wd."TenantId" = 'default'
+  AND p.tenant_id <> 'default';
+
+-- Index parcial: listagens cross-project só atravessam workflows globais; índice cobre o filtro hot path.
+CREATE INDEX IF NOT EXISTS "IX_workflow_definitions_TenantId_Visibility"
+    ON aihub.workflow_definitions ("TenantId")
+    WHERE "Visibility" = 'global';
 
 -- =============================================================================
 -- 3. VERSIONAMENTO DE AGENTES E WORKFLOWS (snapshots imutáveis)

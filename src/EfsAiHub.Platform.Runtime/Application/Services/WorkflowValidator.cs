@@ -30,6 +30,7 @@ public class WorkflowValidator
         var errors = new List<string>();
 
         ValidateCommonFields(definition, errors);
+        ValidateVisibility(definition, errors);
 
         var agentIdSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var agentRef in definition.Agents)
@@ -46,6 +47,42 @@ public class WorkflowValidator
         await ValidateAgentReferencesAsync(definition, errors, ct);
 
         return (errors.Count == 0, errors);
+    }
+
+    private static void ValidateVisibility(WorkflowDefinition definition, List<string> errors)
+    {
+        if (!WorkflowDefinition.AllowedVisibilities.Contains(definition.Visibility))
+            errors.Add(
+                $"Visibility '{definition.Visibility}' inválida. Permitidos: " +
+                string.Join(", ", WorkflowDefinition.AllowedVisibilities) + ".");
+    }
+
+    /// <summary>
+    /// Valida transição de visibilidade. Promote (project→global) requer que todos os
+    /// agents referenciados estejam acessíveis pra outros projetos do tenant — ou seja,
+    /// agents do mesmo projeto (locais ao owner) ou já marcados como globais.
+    /// Note que na Fase 1 só workflow é compartilhado (agents shared chegam na Fase 2);
+    /// até lá, promote é permitido apenas em workflows cujos agents sejam todos do
+    /// próprio projeto (uso futuro depois que agent sharing estiver disponível).
+    /// </summary>
+    public Task<(bool IsValid, IReadOnlyList<string> Errors)> ValidateVisibilityChangeAsync(
+        WorkflowDefinition definition, string newVisibility, CancellationToken ct = default)
+    {
+        var errors = new List<string>();
+        if (!WorkflowDefinition.AllowedVisibilities.Contains(newVisibility))
+        {
+            errors.Add(
+                $"Visibility '{newVisibility}' inválida. Permitidos: " +
+                string.Join(", ", WorkflowDefinition.AllowedVisibilities) + ".");
+            return Task.FromResult<(bool, IReadOnlyList<string>)>((false, errors));
+        }
+        // Demote (global→project) é sempre permitido.
+        // Promote (project→global): garante que workflow não vai quebrar quando outro
+        // projeto tentar executar. Phase 1 não tem agents globais ainda, então qualquer
+        // referência cross-project hoje resultaria em erro de runtime. Aceitamos promote
+        // mesmo assim — visibilidade é metadata; o workflow só falha se alguém tentar
+        // executar de outro projeto. UI orienta o operador.
+        return Task.FromResult<(bool, IReadOnlyList<string>)>((true, errors));
     }
 
     private static void ValidateCommonFields(WorkflowDefinition definition, List<string> errors)

@@ -18,6 +18,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly IExecutionSlotRegistry _chatRegistry;
     private readonly IProjectContextAccessor _projectAccessor;
+    private readonly ITenantContextAccessor _tenantAccessor;
     private readonly IWorkflowVersionRepository? _versionRepo;
     private readonly ICrossNodeBus? _crossBus;
     private readonly ILogger<WorkflowService> _logger;
@@ -31,6 +32,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         IHostApplicationLifetime appLifetime,
         IExecutionSlotRegistry chatRegistry,
         IProjectContextAccessor projectAccessor,
+        ITenantContextAccessor tenantAccessor,
         ILogger<WorkflowService> logger,
         IWorkflowVersionRepository? versionRepo = null,
         ICrossNodeBus? crossBus = null)
@@ -43,6 +45,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         _appLifetime = appLifetime;
         _chatRegistry = chatRegistry;
         _projectAccessor = projectAccessor;
+        _tenantAccessor = tenantAccessor;
         _logger = logger;
         _versionRepo = versionRepo;
         _crossBus = crossBus;
@@ -74,8 +77,15 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
 
     public async Task<WorkflowDefinition> UpdateAsync(WorkflowDefinition definition, CancellationToken ct = default)
     {
-        _ = await _definitionRepo.GetByIdAsync(definition.Id, ct)
+        var existing = await _definitionRepo.GetByIdAsync(definition.Id, ct)
             ?? throw new KeyNotFoundException($"Workflow '{definition.Id}' não encontrado.");
+
+        // Preserva ownership/visibility do existing — request DTO não carrega esses campos
+        // por design; sem isso o PUT silenciosamente reseta Visibility="project"/ProjectId="default".
+        // PATCH /visibility é o único caminho documentado pra mudar Visibility.
+        definition.ProjectId = existing.ProjectId;
+        definition.TenantId = existing.TenantId;
+        definition.Visibility = existing.Visibility;
 
         var (isValid, errors) = await ValidateAsync(definition, ct);
         if (!isValid)
@@ -87,6 +97,50 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
 
         definition.UpdatedAt = DateTime.UtcNow;
         return await _definitionRepo.UpsertAsync(definition, ct);
+    }
+
+    public async Task<WorkflowDefinition> UpdateVisibilityAsync(string id, string newVisibility, CancellationToken ct = default)
+    {
+        var existing = await _definitionRepo.GetByIdAsync(id, ct)
+            ?? throw new KeyNotFoundException($"Workflow '{id}' não encontrado.");
+
+        // Owner gate: só o projeto dono pode alterar visibility (request rolando em outro projeto não pode).
+        // Mensagem genérica — não vaza qual é o ProjectId do owner (info-leak menor).
+        var currentProjectId = _projectAccessor.Current.ProjectId;
+        if (!string.Equals(existing.ProjectId, currentProjectId, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException(
+                $"Workflow '{id}' não pertence ao projeto atual; apenas o projeto dono pode alterar visibility.");
+
+        var (isValid, errors) = await _validator.ValidateVisibilityChangeAsync(existing, newVisibility, ct);
+        if (!isValid)
+            throw new ArgumentException($"Mudança de visibility inválida: {string.Join(", ", errors)}");
+
+        // Idempotência: se não mudou, retorna existing sem upsert (evita audit/cache churn).
+        if (string.Equals(existing.Visibility, newVisibility, StringComparison.OrdinalIgnoreCase))
+            return existing;
+
+        // Reconstrói definition com novo Visibility (init-only requer rebuild).
+        var updated = new WorkflowDefinition
+        {
+            Id = existing.Id,
+            Name = existing.Name,
+            Description = existing.Description,
+            Version = existing.Version,
+            OrchestrationMode = existing.OrchestrationMode,
+            Agents = existing.Agents,
+            Edges = existing.Edges,
+            Executors = existing.Executors,
+            RoutingRules = existing.RoutingRules,
+            Configuration = existing.Configuration,
+            Metadata = existing.Metadata,
+            Visibility = newVisibility,
+            ProjectId = existing.ProjectId,
+            TenantId = existing.TenantId,
+            CreatedAt = existing.CreatedAt,
+            UpdatedAt = DateTime.UtcNow,
+        };
+
+        return await _definitionRepo.UpsertAsync(updated, ct);
     }
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)
@@ -241,7 +295,10 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
     // ═══════════════════════════════════════════════════════════════════════
 
     public Task<IReadOnlyList<WorkflowDefinition>> ListVisibleAsync(CancellationToken ct = default)
-        => _definitionRepo.ListVisibleAsync(_projectAccessor.Current.ProjectId, ct);
+        => _definitionRepo.ListVisibleAsync(
+            _projectAccessor.Current.ProjectId,
+            _tenantAccessor.Current.TenantId,
+            ct);
 
     public async Task<WorkflowDefinition> CloneAsync(
         string sourceWorkflowId, string? newId = null, CancellationToken ct = default)

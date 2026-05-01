@@ -15,6 +15,12 @@ public class CreateWorkflowRequest
     public WorkflowConfiguration Configuration { get; init; } = new();
     public Dictionary<string, string> Metadata { get; init; } = [];
 
+    /// <summary>
+    /// "project" | "global". Quando ausente em UPDATE, preservamos o valor existente
+    /// (não cair pra default "project") — ver WorkflowService.UpdateAsync.
+    /// </summary>
+    public string? Visibility { get; init; }
+
     public WorkflowDefinition ToDomain() => new()
     {
         Id = Id,
@@ -26,6 +32,9 @@ public class CreateWorkflowRequest
         Executors = Executors,
         Edges = Edges,
         Configuration = Configuration,
-        Metadata = Metadata
+        Metadata = Metadata,
+        // Default "project" pra Create; em Update, o service substitui pelo existing
+        // antes de salvar quando Visibility vem null no request.
+        Visibility = Visibility ?? "project"
     };
 }

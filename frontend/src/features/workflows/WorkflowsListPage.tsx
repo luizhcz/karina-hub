@@ -67,7 +67,20 @@ export function WorkflowsListPage() {
       header: 'Name',
       cell: ({ row }) => (
         <div>
-          <p className="font-medium text-text-primary">{row.original.name}</p>
+          <div className="flex items-center gap-2">
+            <p className="font-medium text-text-primary">{row.original.name}</p>
+            {row.original.visibility === 'global' && (
+              <Tooltip
+                content={
+                  row.original.originProjectId
+                    ? `Compartilhado · projeto ${row.original.originProjectId}`
+                    : 'Workflow global, visível em todos os projetos do tenant'
+                }
+              >
+                <Badge variant="purple">🌐 Global</Badge>
+              </Tooltip>
+            )}
+          </div>
           {row.original.description && (
             <p className="text-xs text-text-muted mt-0.5 truncate max-w-[220px]">
               {row.original.description}

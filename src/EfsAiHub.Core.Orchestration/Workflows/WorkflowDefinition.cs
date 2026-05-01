@@ -33,9 +33,23 @@ public class WorkflowDefinition
 
     /// <summary>
     /// "project" (default) — visível apenas dentro do projeto atual.
-    /// "global" — visível em todos os projetos (catálogo compartilhado).
+    /// "global" — visível em todos os projetos do mesmo tenant (catálogo compartilhado).
     /// </summary>
-    public string Visibility { get; init; } = "project";
+    /// <remarks>
+    /// Mutável (não init-only) pra permitir hidratação consistente após deserialização
+    /// (PgWorkflowDefinitionRepository.Hydrate sobrescreve com row.Visibility — single source of truth).
+    /// </remarks>
+    public string Visibility { get; set; } = "project";
+
+    /// <summary>
+    /// Tenant denormalizado (lookup do project owner). Usado pelo query filter
+    /// pra enforçar tenant boundary em listagens cross-project (Visibility=global).
+    /// Populado no upsert pelo repository; default "default" pra BC.
+    /// </summary>
+    public string TenantId { get; set; } = "default";
+
+    public static readonly IReadOnlySet<string> AllowedVisibilities =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "project", "global" };
 
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -95,6 +109,9 @@ public class WorkflowDefinition
             throw new DomainException("WorkflowDefinition.Id é obrigatório.");
         if (string.IsNullOrWhiteSpace(Name))
             throw new DomainException("WorkflowDefinition.Name é obrigatório.");
+        if (!AllowedVisibilities.Contains(Visibility))
+            throw new DomainException(
+                $"WorkflowDefinition.Visibility inválida: '{Visibility}'. Permitidos: {string.Join(", ", AllowedVisibilities)}.");
 
         // Modos não-Graph exigem ao menos 1 agente
         if (OrchestrationMode != OrchestrationMode.Graph && Agents.Count == 0)

@@ -119,4 +119,106 @@ public class WorkflowValidationTests
         isValid.Should().BeFalse();
         errors.Should().Contain(e => e.Contains("Graph"));
     }
+
+    // ── Visibility ──────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("project")]
+    [InlineData("global")]
+    [InlineData("PROJECT")]
+    [InlineData("Global")]
+    public async Task Visibility_ValoresAceitos_Passa(string visibility)
+    {
+        var validator = BuildValidator();
+        var def = new WorkflowDefinition
+        {
+            Id = "wf-vis",
+            Name = "Visibility test",
+            OrchestrationMode = OrchestrationMode.Sequential,
+            Agents = [new WorkflowAgentReference { AgentId = "a-1" }],
+            Visibility = visibility,
+        };
+
+        var (isValid, errors) = await validator.ValidateAsync(def);
+
+        isValid.Should().BeTrue($"errors = {string.Join("; ", errors)}");
+    }
+
+    [Theory]
+    [InlineData("public")]
+    [InlineData("private")]
+    [InlineData("")]
+    [InlineData("garbage")]
+    public async Task Visibility_ValorInvalido_Rejeita(string visibility)
+    {
+        var validator = BuildValidator();
+        var def = new WorkflowDefinition
+        {
+            Id = "wf-vis-bad",
+            Name = "Visibility inválida",
+            OrchestrationMode = OrchestrationMode.Sequential,
+            Agents = [new WorkflowAgentReference { AgentId = "a-1" }],
+            Visibility = visibility,
+        };
+
+        var (isValid, errors) = await validator.ValidateAsync(def);
+
+        isValid.Should().BeFalse();
+        errors.Should().Contain(e => e.Contains("Visibility", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ValidateVisibilityChange_ValorValido_Permite()
+    {
+        var validator = BuildValidator();
+        var existing = new WorkflowDefinition
+        {
+            Id = "wf-x",
+            Name = "X",
+            OrchestrationMode = OrchestrationMode.Sequential,
+            Agents = [new WorkflowAgentReference { AgentId = "a-1" }],
+            Visibility = "project",
+        };
+
+        var (isValid, _) = await validator.ValidateVisibilityChangeAsync(existing, "global");
+
+        isValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ValidateVisibilityChange_ValorInvalido_Rejeita()
+    {
+        var validator = BuildValidator();
+        var existing = new WorkflowDefinition
+        {
+            Id = "wf-x",
+            Name = "X",
+            OrchestrationMode = OrchestrationMode.Sequential,
+            Agents = [new WorkflowAgentReference { AgentId = "a-1" }],
+            Visibility = "project",
+        };
+
+        var (isValid, errors) = await validator.ValidateVisibilityChangeAsync(existing, "shared");
+
+        isValid.Should().BeFalse();
+        errors.Should().Contain(e => e.Contains("Visibility"));
+    }
+
+    [Fact]
+    public void EnsureInvariants_VisibilityInvalida_ThrowsDomainException()
+    {
+        var def = new WorkflowDefinition
+        {
+            Id = "wf-x",
+            Name = "X",
+            OrchestrationMode = OrchestrationMode.Sequential,
+            Agents = [new WorkflowAgentReference { AgentId = "a-1" }],
+            Visibility = "everywhere",
+        };
+
+        var act = () => def.EnsureInvariants();
+
+        act.Should().Throw<EfsAiHub.Core.Abstractions.Exceptions.DomainException>()
+            .WithMessage("*Visibility*");
+    }
 }
