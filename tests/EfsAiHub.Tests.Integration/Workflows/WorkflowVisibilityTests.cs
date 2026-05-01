@@ -1,9 +1,9 @@
 namespace EfsAiHub.Tests.Integration.Workflows;
 
 /// <summary>
-/// Cobre PATCH /api/workflows/{id}/visibility (Fase 1 do épico multi-projeto) +
-/// critérios de aceitação do plano: owner gate (403), tenant boundary (workflow
-/// global de outro tenant invisível), preservação no PUT, hidratação no GET.
+/// Cobre PATCH /api/workflows/{id}/visibility +
+/// owner gate (403), tenant boundary (workflow global de outro tenant invisível),
+/// preservação no PUT, hidratação no GET.
 /// </summary>
 [Collection("Integration")]
 [Trait("Category", "Integration")]

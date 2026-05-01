@@ -4,7 +4,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 namespace EfsAiHub.Host.Api.Health;
 
 /// <summary>
-/// Phase 3 — Reporta agents globais cujo project owner foi deletado (orphans).
+/// Reporta agents globais cujo project owner foi deletado (orphans).
 /// Esses agents continuam visíveis em outros projetos do tenant via query filter, mas
 /// quebram em runtime ao tentar resolver credenciais (owner project sumiu). Estado:
 /// <list type="bullet">

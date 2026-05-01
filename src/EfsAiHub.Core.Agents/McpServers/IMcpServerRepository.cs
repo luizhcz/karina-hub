@@ -11,7 +11,7 @@ public interface IMcpServerRepository
     Task<McpServer?> GetByIdAsync(string id, CancellationToken ct = default);
 
     /// <summary>
-    /// Phase 3 — Busca MCP server bypassing project query filter, restrita ao
+    /// Busca MCP server bypassing project query filter, restrita ao
     /// project dono. Uso exclusivo de cross-project resolution (agent global
     /// referenciando MCP local do owner). Retorna null se MCP não existe ou
     /// não pertence ao owner.

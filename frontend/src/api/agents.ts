@@ -69,13 +69,13 @@ export interface AgentDef {
   costBudget?: AgentCostBudget
   skillRefs?: AgentSkillRef[]
   metadata?: Record<string, string>
-  /** Phase 2 — "project" (default) | "global". Global agents visíveis em todos os projetos do tenant. */
+  /** "project" (default) | "global". Global agents visíveis em todos os projetos do tenant. */
   visibility?: AgentVisibility
-  /** Phase 2 — Project owner do agent. */
+  /** Project owner do agent. */
   originProjectId?: string
-  /** Phase 2 — Tenant do owner. */
+  /** Tenant do owner. */
   originTenantId?: string
-  /** Phase 3 — Whitelist opcional de projetos autorizados (apenas com visibility=global). null = qualquer projeto do tenant. */
+  /** Whitelist opcional de projetos autorizados (apenas com visibility=global). null = qualquer projeto do tenant. */
   allowedProjectIds?: string[] | null
   createdAt?: string
   updatedAt?: string
@@ -95,9 +95,9 @@ export interface CreateAgentRequest {
   costBudget?: AgentCostBudget
   skillRefs?: AgentSkillRef[]
   metadata?: Record<string, string>
-  /** Phase 2 — opcional. Default "project" em Create; preserved em Update (PATCH /visibility é o caminho). */
+  /** Opcional. Default "project" em Create; preserved em Update (PATCH /visibility é o caminho). */
   visibility?: AgentVisibility
-  /** Phase 3 — Whitelist opcional. */
+  /** Whitelist opcional. */
   allowedProjectIds?: string[] | null
 }
 

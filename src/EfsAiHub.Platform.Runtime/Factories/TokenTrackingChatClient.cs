@@ -244,7 +244,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
             experimentVariant = assignment.Variant;
         }
 
-        // Phase 2 — Cross-project billing: ProjectId = caller (paga); OriginAgentProjectId = owner do agent.
+        // Cross-project billing: ProjectId = caller (paga); OriginAgentProjectId = owner do agent.
         // Quando agent é local (caller == owner), OriginAgentProjectId fica null pra preservar BC.
         var callerProjectId = ctx?.ProjectId;
         var originAgentProjectId =

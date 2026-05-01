@@ -52,20 +52,20 @@ CREATE TABLE IF NOT EXISTS aihub.agent_definitions (
     "Name"               VARCHAR(512) NOT NULL,
     "Data"               TEXT         NOT NULL,                 -- JSON serializado do AgentDef
     "ProjectId"          VARCHAR(128) NOT NULL DEFAULT 'default',
-    "Visibility"         VARCHAR(32)  NOT NULL DEFAULT 'project', -- project | global (Phase 2)
+    "Visibility"         VARCHAR(32)  NOT NULL DEFAULT 'project', -- project | global
     "TenantId"           VARCHAR(128) NOT NULL DEFAULT 'default', -- denormalizado de projects.tenant_id
-    "AllowedProjectIds"  JSONB        NULL,                     -- Phase 3: whitelist quando Visibility=global
+    "AllowedProjectIds"  JSONB        NULL,                     -- whitelist quando Visibility=global
     "CreatedAt"          TIMESTAMPTZ  NOT NULL,
     "UpdatedAt"          TIMESTAMPTZ  NOT NULL,
     CONSTRAINT "PK_agent_definitions" PRIMARY KEY ("Id"),
     CONSTRAINT "CK_agent_definitions_Visibility" CHECK ("Visibility" IN ('project', 'global'))
 );
 
--- Phase 3 — coluna AllowedProjectIds idempotente. Backfill = NULL (sem whitelist).
+-- Coluna AllowedProjectIds idempotente. Backfill = NULL (sem whitelist).
 ALTER TABLE aihub.agent_definitions
     ADD COLUMN IF NOT EXISTS "AllowedProjectIds" JSONB NULL;
 
--- ALTER idempotente pra DBs existentes (Phase 2 — agent sharing).
+-- ALTER idempotente pra DBs existentes (agent sharing — Visibility/TenantId).
 ALTER TABLE aihub.agent_definitions
     ADD COLUMN IF NOT EXISTS "Visibility" VARCHAR(32) NOT NULL DEFAULT 'project';
 ALTER TABLE aihub.agent_definitions
@@ -533,12 +533,12 @@ CREATE TABLE IF NOT EXISTS aihub.llm_token_usage (
     "OutputContent"   TEXT             NULL,
     "RetryCount"      INTEGER          NOT NULL DEFAULT 0,
     "ProjectId"            VARCHAR(128) NULL,  -- F4 — boundary de isolamento (ADR 003) / caller (consumer)
-    "OriginAgentProjectId" VARCHAR(128) NULL,  -- Phase 2 — owner do agent quando cross-project (NULL se local)
+    "OriginAgentProjectId" VARCHAR(128) NULL,  -- owner do agent quando cross-project (NULL se local)
     "CreatedAt"            TIMESTAMPTZ  NOT NULL,
     CONSTRAINT "PK_llm_token_usage" PRIMARY KEY ("Id")
 );
 
--- ALTER idempotente pra DBs existentes (Phase 2 — agent sharing).
+-- ALTER idempotente pra DBs existentes (agent sharing — OriginAgentProjectId).
 ALTER TABLE aihub.llm_token_usage
     ADD COLUMN IF NOT EXISTS "OriginAgentProjectId" VARCHAR(128) NULL;
 
@@ -554,7 +554,7 @@ CREATE INDEX IF NOT EXISTS "IX_llm_token_usage_CreatedAt"
 CREATE INDEX IF NOT EXISTS ix_llm_token_usage_project_created
     ON aihub.llm_token_usage ("ProjectId", "CreatedAt" DESC);
 
--- Phase 2 — analytics dual: "qual projeto pagou X tokens com agent global de Y".
+-- Analytics dual: "qual projeto pagou X tokens com agent global de Y".
 CREATE INDEX IF NOT EXISTS "IX_llm_token_usage_caller_origin"
     ON aihub.llm_token_usage ("ProjectId", "OriginAgentProjectId", "CreatedAt" DESC);
 

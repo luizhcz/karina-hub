@@ -49,11 +49,11 @@ public class AgentFactory : IAgentFactory
     private readonly IWorkflowEventBus? _eventBus;
     private readonly EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? _auditLogger;
     private readonly EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor? _projectContextAccessor;
-    // Phase 3 — Feature flags com IOptionsMonitor (atualização runtime sem restart).
+    // Feature flags com IOptionsMonitor (atualização runtime sem restart).
     // Optional pra preservar BC.
     private readonly IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? _sharingOptions;
 
-    // Phase 3 — throttle pra cross_project_invoke audit. Capacity 1000, janela 60s,
+    // Throttle pra cross_project_invoke audit. Capacity 1000, janela 60s,
     // emite métrica ao despejar. Static singleton: factory é registrado scoped em DI
     // mas o throttle precisa ser process-wide pra evitar duplicar logs entre scopes.
     private static readonly AuditThrottle _crossProjectAuditThrottle = new(
@@ -162,9 +162,9 @@ public class AgentFactory : IAgentFactory
 
         foreach (var agentRef in workflow.Agents)
         {
-            // Phase 3 — Pin opcional via WorkflowAgentReference.AgentVersionId. Atualmente
+            // Pin opcional via WorkflowAgentReference.AgentVersionId. Atualmente
             // o domain AgentVersion guarda snapshots por campo (sem JSON cru de AgentDefinition),
-            // então a materialização lossless está reservada pra Phase 4. Por enquanto, log
+            // então a materialização lossless ainda não é suportada. Por enquanto, log
             // warning + valida existência do version + cai pro current version do agent.
             if (!string.IsNullOrEmpty(agentRef.AgentVersionId))
             {
@@ -179,7 +179,7 @@ public class AgentFactory : IAgentFactory
                             $"AgentVersion '{agentRef.AgentVersionId}' não pertence ao agent '{agentRef.AgentId}'.");
                 }
                 _logger.LogWarning(
-                    "[AgentFactory] WorkflowAgentReference.AgentVersionId='{VersionId}' setado, mas materialização lossless de AgentVersion fica em Phase 4. Resolvendo current version pra '{AgentId}'.",
+                    "[AgentFactory] WorkflowAgentReference.AgentVersionId='{VersionId}' setado, mas materialização lossless de AgentVersion ainda não é suportada. Resolvendo current version pra '{AgentId}'.",
                     agentRef.AgentVersionId, agentRef.AgentId);
             }
 
@@ -195,15 +195,15 @@ public class AgentFactory : IAgentFactory
 
             var isCrossProject = !string.Equals(workflow.ProjectId, definition.ProjectId, StringComparison.OrdinalIgnoreCase);
 
-            // Phase 3 — Feature flag CrossProjectEnabled: rollback graceful do épico.
-            // Quando false, bloqueia toda resolução cross-project (rollback de Phase 2 sem deploy).
+            // Feature flag CrossProjectEnabled: rollback graceful sem deploy.
+            // Quando false, bloqueia toda resolução cross-project.
             if (isCrossProject && !crossProjectEnabled)
             {
                 throw new UnauthorizedAccessException(
                     "Cross-project agent resolution está desabilitada (Sharing:CrossProjectEnabled=false).");
             }
 
-            // Phase 3 — Whitelist enforcement: bloqueia ANTES de criar chat client
+            // Whitelist enforcement: bloqueia ANTES de criar chat client
             // (não em runtime LLM, evita custo parcial). Pode ser desligado via flag.
             if (whitelistEnabled && !definition.CanBeReferencedBy(workflow.ProjectId))
             {
@@ -216,7 +216,7 @@ public class AgentFactory : IAgentFactory
                     $"Agent '{definition.Id}' não está autorizado para o projeto '{workflow.ProjectId}' (whitelist em vigor).");
             }
 
-            // Detecta agent cross-project (Phase 2): caller workflow.ProjectId != agent.ProjectId.
+            // Agent cross-project: caller workflow.ProjectId != agent.ProjectId.
             // Ocorre quando workflow referencia agent global de outro projeto do mesmo tenant.
             // Emite log estruturado + métrica + audit pra rastreabilidade — não bloqueia.
             if (isCrossProject)
@@ -230,7 +230,7 @@ public class AgentFactory : IAgentFactory
                     new KeyValuePair<string, object?>("owner_project", definition.ProjectId),
                     new KeyValuePair<string, object?>("tenant", definition.TenantId));
 
-                // Phase 3 — Throttle: log no máximo 1× por (caller, owner, agent) a cada 60s
+                // Throttle: log no máximo 1× por (caller, owner, agent) a cada 60s
                 // pra evitar inflar audit em workloads alto (workflow loops). Métrica
                 // agents.cross_project_invocations_total (sem throttle) cobre toda chamada;
                 // audit row é o "evento de governança" amostrado. Pode ser desligado via flag
@@ -432,7 +432,7 @@ public class AgentFactory : IAgentFactory
     {
         if (_skillResolver is null || definition.SkillRefs.Count == 0) return definition;
 
-        // Phase 2 — Quando agent é cross-project (caller != owner), skills do owner precisam
+        // Quando agent é cross-project (caller != owner), skills do owner precisam
         // ser resolvidas no contexto do owner project (bypass do query filter normal).
         // _projectContextAccessor é injetado opcionalmente; sem ele caímos no comportamento legacy.
         var callerProjectId = _projectContextAccessor?.Current.ProjectId;
@@ -466,7 +466,7 @@ public class AgentFactory : IAgentFactory
         // agentMaxCostUsd: quando setado em AgentDefinition.CostBudget.MaxCostUsd, o
         // TokenTrackingChatClient emite LogCritical (warning-only) quando o custo
         // acumulado da execução cruza esse teto. Não bloqueia.
-        // agentOwnerProjectId: Phase 2 — propaga pro audit dual em llm_token_usage. Quando
+        // agentOwnerProjectId: propaga pro audit dual em llm_token_usage. Quando
         // o caller != owner, OriginAgentProjectId é populado; senão null (preserva BC).
         IChatClient current = new TokenTrackingChatClient(
             inner, definition.Id, modelId, _tokenPersistence.Writer, _logger, _pricingCache, _agUiTokenSink,

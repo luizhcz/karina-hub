@@ -6,9 +6,9 @@ using EfsAiHub.Core.Agents;
 namespace EfsAiHub.Core.Agents.Skills;
 
 /// <summary>
-/// Fase 3 — Skill é um agrupamento de <c>tools + addendum de prompt + policy +
+/// Skill é um agrupamento de <c>tools + addendum de prompt + policy +
 /// referências a knowledge sources</c>. Um agente referencia skills por id/version em vez
-/// de listar tools flat. Prepara a Fase 4 (RAG).
+/// de listar tools flat.
 ///
 /// Regra: Skill contém AgentToolDefinition (reuso do shape), NÃO duplica impl de tool.
 /// O registry global resolve a implementação via <see cref="Application.Interfaces.IFunctionToolRegistry"/>.
@@ -26,8 +26,8 @@ public sealed class Skill
     public List<AgentToolDefinition> Tools { get; init; } = [];
 
     /// <summary>
-    /// IDs de knowledge sources consumidas pela skill. Consumidos na Fase 4 pelo
-    /// RagAugmentationMiddleware. Ignorado na Fase 3 — apenas persistido.
+    /// IDs de knowledge sources consumidas pela skill. Reservado pra integração com RAG;
+    /// hoje apenas persistido (sem efeito em runtime).
     /// </summary>
     public List<string> KnowledgeSourceIds { get; init; } = [];
 
@@ -68,8 +68,8 @@ public sealed class Skill
 }
 
 /// <summary>
-/// Fase 3 — política declarativa aplicada a invocações dentro do contexto de uma skill.
-/// MVP: apenas persiste; enforcement completo fica para fases seguintes.
+/// Política declarativa aplicada a invocações dentro do contexto de uma skill.
+/// Hoje apenas persistida; enforcement completo é feito caso a caso pelos middlewares.
 /// </summary>
 public sealed record SkillPolicy(
     int? AllowedCallsPerRun = null,
@@ -77,7 +77,7 @@ public sealed record SkillPolicy(
     IReadOnlyList<string>? RequiredGuards = null);
 
 /// <summary>
-/// Fase 3 — referência de um agente a uma skill, opcionalmente amarrada a uma version específica.
+/// Referência de um agente a uma skill, opcionalmente amarrada a uma version específica.
 /// Null em <see cref="SkillVersionId"/> = resolver pega a revisão mais recente no momento da construção.
 /// Quando o snapshot de <see cref="Agents.AgentVersion"/> é gravado, o SkillVersionId é materializado,
 /// garantindo rollback determinístico.

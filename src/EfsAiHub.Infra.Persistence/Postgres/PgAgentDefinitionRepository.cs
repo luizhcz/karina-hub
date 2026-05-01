@@ -52,7 +52,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
 
     /// <summary>
     /// Hidrata Visibility/ProjectId/TenantId da row sobre o domain — defesa contra JSON
-    /// pré-Phase 2 (sem campos novos) ou inconsistência transient. Row é source of truth.
+    /// legado (sem esses campos) ou inconsistência transient. Row é source of truth.
     /// </summary>
     private static AgentDefinition Hydrate(AgentDefinitionRow row, AgentDefinition def)
     {

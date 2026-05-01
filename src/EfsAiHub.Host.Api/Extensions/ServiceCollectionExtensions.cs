@@ -382,7 +382,7 @@ public static class ServiceCollectionExtensions
         services.Configure<CircuitBreakerOptions>(configuration.GetSection("CircuitBreaker"));
         services.AddSingleton<LlmCircuitBreaker>();
 
-        // Phase 3 — Feature flags do épico multi-projeto. IOptionsMonitor permite
+        // Feature flags do sharing cross-project. IOptionsMonitor permite
         // alterar runtime via reload do appsettings sem restart.
         services.Configure<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>(
             configuration.GetSection(EfsAiHub.Core.Abstractions.Sharing.SharingOptions.SectionName));

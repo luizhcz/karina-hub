@@ -20,7 +20,7 @@ public interface ISkillResolver
     /// retorna a revisão corrente. null se não encontrada.
     /// </summary>
     /// <param name="ownerProjectId">
-    /// Phase 2 — Quando setado, força resolution no contexto do project owner (cross-project).
+    /// Quando setado, força resolution no contexto do project owner (cross-project).
     /// Usado pelo AgentFactory quando agent global de outro project é resolvido em workflow caller.
     /// Null = comportamento legacy (project atual, respeita query filter).
     /// </param>

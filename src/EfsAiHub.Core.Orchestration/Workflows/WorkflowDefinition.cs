@@ -163,7 +163,7 @@ public class WorkflowAgentReference
     public string? OriginProjectId { get; init; }
 
     /// <summary>
-    /// Phase 3 — Pin opcional de versão de agent. Quando setado, o AgentFactory resolve
+    /// Pin opcional de versão de agent. Quando setado, o AgentFactory resolve
     /// via <c>IAgentVersionRepository.GetByIdAsync(AgentVersionId)</c> e materializa
     /// snapshot imutável — não vai pelo repo de definitions (atual). Útil quando caller
     /// quer estabilidade contra publishes do owner. Null = versão flutuante (default).

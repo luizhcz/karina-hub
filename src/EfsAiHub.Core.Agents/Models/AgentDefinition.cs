@@ -63,7 +63,7 @@ public class AgentDefinition
     public string TenantId { get; set; } = "default";
 
     /// <summary>
-    /// Phase 3 — Whitelist explícita de projetos que podem usar este agent quando
+    /// Whitelist explícita de projetos que podem usar este agent quando
     /// Visibility=global. Semântica:
     /// <list type="bullet">
     ///   <item><c>null</c> (default) — qualquer projeto do tenant pode referenciar (visibility implícita).</item>
@@ -167,7 +167,7 @@ public class AgentDefinition
     }
 
     /// <summary>
-    /// Phase 3 — Decide se o caller project pode referenciar este agent baseado em
+    /// Decide se o caller project pode referenciar este agent baseado em
     /// Visibility, ownership e whitelist (AllowedProjectIds).
     /// </summary>
     public bool CanBeReferencedBy(string callerProjectId)

@@ -1,7 +1,7 @@
 namespace EfsAiHub.Core.Agents.Skills;
 
 /// <summary>
-/// Fase 3 — snapshot imutável append-only de uma skill. Mesma mecânica de AgentVersion:
+/// Snapshot imutável append-only de uma skill. Mesma mecânica de AgentVersion:
 /// toda UpsertAsync de <see cref="Skill"/> cria uma nova SkillVersion (revision = MAX+1)
 /// ou reusa a última se ContentHash for idêntico (idempotência).
 /// </summary>
@@ -20,7 +20,7 @@ public interface ISkillRepository
     Task<Skill?> GetByIdAsync(string id, CancellationToken ct = default);
 
     /// <summary>
-    /// Phase 2 — Busca skill bypassing project query filter, restrita ao project dono
+    /// Busca skill bypassing project query filter, restrita ao project dono
     /// fornecido. Uso exclusivo de cross-project resolution (agent global referenciando
     /// skill local do owner). Retorna null se skill não existe ou não pertence ao owner.
     /// </summary>

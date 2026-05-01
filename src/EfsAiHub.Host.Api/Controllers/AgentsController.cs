@@ -107,7 +107,7 @@ public class AgentsController : ControllerBase
     }
 
     [HttpPatch("{id}/visibility")]
-    [SwaggerOperation(Summary = "Phase 2 — Altera Visibility de um agent (project | global)")]
+    [SwaggerOperation(Summary = "Altera Visibility de um agent (project | global)")]
     [ProducesResponseType(typeof(AgentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
