@@ -31,6 +31,24 @@ public sealed class AwsSecretsManagerResolver : ISecretResolver
         var reference = SecretReference.Parse(referenceOrLiteral);
         var scopeTag = context.Scope.ToString().ToLowerInvariant();
 
+        // Phase 3 — Cross-project resolution: caller (ProjectId) ≠ owner (OriginProjectId).
+        // Emite métrica dedicada pra rastreabilidade. Identifier do AWS é único globalmente
+        // (naming convention `secret://aws/<id>`), então cache não precisa segregar — o
+        // próprio identifier carrega o ownership na sua composição.
+        var isCrossProject = !string.IsNullOrEmpty(context.OriginProjectId)
+            && !string.IsNullOrEmpty(context.ProjectId)
+            && !string.Equals(context.OriginProjectId, context.ProjectId, StringComparison.OrdinalIgnoreCase);
+
+        if (isCrossProject)
+        {
+            MetricsRegistry.SecretCrossProjectResolutions.Add(1,
+                new KeyValuePair<string, object?>("caller", context.ProjectId),
+                new KeyValuePair<string, object?>("owner", context.OriginProjectId));
+            _logger.LogInformation(
+                "[SecretResolver] Cross-project resolution. caller={Caller} owner={Owner} scope={Scope} provider={Provider}",
+                context.ProjectId, context.OriginProjectId, context.Scope, context.Provider);
+        }
+
         switch (reference)
         {
             case EmptySecretReference:

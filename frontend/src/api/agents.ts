@@ -75,6 +75,8 @@ export interface AgentDef {
   originProjectId?: string
   /** Phase 2 — Tenant do owner. */
   originTenantId?: string
+  /** Phase 3 — Whitelist opcional de projetos autorizados (apenas com visibility=global). null = qualquer projeto do tenant. */
+  allowedProjectIds?: string[] | null
   createdAt?: string
   updatedAt?: string
 }
@@ -95,6 +97,8 @@ export interface CreateAgentRequest {
   metadata?: Record<string, string>
   /** Phase 2 — opcional. Default "project" em Create; preserved em Update (PATCH /visibility é o caminho). */
   visibility?: AgentVisibility
+  /** Phase 3 — Whitelist opcional. */
+  allowedProjectIds?: string[] | null
 }
 
 export interface AgentValidationResult {

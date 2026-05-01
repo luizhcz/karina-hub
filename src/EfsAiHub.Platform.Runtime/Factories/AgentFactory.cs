@@ -5,6 +5,7 @@ using EfsAiHub.Core.Abstractions.Identity.Persona;
 using EfsAiHub.Core.Abstractions.Projects;
 using EfsAiHub.Core.Agents.Skills;
 using EfsAiHub.Core.Orchestration.Workflows;
+using EfsAiHub.Platform.Runtime.Audit;
 using EfsAiHub.Platform.Runtime.Execution;
 using EfsAiHub.Platform.Runtime.Guards;
 using EfsAiHub.Platform.Runtime.Middlewares;
@@ -48,6 +49,17 @@ public class AgentFactory : IAgentFactory
     private readonly IWorkflowEventBus? _eventBus;
     private readonly EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? _auditLogger;
     private readonly EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor? _projectContextAccessor;
+    // Phase 3 — Feature flags com IOptionsMonitor (atualização runtime sem restart).
+    // Optional pra preservar BC.
+    private readonly IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? _sharingOptions;
+
+    // Phase 3 — throttle pra cross_project_invoke audit. Capacity 1000, janela 60s,
+    // emite métrica ao despejar. Static singleton: factory é registrado scoped em DI
+    // mas o throttle precisa ser process-wide pra evitar duplicar logs entre scopes.
+    private static readonly AuditThrottle _crossProjectAuditThrottle = new(
+        window: TimeSpan.FromSeconds(60),
+        maxEntries: 1000,
+        onEviction: () => EfsAiHub.Infra.Observability.MetricsRegistry.AuditThrottleLruEvictions.Add(1));
 
     public AgentFactory(
         IEnumerable<ILlmClientProvider> providers,
@@ -71,7 +83,8 @@ public class AgentFactory : IAgentFactory
         BlocklistEngine? blocklistEngine = null,
         IWorkflowEventBus? eventBus = null,
         EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? auditLogger = null,
-        EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor? projectContextAccessor = null)
+        EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor? projectContextAccessor = null,
+        IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? sharingOptions = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
@@ -95,6 +108,7 @@ public class AgentFactory : IAgentFactory
         _eventBus = eventBus;
         _auditLogger = auditLogger;
         _projectContextAccessor = projectContextAccessor;
+        _sharingOptions = sharingOptions;
     }
 
     public async Task<ExecutableWorkflow> CreateAgentAsync(AgentDefinition definition, CancellationToken ct = default)
@@ -148,14 +162,64 @@ public class AgentFactory : IAgentFactory
 
         foreach (var agentRef in workflow.Agents)
         {
-            var definition = await _agentRepo.GetByIdAsync(agentRef.AgentId, ct)
-                ?? throw new InvalidOperationException(
+            // Phase 3 — Pin opcional via WorkflowAgentReference.AgentVersionId. Atualmente
+            // o domain AgentVersion guarda snapshots por campo (sem JSON cru de AgentDefinition),
+            // então a materialização lossless está reservada pra Phase 4. Por enquanto, log
+            // warning + valida existência do version + cai pro current version do agent.
+            if (!string.IsNullOrEmpty(agentRef.AgentVersionId))
+            {
+                if (_agentVersionRepo is not null)
+                {
+                    var pinned = await _agentVersionRepo.GetByIdAsync(agentRef.AgentVersionId, ct);
+                    if (pinned is null)
+                        throw new InvalidOperationException(
+                            $"AgentVersion '{agentRef.AgentVersionId}' (pin) referenced in workflow '{workflow.Id}' not found.");
+                    if (!string.Equals(pinned.AgentDefinitionId, agentRef.AgentId, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException(
+                            $"AgentVersion '{agentRef.AgentVersionId}' não pertence ao agent '{agentRef.AgentId}'.");
+                }
+                _logger.LogWarning(
+                    "[AgentFactory] WorkflowAgentReference.AgentVersionId='{VersionId}' setado, mas materialização lossless de AgentVersion fica em Phase 4. Resolvendo current version pra '{AgentId}'.",
+                    agentRef.AgentVersionId, agentRef.AgentId);
+            }
+
+            var definition = await _agentRepo.GetByIdAsync(agentRef.AgentId, ct);
+            if (definition is null)
+                throw new InvalidOperationException(
                     $"Agent '{agentRef.AgentId}' referenced in workflow '{workflow.Id}' not found.");
+
+            var sharing = _sharingOptions?.CurrentValue;
+            var crossProjectEnabled = sharing?.CrossProjectEnabled ?? true;
+            var whitelistEnabled = sharing?.WhitelistEnabled ?? true;
+            var auditCrossInvokeEnabled = sharing?.AuditCrossInvoke ?? true;
+
+            var isCrossProject = !string.Equals(workflow.ProjectId, definition.ProjectId, StringComparison.OrdinalIgnoreCase);
+
+            // Phase 3 — Feature flag CrossProjectEnabled: rollback graceful do épico.
+            // Quando false, bloqueia toda resolução cross-project (rollback de Phase 2 sem deploy).
+            if (isCrossProject && !crossProjectEnabled)
+            {
+                throw new UnauthorizedAccessException(
+                    "Cross-project agent resolution está desabilitada (Sharing:CrossProjectEnabled=false).");
+            }
+
+            // Phase 3 — Whitelist enforcement: bloqueia ANTES de criar chat client
+            // (não em runtime LLM, evita custo parcial). Pode ser desligado via flag.
+            if (whitelistEnabled && !definition.CanBeReferencedBy(workflow.ProjectId))
+            {
+                EfsAiHub.Infra.Observability.MetricsRegistry.AgentWhitelistBlocked.Add(1,
+                    new KeyValuePair<string, object?>("caller_project", workflow.ProjectId),
+                    new KeyValuePair<string, object?>("owner_project", definition.ProjectId),
+                    new KeyValuePair<string, object?>("agent_id", definition.Id));
+
+                throw new UnauthorizedAccessException(
+                    $"Agent '{definition.Id}' não está autorizado para o projeto '{workflow.ProjectId}' (whitelist em vigor).");
+            }
 
             // Detecta agent cross-project (Phase 2): caller workflow.ProjectId != agent.ProjectId.
             // Ocorre quando workflow referencia agent global de outro projeto do mesmo tenant.
             // Emite log estruturado + métrica + audit pra rastreabilidade — não bloqueia.
-            if (!string.Equals(workflow.ProjectId, definition.ProjectId, StringComparison.OrdinalIgnoreCase))
+            if (isCrossProject)
             {
                 _logger.LogInformation(
                     "[AgentFactory] Cross-project agent resolved. Workflow={WorkflowId} CallerProject={CallerProject} AgentId={AgentId} OwnerProject={OwnerProject} Visibility={Visibility}",
@@ -166,7 +230,15 @@ public class AgentFactory : IAgentFactory
                     new KeyValuePair<string, object?>("owner_project", definition.ProjectId),
                     new KeyValuePair<string, object?>("tenant", definition.TenantId));
 
-                if (_auditLogger is not null)
+                // Phase 3 — Throttle: log no máximo 1× por (caller, owner, agent) a cada 60s
+                // pra evitar inflar audit em workloads alto (workflow loops). Métrica
+                // agents.cross_project_invocations_total (sem throttle) cobre toda chamada;
+                // audit row é o "evento de governança" amostrado. Pode ser desligado via flag
+                // Sharing:AuditCrossInvoke=false em ambientes com pressão alta na audit table.
+                var throttleKey = $"{workflow.ProjectId}|{definition.ProjectId}|{definition.Id}";
+                var shouldAudit = auditCrossInvokeEnabled && _crossProjectAuditThrottle.ShouldLog(throttleKey);
+
+                if (_auditLogger is not null && shouldAudit)
                 {
                     try
                     {

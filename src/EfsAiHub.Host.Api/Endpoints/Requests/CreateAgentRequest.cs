@@ -33,6 +33,12 @@ public class CreateAgentRequest
     /// </summary>
     public string? Visibility { get; init; }
 
+    /// <summary>
+    /// Phase 3 — Whitelist opcional de projetos autorizados a referenciar este agent
+    /// quando Visibility=global. Null = qualquer projeto do tenant.
+    /// </summary>
+    public List<string>? AllowedProjectIds { get; init; }
+
     public AgentDefinition ToDomain() => new()
     {
         Id = Id,
@@ -49,6 +55,7 @@ public class CreateAgentRequest
         SkillRefs = SkillRefs ?? [],
         Metadata = Metadata,
         // Default "project" pra Create; Update preserva existing via AgentService.
-        Visibility = Visibility ?? "project"
+        Visibility = Visibility ?? "project",
+        AllowedProjectIds = AllowedProjectIds is null ? null : (IReadOnlyList<string>)AllowedProjectIds
     };
 }

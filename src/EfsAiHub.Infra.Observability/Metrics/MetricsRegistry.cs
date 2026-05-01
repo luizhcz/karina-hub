@@ -97,6 +97,31 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("agents.cross_project_invocations_total",
             description: "Execuções cross-project de agents globais. Tags: caller_project, owner_project, tenant.");
 
+    /// <summary>
+    /// Phase 3 — Contador de tentativas bloqueadas pela whitelist (AllowedProjectIds).
+    /// Tags: caller_project, owner_project, agent_id. Útil pra detectar configurações
+    /// erradas (workflow referencia agent que não tá liberado).
+    /// </summary>
+    public static readonly Counter<long> AgentWhitelistBlocked =
+        _meter.CreateCounter<long>("agents.whitelist_blocked_total",
+            description: "Resoluções de agent bloqueadas pela whitelist. Tags: caller_project, owner_project, agent_id.");
+
+    /// <summary>
+    /// Phase 3 — Eviction counter pra in-memory LRU usado em throttle de cross_project_invoke.
+    /// Esse counter dispara quando a LRU enche e descarta entries — indica throttle saturado.
+    /// </summary>
+    public static readonly Counter<long> AuditThrottleLruEvictions =
+        _meter.CreateCounter<long>("audit.throttle_lru_evictions_total",
+            description: "Entries despejadas da LRU de throttle de audit cross-project.");
+
+    /// <summary>
+    /// Phase 3 — Contador de resoluções de secret cross-project (caller != owner do agent).
+    /// Tags: caller, owner. Mostra que a separação de credentials por owner está funcionando.
+    /// </summary>
+    public static readonly Counter<long> SecretCrossProjectResolutions =
+        _meter.CreateCounter<long>("secrets.cross_project_resolutions_total",
+            description: "Resoluções de AWS Secret no contexto do agent owner (cross-project). Tags: caller, owner.");
+
     public static readonly Counter<long> StaleExecutionCompletionSkipped =
         _meter.CreateCounter<long>("chat.stale_completion.skipped",
             description: "Completions ignoradas por corresponderem a execução não mais ativa na conversa");

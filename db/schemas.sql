@@ -48,17 +48,22 @@ CREATE INDEX IF NOT EXISTS ix_projects_tenant_id
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS aihub.agent_definitions (
-    "Id"         VARCHAR(256) NOT NULL,
-    "Name"       VARCHAR(512) NOT NULL,
-    "Data"       TEXT         NOT NULL,                 -- JSON serializado do AgentDef
-    "ProjectId"  VARCHAR(128) NOT NULL DEFAULT 'default',
-    "Visibility" VARCHAR(32)  NOT NULL DEFAULT 'project', -- project | global (Phase 2)
-    "TenantId"   VARCHAR(128) NOT NULL DEFAULT 'default', -- denormalizado de projects.tenant_id
-    "CreatedAt"  TIMESTAMPTZ  NOT NULL,
-    "UpdatedAt"  TIMESTAMPTZ  NOT NULL,
+    "Id"                 VARCHAR(256) NOT NULL,
+    "Name"               VARCHAR(512) NOT NULL,
+    "Data"               TEXT         NOT NULL,                 -- JSON serializado do AgentDef
+    "ProjectId"          VARCHAR(128) NOT NULL DEFAULT 'default',
+    "Visibility"         VARCHAR(32)  NOT NULL DEFAULT 'project', -- project | global (Phase 2)
+    "TenantId"           VARCHAR(128) NOT NULL DEFAULT 'default', -- denormalizado de projects.tenant_id
+    "AllowedProjectIds"  JSONB        NULL,                     -- Phase 3: whitelist quando Visibility=global
+    "CreatedAt"          TIMESTAMPTZ  NOT NULL,
+    "UpdatedAt"          TIMESTAMPTZ  NOT NULL,
     CONSTRAINT "PK_agent_definitions" PRIMARY KEY ("Id"),
     CONSTRAINT "CK_agent_definitions_Visibility" CHECK ("Visibility" IN ('project', 'global'))
 );
+
+-- Phase 3 — coluna AllowedProjectIds idempotente. Backfill = NULL (sem whitelist).
+ALTER TABLE aihub.agent_definitions
+    ADD COLUMN IF NOT EXISTS "AllowedProjectIds" JSONB NULL;
 
 -- ALTER idempotente pra DBs existentes (Phase 2 — agent sharing).
 ALTER TABLE aihub.agent_definitions

@@ -122,7 +122,9 @@ var redisConnectionString = builder.Configuration.GetValue<string>("Redis:Connec
 builder.Services.AddHealthChecks()
     .AddNpgSql(pgConnectionString, name: "postgres", tags: ["ready"])
     .AddRedis(redisConnectionString, name: "redis", tags: ["ready"])
-    .AddCheck<AwsSecretsHealthCheck>("aws-secrets", tags: ["ready"]);
+    .AddCheck<AwsSecretsHealthCheck>("aws-secrets", tags: ["ready"])
+    // Phase 3 — Reporta agents globais com owner project deletado (Degraded, não Unhealthy).
+    .AddCheck<EfsAiHub.Host.Api.Health.SharedAgentsHealthCheck>("shared-agents", tags: ["ready", "sharing"]);
 
 // ── Controllers + JSON ──���─────────────────────────────────────────────────────
 builder.Services.AddControllers()

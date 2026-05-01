@@ -24,6 +24,18 @@ public sealed class PgMcpServerRepository : IMcpServerRepository
         return row is null ? null : Deserialize(row.Data);
     }
 
+    public async Task<McpServer?> GetByIdForOwnerAsync(
+        string id, string ownerProjectId, CancellationToken ct = default)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        // Phase 3 — Cross-project: bypass query filter + filtro explícito por owner.
+        // Usado pelo FoundryToolBuilder quando agent global referencia MCP local do owner.
+        var row = await ctx.McpServers
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(r => r.Id == id && r.ProjectId == ownerProjectId, ct);
+        return row is null ? null : Deserialize(row.Data);
+    }
+
     public async Task<IReadOnlyList<McpServer>> GetAllAsync(int page, int pageSize, CancellationToken ct = default)
     {
         await using var ctx = await _factory.CreateDbContextAsync(ct);

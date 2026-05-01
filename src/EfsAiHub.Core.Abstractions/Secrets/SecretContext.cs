@@ -4,7 +4,8 @@ public sealed record SecretContext(
     SecretScope Scope,
     string? ProjectId = null,
     string? Provider = null,
-    string? Label = null)
+    string? Label = null,
+    string? OriginProjectId = null)
 {
     public static SecretContext Global(string? label = null)
         => new(SecretScope.Global, Label: label);
@@ -17,4 +18,22 @@ public sealed record SecretContext(
 
     public static SecretContext Foundry(string projectId)
         => new(SecretScope.Foundry, projectId);
+
+    /// <summary>
+    /// Phase 3 — Cria contexto cross-project: o caller (request scope) é
+    /// <paramref name="callerProjectId"/>, mas o secret deve ser resolvido
+    /// no contexto do <paramref name="ownerProjectId"/> (project dono do agent global).
+    /// Resolver e cache devem segregar por OriginProjectId pra evitar leak entre projetos.
+    /// </summary>
+    public static SecretContext CrossProject(
+        string callerProjectId, string ownerProjectId, string? provider = null, string? label = null)
+        => new(SecretScope.Project, callerProjectId, provider, label, ownerProjectId);
+
+    /// <summary>
+    /// Phase 3 — Project usado para resolver o secret de fato. Quando <see cref="OriginProjectId"/>
+    /// é setado e diferente de <see cref="ProjectId"/>, retorna OriginProjectId (owner do agent global).
+    /// Senão retorna ProjectId (caller normal).
+    /// </summary>
+    public string? EffectiveProjectId =>
+        !string.IsNullOrEmpty(OriginProjectId) ? OriginProjectId : ProjectId;
 }

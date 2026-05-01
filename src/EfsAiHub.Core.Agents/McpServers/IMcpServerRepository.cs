@@ -10,6 +10,14 @@ public interface IMcpServerRepository
     /// <summary>Busca por Id no projeto atual. Retorna null se não encontrado.</summary>
     Task<McpServer?> GetByIdAsync(string id, CancellationToken ct = default);
 
+    /// <summary>
+    /// Phase 3 — Busca MCP server bypassing project query filter, restrita ao
+    /// project dono. Uso exclusivo de cross-project resolution (agent global
+    /// referenciando MCP local do owner). Retorna null se MCP não existe ou
+    /// não pertence ao owner.
+    /// </summary>
+    Task<McpServer?> GetByIdForOwnerAsync(string id, string ownerProjectId, CancellationToken ct = default);
+
     /// <summary>Lista paginada de MCP servers do projeto atual, ordenados por Nome.</summary>
     Task<IReadOnlyList<McpServer>> GetAllAsync(int page, int pageSize, CancellationToken ct = default);
 

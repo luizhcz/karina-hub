@@ -309,4 +309,23 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
             .ToListAsync(ct);
         return found.ToHashSet();
     }
+
+    public async Task<IReadOnlyList<(string AgentId, string MissingProjectId)>> ListOrphanGlobalAgentsAsync(
+        int limit = 20, CancellationToken ct = default)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        // IgnoreQueryFilters: health check roda fora de scope HTTP (sem project/tenant válido).
+        // Read-only, idempotente. LEFT JOIN seria mais limpo mas projects é internal — usamos
+        // sub-query Any() inverso.
+        var orphans = await ctx.AgentDefinitions
+            .IgnoreQueryFilters()
+            .Where(a => a.Visibility == "global"
+                && !ctx.Projects.IgnoreQueryFilters().Any(p => p.Id == a.ProjectId))
+            .OrderBy(a => a.Id)
+            .Take(Math.Max(1, limit))
+            .Select(a => new { a.Id, a.ProjectId })
+            .ToListAsync(ct);
+
+        return orphans.Select(o => (o.Id, o.ProjectId)).ToList();
+    }
 }

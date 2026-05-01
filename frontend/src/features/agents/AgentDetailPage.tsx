@@ -124,9 +124,16 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
               {!isOwnedByCurrentProject && (
                 <Badge variant="yellow">Somente leitura — projeto {agent.originProjectId}</Badge>
               )}
+              {isGlobal && agent.allowedProjectIds && agent.allowedProjectIds.length > 0 && (
+                <Badge variant="blue">
+                  🔒 Whitelist · {agent.allowedProjectIds.length} projeto(s)
+                </Badge>
+              )}
               <p className="text-sm text-text-secondary">
                 {isGlobal
-                  ? 'Visível e usável em workflows de todos os projetos do tenant.'
+                  ? agent.allowedProjectIds && agent.allowedProjectIds.length > 0
+                    ? `Visível apenas pra projetos da whitelist (${agent.allowedProjectIds.join(', ')}).`
+                    : 'Visível e usável em workflows de todos os projetos do tenant.'
                   : 'Visível apenas no projeto dono.'}
               </p>
             </div>

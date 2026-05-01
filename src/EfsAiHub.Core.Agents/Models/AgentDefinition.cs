@@ -62,6 +62,20 @@ public class AgentDefinition
     /// </summary>
     public string TenantId { get; set; } = "default";
 
+    /// <summary>
+    /// Phase 3 — Whitelist explícita de projetos que podem usar este agent quando
+    /// Visibility=global. Semântica:
+    /// <list type="bullet">
+    ///   <item><c>null</c> (default) — qualquer projeto do tenant pode referenciar (visibility implícita).</item>
+    ///   <item>Lista vazia — bloqueado pra todos exceto o owner.</item>
+    ///   <item>Lista com IDs — apenas esses projetos + owner podem referenciar.</item>
+    /// </list>
+    /// Owner sempre tem acesso (não precisa estar na lista). Sem efeito quando
+    /// Visibility=project. Usado pelo AgentFactory antes de criar o chat client
+    /// (não em runtime LLM) e pelo WorkflowValidator no save.
+    /// </summary>
+    public IReadOnlyList<string>? AllowedProjectIds { get; set; }
+
     public static readonly IReadOnlySet<string> AllowedVisibilities =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "project", "global" };
 
@@ -143,6 +157,34 @@ public class AgentDefinition
         if (!AllowedVisibilities.Contains(Visibility))
             throw new DomainException(
                 $"AgentDefinition.Visibility inválida: '{Visibility}'. Permitidos: {string.Join(", ", AllowedVisibilities)}.");
+
+        // Whitelist só faz sentido com Visibility=global. Com Visibility=project,
+        // qualquer valor não-null é confuso/contraproducente.
+        if (AllowedProjectIds is not null
+            && !string.Equals(Visibility, "global", StringComparison.OrdinalIgnoreCase))
+            throw new DomainException(
+                "AgentDefinition.AllowedProjectIds só pode ser definido quando Visibility=global.");
+    }
+
+    /// <summary>
+    /// Phase 3 — Decide se o caller project pode referenciar este agent baseado em
+    /// Visibility, ownership e whitelist (AllowedProjectIds).
+    /// </summary>
+    public bool CanBeReferencedBy(string callerProjectId)
+    {
+        // Owner sempre tem acesso.
+        if (string.Equals(ProjectId, callerProjectId, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Não-owner: precisa Visibility=global.
+        if (!string.Equals(Visibility, "global", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // null = sem whitelist explícita; qualquer projeto do tenant pode (boundary tenant
+        // é enforced em camadas acima — query filter no DbContext).
+        if (AllowedProjectIds is null) return true;
+
+        return AllowedProjectIds.Any(p => string.Equals(p, callerProjectId, StringComparison.OrdinalIgnoreCase));
     }
 }
 

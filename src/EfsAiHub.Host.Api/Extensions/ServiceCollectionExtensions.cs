@@ -382,6 +382,11 @@ public static class ServiceCollectionExtensions
         services.Configure<CircuitBreakerOptions>(configuration.GetSection("CircuitBreaker"));
         services.AddSingleton<LlmCircuitBreaker>();
 
+        // Phase 3 — Feature flags do épico multi-projeto. IOptionsMonitor permite
+        // alterar runtime via reload do appsettings sem restart.
+        services.Configure<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>(
+            configuration.GetSection(EfsAiHub.Core.Abstractions.Sharing.SharingOptions.SectionName));
+
         // Project Rate Limiting + Budget Guard
         services.AddSingleton<EfsAiHub.Platform.Runtime.Guards.ProjectRateLimiter>();
         services.AddSingleton<EfsAiHub.Platform.Runtime.Guards.ProjectBudgetGuard>();

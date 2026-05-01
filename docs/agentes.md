@@ -1718,13 +1718,29 @@ Quando `workflow.ProjectId != agent.ProjectId` (workflow caller resolveu agent g
 4. **Skills/MCP no owner.** Resolution cross-project usa overloads `GetByIdForOwnerAsync` que bypassam filter mas restringem ao owner project.
 5. **Caller paga.** `LlmTokenUsage.ProjectId` = caller (cobrado); `OriginAgentProjectId` = owner (audit).
 
-### Phase 3 (próxima)
+### Phase 3 — Hardening completo (entregue)
 
-- Whitelist `AllowedProjectIds[]?` em `AgentDefinition`.
-- Pin opcional de versão em `WorkflowAgentReference.AgentVersionId?`.
-- MCP cross-project resolution (overload no PgMcpServerRepository).
-- `SecretContext.OriginProjectId` + cache segregado.
-- Health check `SharedAgentsHealthCheck` pra orphans.
-- Throttle LRU em `cross_project_invoke`.
-- Feature flags `Sharing:*` via `IOptionsMonitor` pra rollback.
-- Performance benchmark p99 < 50ms.
+- **Whitelist** `AllowedProjectIds[]?` em `AgentDefinition`. `null` = qualquer projeto do tenant; lista vazia = bloqueado pra todos exceto owner; lista com IDs = whitelist explícita. Owner sempre tem acesso. `AgentDefinition.CanBeReferencedBy(callerProjectId)` resolve a decisão. Bloqueado pelo `AgentFactory` antes de criar chat client (não em runtime LLM).
+- **Pin de versão** `WorkflowAgentReference.AgentVersionId?` opcional. Campo no domain pronto; materialização lossless de `AgentVersion → AgentDefinition` reservada pra Phase 4 (snapshots por campo, não JSON cru). AgentFactory loga warning quando setado mas resolve current.
+- **MCP cross-project**: `IMcpServerRepository.GetByIdForOwnerAsync(id, ownerProjectId)` com `IgnoreQueryFilters` + filter por owner. Análogo a Skills.
+- **`SecretContext.OriginProjectId`**: adicionado ao record + helper `CrossProject(caller, owner)` + `EffectiveProjectId`. `AwsSecretsManagerResolver` emite métrica `secrets.cross_project_resolutions_total{caller, owner}` quando detectado.
+- **Health check** `SharedAgentsHealthCheck` (tag `[ready, sharing]`) reporta orphans (agents globais cujo project owner foi deletado). `Degraded` (não derruba pod). Backed por `IAgentDefinitionRepository.ListOrphanGlobalAgentsAsync`.
+- **Throttle LRU** em `AuditThrottle` (capacity 1000, janela 60s) — `cross_project_invoke` log no máximo 1× por (caller, owner, agent) por janela. Métrica `agents.cross_project_invocations_total` continua sem throttle.
+- **Feature flags** `Sharing:*` via `IOptionsMonitor<SharingOptions>` (atualização runtime sem restart):
+  - `Sharing:Enabled` (master)
+  - `Sharing:CrossProjectEnabled` (rollback Phase 2)
+  - `Sharing:WhitelistEnabled` (rollback Phase 3 whitelist)
+  - `Sharing:AuditCrossInvoke` (skip audit cross-project pra reduzir pressão na tabela)
+  - `Sharing:CrossInvokeAuditThrottleSeconds` (default 60s)
+- **Métricas OTel novas** (`MetricsRegistry`):
+  - `agents.whitelist_blocked_total{caller_project, owner_project, agent_id}`
+  - `secrets.cross_project_resolutions_total{caller, owner}`
+  - `audit.throttle_lru_evictions_total`
+- **Audit constants novos**: `AgentVisibilityChanged`, `CrossProjectInvoke` (ambos já em Phase 2; Phase 3 adiciona throttle).
+
+### Phase 4 (futuras melhorias)
+
+- Pin lossless de versão (snapshot completo de `AgentDefinition` em `AgentVersion`).
+- `SharedAgentsCoherenceCheck` (workflows referenciando agents inexistentes).
+- Audit log table partitioning.
+- Performance benchmark p99 < 50ms com 1000 agents globais.

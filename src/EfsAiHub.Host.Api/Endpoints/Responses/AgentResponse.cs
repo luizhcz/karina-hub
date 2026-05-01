@@ -35,6 +35,12 @@ public class AgentResponse
     /// <summary>Phase 2 — Tenant do owner. Reforça boundary cross-tenant na UI.</summary>
     public required string OriginTenantId { get; init; }
 
+    /// <summary>
+    /// Phase 3 — Whitelist opcional de projetos autorizados a referenciar quando
+    /// Visibility=global. Null = qualquer projeto do tenant pode.
+    /// </summary>
+    public IReadOnlyList<string>? AllowedProjectIds { get; init; }
+
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 
@@ -56,6 +62,7 @@ public class AgentResponse
         Visibility = def.Visibility,
         OriginProjectId = def.ProjectId,
         OriginTenantId = def.TenantId,
+        AllowedProjectIds = def.AllowedProjectIds,
         CreatedAt = def.CreatedAt,
         UpdatedAt = def.UpdatedAt
     };

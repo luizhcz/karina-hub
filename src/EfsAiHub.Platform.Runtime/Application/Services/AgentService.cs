@@ -73,6 +73,11 @@ public class AgentService : IAgentService
         definition.ProjectId = existing.ProjectId;
         definition.TenantId = existing.TenantId;
         definition.Visibility = existing.Visibility;
+        // Phase 3 — preserve AllowedProjectIds quando o caller não envia (CreateAgentRequest
+        // pode trazer null tanto pra "remover whitelist" quanto pra "não mexer". Pra evitar
+        // ambiguidade, PATCH /visibility é o único caminho de mudar AllowedProjectIds).
+        if (definition.AllowedProjectIds is null)
+            definition.AllowedProjectIds = existing.AllowedProjectIds;
 
         var (isValid, errors) = await ValidateAsync(definition, ct);
         if (!isValid)
