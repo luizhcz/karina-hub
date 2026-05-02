@@ -376,6 +376,7 @@ public class WorkflowsController : ControllerBase
                 CurrentRevision = s.CurrentRevision,
                 IsPinnedBlockedByBreaking = s.IsPinnedBlockedByBreaking,
                 HasUpdate = s.HasUpdate,
+                IsAgentDisabled = s.IsAgentDisabled,
                 Changes = s.Changes
                     .Select(c => new EfsAiHub.Host.Api.Models.Responses.WorkflowAgentVersionChangeEntry
                     {

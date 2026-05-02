@@ -7,7 +7,7 @@ import { ConfirmDialog } from '../../shared/ui/ConfirmDialog'
 import { Tabs } from '../../shared/ui/Tabs'
 import { PageLoader } from '../../shared/ui/LoadingSpinner'
 import { ErrorCard } from '../../shared/ui/ErrorCard'
-import { useAgent, useUpdateAgent, useUpdateAgentVisibility } from '../../api/agents'
+import { useAgent, useUpdateAgent, useUpdateAgentVisibility, useUpdateAgentEnabled } from '../../api/agents'
 import type { AgentVisibility } from '../../api/agents'
 import { ApiError } from '../../api/client'
 import { usePromptVersions } from '../../api/prompts'
@@ -34,6 +34,7 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
   const { data: agent, isLoading, error, refetch } = useAgent(id!, !!id)
   const updateMutation = useUpdateAgent()
   const visibilityMutation = useUpdateAgentVisibility()
+  const enabledMutation = useUpdateAgentEnabled()
   const { data: promptVersions } = usePromptVersions(id!, !!id)
   const { data: activePrompt } = useActivePrompt(id!, !!id)
 
@@ -45,8 +46,26 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
 
   const currentVisibility: AgentVisibility = agent.visibility ?? 'project'
   const isGlobal = currentVisibility === 'global'
+  const isEnabled = agent.enabled !== false
   const currentProjectId = useProjectStore.getState().projectId
   const isOwnedByCurrentProject = !agent.originProjectId || agent.originProjectId === currentProjectId
+
+  const toggleEnabled = () => {
+    enabledMutation.mutate(
+      { id: id!, enabled: !isEnabled },
+      {
+        onSuccess: () => {
+          toast.success(isEnabled
+            ? 'Agente desabilitado. Workflows que o referenciam vão pulá-lo em runtime.'
+            : 'Agente habilitado novamente.')
+        },
+        onError: (err) => {
+          const msg = err instanceof ApiError ? err.message : 'Erro ao alterar Enabled.'
+          toast.error(msg)
+        },
+      },
+    )
+  }
 
   const confirmVisibilityChange = () => {
     if (!pendingVisibility) return
@@ -152,6 +171,34 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
             disabled={visibilityMutation.isPending || !isOwnedByCurrentProject}
           >
             {isGlobal ? 'Tornar privado' : 'Compartilhar globalmente'}
+          </Button>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-2">
+              {isEnabled
+                ? <Badge variant="green">✓ Habilitado</Badge>
+                : <Badge variant="red">✗ Desabilitado</Badge>}
+            </div>
+            <p className="text-sm text-text-secondary">
+              {isEnabled
+                ? 'Agente ativo. Workflows que o referenciam invocam normalmente em runtime.'
+                : 'Agente desligado pelo dono. Workflows que o referenciam continuam saváveis, mas runtime pula o agente (Sequential continua pipeline; Graph ignora edges; Handoff é rejeitado no save).'}
+            </p>
+            <p className="text-xs text-text-dimmed mt-2 leading-relaxed">
+              Use desabilitar pra manutenção temporária (atualizar tools, trocar model) sem precisar migrar workflows callers.
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={toggleEnabled}
+            disabled={enabledMutation.isPending || !isOwnedByCurrentProject}
+          >
+            {isEnabled ? 'Desabilitar' : 'Habilitar'}
           </Button>
         </div>
       </Card>

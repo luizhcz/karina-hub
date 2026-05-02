@@ -200,6 +200,8 @@ export interface WorkflowAgentVersionStatus {
   isPinnedBlockedByBreaking: boolean
   /** true quando há current.Revision > pinned.Revision (UI mostra badge). */
   hasUpdate: boolean
+  /** true quando owner desligou o agent (Enabled=false). UI mostra badge "Desabilitado"; runtime pula o agent. */
+  isAgentDisabled: boolean
   /** Versions intermediárias entre pinned e current (ordenadas por revision ASC). */
   changes: WorkflowAgentVersionChangeEntry[]
 }
