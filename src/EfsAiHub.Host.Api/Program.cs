@@ -124,7 +124,9 @@ builder.Services.AddHealthChecks()
     .AddRedis(redisConnectionString, name: "redis", tags: ["ready"])
     .AddCheck<AwsSecretsHealthCheck>("aws-secrets", tags: ["ready"])
     // Reporta agents globais com owner project deletado (Degraded, não Unhealthy).
-    .AddCheck<EfsAiHub.Host.Api.Health.SharedAgentsHealthCheck>("shared-agents", tags: ["ready", "sharing"]);
+    .AddCheck<EfsAiHub.Host.Api.Health.SharedAgentsHealthCheck>("shared-agents", tags: ["ready", "sharing"])
+    // Reporta AgentVersions com agent owner deletado (orphan pins).
+    .AddCheck<EfsAiHub.Host.Api.Health.WorkflowAgentVersionHealthCheck>("agent-version-orphans", tags: ["ready", "sharing", "pinning"]);
 
 // ── Controllers + JSON ──���─────────────────────────────────────────────────────
 builder.Services.AddControllers()

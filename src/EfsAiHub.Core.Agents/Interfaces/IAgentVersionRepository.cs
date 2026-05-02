@@ -52,4 +52,13 @@ public interface IAgentVersionRepository
         string agentDefinitionId,
         string pinnedVersionId,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Lista AgentVersions cujo <c>AgentDefinitionId</c> não tem mais row correspondente
+    /// em <c>aihub.agent_definitions</c> (orphan). Limitado a <paramref name="limit"/>
+    /// pra não inflar payload de health check. Retorna pares (versionId, agentDefinitionId).
+    /// </summary>
+    Task<IReadOnlyList<(string AgentVersionId, string AgentDefinitionId)>> ListOrphanVersionsAsync(
+        int limit = 50,
+        CancellationToken ct = default);
 }

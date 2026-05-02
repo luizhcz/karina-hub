@@ -1,5 +1,6 @@
 using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Identity;
+using EfsAiHub.Core.Abstractions.Observability;
 
 namespace EfsAiHub.Platform.Runtime.Services;
 
@@ -27,6 +28,7 @@ public class AgentService : IAgentService
     private readonly IAgentPromptRepository _promptRepo;
     private readonly IProjectContextAccessor _projectAccessor;
     private readonly IAgentVersionRepository? _versionRepo;
+    private readonly IAdminAuditLogger? _auditLogger;
     private readonly ILogger<AgentService> _logger;
 
     public AgentService(
@@ -34,12 +36,14 @@ public class AgentService : IAgentService
         IAgentPromptRepository promptRepo,
         IProjectContextAccessor projectAccessor,
         ILogger<AgentService> logger,
-        IAgentVersionRepository? versionRepo = null)
+        IAgentVersionRepository? versionRepo = null,
+        IAdminAuditLogger? auditLogger = null)
     {
         _repository = repository;
         _promptRepo = promptRepo;
         _projectAccessor = projectAccessor;
         _versionRepo = versionRepo;
+        _auditLogger = auditLogger;
         _logger = logger;
     }
 
@@ -215,9 +219,45 @@ public class AgentService : IAgentService
         // quando breakingChange=true e changeReason está vazio.
         var persisted = await _versionRepo.AppendAsync(snapshot, ct);
 
+        // Audit dispara apenas em publish efetivo. AppendAsync é idempotente por
+        // ContentHash: re-publish sem mudança retorna a version existing (mesmo
+        // AgentVersionId que o snapshot que tentamos persistir difere). Comparamos
+        // ids pra detectar no-op e suprimir audit redundante.
+        var isNoOp = !string.Equals(persisted.AgentVersionId, snapshot.AgentVersionId, StringComparison.OrdinalIgnoreCase);
+        if (!isNoOp && _auditLogger is not null)
+        {
+            try
+            {
+                var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+                {
+                    revision = persisted.Revision,
+                    breakingChange,
+                    changeReason,
+                    contentHash = persisted.ContentHash,
+                }));
+                await _auditLogger.RecordAsync(new AdminAuditEntry
+                {
+                    ActorUserId = createdBy ?? "system:agent-service",
+                    ActorUserType = createdBy is null ? "system" : "user",
+                    Action = AdminAuditActions.AgentVersionPublished,
+                    ResourceType = AdminAuditResources.Agent,
+                    ResourceId = agentId,
+                    ProjectId = existing.ProjectId,
+                    TenantId = existing.TenantId,
+                    PayloadAfter = payload,
+                    Timestamp = DateTime.UtcNow,
+                }, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "[AgentService] Falha ao registrar audit agent.version_published (não-bloqueante).");
+            }
+        }
+
         _logger.LogInformation(
-            "[AgentService] Version '{VersionId}' publicada pra '{AgentId}' (revision={Revision}, breaking={Breaking}).",
-            persisted.AgentVersionId, agentId, persisted.Revision, breakingChange);
+            "[AgentService] Version '{VersionId}' publicada pra '{AgentId}' (revision={Revision}, breaking={Breaking}, noOp={NoOp}).",
+            persisted.AgentVersionId, agentId, persisted.Revision, breakingChange, isNoOp);
 
         return persisted;
     }

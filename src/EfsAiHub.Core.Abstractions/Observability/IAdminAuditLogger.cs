@@ -102,6 +102,22 @@ public static class AdminAuditActions
     /// O AgentFactory aplica throttle (LRU 60s) pra evitar inflar audit em loops.
     /// </summary>
     public const string CrossProjectInvoke = "cross_project_invoke";
+
+    /// <summary>
+    /// Publicação de uma nova AgentVersion (snapshot imutável). Emitido pelo
+    /// AgentService.PublishVersionAsync após persistência via AppendAsync.
+    /// PayloadAfter inclui revision, breakingChange, contentHash. Quando idempotência
+    /// por ContentHash retorna existing version (no-op), o audit NÃO é emitido.
+    /// </summary>
+    public const string AgentVersionPublished = "agent.version_published";
+
+    /// <summary>
+    /// Falha de roundtrip lossless durante deserialização de AgentVersion — snapshot
+    /// JSON corrompido ou ausente força fallback defensivo na PgAgentVersionRepository.
+    /// Severidade: alta (sev1) — workflows pinados podem executar com defaults
+    /// inseguros. PayloadAfter inclui agentVersionId, agentDefinitionId, contentHash.
+    /// </summary>
+    public const string AgentVersionLosslessRoundtripFailed = "agent.version_lossless_roundtrip_failed";
 }
 
 public static class AdminAuditResources
