@@ -16,11 +16,31 @@ import { EmptyState } from '../../shared/ui/EmptyState'
 import { PAGE_SIZE_OPTIONS_AUDIT } from '../../constants/pagination'
 
 // Tons consistentes com a paleta do Badge shared — 'yellow' é âmbar-400 no tailwind.
-const ACTION_COLOR: Record<string, 'green' | 'yellow' | 'red'> = {
+const ACTION_COLOR: Record<string, 'green' | 'yellow' | 'red' | 'blue' | 'purple'> = {
   create: 'green',
   update: 'yellow',
   delete: 'red',
+  'agent.visibility_changed': 'purple',
+  'workflow.visibility_changed': 'purple',
+  'cross_project_invoke': 'blue',
+  'agent.version_published': 'green',
+  'workflow.agent_version_pinned': 'blue',
+  'workflow.agent_version_auto_pinned': 'blue',
+  'agent.version_lossless_roundtrip_failed': 'red',
 }
+
+const ACTION_FILTER_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'Todas' },
+  { value: 'create', label: 'create' },
+  { value: 'update', label: 'update' },
+  { value: 'delete', label: 'delete' },
+  { value: 'agent.version_published', label: 'agent.version_published' },
+  { value: 'workflow.agent_version_pinned', label: 'workflow.agent_version_pinned' },
+  { value: 'workflow.agent_version_auto_pinned', label: 'workflow.agent_version_auto_pinned' },
+  { value: 'agent.visibility_changed', label: 'agent.visibility_changed' },
+  { value: 'workflow.visibility_changed', label: 'workflow.visibility_changed' },
+  { value: 'cross_project_invoke', label: 'cross_project_invoke' },
+]
 
 const RESOURCE_LABEL: Record<string, string> = {
   project: 'Projeto',
@@ -36,6 +56,7 @@ export function AdminAuditPage() {
   const [pageSize, setPageSize] = useState('25')
   const [projectId, setProjectId] = useState('')
   const [resourceType, setResourceType] = useState('')
+  const [action, setAction] = useState('')
   const [actorUserId, setActorUserId] = useState('')
   const [selected, setSelected] = useState<AdminAuditEntry | null>(null)
 
@@ -47,6 +68,7 @@ export function AdminAuditPage() {
     to: to || undefined,
     projectId: projectId || undefined,
     resourceType: resourceType || undefined,
+    action: action || undefined,
     actorUserId: actorUserId || undefined,
     pageSize: Number(pageSize),
   })
@@ -156,6 +178,18 @@ export function AdminAuditPage() {
               <option value="">Todos</option>
               {Object.entries(RESOURCE_LABEL).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-text-muted">Ação</label>
+            <select
+              value={action}
+              onChange={(e) => setAction(e.target.value)}
+              className="bg-bg-tertiary border border-border-secondary rounded-md px-2.5 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+            >
+              {ACTION_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
           </div>

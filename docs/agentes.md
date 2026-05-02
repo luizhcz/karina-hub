@@ -984,6 +984,27 @@ Quando enforcement está on:
 
 Playbook completo de rollout em [docs/runbook-shared-agents.md](runbook-shared-agents.md#playbook--mandatorypin-rollout-épico-pinning-federated).
 
+#### UX flow — migration & visibilidade
+
+Três superfícies no frontend dão visibilidade do estado de pin pra usuário e suportam o fluxo de migration entre versions:
+
+**Notification bell (Header).** `NotificationBell` consome `GET /api/notifications/agent-breaking-changes?days=7` (default 7d, 1-90d). Badge mostra count (cap "9+"); dropdown lista até 50 versions com `BreakingChange=true` publicadas no período, ordenadas por `CreatedAt DESC`. Click na entry navega pra `/agents/{id}/versions`. ResponseCache `Duration=60s` no controller; react-query `refetchInterval=60_000ms` + `staleTime=30_000ms` no client. Falha silenciosa (`isError → return null`) — bell não bloqueia header. Visibilidade respeita `agent_definitions.HasQueryFilter` por tenant + project; user só vê breaking changes de agents que ele pode ver.
+
+**Tab "Versões dos agentes" (WorkflowEditPage).** Nova tab no editor de workflow ao lado de "Definição". Renderiza um Card por `AgentReference`, com badge de estado:
+
+| Estado | Condição | Ação CTA |
+|---|---|---|
+| `Atualizado` (verde) | `pinnedRevision == currentRevision` ou `pinnedVersionId` ausente e current existe | (nenhuma) |
+| `Sem pin` (cinza) | `pinnedVersionId == null` (workflow legacy, MandatoryPin off) | Pin → revision atual |
+| `Patch disponível` (verde) | Pin é ancestor sem breaking entre — propagation já aplica em runtime | Atualizar pin pra current (cosmético, runtime já propaga) |
+| `Bloqueado por breaking` (amarelo) | Pin é ancestor com breaking entre pin e current (`isPinnedBlockedByBreaking=true`) | Ver diff → escolher: pin nova ou manter ancestor |
+
+`DiffModal` (interno à tab) mostra `WorkflowAgentVersionChangeEntry[]` retornado por `GET /api/workflows/{id}/agent-version-status`: lista de revisions entre pin e current com `Revision`, `CreatedAt`, `CreatedBy`, `BreakingChange`, `ChangeReason`. PATCH em `/api/workflows/{id}/agents/{agentId}/pin` body `{ newVersionId, reason? }` aplica nova pin (audit `workflow.agent_version_pinned`).
+
+**Modal "Publicar versão" (AgentVersionsPage).** Botão no header da página de versions abre `PublishVersionModal`. Form simples: checkbox `Breaking change` + textarea `Motivo da mudança` (validação inline: se breaking ticado, motivo é obrigatório e não pode ser whitespace-only). Submit chama `POST /api/agents/{id}/versions` body `{ breakingChange, changeReason }`. Backend roda `AgentService.PublishVersionAsync` — idempotência por ContentHash, audit `agent.version_published` apenas em publish efetivo. Modal exibe revision + ContentHash retornados em sucesso; erros (e.g. ChangeReason ausente em breaking) surfacam inline.
+
+**Audit log filterable por action.** [AdminAuditPage](../frontend/src/features/audit/AdminAuditPage.tsx) inclui filtro `Ação` com whitelist das actions canônicas (`create`/`update`/`delete` + `agent.version_published` + `workflow.agent_version_pinned` + `workflow.agent_version_auto_pinned` + `agent.visibility_changed` + `workflow.visibility_changed` + `cross_project_invoke`). `AdminAuditEntry.action` é `string` no client (não union) pra acomodar evolução do `AdminAuditActions` sem coupling de tipo.
+
 ---
 
 ## 12. Versionamento de Prompt

@@ -13,7 +13,12 @@ export interface AdminAuditEntry {
   projectId?: string
   actorUserId: string
   actorUserType?: string
-  action: 'create' | 'update' | 'delete'
+  /**
+   * Tipos canônicos: create | update | delete + actions especializadas como
+   * agent.visibility_changed, workflow.agent_version_pinned, etc. Mantido como
+   * string aberto pra acomodar evolução do AdminAuditActions sem coupling.
+   */
+  action: string
   resourceType: 'project' | 'agent' | 'workflow' | 'skill' | 'model_pricing'
   resourceId: string
   payloadBefore?: unknown
