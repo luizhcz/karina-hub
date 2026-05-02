@@ -52,6 +52,9 @@ public class AgentFactory : IAgentFactory
     // Feature flags com IOptionsMonitor (atualização runtime sem restart).
     // Optional pra preservar BC.
     private readonly IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? _sharingOptions;
+    // Auto-pin lazy de refs sem AgentVersionId quando MandatoryPin=true. Optional
+    // pra preservar BC com chamadores legacy/testes que não injetam o serviço.
+    private readonly IWorkflowAutoPinService? _autoPinService;
 
     // Throttle pra cross_project_invoke audit. Capacity 1000, janela 60s,
     // emite métrica ao despejar. Static singleton: factory é registrado scoped em DI
@@ -84,7 +87,8 @@ public class AgentFactory : IAgentFactory
         IWorkflowEventBus? eventBus = null,
         EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? auditLogger = null,
         EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor? projectContextAccessor = null,
-        IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? sharingOptions = null)
+        IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? sharingOptions = null,
+        IWorkflowAutoPinService? autoPinService = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
@@ -109,6 +113,7 @@ public class AgentFactory : IAgentFactory
         _auditLogger = auditLogger;
         _projectContextAccessor = projectContextAccessor;
         _sharingOptions = sharingOptions;
+        _autoPinService = autoPinService;
     }
 
     public async Task<ExecutableWorkflow> CreateAgentAsync(AgentDefinition definition, CancellationToken ct = default)
@@ -159,6 +164,24 @@ public class AgentFactory : IAgentFactory
         WorkflowDefinition workflow, CancellationToken ct = default)
     {
         var result = new Dictionary<string, ExecutableWorkflow>();
+
+        // Pré-loop: quando MandatoryPin=true, auto-pina refs legacy resolvendo current
+        // version. Idempotente + concorrência-safe (re-fetch no service). Falha do
+        // auto-pin é não-bloqueante: se algum ref ficar sem pin, o loop abaixo trata.
+        var mandatoryPin = _sharingOptions?.CurrentValue.MandatoryPin ?? false;
+        if (mandatoryPin && _autoPinService is not null)
+        {
+            try
+            {
+                await _autoPinService.AutoPinLegacyReferencesAsync(workflow, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "[AgentFactory] Auto-pin falhou pra workflow '{WorkflowId}' (não-bloqueante).",
+                    workflow.Id);
+            }
+        }
 
         foreach (var agentRef in workflow.Agents)
         {
