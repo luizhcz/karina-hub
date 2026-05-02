@@ -80,4 +80,15 @@ public interface IAgentVersionRepository
         int fromRevisionExclusive,
         int toRevisionInclusive,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Lista AgentVersions com <c>BreakingChange=true</c> publicadas nos últimos
+    /// <paramref name="sinceDays"/> dias. Filtragem por tenant boundary é implícita
+    /// (versions são associadas a agent_definitions que aplicam HasQueryFilter).
+    /// Ordenadas por CreatedAt DESC. Limitado a 50 entries pra evitar payload grande
+    /// no notification bell — ops com volumes maiores devem usar audit log direto.
+    /// </summary>
+    Task<IReadOnlyList<AgentVersion>> ListRecentBreakingAsync(
+        int sinceDays,
+        CancellationToken ct = default);
 }

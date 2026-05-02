@@ -167,6 +167,35 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
         return rows.Select(Deserialize).ToList();
     }
 
+    public async Task<IReadOnlyList<AgentVersion>> ListRecentBreakingAsync(
+        int sinceDays,
+        CancellationToken ct = default)
+    {
+        if (sinceDays <= 0) return Array.Empty<AgentVersion>();
+
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        var since = DateTime.UtcNow.AddDays(-sinceDays);
+
+        // Pre-filter via agent_definitions HasQueryFilter (project + tenant globals).
+        // AgentVersions não tem query filter próprio; visibility é herdada do parent.
+        var visibleAgentIds = await ctx.AgentDefinitions
+            .Select(a => a.Id)
+            .ToHashSetAsync(ct);
+
+        if (visibleAgentIds.Count == 0)
+            return Array.Empty<AgentVersion>();
+
+        var rows = await ctx.AgentVersions
+            .Where(v => v.BreakingChange == true
+                        && v.CreatedAt >= since
+                        && visibleAgentIds.Contains(v.AgentDefinitionId))
+            .OrderByDescending(v => v.CreatedAt)
+            .Take(50)
+            .ToListAsync(ct);
+
+        return rows.Select(Deserialize).ToList();
+    }
+
     public async Task<AgentVersion> ResolveEffectiveAsync(
         string agentDefinitionId,
         string pinnedVersionId,

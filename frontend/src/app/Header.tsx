@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useProjects } from '../api/projects'
 import { useProjectStore } from '../stores/project'
 import { useUserStore } from '../stores/user'
+import { NotificationBell } from './NotificationBell'
 
 export function Header() {
   const navigate = useNavigate()
@@ -42,6 +43,8 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-3">
+        <NotificationBell />
+
         <div className="flex items-center gap-2 text-xs">
           <div className="w-7 h-7 rounded-full bg-accent-blue/20 border border-accent-blue/40 flex items-center justify-center text-accent-blue font-semibold">
             {userId.charAt(0).toUpperCase()}
