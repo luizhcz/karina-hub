@@ -13,6 +13,7 @@ import { useFunctions } from '../../../api/tools'
 import { ToolPicker } from './ToolPicker'
 import { MiddlewarePicker, type MiddlewareEntry } from './MiddlewarePicker'
 import { useSkills } from '../../../api/skills'
+import { useGenericTools } from '../../../api/genericTools'
 import { useMcpServers } from '../../../api/mcpServers'
 import { useModelCatalog } from '../../../api/modelCatalog'
 import type { AgentFormValues } from '../types'
@@ -86,6 +87,7 @@ const defaultValues: AgentFormValues = {
   instructions: '',
   tools: [],
   mcpServerIds: [],
+  genericToolIds: [],
   skills: [],
   structuredOutput: { responseFormat: 'text', schemaName: '', schemaDescription: '', schema: '' },
   middlewares: [],
@@ -121,6 +123,7 @@ export function agentToFormValues(agent: AgentDef): AgentFormValues {
     // config inline legacy são preservados no submit (ver formToRequest do caller),
     // mas não aparecem no picker — a UI é id-based only.
     mcpServerIds: agent.tools?.filter((t) => t.type === 'mcp' && !!t.mcpServerId).map((t) => t.mcpServerId!) ?? [],
+    genericToolIds: agent.tools?.filter((t) => t.type === 'generic_http' && !!t.genericToolId).map((t) => t.genericToolId!) ?? [],
     skills: agent.skillRefs?.map((s) => s.skillId) ?? [],
     structuredOutput: {
       responseFormat: agent.structuredOutput?.responseFormat ?? 'text',
@@ -437,6 +440,64 @@ function McpToolsSection() {
   )
 }
 
+function GenericToolsSection() {
+  const { watch, setValue } = useFormContext<AgentFormValues>()
+  const selected = watch('genericToolIds')
+  const { data: genericTools } = useGenericTools()
+
+  const toggle = (id: string) => {
+    const next = selected.includes(id)
+      ? selected.filter((s) => s !== id)
+      : [...selected, id]
+    setValue('genericToolIds', next)
+  }
+
+  return (
+    <Card title="Generic Tools (HTTP)">
+      <p className="text-xs text-text-muted mb-3">
+        Selecione tools HTTP genéricas cadastradas em{' '}
+        <code className="text-xs bg-bg-tertiary px-1 py-0.5 rounded">/generic-tools</code>{' '}
+        do projeto atual. O backend monta uma <code className="text-xs">AIFunction</code>{' '}
+        dinâmica e o LLM enxerga como tool callable.
+      </p>
+      {!genericTools || genericTools.length === 0 ? (
+        <p className="text-sm text-text-dimmed">
+          Nenhum Generic Tool cadastrado. Crie um em{' '}
+          <code className="text-xs">/generic-tools</code>.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto">
+          {genericTools.map((tool) => (
+            <label
+              key={tool.id}
+              className="flex items-start gap-2 text-sm text-text-secondary hover:text-text-primary cursor-pointer p-2 rounded hover:bg-bg-tertiary"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(tool.id)}
+                onChange={() => toggle(tool.id)}
+                className="accent-accent-blue mt-0.5"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{tool.name}</span>
+                  <span className="text-[10px] text-text-dimmed font-mono">{tool.httpMethod}</span>
+                </div>
+                <div className="text-xs text-text-muted font-mono truncate">{tool.urlTemplate}</div>
+                {tool.description && (
+                  <div className="text-[11px] text-text-dimmed mt-0.5 truncate">
+                    {tool.description}
+                  </div>
+                )}
+              </div>
+            </label>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 function SkillsSection() {
   const { watch, setValue } = useFormContext<AgentFormValues>()
   const selected = watch('skills')
@@ -614,6 +675,7 @@ export function AgentForm({ initialValues, onSubmit, loading, existingIds, disab
           <PromptSection />
           <ToolsSection />
           <McpToolsSection />
+          <GenericToolsSection />
           <SkillsSection />
           <StructuredOutputSection />
           <MiddlewaresSection />

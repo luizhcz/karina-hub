@@ -33,6 +33,9 @@ const ACTION_COLOR: Record<string, 'green' | 'yellow' | 'red' | 'blue' | 'purple
   'agent.version_published': 'green',
   'workflow.agent_version_pinned': 'blue',
   'agent.version_lossless_roundtrip_failed': 'red',
+  'generic_tool.created': 'green',
+  'generic_tool.updated': 'yellow',
+  'generic_tool.deleted': 'red',
 }
 
 const ACTION_FILTER_OPTIONS: { value: string; label: string }[] = [
@@ -52,6 +55,9 @@ const ACTION_FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: 'agent.draft_rejected', label: 'agent.draft_rejected' },
   { value: 'workflow.visibility_changed', label: 'workflow.visibility_changed' },
   { value: 'cross_project_invoke', label: 'cross_project_invoke' },
+  { value: 'generic_tool.created', label: 'generic_tool.created' },
+  { value: 'generic_tool.updated', label: 'generic_tool.updated' },
+  { value: 'generic_tool.deleted', label: 'generic_tool.deleted' },
 ]
 
 const RESOURCE_LABEL: Record<string, string> = {

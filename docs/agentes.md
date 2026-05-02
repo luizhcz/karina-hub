@@ -1919,3 +1919,83 @@ Quando `workflow.ProjectId != agent.ProjectId` (workflow caller resolveu agent g
 - `SharedAgentsCoherenceCheck` (workflows referenciando agents inexistentes).
 - Audit log table partitioning.
 - Performance benchmark p99 < 50ms com 1000 agents globais.
+
+
+## 12. Generic Tools (HTTP genéricos por projeto)
+
+Permite cadastrar tools HTTP (GET/POST) por projeto sem codar em C#. Cada tool vira uma `AIFunction` dinâmica resolvida em runtime pelo `GenericToolBinder` e registrada project-scoped no `IFunctionToolRegistry`. Strictamente owner-only — tool de um projeto é invisível para outro mesmo via Id direto.
+
+### Tabela `generic_tools`
+
+```sql
+aihub.generic_tools (
+    Id varchar(64) PK,
+    ProjectId varchar(128) NOT NULL,
+    TenantId varchar(128) NOT NULL,
+    Name varchar(256) NOT NULL,
+    Description text,
+    HttpMethod varchar(8) CHECK IN ('GET','POST'),
+    UrlTemplate text NOT NULL,
+    PathParams jsonb,            -- { name: { type, description, required } }
+    QueryParams jsonb,           -- idem
+    CustomHeaders jsonb,         -- key/value (Content-Type/Accept proibidos)
+    InputContentType varchar(32) CHECK IN ('None','Json','Text','FormUrlEncoded'),
+    InputSchema text,            -- JSON Schema
+    OutputContentType varchar(32) CHECK IN ('Json','Text','Csv'),
+    OutputSchema text,
+    TimeoutSecondsOverride int,
+    CreatedAt timestamptz,
+    UpdatedAt timestamptz
+)
+UNIQUE INDEX UX_generic_tools_ProjectId_Name
+INDEX IX_generic_tools_ProjectId_TenantId
+```
+
+Query filter EF Core strict: `e.ProjectId == CurrentProjectId` — sem cláusula global.
+
+### Endpoints REST
+
+| Endpoint | Comportamento |
+|---|---|
+| `POST /api/generic-tools` | Cria tool. Validações: placeholders `{x}` ↔ PathParams bijetivos, headers reservados, FormUrl plano, GET força InputContentType=None, timeout ≤ MaxTimeoutSeconds. 400/409. |
+| `GET /api/generic-tools` | Lista do projeto atual. |
+| `GET /api/generic-tools/{id}` | 200/404. Owner-only. |
+| `PUT /api/generic-tools/{id}` | Optimistic concurrency via `expectedUpdatedAt`. 200/400/404/409/412. |
+| `DELETE /api/generic-tools/{id}` | 204/404. Agents que referenciam perdem o tool graciosamente em runtime. |
+
+### Integração com Agents
+
+`AgentDefinition.Tools` aceita item `{ type: "generic_http", genericToolId: "..." }`. O snapshot lossless `AgentToolSnapshot.GenericToolId` viaja no JSON do `agent_versions` — pin de versão preserva referência. Em runtime:
+
+1. `AgentFactory.BindGenericToolsAsync` itera `definition.Tools`, busca cada `GenericTool` no repo (project-scoped), cria `DynamicGenericAIFunction(tool, executor)`, registra via `IFunctionToolRegistry.Register(genericToolId, fn, projectId)`.
+2. `ChatOptionsBuilder.BuildFunctionTools` resolve a função via `TryGet(key, projectId)` e envolve em `TrackedAIFunction`. LLM enxerga schema unificado (path + query + body merged).
+3. Quando o LLM invoca a função, `DynamicGenericAIFunction.InvokeCoreAsync` chama `IGenericToolExecutor.ExecuteAsync(tool, args)` que monta o request HTTP, aplica timeout via `CancellationTokenSource.CancelAfter`, parseia o response (Json → JsonElement, Csv → array de dicts) e retorna `ToolExecutionResult` JSON-serializado.
+
+### Atomicidade de erro
+
+Single-shot HTTP, sem retry, sem Polly. Em qualquer falha (rede, timeout, status≥400, parse) retorna `ToolExecutionResult.Fail("Não foi possível executar o request do tool")` + `LogWarning` — a exceção nunca propaga acima do agente.
+
+### Audit + Métricas
+
+- `generic_tool.created` / `generic_tool.updated` / `generic_tool.deleted` (audit actions, resource type `generic_tool`).
+- `generic_tools.invocations_total{tool_id, project, success, status_class}` (counter).
+- `generic_tools.duration_ms{tool_id, success}` (histogram).
+
+### Configuração
+
+Seção `GenericTools` em `appsettings.json`:
+
+```json
+"GenericTools": {
+  "DefaultTimeoutSeconds": 120,
+  "MaxTimeoutSeconds": 120
+}
+```
+
+`MaxTimeoutSeconds` é o teto absoluto — overrides per-tool são validados no service via `GenericTool.EnsureWithinTimeoutCeiling`.
+
+### Riscos conhecidos
+
+- Tool deletada com agent referenciando → binder skipa (LogWarning), agent perde acesso silenciosamente.
+- CSV sem header → primeira linha vira header; CSV vazio retorna lista vazia.
+- Race entre `NameExistsAsync` e `CreateAsync` coberto via unique constraint do DB (`UX_generic_tools_ProjectId_Name`) + detecção via `PostgresException.SqlState=23505`.

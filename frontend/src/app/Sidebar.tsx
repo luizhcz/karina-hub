@@ -17,6 +17,7 @@ const operationItems: NavItem[] = [
   { label: 'Execuções', path: '/executions', icon: '▶' },
   { label: 'HITL', path: '/hitl', icon: '⚑' },
   { label: 'Tools', path: '/tools', icon: '⚙' },
+  { label: 'Generic Tools', path: '/generic-tools', icon: '🔧' },
   { label: 'Skills', path: '/skills', icon: '✦' },
   { label: 'MCP Servers', path: '/mcp-servers', icon: '🧩' },
   { label: 'Test Sets', path: '/evaluations/test-sets', icon: '🧪' },

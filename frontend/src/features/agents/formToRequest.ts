@@ -37,6 +37,7 @@ export function formToRequest(values: AgentFormValues): FormToRequestResult {
         const merged = [
           ...values.tools.map((name) => ({ type: 'function', name })),
           ...values.mcpServerIds.map((mcpServerId) => ({ type: 'mcp', mcpServerId })),
+          ...values.genericToolIds.map((genericToolId) => ({ type: 'generic_http', genericToolId })),
         ]
         return merged.length > 0 ? merged : undefined
       })(),

@@ -46,6 +46,8 @@ export interface AgentFormValues {
   tools: string[]
   /** Ids dos MCP servers referenciados por este agent (resolvidos live em runtime). */
   mcpServerIds: string[]
+  /** Ids dos Generic Tools (HTTP genéricos) referenciados — resolvidos pelo binder em runtime. */
+  genericToolIds: string[]
   skills: string[]
   structuredOutput: {
     responseFormat: string

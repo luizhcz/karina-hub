@@ -22,6 +22,11 @@ export interface AgentToolDef {
   /** Legacy/fallback (BC): headers inline de MCP. */
   headers?: Record<string, string>
   connectionId?: string
+  /**
+   * Quando type="generic_http", referência ao Id imutável de um GenericTool
+   * cadastrado no projeto. Resolvido em runtime pelo binder no backend.
+   */
+  genericToolId?: string
 }
 
 export interface AgentStructuredOutput {
