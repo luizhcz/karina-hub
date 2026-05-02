@@ -123,13 +123,6 @@ public static class AdminAuditActions
     /// </summary>
     public const string AgentVersionLosslessRoundtripFailed = "agent.version_lossless_roundtrip_failed";
 
-    /// <summary>
-    /// Auto-pin lazy de agent refs em workflow legacy quando <c>Sharing:MandatoryPin=true</c>.
-    /// Emitido pelo <c>IWorkflowAutoPinService.AutoPinLegacyReferencesAsync</c> apenas quando
-    /// pelo menos um ref foi pinado (no-op idempotente não emite). PayloadAfter inclui
-    /// workflowId + lista <c>{agentId, agentVersionId}</c> dos refs pinados.
-    /// </summary>
-    public const string WorkflowAgentVersionAutoPinned = "workflow.agent_version_auto_pinned";
 
     /// <summary>
     /// Atualização manual de pin de agent ref em workflow via UI/API

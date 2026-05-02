@@ -285,16 +285,9 @@ public class AgentsController : ControllerBase
             Endpoint = snapshot.Provider.Endpoint
         },
         Instructions = snapshot.PromptContent ?? current.Instructions,
-        Tools = snapshot.ToolFingerprints
-            .Select(f => new AgentToolDefinition
-            {
-                Type = f.Type,
-                Name = f.Name,
-                FingerprintHash = f.SignatureHash,
-                ServerLabel = f.ServerLabel,
-                ServerUrl = f.ServerUrl
-            })
-            .ToList(),
+        Tools = snapshot.Tools is null
+            ? current.Tools
+            : snapshot.Tools.Select(t => t.ToDefinition()).ToList(),
         Middlewares = snapshot.MiddlewarePipeline
             .Select(m => new AgentMiddlewareConfig
             {
