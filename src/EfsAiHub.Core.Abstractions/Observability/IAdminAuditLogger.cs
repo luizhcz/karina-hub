@@ -116,6 +116,10 @@ public static class AdminAuditActions
     /// JSON corrompido ou ausente força fallback defensivo na PgAgentVersionRepository.
     /// Severidade: alta (sev1) — workflows pinados podem executar com defaults
     /// inseguros. PayloadAfter inclui agentVersionId, agentDefinitionId, contentHash.
+    /// A métrica <c>agents.version_lossless_roundtrip_failures_total</c> dispara hoje no
+    /// Deserialize (estático, sem auditLogger acessível). A emissão da audit fica
+    /// reservada pra dispatcher fora do hot path da deserialização — caller que detecte
+    /// falha via métrica e queira persistir contexto adicional.
     /// </summary>
     public const string AgentVersionLosslessRoundtripFailed = "agent.version_lossless_roundtrip_failed";
 }
