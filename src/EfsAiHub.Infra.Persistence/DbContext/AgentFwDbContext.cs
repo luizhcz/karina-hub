@@ -1022,7 +1022,7 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.ProjectId).HasMaxLength(128);
             b.Property(e => e.ActorUserId).HasMaxLength(128).IsRequired();
             b.Property(e => e.ActorUserType).HasMaxLength(32);
-            b.Property(e => e.Action).HasMaxLength(32).IsRequired();
+            b.Property(e => e.Action).HasMaxLength(64).IsRequired();
             b.Property(e => e.ResourceType).HasMaxLength(64).IsRequired();
             b.Property(e => e.ResourceId).HasMaxLength(128).IsRequired();
             b.Property(e => e.PayloadBefore).HasColumnType("jsonb");

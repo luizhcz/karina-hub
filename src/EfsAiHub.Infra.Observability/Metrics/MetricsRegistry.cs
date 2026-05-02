@@ -151,6 +151,15 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("agents.version_lossless_roundtrip_failures_total",
             description: "Falhas de deserialização de snapshot AgentVersion (sev1). Tags: agent_version_id.");
 
+    /// <summary>
+    /// Contador de auto-pins de workflow agent refs. Tag: workflow_id.
+    /// Spike alto sinaliza backlog de refs sem pin sendo resolvidos;
+    /// estabiliza após convergência (todos os refs já pinados).
+    /// </summary>
+    public static readonly Counter<long> WorkflowAgentVersionAutoPins =
+        _meter.CreateCounter<long>("workflows.agent_version_auto_pin_total",
+            description: "Auto-pins de workflow agent refs (lazy). Tags: workflow_id.");
+
     public static readonly Counter<long> StaleExecutionCompletionSkipped =
         _meter.CreateCounter<long>("chat.stale_completion.skipped",
             description: "Completions ignoradas por corresponderem a execução não mais ativa na conversa");

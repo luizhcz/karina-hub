@@ -379,7 +379,7 @@ CREATE TABLE IF NOT EXISTS aihub.admin_audit_log (
     "ProjectId"     VARCHAR(128) NULL,
     "ActorUserId"   VARCHAR(128) NOT NULL,
     "ActorUserType" VARCHAR(32)  NULL,
-    "Action"        VARCHAR(32)  NOT NULL,
+    "Action"        VARCHAR(64)  NOT NULL,
     "ResourceType"  VARCHAR(64)  NOT NULL,
     "ResourceId"    VARCHAR(128) NOT NULL,
     "PayloadBefore" JSONB        NULL,
@@ -387,6 +387,11 @@ CREATE TABLE IF NOT EXISTS aihub.admin_audit_log (
     "Timestamp"     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     CONSTRAINT "PK_admin_audit_log" PRIMARY KEY ("Id")
 );
+
+-- ALTER idempotente: action keys cresceram com novas constants
+-- (workflow.agent_version_auto_pinned tem 35 chars; legacy schema usava VARCHAR(32)).
+ALTER TABLE aihub.admin_audit_log
+    ALTER COLUMN "Action" TYPE VARCHAR(64);
 
 CREATE INDEX IF NOT EXISTS "IX_admin_audit_log_TenantId_Timestamp"
     ON aihub.admin_audit_log ("TenantId", "Timestamp" DESC);

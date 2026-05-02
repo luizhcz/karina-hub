@@ -168,7 +168,13 @@ public class WorkflowAgentReference
     /// snapshot imutável — não vai pelo repo de definitions (atual). Útil quando caller
     /// quer estabilidade contra publishes do owner. Null = versão flutuante (default).
     /// </summary>
-    public string? AgentVersionId { get; init; }
+    /// <remarks>
+    /// Mutável (não init-only) pra permitir auto-pin lazy via
+    /// <c>IWorkflowAutoPinService.AutoPinLegacyReferencesAsync</c> — quando
+    /// <c>Sharing:MandatoryPin=true</c>, refs sem pin recebem o current
+    /// AgentVersionId no first execute pós-flag.
+    /// </remarks>
+    public string? AgentVersionId { get; set; }
 }
 
 /// <summary>
