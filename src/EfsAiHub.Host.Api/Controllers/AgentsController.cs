@@ -40,7 +40,10 @@ public class AgentsController : ControllerBase
     {
         try
         {
-            var definition = await _agentService.CreateAsync(request.ToDomain(), ct);
+            var definition = await _agentService.CreateAsync(request.ToDomain(), ct,
+                breakingChange: request.BreakingChange,
+                changeReason: request.ChangeReason,
+                createdBy: _auditContext.GetActorUserId());
             await _audit.RecordAsync(_auditContext.Build(
                 AdminAuditActions.Create,
                 AdminAuditResources.Agent,
@@ -87,7 +90,10 @@ public class AgentsController : ControllerBase
             var before = existing is null ? null : AdminAuditContext.Snapshot(AgentResponse.FromDomain(existing));
 
             var definition = request.ToDomain();
-            var updated = await _agentService.UpdateAsync(definition, ct);
+            var updated = await _agentService.UpdateAsync(definition, ct,
+                breakingChange: request.BreakingChange,
+                changeReason: request.ChangeReason,
+                createdBy: _auditContext.GetActorUserId());
             await _audit.RecordAsync(_auditContext.Build(
                 AdminAuditActions.Update,
                 AdminAuditResources.Agent,

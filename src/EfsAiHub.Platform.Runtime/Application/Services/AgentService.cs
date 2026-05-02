@@ -47,7 +47,12 @@ public class AgentService : IAgentService
         _logger = logger;
     }
 
-    public async Task<AgentDefinition> CreateAsync(AgentDefinition definition, CancellationToken ct = default)
+    public async Task<AgentDefinition> CreateAsync(
+        AgentDefinition definition,
+        CancellationToken ct = default,
+        bool? breakingChange = null,
+        string? changeReason = null,
+        string? createdBy = null)
     {
         definition.ProjectId = _projectAccessor.Current.ProjectId;
 
@@ -56,7 +61,10 @@ public class AgentService : IAgentService
             throw new ArgumentException($"Definição de agente inválida: {string.Join(", ", errors)}");
 
         _logger.LogInformation("Criando definição de agente '{AgentId}'", definition.Id);
-        var saved = await _repository.UpsertAsync(definition, ct);
+        var saved = await _repository.UpsertAsync(definition, ct,
+            breakingChange: breakingChange,
+            changeReason: changeReason,
+            createdBy: createdBy);
 
         await SeedInitialPromptAsync(saved, ct);
 
@@ -69,7 +77,12 @@ public class AgentService : IAgentService
     public Task<IReadOnlyList<AgentDefinition>> ListAsync(CancellationToken ct = default)
         => _repository.GetAllAsync(ct);
 
-    public async Task<AgentDefinition> UpdateAsync(AgentDefinition definition, CancellationToken ct = default)
+    public async Task<AgentDefinition> UpdateAsync(
+        AgentDefinition definition,
+        CancellationToken ct = default,
+        bool? breakingChange = null,
+        string? changeReason = null,
+        string? createdBy = null)
     {
         var existing = await _repository.GetByIdAsync(definition.Id, ct)
             ?? throw new KeyNotFoundException($"Agente '{definition.Id}' não encontrado.");
@@ -92,7 +105,10 @@ public class AgentService : IAgentService
 
         definition.UpdatedAt = DateTime.UtcNow;
         _logger.LogInformation("Atualizando definição de agente '{AgentId}'", definition.Id);
-        var saved = await _repository.UpsertAsync(definition, ct);
+        var saved = await _repository.UpsertAsync(definition, ct,
+            breakingChange: breakingChange,
+            changeReason: changeReason,
+            createdBy: createdBy);
 
         // Sincroniza instructions com a versão master do prompt
         if (!string.IsNullOrWhiteSpace(definition.Instructions)

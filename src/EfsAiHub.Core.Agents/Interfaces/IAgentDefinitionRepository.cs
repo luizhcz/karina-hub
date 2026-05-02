@@ -5,7 +5,19 @@ public interface IAgentDefinitionRepository
 {
     Task<AgentDefinition?> GetByIdAsync(string id, CancellationToken ct = default);
     Task<IReadOnlyList<AgentDefinition>> GetAllAsync(CancellationToken ct = default);
-    Task<AgentDefinition> UpsertAsync(AgentDefinition definition, CancellationToken ct = default);
+    /// <summary>
+    /// Upsert da definição + auto-snapshot atomico em <c>agent_versions</c>.
+    /// <paramref name="breakingChange"/>/<paramref name="changeReason"/>/<paramref name="createdBy"/>
+    /// são propagados pra <c>AgentVersion.FromDefinition</c> quando o auto-snapshot é criado.
+    /// Idempotência por ContentHash: re-upsert sem mudança no conteúdo retorna a version
+    /// existente, ignorando metadata declarada pelo caller (versions são imutáveis).
+    /// </summary>
+    Task<AgentDefinition> UpsertAsync(
+        AgentDefinition definition,
+        CancellationToken ct = default,
+        bool? breakingChange = null,
+        string? changeReason = null,
+        string? createdBy = null);
     Task<bool> DeleteAsync(string id, CancellationToken ct = default);
     Task<bool> ExistsAsync(string id, CancellationToken ct = default);
 

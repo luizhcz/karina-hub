@@ -62,6 +62,19 @@ public sealed class AdminAuditContext
         };
     }
 
+    /// <summary>
+    /// Resolve apenas o UserId do actor corrente (mesmo fluxo de headers do <see cref="Build"/>).
+    /// Retorna "system:anonymous" quando ausente. Útil pra propagar createdBy em metadata
+    /// de snapshots sem precisar montar um <see cref="AdminAuditEntry"/> completo.
+    /// </summary>
+    public string GetActorUserId()
+    {
+        var headers = _http.HttpContext?.Request.Headers;
+        if (headers is null) return "system:anonymous";
+        var identity = _identity.TryResolve(headers, out _);
+        return identity?.UserId ?? "system:anonymous";
+    }
+
     /// <summary>Serializa um objeto para JsonDocument (para usar em PayloadBefore/After).</summary>
     public static JsonDocument? Snapshot(object? value)
     {

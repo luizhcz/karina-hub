@@ -3,10 +3,32 @@ namespace EfsAiHub.Platform.Runtime.Interfaces;
 
 public interface IAgentService
 {
-    Task<AgentDefinition> CreateAsync(AgentDefinition definition, CancellationToken ct = default);
+    /// <summary>
+    /// Cria definição + auto-snapshot. <paramref name="breakingChange"/>/<paramref name="changeReason"/>/<paramref name="createdBy"/>
+    /// são propagados pra <c>AgentVersion.FromDefinition</c>. Default null preserva BC: snapshot
+    /// emitido com BreakingChange=null (legacy/sem intent declarado).
+    /// </summary>
+    Task<AgentDefinition> CreateAsync(
+        AgentDefinition definition,
+        CancellationToken ct = default,
+        bool? breakingChange = null,
+        string? changeReason = null,
+        string? createdBy = null);
+
     Task<AgentDefinition?> GetAsync(string id, CancellationToken ct = default);
     Task<IReadOnlyList<AgentDefinition>> ListAsync(CancellationToken ct = default);
-    Task<AgentDefinition> UpdateAsync(AgentDefinition definition, CancellationToken ct = default);
+
+    /// <summary>
+    /// Atualiza definição + auto-snapshot com intent declarado.
+    /// Idempotência por ContentHash: re-upsert sem mudança no behavior retorna a version
+    /// existente, ignorando metadata declarada (versions são imutáveis).
+    /// </summary>
+    Task<AgentDefinition> UpdateAsync(
+        AgentDefinition definition,
+        CancellationToken ct = default,
+        bool? breakingChange = null,
+        string? changeReason = null,
+        string? createdBy = null);
 
     /// <summary>
     /// Muda Visibility ('project' | 'global') do agent. Apenas o projeto
