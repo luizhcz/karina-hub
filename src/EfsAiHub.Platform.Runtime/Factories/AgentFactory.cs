@@ -3,6 +3,7 @@ using EfsAiHub.Core.Abstractions.AgUi;
 using EfsAiHub.Core.Abstractions.Conversations;
 using EfsAiHub.Core.Abstractions.Identity.Persona;
 using EfsAiHub.Core.Abstractions.Projects;
+using EfsAiHub.Core.Agents.Exceptions;
 using EfsAiHub.Core.Agents.Skills;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Platform.Runtime.Audit;
@@ -317,6 +318,19 @@ public class AgentFactory : IAgentFactory
     {
         var definition = await _agentRepo.GetByIdAsync(agentId, ct)
             ?? throw new InvalidOperationException($"Agent '{agentId}' not found.");
+
+        // Agent desligado: lança AgentDisabledException pra caller (BuildBindingMapAsync no
+        // Graph mode) skipar a chave do bindingMap. Pipeline continua sem o agent.
+        if (!definition.Enabled)
+        {
+            _logger.LogWarning(
+                "[AgentFactory] Agent '{AgentId}' desabilitado — handler não criado.",
+                definition.Id);
+            EfsAiHub.Infra.Observability.MetricsRegistry.AgentDisabledInvocations.Add(1,
+                new KeyValuePair<string, object?>("agent_id", definition.Id),
+                new KeyValuePair<string, object?>("workflow_id", "graph_handler"));
+            throw new AgentDisabledException(definition.Id);
+        }
 
         definition = await InjectProjectCredentials(definition, ct);
         var agentVersionId = await TrackAgentVersionAsync(agentId, ct);

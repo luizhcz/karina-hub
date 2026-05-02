@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using EfsAiHub.Core.Agents.Exceptions;
 using EfsAiHub.Core.Orchestration.Enums;
 using EfsAiHub.Platform.Runtime.Hitl;
 using Microsoft.Agents.AI;
@@ -282,6 +283,12 @@ public partial class WorkflowFactory : IWorkflowFactory
                     executor = new HitlDecoratorExecutor(executor, agentRef.Hitl, _hitlService, _eventBus);
 
                 bindingMap[agentRef.AgentId] = executor;
+            }
+            catch (AgentDisabledException)
+            {
+                // Skip silencioso — agent ref existe mas owner desligou. Edges com este
+                // node como source/target ficam órfãs; runtime Graph já tolera isso.
+                // Métrica + log já emitidos em CreateLlmHandlerAsync.
             }
             catch (Exception ex)
             {
