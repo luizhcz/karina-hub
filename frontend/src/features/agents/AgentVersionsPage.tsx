@@ -14,6 +14,7 @@ import {
   useRollbackAgent,
 } from '../../api/agents'
 import type { AgentVersion } from '../../api/agents'
+import { PublishVersionModal } from './components/PublishVersionModal'
 
 export function AgentVersionsPage() {
   const { id } = useParams<{ id: string }>()
@@ -24,6 +25,7 @@ export function AgentVersionsPage() {
   const [rollbackTarget, setRollbackTarget] = useState<AgentVersion | null>(null)
   const [selectedA, setSelectedA] = useState<string | null>(null)
   const [selectedB, setSelectedB] = useState<string | null>(null)
+  const [publishOpen, setPublishOpen] = useState(false)
 
   const { data: versionA } = useAgentVersion(id!, selectedA ?? '', !!id && !!selectedA)
   const { data: versionB } = useAgentVersion(id!, selectedB ?? '', !!id && !!selectedB)
@@ -54,7 +56,7 @@ export function AgentVersionsPage() {
             &larr; Agentes
           </Button>
         </Link>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold text-text-primary">
             Versoes: {agent?.name ?? id}
           </h1>
@@ -62,6 +64,9 @@ export function AgentVersionsPage() {
             Historico de versoes do agente. Selecione duas versoes para comparar.
           </p>
         </div>
+        <Button variant="primary" size="sm" onClick={() => setPublishOpen(true)}>
+          Publicar versão
+        </Button>
       </div>
 
       <Card title="Historico de Versoes" padding={false}>
@@ -146,6 +151,13 @@ export function AgentVersionsPage() {
         message={`Deseja restaurar o agente para a versao "${rollbackTarget?.versionId}"?`}
         confirmLabel="Restaurar"
         loading={rollbackMutation.isPending}
+      />
+
+      <PublishVersionModal
+        agentId={id!}
+        agentName={agent?.name}
+        open={publishOpen}
+        onClose={() => setPublishOpen(false)}
       />
     </div>
   )

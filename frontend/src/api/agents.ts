@@ -113,6 +113,26 @@ export interface AgentVersion {
   description?: string
 }
 
+/**
+ * Resposta detalhada de version (POST /api/agents/{id}/versions).
+ * Subset dos campos do AgentVersionResponse backend — apenas os usados pela UI
+ * (toast com versionId+revision, badge de breaking). Snapshots completos
+ * (Model, Provider, Tools, etc) são consumidos via outros endpoints.
+ */
+export interface AgentVersionDetail {
+  agentVersionId: string
+  agentDefinitionId: string
+  revision: number
+  createdAt: string
+  createdBy?: string | null
+  changeReason?: string | null
+  status: string
+  contentHash: string
+  /** true=breaking; false=patch; null=legacy/sem intent. */
+  breakingChange?: boolean | null
+  schemaVersion: number
+}
+
 export interface SandboxResult {
   output: string
   success: boolean
@@ -141,6 +161,8 @@ export const validateAgent = (id: string) => post<AgentValidationResult>(`/agent
 export const getAgentVersions = (id: string) => get<AgentVersion[]>(`/agents/${id}/versions`)
 export const getAgentVersion = (id: string, vid: string) => get<AgentDef>(`/agents/${id}/versions/${vid}`)
 export const rollbackAgent = (id: string, body?: { versionId?: string }) => post<AgentDef>(`/agents/${id}/rollback`, body)
+export const publishAgentVersion = (id: string, body: { breakingChange: boolean; changeReason?: string }) =>
+  post<AgentVersionDetail>(`/agents/${id}/versions`, body)
 export const updateAgentVisibility = (id: string, body: { visibility: AgentVisibility; reason?: string }) =>
   patch<AgentDef>(`/agents/${id}/visibility`, body)
 export const sandboxAgent = (id: string, body: { input: string }) => post<SandboxResult>(`/agents/${id}/sandbox`, body)
@@ -211,6 +233,20 @@ export function useRollbackAgent() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body?: { versionId?: string } }) => rollbackAgent(id, body),
+    onSuccess: (_d, { id }) => {
+      qc.invalidateQueries({ queryKey: KEYS.detail(id) })
+      qc.invalidateQueries({ queryKey: KEYS.versions(id) })
+    },
+  })
+}
+
+export function usePublishAgentVersion() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: {
+      id: string
+      body: { breakingChange: boolean; changeReason?: string }
+    }) => publishAgentVersion(id, body),
     onSuccess: (_d, { id }) => {
       qc.invalidateQueries({ queryKey: KEYS.detail(id) })
       qc.invalidateQueries({ queryKey: KEYS.versions(id) })
