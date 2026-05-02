@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>EfsAiHub.Migrations.PinningV1</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Npgsql" Version="9.0.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EfsAiHub.Core.Abstractions\EfsAiHub.Core.Abstractions.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Core.Agents\EfsAiHub.Core.Agents.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Core.Orchestration\EfsAiHub.Core.Orchestration.csproj" />
+  </ItemGroup>
+
+</Project>
