@@ -187,6 +187,33 @@ public class AgentService : IAgentService
         return await _repository.UpsertAsync(existing, ct);
     }
 
+    /// <summary>
+    /// Liga/desliga o agent. Owner gate, idempotente. Persiste via <c>UpsertAsync</c>
+    /// (cache invalida automaticamente). Estado mutável — não captura snapshot em
+    /// AgentVersion; runtime resolve via governance source row corrente.
+    /// </summary>
+    public async Task<AgentDefinition> UpdateEnabledAsync(string id, bool enabled, CancellationToken ct = default)
+    {
+        var existing = await _repository.GetByIdAsync(id, ct)
+            ?? throw new KeyNotFoundException($"Agente '{id}' não encontrado.");
+
+        var currentProjectId = _projectAccessor.Current.ProjectId;
+        if (!string.Equals(existing.ProjectId, currentProjectId, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException(
+                $"Agente '{id}' não pertence ao projeto atual; apenas o projeto dono pode alterar Enabled.");
+
+        if (existing.Enabled == enabled) return existing;
+
+        existing.Enabled = enabled;
+        existing.UpdatedAt = DateTime.UtcNow;
+
+        _logger.LogInformation(
+            "[AgentService] Enabled do agent '{AgentId}' alterado para '{Enabled}' por projeto '{ProjectId}'.",
+            id, enabled, currentProjectId);
+
+        return await _repository.UpsertAsync(existing, ct);
+    }
+
     public async Task<AgentVersion> PublishVersionAsync(
         string agentId,
         bool breakingChange,
