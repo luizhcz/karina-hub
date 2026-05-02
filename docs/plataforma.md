@@ -255,7 +255,7 @@ CREATE TABLE aihub.admin_audit_log (
     "ProjectId"     VARCHAR(128) NULL,
     "ActorUserId"   VARCHAR(128) NOT NULL,     -- UserId do header
     "ActorUserType" VARCHAR(32)  NULL,         -- 'cliente' | 'assessor'
-    "Action"        VARCHAR(32)  NOT NULL,     -- create | update | delete
+    "Action"        VARCHAR(64)  NOT NULL,     -- create | update | delete | actions namespaced (ver tabela abaixo)
     "ResourceType"  VARCHAR(64)  NOT NULL,
     "ResourceId"    VARCHAR(128) NOT NULL,
     "PayloadBefore" JSONB        NULL,         -- snapshot pré (update/delete)
@@ -276,7 +276,39 @@ CREATE TABLE aihub.admin_audit_log (
 - **Retenção:** `AuditRetentionService` faz DELETE batched (1000 rows / batch, sleep 200ms) via `AuditRetentionDays` (default 90).
 - **Consulta:** `GET /api/admin/audit-log` — paginado, ordena `Timestamp DESC`. `TenantId` é sempre aplicado do contexto da request (não do query param — impede cross-tenant scan).
 
-**UI:** `/audit/admin` (sidebar → Admin → "Audit Admin"). Modal de detalhe exibe `PayloadBefore/After` via `JsonViewer` para diff visual.
+**UI:** `/audit/admin` (sidebar → Admin → "Audit Admin"). Modal de detalhe exibe `PayloadBefore/After` via `JsonViewer` para diff visual. Filtro `Ação` na página whitelista as actions canônicas.
+
+**Ações canônicas (`AdminAuditActions`):**
+
+| Action | Emitida por | Payload |
+|---|---|---|
+| `create` / `update` / `delete` | CRUD genérico (project, agent, workflow, skill, model_pricing) | snapshot before/after do recurso |
+| `agent.visibility_changed` | `PATCH /api/agents/{id}/visibility` | `{ before: { visibility }, after: { visibility } }` |
+| `workflow.visibility_changed` | `PATCH /api/workflows/{id}/visibility` | `{ before: { visibility }, after: { visibility } }` |
+| `cross_project_invoke` | `AgentFactory` quando workflow caller invoca agent global de outro project | `{ callerProjectId, ownerProjectId, workflowId, agentId }` (LRU 60s throttle) |
+| `agent.version_published` | `POST /api/agents/{id}/versions` em publish efetivo (idempotente por ContentHash) | `{ revision, breakingChange, changeReason, contentHash }` |
+| `agent.version_lossless_roundtrip_failed` | declarada — emissão futura via dispatcher | `{ agentVersionId, agentDefinitionId, contentHash }` |
+| `workflow.agent_version_pinned` | `PATCH /api/workflows/{id}/agents/{agentId}/pin` | `{ agentId, previousVersionId, newVersionId, wasBreaking, reason }` |
+| `workflow.agent_version_auto_pinned` | `IWorkflowAutoPinService` em workflow legacy executado com `Sharing:MandatoryPin=true` | `{ workflowId, pinned[]: { agentId, agentVersionId, revision } }` |
+
+### Pinning Federated — endpoints
+
+Endpoints novos do épico Pinning Federated (Fase 3 — UI flow). Detalhamento de algoritmo + decisões em [docs/agentes.md § Pinning Lossless + Patch Propagation](agentes.md#pinning-lossless--patch-propagation) e [ADR 0018](adr/0018-lossless-agent-version-pinning.md).
+
+| Método | Rota | Descrição | Audit |
+|---|---|---|---|
+| `POST` | `/api/agents/{id}/versions` | Publica nova `AgentVersion` snapshot lossless. Body `{ breakingChange, changeReason }`. `breakingChange=true` exige `changeReason` non-blank. Idempotente por ContentHash — sem mudança no conteúdo retorna existing. | `agent.version_published` em publish efetivo |
+| `GET` | `/api/workflows/{id}/agent-version-status` | Retorna `WorkflowAgentVersionStatusResponse[]` por `AgentReference` do workflow: `{ agentId, agentName, pinnedVersionId, pinnedRevision, currentVersionId, currentRevision, isPinnedBlockedByBreaking, hasUpdate, changes[] }`. `changes[]` enumera revisions entre pin e current via `IAgentVersionRepository.ListBetweenRevisionsAsync`. | (sem audit — leitura) |
+| `PATCH` | `/api/workflows/{id}/agents/{agentId}/pin` | Atualiza `WorkflowAgentReference.AgentVersionId`. Body `{ newVersionId, reason? }` (`newVersionId` é required; `reason` opcional pra contexto do audit). Validação confirma `pinned.AgentDefinitionId == agentId`. | `workflow.agent_version_pinned` |
+| `GET` | `/api/notifications/agent-breaking-changes?days={N}` | Lista `AgentBreakingChangeNotification[]` (cap 50) com `BreakingChange=true` publicadas nos últimos N dias (1-90, default 7), ordenadas `CreatedAt DESC`. Visibility respeita `agent_definitions.HasQueryFilter` por tenant + project. `[ResponseCache(Duration=60, Location=Client)]` no controller. Alimenta `NotificationBell` no Header. | (sem audit — leitura) |
+
+**Sharing flags relacionadas (via `IOptionsMonitor<SharingOptions>`):**
+
+| Flag | Default | Efeito |
+|---|---|---|
+| `Sharing:LosslessAgentVersion` | `true` | Kill switch — `false` força `AgentFactory` a ignorar `SchemaVersion=2` e cair no path legacy (live definition). Métrica `strategy=legacy_fallback`. |
+| `Sharing:MandatoryPin` | `false` | Workflow save sem pin → 400. Workflow legacy executado → auto-pin lazy via `IWorkflowAutoPinService`. |
+| `Sharing:MandatoryPinTenants` | `null` | Whitelist de tenants em rollout incremental. `null`/vazia + `MandatoryPin=true` → enforcement global. |
 
 ### MCP Servers Registry
 
