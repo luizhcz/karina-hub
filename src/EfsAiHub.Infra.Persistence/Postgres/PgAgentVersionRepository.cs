@@ -140,6 +140,14 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
             .ToList();
     }
 
+    public async Task<int> CountRetiredVersionsAsync(CancellationToken ct = default)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        var retiredLabel = nameof(AgentVersionStatus.Retired);
+        return await ctx.AgentVersions
+            .CountAsync(v => v.Status == retiredLabel, ct);
+    }
+
     public async Task<AgentVersion> ResolveEffectiveAsync(
         string agentDefinitionId,
         string pinnedVersionId,

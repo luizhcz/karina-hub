@@ -152,4 +152,51 @@ public class WorkflowValidatorMandatoryPinTests
         isValid.Should().BeFalse();
         errors.Count(e => e.Contains("MandatoryPin=true")).Should().Be(2);
     }
+
+    [Fact]
+    public async Task TenantStaged_MandatoryPinOnComWhitelist_TenantMatchEnforce()
+    {
+        var agentRepo = Substitute.For<IAgentDefinitionRepository>();
+        agentRepo.GetExistingIdsAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => (IReadOnlySet<string>)callInfo.Arg<IEnumerable<string>>().ToHashSet());
+
+        var monitor = Substitute.For<IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>>();
+        monitor.CurrentValue.Returns(new EfsAiHub.Core.Abstractions.Sharing.SharingOptions
+        {
+            MandatoryPin = true,
+            MandatoryPinTenants = new[] { "tenant-A" },
+        });
+
+        var validator = new WorkflowValidator(agentRepo, versionRepo: null, sharingOptions: monitor);
+        var def = BuildWorkflow("agent-x", pinnedVersionId: null);
+        def.TenantId = "tenant-A"; // tenant na whitelist → enforce
+
+        var (isValid, errors) = await validator.ValidateAsync(def);
+
+        isValid.Should().BeFalse();
+        errors.Should().Contain(e => e.Contains("MandatoryPin=true"));
+    }
+
+    [Fact]
+    public async Task TenantStaged_MandatoryPinOnComWhitelist_TenantForaNaoEnforce()
+    {
+        var agentRepo = Substitute.For<IAgentDefinitionRepository>();
+        agentRepo.GetExistingIdsAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => (IReadOnlySet<string>)callInfo.Arg<IEnumerable<string>>().ToHashSet());
+
+        var monitor = Substitute.For<IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>>();
+        monitor.CurrentValue.Returns(new EfsAiHub.Core.Abstractions.Sharing.SharingOptions
+        {
+            MandatoryPin = true,
+            MandatoryPinTenants = new[] { "tenant-A" },
+        });
+
+        var validator = new WorkflowValidator(agentRepo, versionRepo: null, sharingOptions: monitor);
+        var def = BuildWorkflow("agent-x", pinnedVersionId: null);
+        def.TenantId = "tenant-B"; // tenant fora da whitelist → não enforce
+
+        var (isValid, _) = await validator.ValidateAsync(def);
+
+        isValid.Should().BeTrue();
+    }
 }

@@ -193,7 +193,9 @@ public class WorkflowValidator
     {
         if (definition.Agents.Count == 0) return;
 
-        var mandatoryPin = _sharingOptions?.CurrentValue.MandatoryPin ?? false;
+        // Tenant-staged enforcement: respeita MandatoryPinTenants whitelist.
+        // Workflow.TenantId é hidratado no upsert via lookup do owner project.
+        var mandatoryPin = _sharingOptions?.CurrentValue.IsMandatoryPinFor(definition.TenantId) ?? false;
 
         var requestedIds = definition.Agents.Select(a => a.AgentId);
         var existingIds = await _agentRepo.GetExistingIdsAsync(requestedIds, ct);

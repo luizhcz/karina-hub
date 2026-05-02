@@ -29,18 +29,25 @@ public sealed class WorkflowAgentVersionHealthCheck : IHealthCheck
         try
         {
             var orphans = await _versionRepo.ListOrphanVersionsAsync(50, cancellationToken);
+            var retiredCount = await _versionRepo.CountRetiredVersionsAsync(cancellationToken);
 
-            if (orphans.Count == 0)
-                return HealthCheckResult.Healthy("Sem AgentVersions orphan.");
-
+            // Payload sempre inclui o count informativo de retired (não-degradante por si só
+            // — ops decide revisar callers manualmente). Orphans são o trigger de Degraded.
             var payload = new Dictionary<string, object>
             {
                 ["agent_version_orphans_count"] = orphans.Count,
-                ["sample"] = orphans
-                    .Take(5)
-                    .Select(o => new { agentVersionId = o.AgentVersionId, missingAgentId = o.AgentDefinitionId })
-                    .ToList(),
+                ["agent_version_retired_count"] = retiredCount,
             };
+
+            if (orphans.Count == 0)
+                return HealthCheckResult.Healthy(
+                    $"Sem AgentVersions orphan. Retired count: {retiredCount}.",
+                    data: payload);
+
+            payload["sample"] = orphans
+                .Take(5)
+                .Select(o => new { agentVersionId = o.AgentVersionId, missingAgentId = o.AgentDefinitionId })
+                .ToList();
 
             return HealthCheckResult.Degraded(
                 $"{orphans.Count} AgentVersion(s) com agent owner deletado. " +
