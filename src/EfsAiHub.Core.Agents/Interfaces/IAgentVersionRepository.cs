@@ -68,4 +68,16 @@ public interface IAgentVersionRepository
     /// migrar callers se a retirada for definitiva. Sinal informativo no health check.
     /// </summary>
     Task<int> CountRetiredVersionsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Lista AgentVersions de um agent num intervalo half-open <c>(fromExclusive, toInclusive]</c>,
+    /// ordenadas por Revision ASC. Usado pelo endpoint de status pra montar o diff modal
+    /// com as mudanças desde o pin do caller. Inclui <c>BreakingChange</c> + <c>ChangeReason</c>
+    /// + <c>CreatedBy</c> pra contexto da UI.
+    /// </summary>
+    Task<IReadOnlyList<AgentVersion>> ListBetweenRevisionsAsync(
+        string agentDefinitionId,
+        int fromRevisionExclusive,
+        int toRevisionInclusive,
+        CancellationToken ct = default);
 }

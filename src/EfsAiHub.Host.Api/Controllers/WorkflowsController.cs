@@ -1,8 +1,11 @@
+using System.Text.Json;
 using EfsAiHub.Host.Api.Models.Requests;
 using EfsAiHub.Host.Api.Models.Responses;
 using EfsAiHub.Host.Api.Services;
 using EfsAiHub.Core.Abstractions.Execution;
 using EfsAiHub.Core.Abstractions.Observability;
+using EfsAiHub.Core.Agents;
+using EfsAiHub.Platform.Runtime.Interfaces;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
@@ -19,19 +22,28 @@ public class WorkflowsController : ControllerBase
     private readonly DiagramRenderingService _diagramService;
     private readonly IAdminAuditLogger _audit;
     private readonly AdminAuditContext _auditContext;
+    private readonly IWorkflowDefinitionRepository _workflowRepo;
+    private readonly IAgentVersionRepository _agentVersionRepo;
+    private readonly IWorkflowAgentVersionStatusService _statusService;
 
     public WorkflowsController(
         IWorkflowService workflowService,
         IWorkflowFactory workflowFactory,
         DiagramRenderingService diagramService,
         IAdminAuditLogger audit,
-        AdminAuditContext auditContext)
+        AdminAuditContext auditContext,
+        IWorkflowDefinitionRepository workflowRepo,
+        IAgentVersionRepository agentVersionRepo,
+        IWorkflowAgentVersionStatusService statusService)
     {
         _workflowService = workflowService;
         _workflowFactory = workflowFactory;
         _diagramService = diagramService;
         _audit = audit;
         _auditContext = auditContext;
+        _workflowRepo = workflowRepo;
+        _agentVersionRepo = agentVersionRepo;
+        _statusService = statusService;
     }
 
     [HttpPost]
@@ -343,5 +355,94 @@ public class WorkflowsController : ControllerBase
         {
             return BadRequest(new { error = ex.Message });
         }
+    }
+
+    [HttpGet("{id}/agent-version-status")]
+    [SwaggerOperation(Summary = "Estado de pin de cada agent ref do workflow — usado pela UI de migration")]
+    [ProducesResponseType(typeof(IReadOnlyList<WorkflowAgentVersionStatusResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetAgentVersionStatus(string id, CancellationToken ct)
+    {
+        try
+        {
+            var status = await _statusService.GetStatusAsync(id, ct);
+            var response = status.Select(s => new WorkflowAgentVersionStatusResponse
+            {
+                AgentId = s.AgentId,
+                AgentName = s.AgentName,
+                PinnedVersionId = s.PinnedVersionId,
+                PinnedRevision = s.PinnedRevision,
+                CurrentVersionId = s.CurrentVersionId,
+                CurrentRevision = s.CurrentRevision,
+                IsPinnedBlockedByBreaking = s.IsPinnedBlockedByBreaking,
+                HasUpdate = s.HasUpdate,
+                Changes = s.Changes
+                    .Select(c => new EfsAiHub.Host.Api.Models.Responses.WorkflowAgentVersionChangeEntry
+                    {
+                        AgentVersionId = c.AgentVersionId,
+                        Revision = c.Revision,
+                        BreakingChange = c.BreakingChange,
+                        ChangeReason = c.ChangeReason,
+                        CreatedAt = c.CreatedAt,
+                        CreatedBy = c.CreatedBy,
+                    })
+                    .ToList(),
+            }).ToList();
+            return Ok(response);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    [HttpPatch("{id}/agents/{agentId}/pin")]
+    [SwaggerOperation(Summary = "Atualiza pin de version de um agent ref específico do workflow")]
+    [ProducesResponseType(typeof(WorkflowResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateAgentPin(
+        string id,
+        string agentId,
+        [FromBody] UpdateWorkflowAgentPinRequest request,
+        CancellationToken ct)
+    {
+        var workflow = await _workflowRepo.GetByIdAsync(id, ct);
+        if (workflow is null) return NotFound();
+
+        var agentRef = workflow.Agents.FirstOrDefault(
+            a => string.Equals(a.AgentId, agentId, StringComparison.OrdinalIgnoreCase));
+        if (agentRef is null)
+            return NotFound(new { error = $"Agent '{agentId}' não está referenciado no workflow." });
+
+        var newVersion = await _agentVersionRepo.GetByIdAsync(request.NewVersionId, ct);
+        if (newVersion is null
+            || !string.Equals(newVersion.AgentDefinitionId, agentId, StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new
+            {
+                error = $"AgentVersion '{request.NewVersionId}' não encontrada ou não pertence ao agent '{agentId}'.",
+            });
+        }
+
+        var previousVersionId = agentRef.AgentVersionId;
+        agentRef.AgentVersionId = newVersion.AgentVersionId;
+        await _workflowRepo.UpsertAsync(workflow, ct);
+
+        var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            agentId,
+            previousVersionId,
+            newVersionId = newVersion.AgentVersionId,
+            wasBreaking = newVersion.BreakingChange,
+            reason = request.Reason,
+        }));
+        await _audit.RecordAsync(_auditContext.Build(
+            AdminAuditActions.WorkflowAgentVersionPinned,
+            AdminAuditResources.Workflow,
+            id,
+            payloadAfter: payload), ct);
+
+        return Ok(WorkflowResponse.FromDomain(workflow));
     }
 }
