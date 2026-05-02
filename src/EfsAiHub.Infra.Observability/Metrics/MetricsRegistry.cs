@@ -122,6 +122,25 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("secrets.cross_project_resolutions_total",
             description: "Resoluções de AWS Secret no contexto do agent owner (cross-project). Tags: caller, owner.");
 
+    /// <summary>
+    /// Contador de resoluções de pin de AgentVersion. Tags:
+    /// strategy=exact (snapshot pinado retornado), propagated (current adotado por
+    /// patch propagation), legacy_fallback (snapshot v1 lossy → cai pro live definition),
+    /// no_version_repo (sem IAgentVersionRepository configurado).
+    /// </summary>
+    public static readonly Counter<long> AgentVersionPinResolutions =
+        _meter.CreateCounter<long>("agents.version_pin_resolutions_total",
+            description: "Resoluções de pin de AgentVersion em workflows. Tags: strategy.");
+
+    /// <summary>
+    /// Contador de fallbacks por governance source ausente — pin existe mas o
+    /// agent_definitions row sumiu (orphan). Sinaliza inconsistência operacional
+    /// e alimenta health check de orphan pins.
+    /// </summary>
+    public static readonly Counter<long> AgentVersionGovernanceMissing =
+        _meter.CreateCounter<long>("agents.version_lossless_governance_missing_total",
+            description: "Pin com governance source ausente (orphan). Tags: agent_id.");
+
     public static readonly Counter<long> StaleExecutionCompletionSkipped =
         _meter.CreateCounter<long>("chat.stale_completion.skipped",
             description: "Completions ignoradas por corresponderem a execução não mais ativa na conversa");

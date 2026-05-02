@@ -162,31 +162,68 @@ public class AgentFactory : IAgentFactory
 
         foreach (var agentRef in workflow.Agents)
         {
-            // Pin opcional via WorkflowAgentReference.AgentVersionId. Atualmente
-            // o domain AgentVersion guarda snapshots por campo (sem JSON cru de AgentDefinition),
-            // então a materialização lossless ainda não é suportada. Por enquanto, log
-            // warning + valida existência do version + cai pro current version do agent.
-            if (!string.IsNullOrEmpty(agentRef.AgentVersionId))
+            // Governance source = live row (Visibility/ProjectId/TenantId/AllowedProjectIds
+            // são mutáveis e cross-cutting; mudança no owner deve afetar workflows pinados).
+            var governanceSource = await _agentRepo.GetByIdAsync(agentRef.AgentId, ct);
+            if (governanceSource is null)
             {
-                if (_agentVersionRepo is not null)
+                // Orphan: pin existente sem agent_definitions row é caso operacional crítico
+                // (deleted owner, drift). Incrementa métrica antes do throw pra dashboards/alertas
+                // de ops capturarem mesmo que workflow execução falhe imediatamente.
+                if (!string.IsNullOrEmpty(agentRef.AgentVersionId))
                 {
-                    var pinned = await _agentVersionRepo.GetByIdAsync(agentRef.AgentVersionId, ct);
-                    if (pinned is null)
-                        throw new InvalidOperationException(
-                            $"AgentVersion '{agentRef.AgentVersionId}' (pin) referenced in workflow '{workflow.Id}' not found.");
-                    if (!string.Equals(pinned.AgentDefinitionId, agentRef.AgentId, StringComparison.OrdinalIgnoreCase))
-                        throw new InvalidOperationException(
-                            $"AgentVersion '{agentRef.AgentVersionId}' não pertence ao agent '{agentRef.AgentId}'.");
+                    EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionGovernanceMissing.Add(1,
+                        new KeyValuePair<string, object?>("agent_id", agentRef.AgentId));
                 }
-                _logger.LogWarning(
-                    "[AgentFactory] WorkflowAgentReference.AgentVersionId='{VersionId}' setado, mas materialização lossless de AgentVersion ainda não é suportada. Resolvendo current version pra '{AgentId}'.",
-                    agentRef.AgentVersionId, agentRef.AgentId);
-            }
-
-            var definition = await _agentRepo.GetByIdAsync(agentRef.AgentId, ct);
-            if (definition is null)
                 throw new InvalidOperationException(
                     $"Agent '{agentRef.AgentId}' referenced in workflow '{workflow.Id}' not found.");
+            }
+
+            AgentDefinition definition;
+            if (!string.IsNullOrEmpty(agentRef.AgentVersionId) && _agentVersionRepo is not null)
+            {
+                // Pin setado: resolve via patch propagation (current se não há breaking
+                // entre pinned e current; pin exato senão).
+                var snapshot = await _agentVersionRepo.ResolveEffectiveAsync(
+                    agentRef.AgentId, agentRef.AgentVersionId, ct);
+
+                if (snapshot.SchemaVersion >= 2)
+                {
+                    // Lossless path: reconstrói AgentDefinition do snapshot, hidratando
+                    // governança da row corrente.
+                    definition = snapshot.ToDefinition(governanceSource);
+
+                    var strategy = string.Equals(snapshot.AgentVersionId, agentRef.AgentVersionId, StringComparison.OrdinalIgnoreCase)
+                        ? "exact"
+                        : "propagated";
+                    EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionPinResolutions.Add(1,
+                        new KeyValuePair<string, object?>("strategy", strategy),
+                        new KeyValuePair<string, object?>("agent_id", agentRef.AgentId));
+                }
+                else
+                {
+                    // Snapshot v1 (lossy): falta material pra reconstrução determinística.
+                    // Cai pro live definition + warning estruturado pra runbook ler.
+                    definition = governanceSource;
+                    _logger.LogWarning(
+                        "[AgentFactory] AgentVersion '{VersionId}' tem SchemaVersion=1 (legacy lossy). Resolvendo current pra '{AgentId}'. Re-publish recomendado pra obter snapshot lossless.",
+                        agentRef.AgentVersionId, agentRef.AgentId);
+                    EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionPinResolutions.Add(1,
+                        new KeyValuePair<string, object?>("strategy", "legacy_fallback"),
+                        new KeyValuePair<string, object?>("agent_id", agentRef.AgentId));
+                }
+            }
+            else
+            {
+                // Sem pin (ou IAgentVersionRepository não-injetado em testes): live definition.
+                definition = governanceSource;
+                if (!string.IsNullOrEmpty(agentRef.AgentVersionId))
+                {
+                    EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionPinResolutions.Add(1,
+                        new KeyValuePair<string, object?>("strategy", "no_version_repo"),
+                        new KeyValuePair<string, object?>("agent_id", agentRef.AgentId));
+                }
+            }
 
             var sharing = _sharingOptions?.CurrentValue;
             var crossProjectEnabled = sharing?.CrossProjectEnabled ?? true;

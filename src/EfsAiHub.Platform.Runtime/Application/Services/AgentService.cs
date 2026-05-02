@@ -26,17 +26,20 @@ public class AgentService : IAgentService
     private readonly IAgentDefinitionRepository _repository;
     private readonly IAgentPromptRepository _promptRepo;
     private readonly IProjectContextAccessor _projectAccessor;
+    private readonly IAgentVersionRepository? _versionRepo;
     private readonly ILogger<AgentService> _logger;
 
     public AgentService(
         IAgentDefinitionRepository repository,
         IAgentPromptRepository promptRepo,
         IProjectContextAccessor projectAccessor,
-        ILogger<AgentService> logger)
+        ILogger<AgentService> logger,
+        IAgentVersionRepository? versionRepo = null)
     {
         _repository = repository;
         _promptRepo = promptRepo;
         _projectAccessor = projectAccessor;
+        _versionRepo = versionRepo;
         _logger = logger;
     }
 
@@ -162,6 +165,61 @@ public class AgentService : IAgentService
             id, newVisibility, currentProjectId);
 
         return await _repository.UpsertAsync(existing, ct);
+    }
+
+    public async Task<AgentVersion> PublishVersionAsync(
+        string agentId,
+        bool breakingChange,
+        string? changeReason = null,
+        string? createdBy = null,
+        CancellationToken ct = default)
+    {
+        if (_versionRepo is null)
+            throw new InvalidOperationException(
+                "PublishVersionAsync requer IAgentVersionRepository registrado.");
+
+        var existing = await _repository.GetByIdAsync(agentId, ct)
+            ?? throw new KeyNotFoundException($"Agente '{agentId}' não encontrado.");
+
+        // Owner gate: só o projeto dono publica versions.
+        var currentProjectId = _projectAccessor.Current.ProjectId;
+        if (!string.Equals(existing.ProjectId, currentProjectId, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException(
+                $"Agente '{agentId}' não pertence ao projeto atual; apenas o projeto dono pode publicar versions.");
+
+        // Active prompt do agent — capturado no snapshot pra rollback determinístico.
+        string? promptContent = null;
+        string? promptVersionId = null;
+        try
+        {
+            var prompt = await _promptRepo.GetActivePromptWithVersionAsync(agentId, ct);
+            promptContent = prompt?.Content;
+            promptVersionId = prompt?.VersionId;
+        }
+        catch
+        {
+            // best-effort — agent recém-criado pode não ter prompt ativo ainda.
+        }
+
+        var revision = await _versionRepo.GetNextRevisionAsync(agentId, ct);
+        var snapshot = AgentVersion.FromDefinition(
+            existing,
+            revision,
+            promptContent: promptContent,
+            promptVersionId: promptVersionId,
+            createdBy: createdBy,
+            changeReason: changeReason,
+            breakingChange: breakingChange);
+
+        // EnsureInvariants é chamado dentro de AppendAsync — DomainException dispara
+        // quando breakingChange=true e changeReason está vazio.
+        var persisted = await _versionRepo.AppendAsync(snapshot, ct);
+
+        _logger.LogInformation(
+            "[AgentService] Version '{VersionId}' publicada pra '{AgentId}' (revision={Revision}, breaking={Breaking}).",
+            persisted.AgentVersionId, agentId, persisted.Revision, breakingChange);
+
+        return persisted;
     }
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)

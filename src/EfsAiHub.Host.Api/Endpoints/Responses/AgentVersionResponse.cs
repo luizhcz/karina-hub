@@ -29,6 +29,19 @@ public class AgentVersionResponse
     public IReadOnlyList<SkillRef> SkillRefs { get; init; } = [];
     public required string ContentHash { get; init; }
 
+    /// <summary>
+    /// true=breaking change (workflows pinados não recebem patch propagation automática),
+    /// false=patch (propaga), null=legacy/unknown (versions pré-feature ou auto-snapshot
+    /// via UpsertAsync que não declara intent).
+    /// </summary>
+    public bool? BreakingChange { get; init; }
+
+    /// <summary>
+    /// 1=lossy legacy (snapshots por campo, tools só com fingerprints), 2=lossless
+    /// (Tools cheias + Description + Metadata + FallbackProvider preservados).
+    /// </summary>
+    public int SchemaVersion { get; init; }
+
     public static AgentVersionResponse FromDomain(AgentVersion v) => new()
     {
         AgentVersionId = v.AgentVersionId,
@@ -48,7 +61,9 @@ public class AgentVersionResponse
         Resilience = v.Resilience,
         CostBudget = v.CostBudget,
         SkillRefs = v.SkillRefs,
-        ContentHash = v.ContentHash
+        ContentHash = v.ContentHash,
+        BreakingChange = v.BreakingChange,
+        SchemaVersion = v.SchemaVersion
     };
 }
 
