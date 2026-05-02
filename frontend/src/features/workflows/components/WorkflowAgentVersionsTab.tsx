@@ -21,6 +21,7 @@ interface WorkflowAgentVersionsTabProps {
 export function WorkflowAgentVersionsTab({ workflowId }: WorkflowAgentVersionsTabProps) {
   const { data, isLoading, error, refetch } = useWorkflowAgentVersionStatus(workflowId)
   const [diffOpen, setDiffOpen] = useState<WorkflowAgentVersionStatus | null>(null)
+  const updateMutation = useUpdateWorkflowAgentPin()
 
   if (isLoading) return <PageLoader />
   if (error) return <ErrorCard message="Erro ao carregar status de pins." onRetry={refetch} />
@@ -31,6 +32,26 @@ export function WorkflowAgentVersionsTab({ workflowId }: WorkflowAgentVersionsTa
       <div className="text-sm text-text-muted px-4 py-8 text-center">
         Workflow não tem agent refs.
       </div>
+    )
+  }
+
+  // Atalho pra fixar versão sem precisar abrir DiffModal — usado em workflow legacy
+  // (sem pin, agent só tem rev 1) ou quando pin == current mas o user quer reafirmar.
+  const handleQuickPin = (status: WorkflowAgentVersionStatus) => {
+    if (!status.currentVersionId) return
+    updateMutation.mutate(
+      {
+        workflowId,
+        agentId: status.agentId,
+        body: { newVersionId: status.currentVersionId },
+      },
+      {
+        onSuccess: () => toast.success(`Pin fixado em rev ${status.currentRevision}.`),
+        onError: (err) => {
+          const msg = err instanceof ApiError ? err.message : 'Erro ao fixar pin.'
+          toast.error(msg)
+        },
+      },
     )
   }
 
@@ -48,6 +69,8 @@ export function WorkflowAgentVersionsTab({ workflowId }: WorkflowAgentVersionsTa
             key={status.agentId}
             status={status}
             onOpenDiff={() => setDiffOpen(status)}
+            onQuickPin={() => handleQuickPin(status)}
+            quickPinPending={updateMutation.isPending}
           />
         ))}
       </div>
@@ -64,11 +87,16 @@ export function WorkflowAgentVersionsTab({ workflowId }: WorkflowAgentVersionsTa
 interface AgentVersionCardProps {
   status: WorkflowAgentVersionStatus
   onOpenDiff: () => void
+  onQuickPin: () => void
+  quickPinPending: boolean
 }
 
-function AgentVersionCard({ status, onOpenDiff }: AgentVersionCardProps) {
+function AgentVersionCard({ status, onOpenDiff, onQuickPin, quickPinPending }: AgentVersionCardProps) {
   const hasPin = !!status.pinnedVersionId
   const updateBadge = renderUpdateBadge(status)
+  const hasChanges = status.changes.length > 0
+  const canQuickPin =
+    !!status.currentVersionId && status.pinnedVersionId !== status.currentVersionId
 
   return (
     <Card>
@@ -100,11 +128,25 @@ function AgentVersionCard({ status, onOpenDiff }: AgentVersionCardProps) {
           </div>
         </div>
 
-        {status.changes.length > 0 && (
-          <Button variant="secondary" size="sm" onClick={onOpenDiff}>
-            Revisar mudanças ({status.changes.length})
-          </Button>
-        )}
+        <div className="flex flex-col items-end gap-2 flex-shrink-0">
+          {hasChanges && (
+            <Button variant="secondary" size="sm" onClick={onOpenDiff}>
+              Revisar mudanças ({status.changes.length})
+            </Button>
+          )}
+          {canQuickPin && (
+            <Button
+              variant={hasChanges ? 'ghost' : 'primary'}
+              size="sm"
+              onClick={onQuickPin}
+              disabled={quickPinPending}
+            >
+              {quickPinPending
+                ? 'Fixando...'
+                : `Fixar em rev ${status.currentRevision}`}
+            </Button>
+          )}
+        </div>
       </div>
     </Card>
   )

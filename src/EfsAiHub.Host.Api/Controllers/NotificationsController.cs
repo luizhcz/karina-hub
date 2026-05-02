@@ -24,7 +24,7 @@ public class NotificationsController : ControllerBase
     [HttpGet("agent-breaking-changes")]
     [SwaggerOperation(Summary = "Lista AgentVersions com BreakingChange=true publicadas " +
                                 "nos últimos N dias (default 7) — alimenta notification bell.")]
-    [ResponseCache(Duration = 60, VaryByQueryKeys = new[] { "days" }, Location = ResponseCacheLocation.Client)]
+    [ResponseCache(Duration = 60, Location = ResponseCacheLocation.Client)]
     [ProducesResponseType(typeof(IReadOnlyList<AgentBreakingChangeNotification>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetBreakingChanges(

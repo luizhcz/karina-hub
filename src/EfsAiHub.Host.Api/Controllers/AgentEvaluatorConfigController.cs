@@ -39,13 +39,15 @@ public sealed class AgentEvaluatorConfigController : ControllerBase
     }
 
     [HttpGet]
-    [SwaggerOperation(Summary = "Config ativa do agente (header + version atual)")]
+    [SwaggerOperation(Summary = "Config ativa do agente (header + version atual). " +
+                                "Retorna 200 com config=null quando o agente ainda não tem config — " +
+                                "evaluator é opcional por natureza, ausência não é erro.")]
     [ProducesResponseType(typeof(EvaluatorConfigWithVersionResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetCurrent(string agentId, CancellationToken ct)
     {
         var config = await _configRepo.GetByAgentDefinitionAsync(agentId, ct);
-        if (config is null) return NotFound();
+        if (config is null)
+            return Ok(new EvaluatorConfigWithVersionResponse(null, null));
 
         EvaluatorConfigVersion? current = null;
         if (!string.IsNullOrEmpty(config.CurrentVersionId))
@@ -57,13 +59,14 @@ public sealed class AgentEvaluatorConfigController : ControllerBase
     }
 
     [HttpGet("history")]
-    [SwaggerOperation(Summary = "Histórico de versions do EvaluatorConfig")]
+    [SwaggerOperation(Summary = "Histórico de versions do EvaluatorConfig. " +
+                                "Retorna 200 com [] quando o agente ainda não tem config.")]
     [ProducesResponseType(typeof(IReadOnlyList<EvaluatorConfigVersionResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetHistory(string agentId, CancellationToken ct)
     {
         var config = await _configRepo.GetByAgentDefinitionAsync(agentId, ct);
-        if (config is null) return NotFound();
+        if (config is null)
+            return Ok(Array.Empty<EvaluatorConfigVersionResponse>());
 
         var versions = await _configVersionRepo.ListByConfigAsync(config.Id, ct);
         return Ok(versions.Select(EvaluatorConfigVersionResponse.FromDomain));
@@ -144,7 +147,7 @@ public sealed class AgentEvaluatorConfigController : ControllerBase
     }
 
     public sealed record EvaluatorConfigWithVersionResponse(
-        EvaluatorConfigResponse Config,
+        EvaluatorConfigResponse? Config,
         EvaluatorConfigVersionResponse? CurrentVersion);
 
     private string? ResolveActorUserId()

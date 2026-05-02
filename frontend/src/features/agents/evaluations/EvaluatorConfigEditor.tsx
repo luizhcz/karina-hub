@@ -41,7 +41,7 @@ export function EvaluatorConfigEditor({ agentId }: Props) {
   useEffect(() => { setHydrated(false) }, [agentId])
   useEffect(() => {
     if (hydrated || isLoading) return
-    if (data?.currentVersion) {
+    if (data?.currentVersion && data.config) {
       const v = data.currentVersion
       setName(data.config.name)
       setBindings(v.bindings)

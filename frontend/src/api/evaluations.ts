@@ -51,9 +51,13 @@ export interface EvaluatorConfigVersion {
   changeReason?: string
 }
 
+/**
+ * Resposta de GET /api/agents/{id}/evaluator-config — agente sem config configurado
+ * retorna ambos campos null/undefined (200 OK), pra UI renderizar form vazio sem 404 noise.
+ */
 export interface EvaluatorConfigWithVersion {
-  config: EvaluatorConfig
-  currentVersion?: EvaluatorConfigVersion
+  config?: EvaluatorConfig | null
+  currentVersion?: EvaluatorConfigVersion | null
 }
 
 export interface RegressionConfig {
@@ -297,18 +301,9 @@ export function useUpdateTestSetVersionStatus() {
 }
 
 export function useEvaluatorConfig(agentId: string, enabled = true) {
-  return useQuery<EvaluatorConfigWithVersion | null>({
+  return useQuery<EvaluatorConfigWithVersion>({
     queryKey: ['evaluator-config', agentId],
-    queryFn: async () => {
-      try {
-        return await get<EvaluatorConfigWithVersion>(`/agents/${agentId}/evaluator-config`)
-      } catch (err) {
-        // 404 = config ainda não criada; retorna null pra UI mostrar form vazio.
-        const status = (err as { status?: number })?.status
-        if (status === 404) return null
-        throw err
-      }
-    },
+    queryFn: () => get<EvaluatorConfigWithVersion>(`/agents/${agentId}/evaluator-config`),
     enabled,
   })
 }
@@ -316,15 +311,7 @@ export function useEvaluatorConfig(agentId: string, enabled = true) {
 export function useEvaluatorConfigHistory(agentId: string, enabled = true) {
   return useQuery<EvaluatorConfigVersion[]>({
     queryKey: ['evaluator-config-history', agentId],
-    queryFn: async () => {
-      try {
-        return await get<EvaluatorConfigVersion[]>(`/agents/${agentId}/evaluator-config/history`)
-      } catch (err) {
-        // Agente sem config → array vazio (mesma semântica de useEvaluatorConfig).
-        if ((err as { status?: number })?.status === 404) return []
-        throw err
-      }
-    },
+    queryFn: () => get<EvaluatorConfigVersion[]>(`/agents/${agentId}/evaluator-config/history`),
     enabled,
   })
 }

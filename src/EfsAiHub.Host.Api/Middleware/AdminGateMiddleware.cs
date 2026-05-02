@@ -20,6 +20,7 @@ namespace EfsAiHub.Host.Api.Middleware;
 ///   - GET  /api/users/{id}/conversations
 ///   - GET  /api/projects             (listar projetos)
 ///   - GET  /api/projects/{id}        (buscar projeto por ID)
+///   - GET  /api/notifications/*      (bell de notificações renderiza pra qualquer user)
 ///                                    (sub-rotas como /blocklist NÃO são públicas)
 ///
 /// Retorna 403 Forbidden para demais endpoints sem account admin.
@@ -137,6 +138,12 @@ public sealed class AdminGateMiddleware
         // Enums — dados não-sensíveis, necessários para todos os clientes
         if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
             && path.TrimEnd('/').Equals("/api/enums", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Notifications (GET) — bell renderiza no Header pra qualquer usuário; visibility
+        // já é gateada por agent_definitions.HasQueryFilter (tenant + project).
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && path.StartsWith("/api/notifications", StringComparison.OrdinalIgnoreCase))
             return true;
 
         // Developer portal (dev-only, served via EmbeddedResource)

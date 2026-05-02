@@ -11,10 +11,11 @@ namespace EfsAiHub.Host.Api.Middleware;
 /// A identidade é resolvida via <see cref="UserIdentityResolver"/> (suporta ambos os headers).
 ///
 /// Rotas globais (não escopadas por projeto) são isentas:
-///   - /api/agents/*      (definições de agente e prompts)
-///   - /api/workflows/*   (definições de workflow)
-///   - /api/chat/ag-ui/*  (integração de chat)
-///   - /dev               (developer portal)
+///   - /api/agents/*        (definições de agente e prompts)
+///   - /api/workflows/*     (definições de workflow)
+///   - /api/chat/ag-ui/*    (integração de chat)
+///   - /api/notifications/* (bell de notificações — visibility via HasQueryFilter)
+///   - /dev                 (developer portal)
 ///
 /// Deve ser registrado APÓS ProjectMiddleware (que resolve o ProjectId) e ANTES de
 /// ProjectRateLimitMiddleware na pipeline.
@@ -84,6 +85,8 @@ public sealed class DefaultProjectGuard
         if (path.StartsWith("/api/workflows", StringComparison.OrdinalIgnoreCase))
             return true;
         if (path.StartsWith("/api/chat/ag-ui", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (path.StartsWith("/api/notifications", StringComparison.OrdinalIgnoreCase))
             return true;
         if (path.Equals("/dev", StringComparison.OrdinalIgnoreCase))
             return true;

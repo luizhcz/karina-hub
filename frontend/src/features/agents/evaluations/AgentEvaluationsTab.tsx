@@ -200,7 +200,7 @@ export function AgentEvaluationsTab({ agentId }: Props) {
             </select>
           </div>
           <div className="text-xs text-text-muted">
-            EvaluatorConfig: <code>{evaluatorConfig?.config.name ?? '(none)'}</code>
+            EvaluatorConfig: <code>{evaluatorConfig?.config?.name ?? '(none)'}</code>
             {evaluatorConfig?.currentVersion && (
               <> · rev {evaluatorConfig.currentVersion.revision}</>
             )}
