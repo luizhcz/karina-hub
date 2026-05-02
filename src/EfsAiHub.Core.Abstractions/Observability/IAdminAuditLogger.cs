@@ -177,6 +177,23 @@ public static class AdminAuditActions
     /// PayloadAfter inclui agentId, previousVersionId, newVersionId, wasBreaking, reason.
     /// </summary>
     public const string WorkflowAgentVersionPinned = "workflow.agent_version_pinned";
+
+    /// <summary>
+    /// Criação de Generic Tool (HTTP genérica). Emitido pelo POST /api/generic-tools.
+    /// PayloadAfter inclui toolId, name, httpMethod, projectId.
+    /// </summary>
+    public const string GenericToolCreated = "generic_tool.created";
+
+    /// <summary>
+    /// Atualização de Generic Tool. Emitido pelo PUT /api/generic-tools/{id}.
+    /// PayloadAfter inclui toolId, updatedAt.
+    /// </summary>
+    public const string GenericToolUpdated = "generic_tool.updated";
+
+    /// <summary>
+    /// Descarte explícito de Generic Tool. Emitido pelo DELETE /api/generic-tools/{id}.
+    /// </summary>
+    public const string GenericToolDeleted = "generic_tool.deleted";
 }
 
 public static class AdminAuditResources
@@ -194,6 +211,9 @@ public static class AdminAuditResources
 
     /// <summary>Recurso virtual representando a config de blocklist do projeto.</summary>
     public const string Blocklist = "blocklist";
+
+    /// <summary>Tool HTTP genérica cadastrada por projeto.</summary>
+    public const string GenericTool = "generic_tool";
 }
 
 /// <summary>
