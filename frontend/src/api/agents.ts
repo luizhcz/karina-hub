@@ -128,9 +128,8 @@ export interface AgentVersionDetail {
   changeReason?: string | null
   status: string
   contentHash: string
-  /** true=breaking; false=patch; null=legacy/sem intent. */
-  breakingChange?: boolean | null
-  schemaVersion: number
+  /** true=breaking; false=patch (default). */
+  breakingChange: boolean
 }
 
 export interface SandboxResult {

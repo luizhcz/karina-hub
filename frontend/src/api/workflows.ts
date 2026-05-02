@@ -181,8 +181,8 @@ export interface WorkflowVersion {
 export interface WorkflowAgentVersionChangeEntry {
   agentVersionId: string
   revision: number
-  /** true=breaking, false=patch, null=legacy/unknown (tratado como breaking pelo resolver). */
-  breakingChange?: boolean | null
+  /** true=breaking, false=patch (default). */
+  breakingChange: boolean
   changeReason?: string | null
   createdAt: string
   createdBy?: string | null

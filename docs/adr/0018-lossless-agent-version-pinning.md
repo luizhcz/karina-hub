@@ -166,3 +166,16 @@ ResolveEffectiveAsync(agentDefId, pinnedVersionId):
 - UI flow de migration: notification bell ao detectar pin ancestor de breaking; modal de diff com `ChangeReason` consolidado.
 - `WorkflowAgentVersionStatus` endpoint pra UI listar pins desatualizados.
 - Versionamento explícito de breaking (semver-like) — talvez mais granular que bool.
+
+## Cleanup pré-prod (2026-05-02)
+
+Como o projeto não foi pra produção, o discriminator `SchemaVersion=1 (lossy) | SchemaVersion=2 (lossless)` foi descartado — **v1 final é o que era v2 lossless**, único schema. Mudanças:
+
+- `SchemaVersion` (record + coluna SQL) **removido**.
+- `BreakingChange`: `bool? null` → `bool false` (default = patch). Versions sem intent declarado ficam patch implícito.
+- `ToolFingerprints` record + lista descartados — `Tools` (lossless) é canonical.
+- Flags `Sharing:MandatoryPin`, `Sharing:MandatoryPinTenants`, `Sharing:LosslessAgentVersion` **removidas**. Pin é mandatório global; rollout staged não faz mais sentido fora de produção.
+- `IWorkflowAutoPinService` deletado — auto-pin lazy era opt-in via `MandatoryPin`. Substituído por `WorkflowService.ResolveDefaultPinsAsync`, que resolve `current` automaticamente quando o caller omite pin.
+- Strategy `legacy_fallback` no `AgentFactory` removida (não há mais snapshot v1 lossy a resolver).
+- Audit constant `workflow.agent_version_auto_pinned` + métrica `WorkflowAgentVersionAutoPins` removidas.
+- Dados existentes regenerados via script descartável `src/EfsAiHub.Migrations.PinningV1/` (deletado do repo após sucesso).
