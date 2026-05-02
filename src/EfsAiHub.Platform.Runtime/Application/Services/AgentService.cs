@@ -50,7 +50,7 @@ public class AgentService : IAgentService
     public async Task<AgentDefinition> CreateAsync(
         AgentDefinition definition,
         CancellationToken ct = default,
-        bool? breakingChange = null,
+        bool breakingChange = false,
         string? changeReason = null,
         string? createdBy = null)
     {
@@ -80,7 +80,7 @@ public class AgentService : IAgentService
     public async Task<AgentDefinition> UpdateAsync(
         AgentDefinition definition,
         CancellationToken ct = default,
-        bool? breakingChange = null,
+        bool breakingChange = false,
         string? changeReason = null,
         string? createdBy = null)
     {

@@ -5,13 +5,13 @@ public interface IAgentService
 {
     /// <summary>
     /// Cria definição + auto-snapshot. <paramref name="breakingChange"/>/<paramref name="changeReason"/>/<paramref name="createdBy"/>
-    /// são propagados pra <c>AgentVersion.FromDefinition</c>. Default null preserva BC: snapshot
-    /// emitido com BreakingChange=null (legacy/sem intent declarado).
+    /// são propagados pra <c>AgentVersion.FromDefinition</c>. Default false: snapshot emitido
+    /// como patch (não bloqueia patch propagation em workflows pinados em ancestor).
     /// </summary>
     Task<AgentDefinition> CreateAsync(
         AgentDefinition definition,
         CancellationToken ct = default,
-        bool? breakingChange = null,
+        bool breakingChange = false,
         string? changeReason = null,
         string? createdBy = null);
 
@@ -26,7 +26,7 @@ public interface IAgentService
     Task<AgentDefinition> UpdateAsync(
         AgentDefinition definition,
         CancellationToken ct = default,
-        bool? breakingChange = null,
+        bool breakingChange = false,
         string? changeReason = null,
         string? createdBy = null);
 

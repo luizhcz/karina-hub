@@ -95,7 +95,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
     public async Task<AgentDefinition> UpsertAsync(
         AgentDefinition definition,
         CancellationToken ct = default,
-        bool? breakingChange = null,
+        bool breakingChange = false,
         string? changeReason = null,
         string? createdBy = null)
     {

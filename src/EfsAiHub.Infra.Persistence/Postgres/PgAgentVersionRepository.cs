@@ -85,7 +85,6 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
             ContentHash = version.ContentHash,
             Snapshot = JsonSerializer.Serialize(version, JsonDefaults.Domain),
             BreakingChange = version.BreakingChange,
-            SchemaVersion = version.SchemaVersion,
         };
 
         ctx.AgentVersions.Add(row);
@@ -107,7 +106,7 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
             .Where(r => r.AgentDefinitionId == agentDefinitionId
                         && r.Revision > fromRevisionExclusive
                         && r.Revision <= toRevisionInclusive
-                        && r.BreakingChange == true)
+                        && r.BreakingChange)
             .OrderBy(r => r.Revision)
             .FirstOrDefaultAsync(ct);
         return row is null ? null : Deserialize(row);
@@ -186,7 +185,7 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
             return Array.Empty<AgentVersion>();
 
         var rows = await ctx.AgentVersions
-            .Where(v => v.BreakingChange == true
+            .Where(v => v.BreakingChange
                         && v.CreatedAt >= since
                         && visibleAgentIds.Contains(v.AgentDefinitionId))
             .OrderByDescending(v => v.CreatedAt)
@@ -231,13 +230,10 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
         var version = JsonSerializer.Deserialize<AgentVersion>(row.Snapshot, JsonDefaults.Domain);
         if (version is not null)
         {
-            // Promoted columns são source of truth pra BreakingChange/SchemaVersion
-            // (snapshot JSON pode estar desatualizado em rows antigas pré-feature).
-            // SchemaVersion na coluna é NOT NULL DEFAULT 1 — confiamos no schema.
+            // Promoted column é source of truth pra BreakingChange (NOT NULL DEFAULT FALSE no schema).
             return version with
             {
                 BreakingChange = row.BreakingChange,
-                SchemaVersion = row.SchemaVersion,
             };
         }
 
@@ -257,14 +253,13 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
             PromptVersionId: null,
             Model: new AgentModelSnapshot("", null, null),
             Provider: new AgentProviderSnapshot("AzureFoundry", "ChatCompletion", null, false),
-            ToolFingerprints: Array.Empty<ToolFingerprint>(),
             MiddlewarePipeline: Array.Empty<AgentMiddlewareSnapshot>(),
             OutputSchema: null,
             Resilience: null,
             CostBudget: null,
             SkillRefs: Array.Empty<EfsAiHub.Core.Agents.Skills.SkillRef>(),
             ContentHash: row.ContentHash,
-            BreakingChange: row.BreakingChange,
-            SchemaVersion: row.SchemaVersion);
+            Tools: Array.Empty<AgentToolSnapshot>(),
+            BreakingChange: row.BreakingChange);
     }
 }
