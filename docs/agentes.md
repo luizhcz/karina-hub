@@ -811,23 +811,20 @@ public sealed record AgentVersion(
     string? PromptVersionId,
     AgentModelSnapshot Model,
     AgentProviderSnapshot Provider,
-    IReadOnlyList<ToolFingerprint> ToolFingerprints,              // só hashes (legacy)
     IReadOnlyList<AgentMiddlewareSnapshot> MiddlewarePipeline,
     AgentStructuredOutputSnapshot? OutputSchema,
     ResiliencePolicy? Resilience,
     AgentCostBudget? CostBudget,
     IReadOnlyList<SkillRef> SkillRefs,                            // SkillVersionId resolvido
     string ContentHash,                                           // SHA-256 canônico
-    // Lossless additions (SchemaVersion >= 2):
     string? Description = null,
     IReadOnlyDictionary<string, string>? Metadata = null,
     AgentProviderSnapshot? FallbackProvider = null,
     IReadOnlyList<AgentToolSnapshot>? Tools = null,               // tools cheias (lossless)
-    bool? BreakingChange = null,                                  // intent de breaking declarado pelo owner
-    int SchemaVersion = 1);                                       // 1=legacy, 2=lossless
+    bool BreakingChange = false);                                 // intent declarado; default patch
 ```
 
-`SchemaVersion=1` (legado) usa `ToolFingerprints` (lossy). `SchemaVersion=2` carrega `Tools` cheias com todos os campos da `AgentToolDefinition` (Type, Name, JsonSchema/FingerprintHash, McpServerId, ServerLabel/Url, AllowedTools, Headers, ConnectionId, RequireApproval, RequiresApproval). `AgentVersion.ToDefinition(governanceSource?)` reconstrói `AgentDefinition` determinístico.
+`Tools` carrega todos os campos da `AgentToolDefinition` (Type, Name, JsonSchema/FingerprintHash, McpServerId, ServerLabel/Url, AllowedTools, Headers, ConnectionId, RequireApproval, RequiresApproval) — snapshot lossless. `AgentVersion.ToDefinition(governanceSource?)` reconstrói `AgentDefinition` determinístico.
 
 ### Quando é Criada
 
@@ -857,8 +854,8 @@ SHA256(JSON({
 }))
 ```
 
-> Em `SchemaVersion=2` o canonical inclui `description`, `metadata`, `fallbackProvider` e `tools` cheias (não só fingerprints) — mudanças nesses campos invalidam o hash mesmo sem alteração no prompt/model.
-> `BreakingChange` e `SchemaVersion` são **promoted columns** persistidas como colunas separadas em `agent_versions`; não entram no canonical do ContentHash (intent declarado no momento do publish, não influencia identidade do snapshot).
+> O canonical inclui `description`, `metadata`, `fallbackProvider` e `tools` cheias — mudanças nesses campos invalidam o hash mesmo sem alteração no prompt/model.
+> `BreakingChange` é **promoted column** persistida como coluna separada em `agent_versions`; não entra no canonical do ContentHash (intent declarado no momento do publish, não influencia identidade do snapshot).
 
 ### Rollback (Determinístico)
 
@@ -927,20 +924,18 @@ Owner declara intent no publish via `AgentService.PublishVersionAsync(agentId, b
 
 #### Matriz de comportamento (`AgentFactory`)
 
-| Pin set | SchemaVersion | Cenário | Resultado | Métrica `strategy` |
-|---|---|---|---|---|
-| Não | — | (path comum) | live definition (current) | (sem métrica) |
-| Sim | v2 | Pin == current | pin (= current) | `exact` |
-| Sim | v2 | Patch propagation: sem breaking entre pin e current | current | `propagated` |
-| Sim | v2 | Há breaking entre pin e current | snapshot pinado | `exact` |
-| Sim | v2 | Pin > current (raro) | pin | `exact` |
-| Sim | v1 (legacy lossy) | snapshot sem Tools cheias | live definition + warning | `legacy_fallback` |
-| Sim | — | `_versionRepo` não-injetado (testes) | live definition | `no_version_repo` |
-| Sim | — | governance row sumiu (orphan) | throw + métrica `governance_missing` | (`InvalidOperationException`) |
+| Pin set | Cenário | Resultado | Métrica `strategy` |
+|---|---|---|---|
+| Sim | Pin == current | pin (= current) | `exact` |
+| Sim | Patch propagation: sem breaking entre pin e current | current | `propagated` |
+| Sim | Há breaking entre pin e current | snapshot pinado | `exact` |
+| Sim | Pin > current (rollback do owner) | pin | `exact` |
+| (defesa) | Ref sem pin atinge runtime — divergência (validator sempre exige pin) | live definition | `no_pin_unexpected` |
+| Sim | governance row sumiu (orphan) | throw + métrica `governance_missing` | (`InvalidOperationException`) |
 
 #### Save-time validation
 
-`WorkflowValidator.ValidateAgentReferencesAsync` valida pin no save: `_versionRepo.GetByIdAsync` confirma existência + `pinned.AgentDefinitionId == agentRef.AgentId` confirma ownership. Erros surfacam antes de runtime, com mensagem clara.
+`WorkflowValidator.ValidateAgentReferencesAsync` valida pin no save: `AgentVersionId` é **obrigatório global** (request sem pin → 400 com mensagem direcionando pra `GET /api/agents/{id}/versions`). Quando o caller omite, `WorkflowService.ResolveDefaultPinsAsync` pré-resolve `current` Published de cada agent ref antes da validação — caller que não declara intent recebe pin "current" automático; PATCH `/api/workflows/{id}/agents/{agentId}/pin` permite migration manual depois. `_versionRepo.GetByIdAsync` confirma existência + `pinned.AgentDefinitionId == agentRef.AgentId` confirma ownership.
 
 #### Idempotência por ContentHash
 
@@ -954,7 +949,7 @@ Owner declara intent no publish via `AgentService.PublishVersionAsync(agentId, b
 
 | Métrica | Descrição |
 |---|---|
-| `agents.version_pin_resolutions_total{strategy, agent_id}` | Distribuição de strategy (exact/propagated/legacy_fallback/no_version_repo) |
+| `agents.version_pin_resolutions_total{strategy, agent_id}` | Distribuição de strategy (exact/propagated/no_pin_unexpected) |
 | `agents.version_lossless_governance_missing_total{agent_id}` | Orphan pins (governance row sumiu) |
 | `agents.version_lossless_roundtrip_failures_total{agent_version_id}` | sev1 — JSON snapshot corrompido força fallback defensivo |
 
@@ -964,25 +959,6 @@ Owner declara intent no publish via `AgentService.PublishVersionAsync(agentId, b
 |---|---|---|
 | `agent.version_published` | `PublishVersionAsync` em publish efetivo | `{revision, breakingChange, changeReason, contentHash}` |
 | `agent.version_lossless_roundtrip_failed` | (declarada — emissão futura via dispatcher) | `{agentVersionId, agentDefinitionId, contentHash}` |
-| `workflow.agent_version_auto_pinned` | Auto-pin lazy de workflow legacy (`MandatoryPin=true`) | `{workflowId, pinned[]}` |
-
-#### MandatoryPin — rollout tenant-staged
-
-`Sharing:MandatoryPin=true` enforça pin obrigatório em workflows. `MandatoryPinTenants` whitelist permite rollout incremental:
-
-| Configuração | Comportamento |
-|---|---|
-| `MandatoryPin=false` | Pin é opcional; workflow save aceita refs sem `AgentVersionId`. Default. |
-| `MandatoryPin=true` + `MandatoryPinTenants=null` (ou vazia) | Enforcement GLOBAL — todos os tenants. |
-| `MandatoryPin=true` + `MandatoryPinTenants=["tenantA"]` | Enforcement APENAS no tenant listado. Outros mantêm comportamento legacy. |
-
-Quando enforcement está on:
-- Workflow save sem pin → 400 com mensagem direcionando pra `GET /api/agents/{id}/versions`.
-- Workflow legacy executado (sem pin) → `IWorkflowAutoPinService.AutoPinLegacyReferencesAsync` resolve `current` de cada agent ref e popula. Idempotente, concurrency-safe (re-fetch defensivo). Audit `workflow.agent_version_auto_pinned`.
-
-`Sharing:LosslessAgentVersion=false` é kill switch: AgentFactory ignora `SchemaVersion=2` snapshots e cai sempre no path legacy (live definition). Métrica `strategy=legacy_fallback` sinaliza ativação.
-
-Playbook completo de rollout em [docs/runbook-shared-agents.md](runbook-shared-agents.md#playbook--mandatorypin-rollout-épico-pinning-federated).
 
 #### UX flow — migration & visibilidade
 
@@ -994,8 +970,7 @@ Três superfícies no frontend dão visibilidade do estado de pin pra usuário e
 
 | Estado | Condição | Ação CTA |
 |---|---|---|
-| `Atualizado` (verde) | `pinnedRevision == currentRevision` ou `pinnedVersionId` ausente e current existe | (nenhuma) |
-| `Sem pin` (cinza) | `pinnedVersionId == null` (workflow legacy, MandatoryPin off) | Pin → revision atual |
+| `Atualizado` (verde) | `pinnedRevision == currentRevision` (ou pin > current após rollback do owner) | (nenhuma) |
 | `Patch disponível` (verde) | Pin é ancestor sem breaking entre — propagation já aplica em runtime | Atualizar pin pra current (cosmético, runtime já propaga) |
 | `Bloqueado por breaking` (amarelo) | Pin é ancestor com breaking entre pin e current (`isPinnedBlockedByBreaking=true`) | Ver diff → escolher: pin nova ou manter ancestor |
 
@@ -1003,7 +978,7 @@ Três superfícies no frontend dão visibilidade do estado de pin pra usuário e
 
 **Modal "Publicar versão" (AgentVersionsPage).** Botão no header da página de versions abre `PublishVersionModal`. Form simples: checkbox `Breaking change` + textarea `Motivo da mudança` (validação inline: se breaking ticado, motivo é obrigatório e não pode ser whitespace-only). Submit chama `POST /api/agents/{id}/versions` body `{ breakingChange, changeReason }`. Backend roda `AgentService.PublishVersionAsync` — idempotência por ContentHash, audit `agent.version_published` apenas em publish efetivo. Modal exibe revision + ContentHash retornados em sucesso; erros (e.g. ChangeReason ausente em breaking) surfacam inline.
 
-**Audit log filterable por action.** [AdminAuditPage](../frontend/src/features/audit/AdminAuditPage.tsx) inclui filtro `Ação` com whitelist das actions canônicas (`create`/`update`/`delete` + `agent.version_published` + `workflow.agent_version_pinned` + `workflow.agent_version_auto_pinned` + `agent.visibility_changed` + `workflow.visibility_changed` + `cross_project_invoke`). `AdminAuditEntry.action` é `string` no client (não union) pra acomodar evolução do `AdminAuditActions` sem coupling de tipo.
+**Audit log filterable por action.** [AdminAuditPage](../frontend/src/features/audit/AdminAuditPage.tsx) inclui filtro `Ação` com whitelist das actions canônicas (`create`/`update`/`delete` + `agent.version_published` + `workflow.agent_version_pinned` + `agent.visibility_changed` + `workflow.visibility_changed` + `cross_project_invoke`). `AdminAuditEntry.action` é `string` no client (não union) pra acomodar evolução do `AdminAuditActions` sem coupling de tipo.
 
 ---
 
@@ -1854,7 +1829,6 @@ Quando `workflow.ProjectId != agent.ProjectId` (workflow caller resolveu agent g
 
 ### Phase 4 (futuras melhorias)
 
-- `MandatoryPin` rollout tenant-staged + auto-pin lazy de workflows legados (épico Pinning Federated, Fase 2).
 - UI flow de migration (notification bell + modal de diff) — épico Pinning Federated, Fase 3.
 - `SharedAgentsCoherenceCheck` (workflows referenciando agents inexistentes).
 - Audit log table partitioning.

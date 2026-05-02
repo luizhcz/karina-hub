@@ -25,7 +25,6 @@ const ACTION_COLOR: Record<string, 'green' | 'yellow' | 'red' | 'blue' | 'purple
   'cross_project_invoke': 'blue',
   'agent.version_published': 'green',
   'workflow.agent_version_pinned': 'blue',
-  'workflow.agent_version_auto_pinned': 'blue',
   'agent.version_lossless_roundtrip_failed': 'red',
 }
 
@@ -36,7 +35,6 @@ const ACTION_FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: 'delete', label: 'delete' },
   { value: 'agent.version_published', label: 'agent.version_published' },
   { value: 'workflow.agent_version_pinned', label: 'workflow.agent_version_pinned' },
-  { value: 'workflow.agent_version_auto_pinned', label: 'workflow.agent_version_auto_pinned' },
   { value: 'agent.visibility_changed', label: 'agent.visibility_changed' },
   { value: 'workflow.visibility_changed', label: 'workflow.visibility_changed' },
   { value: 'cross_project_invoke', label: 'cross_project_invoke' },

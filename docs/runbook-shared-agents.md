@@ -14,9 +14,6 @@ Todas as flags vivem em `appsettings.json` na seção `Sharing` e são lidas via
 | Bloquear cross-project mantendo flag UI | `Sharing:CrossProjectEnabled=false` | `WorkflowValidator` rejeita refs cross-project. Runtime lança `UnauthorizedAccessException`. |
 | Ignorar whitelist temporariamente | `Sharing:WhitelistEnabled=false` | `AllowedProjectIds` é ignorado (todo projeto do tenant volta a poder usar agents globais). |
 | Reduzir audit pressure | `Sharing:AuditCrossInvoke=false` | Mantém log + métrica, pula gravação em `admin_audit_log`. |
-| Desligar pin obrigatório (rollback Pinning) | `Sharing:MandatoryPin=false` | `WorkflowValidator` aceita workflow sem `AgentVersionId`. Auto-pin lazy desligado no `AgentFactory`. Pins existentes continuam respeitados. |
-| Rollout staged por tenant | `Sharing:MandatoryPinTenants=["tenant-A"]` | Combina com `MandatoryPin=true`: enforcement APENAS pra tenants listados. null/vazia + flag on = global. |
-| Kill switch lossless | `Sharing:LosslessAgentVersion=false` | `AgentFactory` ignora `SchemaVersion=2` snapshots e cai sempre no path legacy (live definition). Métrica `strategy=legacy_fallback`. |
 
 Override via env var:
 
@@ -101,10 +98,10 @@ LIMIT 100;
 
 ## Diagnóstico — Pinning (3 SQLs úteis)
 
-### P1. Workflows legados sem pin (por tenant)
+### P1. Workflows com refs sem pin (defesa)
 
-Identifica workflows que ainda têm refs sem `AgentVersionId` — alvos de auto-pin
-quando `Sharing:MandatoryPin=true` for habilitado pro tenant.
+Pin é mandatório global pós-cleanup pré-prod — esta query deveria retornar 0 linhas.
+Resultado positivo indica drift (workflow persistido bypassando o validator).
 
 ```sql
 -- Conta workflows com AO MENOS 1 agent ref sem pin, por tenant.
@@ -227,91 +224,21 @@ Antes de habilitar `Sharing:Enabled=true` em prod:
 - [ ] DBAs cientes do índice parcial `IX_agent_definitions_TenantId_Visibility WHERE Visibility='global'` (criado pelo schema bootstrap).
 - [ ] Audit log table tem capacidade pra absorver `cross_project_invoke` (mesmo com throttle de 60s, ambientes com 1000+ workflows ativos podem gerar ~16K rows/dia).
 
-## Playbook — MandatoryPin rollout (épico Pinning Federated)
+## Pinning v1 — semântica corrente
 
-Rollout incremental de pin obrigatório por tenant. Default `MandatoryPin=false`
-preserva BC; ativar só após validação.
+Pin é **mandatório global** pós-cleanup pré-prod. Não há flag de opt-out:
 
-### Etapa 1 — Inventário
+- Workflow save sem `AgentVersionId` em algum ref → `WorkflowService.ResolveDefaultPinsAsync`
+  resolve `current` Published do agent e popula automaticamente. Caller que não declara
+  intent recebe pin "current".
+- Migration manual via `PATCH /api/workflows/{id}/agents/{agentId}/pin` (audit
+  `workflow.agent_version_pinned`).
+- Snapshots são **lossless** (não há mais SchemaVersion discriminator). `BreakingChange`
+  é `bool` non-nullable (default `false` = patch).
 
-Antes de habilitar pra qualquer tenant, rodar SQL P1 pra contar workflows legados
-(refs sem pin). Esses serão alvo do auto-pin lazy no first execute pós-flag.
-
-### Etapa 2 — Tenant piloto
-
-```json
-{
-  "Sharing": {
-    "MandatoryPin": true,
-    "MandatoryPinTenants": ["tenant-piloto"]
-  }
-}
-```
-
-`IOptionsMonitor` recarrega em runtime. Efeitos:
-- Workflows novos em `tenant-piloto` SEM pin → 400 com mensagem clara.
-- Workflows existentes em `tenant-piloto` SEM pin → auto-pinados no first
-  AgentFactory call. Audit `workflow.agent_version_auto_pinned` emitido.
-- Outros tenants: comportamento legacy preservado (pin opcional).
-
-### Etapa 3 — Verificação
-
-```bash
-# Health check
-curl http://localhost:5189/health/ready | jq '.entries["agent-version-orphans"].data'
-
-# Métrica OTel: workflows.agent_version_auto_pin_total
-# Spike no início do rollout → estabiliza após convergência.
-
-# SQL P1 pra confirmar redução de workflows legacy no tenant piloto.
-```
-
-### Etapa 4 — Expansão
-
-Adicionar tenants ao whitelist gradualmente:
-
-```json
-{
-  "Sharing": {
-    "MandatoryPin": true,
-    "MandatoryPinTenants": ["tenant-piloto", "tenant-A", "tenant-B"]
-  }
-}
-```
-
-Quando enforcement estiver universal, simplificar:
-
-```json
-{
-  "Sharing": {
-    "MandatoryPin": true,
-    "MandatoryPinTenants": null
-  }
-}
-```
-
-`null` ou lista vazia + flag on = enforcement GLOBAL.
-
-### Etapa 5 — Rollback (se necessário)
-
-Setar `Sharing:MandatoryPin=false`. Em runtime, sem restart. Pins existentes
-permanecem (não são revertidos). Workflows futuros podem voltar a salvar sem pin.
-
-### Kill switch lossless
-
-Se snapshot v2 apresentar regressão:
-
-```json
-{
-  "Sharing": {
-    "LosslessAgentVersion": false
-  }
-}
-```
-
-`AgentFactory` ignora SchemaVersion=2 e cai sempre no path legacy (live
-definition). Métrica `agents.version_pin_resolutions_total{strategy=legacy_fallback}`
-sinaliza ativação.
+Em deploys que herdam dados pré-cleanup: rodar uma vez o script descartável
+`src/EfsAiHub.Migrations.PinningV1/` (deletado do repo após sucesso) que apaga
+`agent_versions` legacy + regenera com formato corrente + auto-pina todos os workflows.
 
 ## Phase 4 (futuro)
 

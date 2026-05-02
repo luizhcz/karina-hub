@@ -289,7 +289,6 @@ CREATE TABLE aihub.admin_audit_log (
 | `agent.version_published` | `POST /api/agents/{id}/versions` em publish efetivo (idempotente por ContentHash) | `{ revision, breakingChange, changeReason, contentHash }` |
 | `agent.version_lossless_roundtrip_failed` | declarada — emissão futura via dispatcher | `{ agentVersionId, agentDefinitionId, contentHash }` |
 | `workflow.agent_version_pinned` | `PATCH /api/workflows/{id}/agents/{agentId}/pin` | `{ agentId, previousVersionId, newVersionId, wasBreaking, reason }` |
-| `workflow.agent_version_auto_pinned` | `IWorkflowAutoPinService` em workflow legacy executado com `Sharing:MandatoryPin=true` | `{ workflowId, pinned[]: { agentId, agentVersionId, revision } }` |
 
 ### Pinning Federated — endpoints
 
@@ -306,9 +305,13 @@ Endpoints novos do épico Pinning Federated (Fase 3 — UI flow). Detalhamento d
 
 | Flag | Default | Efeito |
 |---|---|---|
-| `Sharing:LosslessAgentVersion` | `true` | Kill switch — `false` força `AgentFactory` a ignorar `SchemaVersion=2` e cair no path legacy (live definition). Métrica `strategy=legacy_fallback`. |
-| `Sharing:MandatoryPin` | `false` | Workflow save sem pin → 400. Workflow legacy executado → auto-pin lazy via `IWorkflowAutoPinService`. |
-| `Sharing:MandatoryPinTenants` | `null` | Whitelist de tenants em rollout incremental. `null`/vazia + `MandatoryPin=true` → enforcement global. |
+| `Sharing:Enabled` | `true` | Master switch — `false` esconde toggles de visibility e ignora `Visibility=global` em listagens. |
+| `Sharing:CrossProjectEnabled` | `true` | `false` → `WorkflowValidator` rejeita refs cross-project; runtime rejeita resolução cross-project. |
+| `Sharing:WhitelistEnabled` | `true` | `false` → `AgentDefinition.AllowedProjectIds` é ignorado (whitelist relaxada). |
+| `Sharing:AuditCrossInvoke` | `true` | `false` → skip audit `cross_project_invoke` (mantém métrica + log). |
+| `Sharing:CrossInvokeAuditThrottleSeconds` | `60` | Janela LRU pra throttle do audit `cross_project_invoke`. |
+
+> Pin de agent version é **mandatório global** — não há flag de opt-out (sub-prod cleanup descartou `MandatoryPin`/`MandatoryPinTenants`/`LosslessAgentVersion`). `WorkflowService.ResolveDefaultPinsAsync` resolve `current` automaticamente quando o caller omite pin.
 
 ### MCP Servers Registry
 

@@ -92,7 +92,6 @@ interface AgentVersionCardProps {
 }
 
 function AgentVersionCard({ status, onOpenDiff, onQuickPin, quickPinPending }: AgentVersionCardProps) {
-  const hasPin = !!status.pinnedVersionId
   const updateBadge = renderUpdateBadge(status)
   const hasChanges = status.changes.length > 0
   const canQuickPin =
@@ -117,7 +116,7 @@ function AgentVersionCard({ status, onOpenDiff, onQuickPin, quickPinPending }: A
               label="Pin atual"
               versionId={status.pinnedVersionId}
               revision={status.pinnedRevision}
-              fallback={hasPin ? '—' : 'sem pin (legacy)'}
+              fallback="—"
             />
             <PinSummary
               label="Current Published"
@@ -153,12 +152,9 @@ function AgentVersionCard({ status, onOpenDiff, onQuickPin, quickPinPending }: A
 }
 
 function renderUpdateBadge(status: WorkflowAgentVersionStatus) {
-  if (!status.hasUpdate) {
-    // hasUpdate=false significa pin == current OU pin > current (rollback do owner) OU sem pin.
-    return status.pinnedVersionId
-      ? <Badge variant="green">Atualizado</Badge>
-      : <Badge variant="gray">Sem pin</Badge>
-  }
+  // Pin é obrigatório global no save; pinnedVersionId nunca é null pra workflows persistidos.
+  // hasUpdate=false → pin == current ou pin > current (rollback do owner).
+  if (!status.hasUpdate) return <Badge variant="green">Atualizado</Badge>
   if (status.isPinnedBlockedByBreaking) {
     return <Badge variant="yellow">Atualização bloqueada — breaking change</Badge>
   }
@@ -265,16 +261,11 @@ function DiffModal({ status, workflowId, onClose }: DiffModalProps) {
 }
 
 function ChangeRow({ change }: { change: WorkflowAgentVersionChangeEntry }) {
-  const isBreaking = change.breakingChange === true
-  const isLegacy = change.breakingChange === null || change.breakingChange === undefined
-
   return (
     <div className="flex items-start gap-3 px-3 py-2 rounded-md border border-border-primary bg-bg-tertiary">
       <div className="flex-shrink-0 mt-0.5">
-        {isBreaking ? (
+        {change.breakingChange ? (
           <Badge variant="yellow">breaking</Badge>
-        ) : isLegacy ? (
-          <Badge variant="gray">legacy</Badge>
         ) : (
           <Badge variant="green">patch</Badge>
         )}

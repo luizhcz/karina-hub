@@ -20,6 +20,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
     private readonly IProjectContextAccessor _projectAccessor;
     private readonly ITenantContextAccessor _tenantAccessor;
     private readonly IWorkflowVersionRepository? _versionRepo;
+    private readonly IAgentVersionRepository? _agentVersionRepo;
     private readonly ICrossNodeBus? _crossBus;
     private readonly ILogger<WorkflowService> _logger;
 
@@ -35,6 +36,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         ITenantContextAccessor tenantAccessor,
         ILogger<WorkflowService> logger,
         IWorkflowVersionRepository? versionRepo = null,
+        IAgentVersionRepository? agentVersionRepo = null,
         ICrossNodeBus? crossBus = null)
     {
         _definitionRepo = definitionRepo;
@@ -48,13 +50,31 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         _tenantAccessor = tenantAccessor;
         _logger = logger;
         _versionRepo = versionRepo;
+        _agentVersionRepo = agentVersionRepo;
         _crossBus = crossBus;
+    }
+
+    /// <summary>
+    /// Para cada <see cref="WorkflowAgentReference"/> sem <c>AgentVersionId</c>, resolve current
+    /// Published do agent e popula. UX: caller que não envia pin recebe pin "current" automático;
+    /// migração manual via PATCH /api/workflows/{id}/agents/{agentId}/pin permanece disponível.
+    /// </summary>
+    private async Task ResolveDefaultPinsAsync(WorkflowDefinition definition, CancellationToken ct)
+    {
+        if (_agentVersionRepo is null) return;
+        foreach (var agentRef in definition.Agents)
+        {
+            if (!string.IsNullOrEmpty(agentRef.AgentVersionId)) continue;
+            var current = await _agentVersionRepo.GetCurrentAsync(agentRef.AgentId, ct);
+            if (current is not null) agentRef.AgentVersionId = current.AgentVersionId;
+        }
     }
 
     public async Task<WorkflowDefinition> CreateAsync(WorkflowDefinition definition, CancellationToken ct = default)
     {
         definition.ProjectId = _projectAccessor.Current.ProjectId;
 
+        await ResolveDefaultPinsAsync(definition, ct);
         var (isValid, errors) = await ValidateAsync(definition, ct);
         if (!isValid)
             throw new ArgumentException($"Definição de workflow inválida: {string.Join(", ", errors)}");
@@ -87,6 +107,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         definition.TenantId = existing.TenantId;
         definition.Visibility = existing.Visibility;
 
+        await ResolveDefaultPinsAsync(definition, ct);
         var (isValid, errors) = await ValidateAsync(definition, ct);
         if (!isValid)
             throw new ArgumentException($"Definição de workflow inválida: {string.Join(", ", errors)}");
