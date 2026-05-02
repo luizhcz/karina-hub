@@ -964,6 +964,25 @@ Owner declara intent no publish via `AgentService.PublishVersionAsync(agentId, b
 |---|---|---|
 | `agent.version_published` | `PublishVersionAsync` em publish efetivo | `{revision, breakingChange, changeReason, contentHash}` |
 | `agent.version_lossless_roundtrip_failed` | (declarada — emissão futura via dispatcher) | `{agentVersionId, agentDefinitionId, contentHash}` |
+| `workflow.agent_version_auto_pinned` | Auto-pin lazy de workflow legacy (`MandatoryPin=true`) | `{workflowId, pinned[]}` |
+
+#### MandatoryPin — rollout tenant-staged
+
+`Sharing:MandatoryPin=true` enforça pin obrigatório em workflows. `MandatoryPinTenants` whitelist permite rollout incremental:
+
+| Configuração | Comportamento |
+|---|---|
+| `MandatoryPin=false` | Pin é opcional; workflow save aceita refs sem `AgentVersionId`. Default. |
+| `MandatoryPin=true` + `MandatoryPinTenants=null` (ou vazia) | Enforcement GLOBAL — todos os tenants. |
+| `MandatoryPin=true` + `MandatoryPinTenants=["tenantA"]` | Enforcement APENAS no tenant listado. Outros mantêm comportamento legacy. |
+
+Quando enforcement está on:
+- Workflow save sem pin → 400 com mensagem direcionando pra `GET /api/agents/{id}/versions`.
+- Workflow legacy executado (sem pin) → `IWorkflowAutoPinService.AutoPinLegacyReferencesAsync` resolve `current` de cada agent ref e popula. Idempotente, concurrency-safe (re-fetch defensivo). Audit `workflow.agent_version_auto_pinned`.
+
+`Sharing:LosslessAgentVersion=false` é kill switch: AgentFactory ignora `SchemaVersion=2` snapshots e cai sempre no path legacy (live definition). Métrica `strategy=legacy_fallback` sinaliza ativação.
+
+Playbook completo de rollout em [docs/runbook-shared-agents.md](runbook-shared-agents.md#playbook--mandatorypin-rollout-épico-pinning-federated).
 
 ---
 
