@@ -148,6 +148,25 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
             .CountAsync(v => v.Status == retiredLabel, ct);
     }
 
+    public async Task<IReadOnlyList<AgentVersion>> ListBetweenRevisionsAsync(
+        string agentDefinitionId,
+        int fromRevisionExclusive,
+        int toRevisionInclusive,
+        CancellationToken ct = default)
+    {
+        if (toRevisionInclusive <= fromRevisionExclusive)
+            return Array.Empty<AgentVersion>();
+
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        var rows = await ctx.AgentVersions
+            .Where(v => v.AgentDefinitionId == agentDefinitionId
+                        && v.Revision > fromRevisionExclusive
+                        && v.Revision <= toRevisionInclusive)
+            .OrderBy(v => v.Revision)
+            .ToListAsync(ct);
+        return rows.Select(Deserialize).ToList();
+    }
+
     public async Task<AgentVersion> ResolveEffectiveAsync(
         string agentDefinitionId,
         string pinnedVersionId,

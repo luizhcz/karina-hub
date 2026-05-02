@@ -312,6 +312,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IWorkflowService, WorkflowService>();
         services.AddScoped<IWorkflowDispatcher>(sp => (IWorkflowDispatcher)sp.GetRequiredService<IWorkflowService>());
         services.AddScoped<IWorkflowAutoPinService, WorkflowAutoPinService>();
+        services.AddScoped<IWorkflowAgentVersionStatusService, WorkflowAgentVersionStatusService>();
         services.AddScoped<TokenCountUpdater>();
         services.AddScoped<ConversationService>();
         services.AddScoped<EfsAiHub.Core.Abstractions.Execution.IExecutionLifecycleObserver>(

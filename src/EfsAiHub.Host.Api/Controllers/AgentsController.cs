@@ -206,6 +206,45 @@ public class AgentsController : ControllerBase
         return Ok(AgentVersionResponse.FromDomain(v));
     }
 
+    [HttpPost("{id}/versions")]
+    [SwaggerOperation(Summary = "Publica nova AgentVersion com intent declarado (breaking ou patch). " +
+                                "BreakingChange=true exige ChangeReason. Idempotente por ContentHash.")]
+    [ProducesResponseType(typeof(AgentVersionResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PublishVersion(
+        string id,
+        [FromBody] PublishAgentVersionRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var version = await _agentService.PublishVersionAsync(
+                id,
+                request.BreakingChange,
+                request.ChangeReason,
+                createdBy: _auditContext.GetActorUserId(),
+                ct);
+            return CreatedAtAction(
+                nameof(GetVersion),
+                new { id, versionId = version.AgentVersionId },
+                AgentVersionResponse.FromDomain(version));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+        catch (EfsAiHub.Core.Abstractions.Exceptions.DomainException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
     [HttpPost("{id}/rollback")]
     [SwaggerOperation(Summary = "Rollback determinístico: reconstrói o AgentDefinition a partir de uma AgentVersion e gera uma nova revision idêntica à alvo.")]
     [ProducesResponseType(typeof(AgentResponse), StatusCodes.Status200OK)]

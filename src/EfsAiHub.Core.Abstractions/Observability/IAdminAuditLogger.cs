@@ -130,6 +130,15 @@ public static class AdminAuditActions
     /// workflowId + lista <c>{agentId, agentVersionId}</c> dos refs pinados.
     /// </summary>
     public const string WorkflowAgentVersionAutoPinned = "workflow.agent_version_auto_pinned";
+
+    /// <summary>
+    /// Atualização manual de pin de agent ref em workflow via UI/API
+    /// (PATCH /api/workflows/{id}/agents/{agentId}/pin). Emitido em toda
+    /// transição de pin manual (incluindo casos onde caller atualiza pra
+    /// version mais nova após receber notification de breaking).
+    /// PayloadAfter inclui agentId, previousVersionId, newVersionId, wasBreaking, reason.
+    /// </summary>
+    public const string WorkflowAgentVersionPinned = "workflow.agent_version_pinned";
 }
 
 public static class AdminAuditResources
