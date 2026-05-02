@@ -58,6 +58,10 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
 
     public async Task<AgentVersion> AppendAsync(AgentVersion version, CancellationToken ct = default)
     {
+        // Defesa em profundidade: rejeita snapshots com invariantes violadas
+        // antes de tocar o DB (ex: BreakingChange=true sem ChangeReason).
+        version.EnsureInvariants();
+
         await using var ctx = await _factory.CreateDbContextAsync(ct);
 
         // Idempotência por hash: se a última revision já carrega esse content hash, no-op.
@@ -79,7 +83,9 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
             ChangeReason = version.ChangeReason,
             Status = version.Status.ToString(),
             ContentHash = version.ContentHash,
-            Snapshot = JsonSerializer.Serialize(version, JsonDefaults.Domain)
+            Snapshot = JsonSerializer.Serialize(version, JsonDefaults.Domain),
+            BreakingChange = version.BreakingChange,
+            SchemaVersion = version.SchemaVersion,
         };
 
         ctx.AgentVersions.Add(row);
@@ -87,10 +93,70 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
         return version;
     }
 
+    public async Task<AgentVersion?> GetAncestorBreakingAsync(
+        string agentDefinitionId,
+        int fromRevisionExclusive,
+        int toRevisionInclusive,
+        CancellationToken ct = default)
+    {
+        if (toRevisionInclusive <= fromRevisionExclusive)
+            return null;
+
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        var row = await ctx.AgentVersions
+            .Where(r => r.AgentDefinitionId == agentDefinitionId
+                        && r.Revision > fromRevisionExclusive
+                        && r.Revision <= toRevisionInclusive
+                        && r.BreakingChange == true)
+            .OrderBy(r => r.Revision)
+            .FirstOrDefaultAsync(ct);
+        return row is null ? null : Deserialize(row);
+    }
+
+    public async Task<AgentVersion> ResolveEffectiveAsync(
+        string agentDefinitionId,
+        string pinnedVersionId,
+        CancellationToken ct = default)
+    {
+        var pinned = await GetByIdAsync(pinnedVersionId, ct)
+            ?? throw new InvalidOperationException(
+                $"AgentVersion '{pinnedVersionId}' (pin) referenciada não foi encontrada.");
+
+        if (!string.Equals(pinned.AgentDefinitionId, agentDefinitionId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"AgentVersion '{pinnedVersionId}' não pertence ao agent '{agentDefinitionId}'.");
+
+        var current = await GetCurrentAsync(agentDefinitionId, ct);
+        // Sem version Published — retorna o pin (caller pinou em estado pré-publish).
+        if (current is null)
+            return pinned;
+
+        // Pin >= current: snapshot pinado já é o mais novo (ou igual).
+        if (pinned.Revision >= current.Revision)
+            return pinned;
+
+        // Pin < current: tem breaking entre os dois? Se sim, fica no pin (exact).
+        // Senão, propaga current (patch).
+        var breaking = await GetAncestorBreakingAsync(
+            agentDefinitionId, pinned.Revision, current.Revision, ct);
+
+        return breaking is null ? current : pinned;
+    }
+
     private static AgentVersion Deserialize(AgentVersionRow row)
     {
         var version = JsonSerializer.Deserialize<AgentVersion>(row.Snapshot, JsonDefaults.Domain);
-        if (version is not null) return version;
+        if (version is not null)
+        {
+            // Promoted columns são source of truth pra BreakingChange/SchemaVersion
+            // (snapshot JSON pode estar desatualizado em rows antigas pré-feature).
+            // SchemaVersion na coluna é NOT NULL DEFAULT 1 — confiamos no schema.
+            return version with
+            {
+                BreakingChange = row.BreakingChange,
+                SchemaVersion = row.SchemaVersion,
+            };
+        }
 
         // Fallback defensivo — snapshot corrompido: reconstrói um esqueleto mínimo.
         return new AgentVersion(
@@ -111,6 +177,8 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
             Resilience: null,
             CostBudget: null,
             SkillRefs: Array.Empty<EfsAiHub.Core.Agents.Skills.SkillRef>(),
-            ContentHash: row.ContentHash);
+            ContentHash: row.ContentHash,
+            BreakingChange: row.BreakingChange,
+            SchemaVersion: row.SchemaVersion);
     }
 }
