@@ -42,4 +42,13 @@ public sealed class SharingOptions
     /// Default 60s.
     /// </summary>
     public int CrossInvokeAuditThrottleSeconds { get; init; } = 60;
+
+    /// <summary>
+    /// Quando true: workflow save exige <c>WorkflowAgentReference.AgentVersionId</c>
+    /// não-vazio em todos os refs (validado no <c>WorkflowValidator</c>); workflows
+    /// legados sem pin são auto-pinados pelo <c>AgentFactory</c> no first execute
+    /// pós-flag (ver <c>WorkflowService.AutoPinLegacyReferencesAsync</c>).
+    /// Default false: rollout staged controlado, ativado por tenant após validação.
+    /// </summary>
+    public bool MandatoryPin { get; init; } = false;
 }
