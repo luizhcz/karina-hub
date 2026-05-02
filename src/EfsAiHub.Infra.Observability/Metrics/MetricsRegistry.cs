@@ -168,6 +168,61 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("agents.enabled_changes_total",
             description: "Mudanças de Enabled em AgentDefinition. Tags: from, to, tenant.");
 
+    /// <summary>
+    /// Drafts de agent criados via POST /api/agent-drafts. Tags: tenant, is_edit_draft.
+    /// </summary>
+    public static readonly Counter<long> AgentDraftsCreated =
+        _meter.CreateCounter<long>("agents.drafts_created_total",
+            description: "Drafts de agent criados. Tags: tenant, is_edit_draft.");
+
+    /// <summary>
+    /// Drafts promovidos a agent canônico via aprovação no painel
+    /// (POST /api/agent-approvals/{id}/approve). Tags: tenant, was_edit_draft.
+    /// </summary>
+    public static readonly Counter<long> AgentDraftsPublished =
+        _meter.CreateCounter<long>("agents.drafts_published_total",
+            description: "Drafts promovidos via approval. Tags: tenant, was_edit_draft.");
+
+    /// <summary>
+    /// Drafts descartados explicitamente via DELETE /api/agent-drafts/{id}. Tags: tenant.
+    /// </summary>
+    public static readonly Counter<long> AgentDraftsAbandoned =
+        _meter.CreateCounter<long>("agents.drafts_abandoned_total",
+            description: "Drafts descartados. Tags: tenant.");
+
+    /// <summary>
+    /// Idade do draft no momento do approve, em horas. Histograma — sinaliza tempo
+    /// que rascunhos ficam abertos antes de virar produção (sinal de UX).
+    /// </summary>
+    public static readonly Histogram<double> AgentDraftAgeHours =
+        _meter.CreateHistogram<double>("agents.draft_age_hours",
+            unit: "h",
+            description: "Idade do draft no approve (CreatedAt → approve).");
+
+    /// <summary>
+    /// Rascunhos submetidos ao painel de aprovação. Distingue first-time submit
+    /// de re-submit pós-rejeição via tag was_resubmit. Tags: tenant, was_resubmit.
+    /// </summary>
+    public static readonly Counter<long> AgentDraftsSubmitted =
+        _meter.CreateCounter<long>("agents.drafts_submitted_total",
+            description: "Drafts enviados ao painel. Tags: tenant, was_resubmit.");
+
+    /// <summary>
+    /// Rascunhos rejeitados pelo painel. Tags: tenant.
+    /// </summary>
+    public static readonly Counter<long> AgentDraftsRejected =
+        _meter.CreateCounter<long>("agents.drafts_rejected_total",
+            description: "Drafts rejeitados pelo painel. Tags: tenant.");
+
+    /// <summary>
+    /// Tempo entre Submitted e a transição final (Approved ou Rejected) em horas.
+    /// Sinaliza SLA do painel de aprovação. Tags: tenant, outcome (approved|rejected).
+    /// </summary>
+    public static readonly Histogram<double> AgentApprovalLatencyHours =
+        _meter.CreateHistogram<double>("agents.approval_latency_hours",
+            unit: "h",
+            description: "Latência do painel: SubmittedAt → resolução. Tags: tenant, outcome.");
+
     public static readonly Counter<long> StaleExecutionCompletionSkipped =
         _meter.CreateCounter<long>("chat.stale_completion.skipped",
             description: "Completions ignoradas por corresponderem a execução não mais ativa na conversa");

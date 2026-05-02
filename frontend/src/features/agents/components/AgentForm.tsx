@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, createContext, useContext, type ReactNode } from 'react'
 import { useForm, FormProvider, useFormContext } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -19,6 +19,13 @@ import type { AgentFormValues } from '../types'
 import type { AgentDef } from '../../../api/agents'
 import { PROVIDER_OPTIONS, CATALOG_TO_PROVIDER } from '../../../constants/providers'
 import { RESPONSE_FORMAT_OPTIONS, AGENT_DEFAULTS } from '../../../constants/agent'
+
+
+// fieldset[disabled] cobre inputs nativos mas o MonacoEditor renderiza num
+// container próprio que ignora form semantics — propagamos readOnly via context
+// pra que sections custom respeitem o estado disabled do AgentForm.
+const FormDisabledContext = createContext(false)
+const useFormDisabled = () => useContext(FormDisabledContext)
 
 
 export const agentFormSchema = z.object({
@@ -338,6 +345,7 @@ function FallbackSection() {
 function PromptSection() {
   const { watch, setValue } = useFormContext<AgentFormValues>()
   const instructions = watch('instructions')
+  const disabled = useFormDisabled()
 
   return (
     <Card title="Instrucoes (Prompt)">
@@ -346,6 +354,7 @@ function PromptSection() {
         onChange={(v) => setValue('instructions', v)}
         language="markdown"
         height="250px"
+        readOnly={disabled}
       />
     </Card>
   )
@@ -571,9 +580,13 @@ interface AgentFormProps {
   onSubmit: (values: AgentFormValues) => void
   loading?: boolean
   existingIds?: Set<string>
+  /** Bloqueia inputs do form quando true (read-only). Submit ainda funciona — caller decide via submitOverride. */
+  disabled?: boolean
+  /** Quando fornecido, substitui o footer default de submit (botão único) por um custom — usado em flows com múltiplos CTAs (ex: "Salvar rascunho" + "Publicar"). */
+  submitOverride?: ReactNode
 }
 
-export function AgentForm({ initialValues, onSubmit, loading, existingIds }: AgentFormProps) {
+export function AgentForm({ initialValues, onSubmit, loading, existingIds, disabled, submitOverride }: AgentFormProps) {
   const isEdit = !!initialValues
 
   const schema = useMemo(() => {
@@ -591,26 +604,32 @@ export function AgentForm({ initialValues, onSubmit, loading, existingIds }: Age
 
   return (
     <FormProvider {...methods}>
+      <FormDisabledContext.Provider value={!!disabled}>
       <form onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col gap-6">
-        <IdentitySection isEdit={isEdit} />
-        <ModelSection />
-        <ProviderSection />
-        <FallbackSection />
-        <PromptSection />
-        <ToolsSection />
-        <McpToolsSection />
-        <SkillsSection />
-        <StructuredOutputSection />
-        <MiddlewaresSection />
-        <ResilienceSection />
-        <BudgetSection />
+        <fieldset disabled={disabled} className="contents">
+          <IdentitySection isEdit={isEdit} />
+          <ModelSection />
+          <ProviderSection />
+          <FallbackSection />
+          <PromptSection />
+          <ToolsSection />
+          <McpToolsSection />
+          <SkillsSection />
+          <StructuredOutputSection />
+          <MiddlewaresSection />
+          <ResilienceSection />
+          <BudgetSection />
+        </fieldset>
 
-        <div className="flex justify-end">
-          <Button type="submit" loading={loading}>
-            {isEdit ? 'Salvar Alteracoes' : 'Criar Agente'}
-          </Button>
-        </div>
+        {submitOverride ?? (
+          <div className="flex justify-end">
+            <Button type="submit" loading={loading}>
+              {isEdit ? 'Salvar Alteracoes' : 'Criar Agente'}
+            </Button>
+          </div>
+        )}
       </form>
+      </FormDisabledContext.Provider>
     </FormProvider>
   )
 }

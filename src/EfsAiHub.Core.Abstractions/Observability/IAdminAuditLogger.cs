@@ -103,6 +103,45 @@ public static class AdminAuditActions
     public const string AgentEnabledChanged = "agent.enabled_changed";
 
     /// <summary>
+    /// Criação de rascunho de agent. Emitido pelo POST /api/agent-drafts.
+    /// PayloadAfter inclui draftId, isEditDraft, baseAgentId.
+    /// </summary>
+    public const string AgentDraftCreated = "agent.draft_created";
+
+    /// <summary>
+    /// Atualização de rascunho. Emitido pelo PUT /api/agent-drafts/{id}.
+    /// PayloadAfter inclui draftId, updatedAt.
+    /// </summary>
+    public const string AgentDraftUpdated = "agent.draft_updated";
+
+    /// <summary>
+    /// Descarte explícito de rascunho. Emitido pelo DELETE /api/agent-drafts/{id}.
+    /// </summary>
+    public const string AgentDraftDeleted = "agent.draft_deleted";
+
+    /// <summary>
+    /// Submissão de rascunho ao painel de aprovação. Emitido pelo POST
+    /// /api/agent-drafts/{id}/submit (transição Draft|Rejected → PendingApproval).
+    /// PayloadAfter inclui draftId, isEditDraft, baseAgentId, wasResubmit.
+    /// </summary>
+    public const string AgentDraftSubmitted = "agent.draft_submitted";
+
+    /// <summary>
+    /// Aprovação de rascunho pelo painel. Emitido pelo POST
+    /// /api/agent-approvals/{id}/approve após promoção atômica (agent_definitions
+    /// + agent_versions + delete do draft + history entry). PayloadAfter inclui
+    /// agentId, fromDraftId, wasEditDraft, approverUserId, ageHours.
+    /// </summary>
+    public const string AgentDraftApproved = "agent.draft_approved";
+
+    /// <summary>
+    /// Rejeição de rascunho pelo painel. Emitido pelo POST
+    /// /api/agent-approvals/{id}/reject. PayloadAfter inclui draftId,
+    /// approverUserId, feedback, ageHours.
+    /// </summary>
+    public const string AgentDraftRejected = "agent.draft_rejected";
+
+    /// <summary>
     /// Workflow do projeto X resolveu agent global do projeto Y.
     /// Evento operacional emitido em cada execução cross-project pelo AgentFactory.
     /// PayloadAfter inclui callerProjectId, ownerProjectId, workflowId, agentId.

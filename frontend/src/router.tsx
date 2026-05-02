@@ -9,6 +9,8 @@ import { DashboardPage } from './features/dashboard/DashboardPage'
 import { AgentsListPage } from './features/agents/AgentsListPage'
 import { AgentCreatePage } from './features/agents/AgentCreatePage'
 import { AgentDetailPage } from './features/agents/AgentDetailPage'
+import { AgentDraftDetailPage } from './features/agents/AgentDraftDetailPage'
+import { AgentApprovalsPage } from './features/agents/AgentApprovalsPage'
 
 import { WorkflowsListPage } from './features/workflows/WorkflowsListPage'
 import { WorkflowCreatePage } from './features/workflows/WorkflowCreatePage'
@@ -87,6 +89,8 @@ export const router = createBrowserRouter([
 
           { path: 'agents', element: <AgentsListPage /> },
           { path: 'agents/new', element: <AgentCreatePage /> },
+          { path: 'agents/approvals', element: <AgentApprovalsPage /> },
+          { path: 'agents/drafts/:id', element: <AgentDraftDetailPage /> },
           { path: 'agents/:id', element: <AgentDetailPage /> },
           { path: 'agents/:id/versions', element: <AgentDetailPage initialTab="versions" /> },
           { path: 'agents/:id/sandbox', element: <AgentDetailPage initialTab="sandbox" /> },

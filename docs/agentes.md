@@ -982,6 +982,92 @@ Três superfícies no frontend dão visibilidade do estado de pin pra usuário e
 
 ---
 
+## 11.5 Drafts de Agente + Painel de Aprovação
+
+Permite construir um agent gradualmente como rascunho (campos parciais, salvar e voltar depois) e promover via fluxo de aprovação humana. **Não há mais publish direto** — todo agent canônico passa pelo painel. Workflows nunca enxergam drafts/pendings — segregação física via tabela separada.
+
+### Lifecycle
+
+```
+[Draft] --submit--> [PendingApproval] --approve--> agent_definitions (draft removido)
+   ^                      |
+   |                      --reject(feedback)--> [Rejected]
+   |                                                 |
+   +--PUT (edita) -- limpa feedback ----------------+
+                                                     |
+                                                     --POST /submit (re-submit)--> [PendingApproval]
+```
+
+### Tabela `agent_drafts`
+
+| Coluna | Tipo | Descrição |
+|--------|------|-----------|
+| `Id` | varchar(256) PK | Slug user-provided ou GUID gerado |
+| `Name`, `Data` | varchar / text | Estado parcial; `Data` é JSON do `AgentDraftPayload` |
+| `ProjectId`, `TenantId` | varchar | Owner — query filter owner-only por default; painel usa `IgnoreQueryFilters + TenantId == current` |
+| `Status` | varchar(32) | `Draft` \| `PendingApproval` \| `Rejected` (CK constraint) |
+| `RejectionFeedback` | text NULL | Mensagem do aprovador quando Status=Rejected |
+| `SubmittedAt` | timestamptz NULL | Stamp da última transição pra PendingApproval |
+| `BaseAgentId` | varchar(256) NULL | Setado em edit-draft = Id do agent publicado origem |
+| `BaseRevision` | int NULL | Revision capturada no fork; detecta race de re-publish concorrente |
+| `CreatedAt`, `UpdatedAt` | timestamptz | UpdatedAt usado em optimistic concurrency |
+
+Index parcial `IX_agent_drafts_TenantId_Status WHERE Status='PendingApproval'` alimenta o hot path do painel.
+
+### Tabela `agent_approval_history` (append-only)
+
+| Coluna | Tipo | Descrição |
+|--------|------|-----------|
+| `Id` | varchar(64) PK | GUID |
+| `DraftId` | varchar(256) | Sem FK — sobrevive ao delete do draft pós-approve |
+| `TenantId` | varchar(128) | |
+| `Action` | varchar(32) | `Submitted` \| `Resubmitted` \| `Approved` \| `Rejected` |
+| `ActorUserId` | varchar(256) | Resolvido via `x-efs-actor-user-id` (default `anonymous`) |
+| `Feedback` | text NULL | Razão do aprovador em `Rejected`; ChangeReason opcional em `Approved` |
+| `OccurredAt` | timestamptz | |
+
+### Endpoints
+
+| Método | Rota | Comportamento |
+|---|---|---|
+| `POST /api/agent-drafts` | Cria draft (Status=Draft). Owner-scoped. |
+| `PUT /api/agent-drafts/{id}` | Edita. Status=PendingApproval rejeita 409. Status=Rejected → limpa feedback + volta pra Draft. Optimistic via `expectedUpdatedAt`. |
+| `DELETE /api/agent-drafts/{id}` | Owner descarta. |
+| `POST /api/agent-drafts/{id}/submit` | Draft\|Rejected → PendingApproval. Stamp `SubmittedAt`. Audit `agent.draft_submitted` + history `Submitted`/`Resubmitted`. |
+| `POST /api/agents/{id}/edit-draft` | Forka agent publicado pra edit-draft (BaseAgentId/BaseRevision setados). |
+| `GET /api/agent-approvals?status=pending\|rejected` | Lista do tenant inteiro (cross-project, bypass query filter). Default `pending`. Status inválido → 400. |
+| `GET /api/agent-approvals/{id}` | Detalhe tenant-scope. |
+| `POST /api/agent-approvals/{id}/approve` | Promove a `agent_definitions` + AgentVersion (Revision=1 ou MAX+1). Audit `agent.draft_approved` + history `Approved`. Detecta race de re-publish via BaseRevision (409). |
+| `POST /api/agent-approvals/{id}/reject` | Body `{ feedback: string (>=10 chars) }`. PendingApproval → Rejected. Audit `agent.draft_rejected` + history `Rejected`. |
+| `GET /api/agent-approvals/{id}/history` | Timeline append-only. |
+
+### Permissions (MVP)
+
+Sem permissions — qualquer caller do tenant pode aprovar/rejeitar (decisão da feature). Audit registra `actorUserId` pra rastreabilidade. Self-approval (criador aprovando próprio) **permitido** nesta versão.
+
+### Atomicidade + races
+
+- `RejectAsync` envolve `ExecuteUpdate` + history insert em `BeginTransactionAsync` explícito.
+- `ApproveAsync` chama `_definitionRepo.UpsertAsync` (TX implícita) + segundo TX pro delete + history. Crash entre os dois deixa draft órfão em `PendingApproval` mas o agent já promovido — re-approve é idempotente via ContentHash em `AgentVersion.AppendAsync`.
+- `BaseRevision` capturada no fork (edit-draft) é comparada com `MAX(agent_versions.Revision)` no `ApproveAsync` — divergência lança `DraftRePublishRaceException`.
+- Concurrent approve: 2º caller ganha rows=0 no `ExecuteDelete`; ambos veem `agent_definitions` consistente (UpsertAsync idempotente).
+
+### Audit + Métricas
+
+- Audit constants em [IAdminAuditLogger.cs](../src/EfsAiHub.Core.Abstractions/Observability/IAdminAuditLogger.cs): `agent.draft_created`, `agent.draft_updated`, `agent.draft_deleted`, `agent.draft_submitted`, `agent.draft_approved`, `agent.draft_rejected`.
+- `agent.draft_approved` carrega `{ agentId, fromDraftId, wasEditDraft, approverUserId, ageHours }`. Correlacionado com `agent.version_published` emitido pelo dual-write.
+- Métricas em [MetricsRegistry.cs](../src/EfsAiHub.Infra.Observability/Metrics/MetricsRegistry.cs): `agents.drafts_created_total{is_edit_draft}`, `agents.drafts_submitted_total{was_resubmit}`, `agents.drafts_published_total{was_edit_draft}`, `agents.drafts_rejected_total`, `agents.drafts_abandoned_total`, histogramas `agents.draft_age_hours` (CreatedAt → approve) e `agents.approval_latency_hours{outcome=approved\|rejected}` (SubmittedAt → resolução).
+
+### UI
+
+- [AgentsListPage](../frontend/src/features/agents/AgentsListPage.tsx): abas `Publicados` / `Rascunhos`. Aba Rascunhos tem chip filter por status (Todos/Em rascunho/Em aprovação/Rejeitados) com contagens.
+- [AgentCreatePage](../frontend/src/features/agents/AgentCreatePage.tsx): CTAs "Salvar rascunho" e "Publicar agora" (cria draft + faz submit em sequência — versão futura unificará via mesmo botão).
+- [AgentDraftDetailPage](../frontend/src/features/agents/AgentDraftDetailPage.tsx): badge de status, banner de feedback inline se Rejected, form `disabled` se PendingApproval (Monaco também via `FormDisabledContext`), Card "Histórico de aprovação" com timeline. CTA "Enviar para aprovação" / "Reenviar para aprovação" conforme status.
+- [AgentApprovalsPage](../frontend/src/features/agents/AgentApprovalsPage.tsx): painel `/agents/approvals` com Tabs Pendentes/Rejeitados, ação Approve via ConfirmDialog + ação Reject via Card inline com Textarea (>=10 chars). Refresh manual.
+- [AdminAuditPage](../frontend/src/features/audit/AdminAuditPage.tsx): filtros pelas 3 ações novas + cores (submitted=blue, approved=green, rejected=red).
+
+---
+
 ## 12. Versionamento de Prompt
 
 ### Modelo

@@ -40,6 +40,46 @@ internal class AgentDefinitionRow
     public string? RegressionEvaluatorConfigVersionId { get; set; }
 }
 
+// Rascunho de agent — tabela fisicamente separada de agent_definitions.
+// Workflows nunca consultam essa tabela, então é impossível draft vazar
+// para runtime. BaseAgentId/BaseRevision identificam fork de agent já publicado
+// (edit-draft) e habilitam detecção de re-publish concorrente.
+// Status governa o approval workflow: Draft (em edição) → PendingApproval (no
+// painel) → Approved (efêmero — ao aprovar, agent vai pra agent_definitions e
+// draft é removido) | Rejected (volta visível ao owner com feedback).
+internal class AgentDraftRow
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Data { get; set; } = "{}";
+    public string ProjectId { get; set; } = "default";
+    public string TenantId { get; set; } = "default";
+    public string? BaseAgentId { get; set; }
+    public int? BaseRevision { get; set; }
+    public string Status { get; set; } = "Draft";
+    public string? RejectionFeedback { get; set; }
+    public DateTime? SubmittedAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public string? CreatedBy { get; set; }
+    public string? RegressionTestSetId { get; set; }
+    public string? RegressionEvaluatorConfigVersionId { get; set; }
+}
+
+// Append-only history de transições do approval workflow. Sobrevive ao
+// delete do draft após approve — fonte canônica de "quem aprovou/rejeitou
+// o que e quando".
+internal class AgentApprovalHistoryRow
+{
+    public string Id { get; set; } = "";
+    public string DraftId { get; set; } = "";
+    public string TenantId { get; set; } = "default";
+    public string Action { get; set; } = "Submitted";
+    public string ActorUserId { get; set; } = "";
+    public string? Feedback { get; set; }
+    public DateTime OccurredAt { get; set; }
+}
+
 internal class ProjectRow
 {
     public string Id { get; set; } = "";
@@ -497,6 +537,8 @@ public class AgentFwDbContext : DbContext
     internal DbSet<ProjectRow> Projects => Set<ProjectRow>();
     internal DbSet<WorkflowDefinitionRow> WorkflowDefinitions => Set<WorkflowDefinitionRow>();
     internal DbSet<AgentDefinitionRow> AgentDefinitions => Set<AgentDefinitionRow>();
+    internal DbSet<AgentDraftRow> AgentDrafts => Set<AgentDraftRow>();
+    internal DbSet<AgentApprovalHistoryRow> AgentApprovalHistory => Set<AgentApprovalHistoryRow>();
     internal DbSet<AgentPromptVersionRow> AgentPromptVersions => Set<AgentPromptVersionRow>();
     internal DbSet<AgentVersionRow> AgentVersions => Set<AgentVersionRow>();
     internal DbSet<WorkflowVersionRow> WorkflowVersions => Set<WorkflowVersionRow>();
@@ -654,6 +696,56 @@ public class AgentFwDbContext : DbContext
             b.HasQueryFilter(e =>
                 e.ProjectId == CurrentProjectId
                 || (e.Visibility == "global" && e.TenantId == CurrentTenantId));
+        });
+
+        modelBuilder.Entity<AgentDraftRow>(b =>
+        {
+            b.ToTable("agent_drafts");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(256);
+            b.Property(e => e.Name).HasMaxLength(512).HasDefaultValue("");
+            b.Property(e => e.Data).HasColumnType("text").HasDefaultValue("{}");
+            b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
+            b.Property(e => e.TenantId).HasMaxLength(128).HasDefaultValue("default");
+            b.Property(e => e.BaseAgentId).HasMaxLength(256);
+            b.Property(e => e.Status).HasMaxLength(32).HasDefaultValue("Draft").IsRequired();
+            b.Property(e => e.RejectionFeedback).HasColumnType("text");
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.Property(e => e.CreatedBy).HasMaxLength(256);
+            b.Property(e => e.RegressionTestSetId).HasMaxLength(64);
+            b.Property(e => e.RegressionEvaluatorConfigVersionId).HasMaxLength(64);
+            b.HasIndex(e => new { e.ProjectId, e.TenantId })
+                .HasDatabaseName("IX_agent_drafts_ProjectId_TenantId");
+            b.HasIndex(e => e.BaseAgentId)
+                .HasDatabaseName("IX_agent_drafts_BaseAgentId")
+                .HasFilter("\"BaseAgentId\" IS NOT NULL");
+            // Index parcial alimenta o painel de aprovação (hot path).
+            b.HasIndex(e => new { e.TenantId, e.Status })
+                .HasDatabaseName("IX_agent_drafts_TenantId_Status")
+                .HasFilter("\"Status\" = 'PendingApproval'");
+            // Owner-only por default. O painel de aprovação usa IgnoreQueryFilters
+            // + filtro manual de TenantId pra ver drafts pending de qualquer
+            // project do tenant.
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+        });
+
+        modelBuilder.Entity<AgentApprovalHistoryRow>(b =>
+        {
+            b.ToTable("agent_approval_history");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(64);
+            b.Property(e => e.DraftId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.TenantId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Action).HasMaxLength(32).IsRequired();
+            b.Property(e => e.ActorUserId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Feedback).HasColumnType("text");
+            b.Property(e => e.OccurredAt).IsRequired();
+            b.HasIndex(e => e.DraftId)
+                .HasDatabaseName("IX_agent_approval_history_DraftId");
+            b.HasIndex(e => new { e.TenantId, e.OccurredAt })
+                .HasDatabaseName("IX_agent_approval_history_TenantId_OccurredAt")
+                .IsDescending(false, true);
         });
 
         modelBuilder.Entity<AgentVersionRow>(b =>

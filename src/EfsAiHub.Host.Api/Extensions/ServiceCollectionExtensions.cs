@@ -257,6 +257,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Core.Agents.Services.ISkillResolver, EfsAiHub.Core.Agents.Services.SkillResolver>();
         services.AddSingleton<EfsAiHub.Core.Agents.Responses.IBackgroundResponseRepository, PgBackgroundResponseRepository>();
         services.AddSingleton<IAgentDefinitionRepository, PgAgentDefinitionRepository>();
+        services.AddSingleton<IAgentDraftRepository, PgAgentDraftRepository>();
         services.AddSingleton<IAgentPromptRepository, PgAgentPromptRepository>();
         services.AddSingleton<IWorkflowExecutionRepository, PgWorkflowExecutionRepository>();
         services.AddSingleton<INodeExecutionRepository, PgNodeExecutionRepository>();
@@ -300,6 +301,8 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<EfsAiHub.Core.Abstractions.Execution.IExecutionSlotRegistry, ChatExecutionRegistry>();
         services.AddScoped<IAgentService, AgentService>();
+        services.AddScoped<IAgentDraftService, AgentDraftService>();
+        services.AddScoped<IAgentApprovalService, AgentApprovalService>();
         services.AddScoped<WorkflowValidator>();
         services.AddScoped<EfsAiHub.Core.Orchestration.Validation.EdgeInvariantsValidator>();
         services.AddScoped<EfsAiHub.Platform.Runtime.Migration.EdgeMigrationReporter>(sp =>

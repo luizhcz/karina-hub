@@ -11,6 +11,7 @@ interface NavItem {
 const operationItems: NavItem[] = [
   { label: 'Dashboard', path: '/dashboard', icon: '◫' },
   { label: 'Agentes', path: '/agents', icon: '⬡' },
+  { label: 'Aprovação de agentes', path: '/agents/approvals', icon: '✓' },
   { label: 'Workflows', path: '/workflows', icon: '⎔' },
   { label: 'Chat', path: '/chat', icon: '◉' },
   { label: 'Execuções', path: '/executions', icon: '▶' },

@@ -17,17 +17,20 @@ public class AgentsController : ControllerBase
 {
     private readonly IAgentService _agentService;
     private readonly IAgentVersionRepository _versionRepo;
+    private readonly IAgentDraftService _draftService;
     private readonly IAdminAuditLogger _audit;
     private readonly AdminAuditContext _auditContext;
 
     public AgentsController(
         IAgentService agentService,
         IAgentVersionRepository versionRepo,
+        IAgentDraftService draftService,
         IAdminAuditLogger audit,
         AdminAuditContext auditContext)
     {
         _agentService = agentService;
         _versionRepo = versionRepo;
+        _draftService = draftService;
         _audit = audit;
         _auditContext = auditContext;
     }
@@ -210,6 +213,54 @@ public class AgentsController : ControllerBase
         catch (UnauthorizedAccessException ex)
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    [HttpPost("{id}/edit-draft")]
+    [SwaggerOperation(Summary = "Forka o agent publicado pra um rascunho de edição. Original permanece ativo até a aprovação do rascunho.")]
+    [ProducesResponseType(typeof(AgentDraftResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreateEditDraft(string id, CancellationToken ct)
+    {
+        try
+        {
+            var draft = await _draftService.CreateEditDraftAsync(id, ct);
+
+            await _audit.RecordAsync(_auditContext.Build(
+                AdminAuditActions.AgentDraftCreated,
+                AdminAuditResources.Agent,
+                draft.Id,
+                payloadAfter: AdminAuditContext.Snapshot(new
+                {
+                    draftId = draft.Id,
+                    isEditDraft = true,
+                    baseAgentId = draft.BaseAgentId,
+                    baseRevision = draft.BaseRevision
+                })), ct);
+
+            EfsAiHub.Infra.Observability.MetricsRegistry.AgentDraftsCreated.Add(1,
+                new KeyValuePair<string, object?>("tenant", draft.TenantId),
+                new KeyValuePair<string, object?>("is_edit_draft", true));
+
+            return CreatedAtAction(
+                "GetById",
+                "AgentDrafts",
+                new { id = draft.Id },
+                AgentDraftResponse.FromDomain(draft));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message });
         }
         catch (KeyNotFoundException)
         {

@@ -289,6 +289,13 @@ CREATE TABLE aihub.admin_audit_log (
 | `agent.version_published` | `POST /api/agents/{id}/versions` em publish efetivo (idempotente por ContentHash) | `{ revision, breakingChange, changeReason, contentHash }` |
 | `agent.version_lossless_roundtrip_failed` | declarada — emissão futura via dispatcher | `{ agentVersionId, agentDefinitionId, contentHash }` |
 | `workflow.agent_version_pinned` | `PATCH /api/workflows/{id}/agents/{agentId}/pin` | `{ agentId, previousVersionId, newVersionId, wasBreaking, reason }` |
+| `agent.enabled_changed` | `PATCH /api/agents/{id}/enabled` | `{ before: { enabled }, after: { enabled, reason } }` |
+| `agent.draft_created` | `POST /api/agent-drafts` ou `POST /api/agents/{id}/edit-draft` | `{ draftId, isEditDraft, baseAgentId, baseRevision }` |
+| `agent.draft_updated` | `PUT /api/agent-drafts/{id}` | `{ draftId, updatedAt }` |
+| `agent.draft_deleted` | `DELETE /api/agent-drafts/{id}` | (ResourceId = draftId) |
+| `agent.draft_submitted` | `POST /api/agent-drafts/{id}/submit` | `{ draftId, isEditDraft, baseAgentId, wasResubmit }` |
+| `agent.draft_approved` | `POST /api/agent-approvals/{id}/approve` em approve efetivo | `{ agentId, fromDraftId, wasEditDraft, approverUserId, ageHours }` (correlacionado com `agent.version_published`) |
+| `agent.draft_rejected` | `POST /api/agent-approvals/{id}/reject` | `{ draftId, approverUserId, feedback }` |
 
 ### Pinning Federated — endpoints
 
@@ -1235,11 +1242,21 @@ src/EfsAiHub.Infra.Observability/Metrics/MetricsRegistry.cs
 - `agent.escalation.signals` (tags: category, routed)
 - `chat.backpressure.rejections`, `chat.stale_completion.skipped`
 - `persistence.channel.dropped` (tags: channel)
+- `agents.visibility_changes_total` (tags: from, to, tenant)
+- `agents.enabled_changes_total` (tags: from, to, tenant)
+- `agents.disabled_invocations_total` (tags: agent_id, workflow_id)
+- `agents.drafts_created_total` (tags: tenant, is_edit_draft)
+- `agents.drafts_submitted_total` (tags: tenant, was_resubmit)
+- `agents.drafts_published_total` (tags: tenant, was_edit_draft) — incrementado no approve do painel
+- `agents.drafts_rejected_total` (tags: tenant)
+- `agents.drafts_abandoned_total` (tags: tenant)
 
 **Histograms:**
 - `workflows.duration_ms`, `agents.tokens_used`, `agents.cost_usd`
 - `agent.invocation.duration`
 - `agent.version.resolve_latency`
+- `agents.draft_age_hours` (idade do draft no momento do approve — CreatedAt → approve)
+- `agents.approval_latency_hours` (latência do painel — SubmittedAt → approve|reject; tags: tenant, outcome)
 - `rag.retrieval.latency`, `rag.docs.returned`
 - `hitl.resolution_duration_seconds`
 

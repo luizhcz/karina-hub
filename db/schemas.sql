@@ -97,6 +97,84 @@ CREATE INDEX IF NOT EXISTS "IX_agent_definitions_TenantId_Visibility"
     ON aihub.agent_definitions ("TenantId")
     WHERE "Visibility" = 'global';
 
+-- Drafts de agente. Tabela fisicamente separada de agent_definitions: workflows
+-- nunca leem desta tabela, eliminando a classe de bug "draft vazou pro runtime".
+-- BaseAgentId/BaseRevision = NULL pra draft de criação; setados pra draft de
+-- edit (fork de agent já publicado) — Revision capturada no fork detecta race
+-- de re-publish concorrente no momento do publish.
+-- BaseAgentId NÃO tem FK formal pra agent_definitions porque o agent base pode
+-- ser deletado enquanto o draft existe (drift legítimo, detectado em publish
+-- via comparação de BaseRevision com MAX(agent_versions.Revision)).
+CREATE TABLE IF NOT EXISTS aihub.agent_drafts (
+    "Id"                                 VARCHAR(256) NOT NULL,
+    "Name"                               VARCHAR(512) NOT NULL DEFAULT '',
+    "Data"                               TEXT         NOT NULL DEFAULT '{}',
+    "ProjectId"                          VARCHAR(128) NOT NULL DEFAULT 'default',
+    "TenantId"                           VARCHAR(128) NOT NULL DEFAULT 'default',
+    "BaseAgentId"                        VARCHAR(256) NULL,
+    "BaseRevision"                       INTEGER      NULL,
+    "CreatedAt"                          TIMESTAMPTZ  NOT NULL,
+    "UpdatedAt"                          TIMESTAMPTZ  NOT NULL,
+    "CreatedBy"                          VARCHAR(256) NULL,
+    "RegressionTestSetId"                VARCHAR(64)  NULL,
+    "RegressionEvaluatorConfigVersionId" VARCHAR(64)  NULL,
+    CONSTRAINT "PK_agent_drafts" PRIMARY KEY ("Id")
+);
+
+CREATE INDEX IF NOT EXISTS "IX_agent_drafts_ProjectId_TenantId"
+    ON aihub.agent_drafts ("ProjectId", "TenantId");
+
+CREATE INDEX IF NOT EXISTS "IX_agent_drafts_BaseAgentId"
+    ON aihub.agent_drafts ("BaseAgentId")
+    WHERE "BaseAgentId" IS NOT NULL;
+
+-- Lifecycle de aprovação. Status governa transições Draft → PendingApproval →
+-- (Approved → agent_definitions, draft removido) | Rejected → PendingApproval (re-submit).
+-- Painel de aprovação consulta WHERE Status='PendingApproval' (índice parcial).
+ALTER TABLE aihub.agent_drafts
+    ADD COLUMN IF NOT EXISTS "Status" VARCHAR(32) NOT NULL DEFAULT 'Draft',
+    ADD COLUMN IF NOT EXISTS "RejectionFeedback" TEXT NULL,
+    ADD COLUMN IF NOT EXISTS "SubmittedAt" TIMESTAMPTZ NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'CK_agent_drafts_Status'
+    ) THEN
+        ALTER TABLE aihub.agent_drafts
+            ADD CONSTRAINT "CK_agent_drafts_Status"
+            CHECK ("Status" IN ('Draft', 'PendingApproval', 'Rejected')) NOT VALID;
+        ALTER TABLE aihub.agent_drafts
+            VALIDATE CONSTRAINT "CK_agent_drafts_Status";
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS "IX_agent_drafts_TenantId_Status"
+    ON aihub.agent_drafts ("TenantId", "Status")
+    WHERE "Status" = 'PendingApproval';
+
+-- Histórico de transições do approval workflow. Append-only — sobrevive ao
+-- delete do draft após approve. Sem FK formal pra agent_drafts (drafts
+-- aprovados são removidos, history persiste).
+CREATE TABLE IF NOT EXISTS aihub.agent_approval_history (
+    "Id"          VARCHAR(64)   NOT NULL,
+    "DraftId"     VARCHAR(256)  NOT NULL,
+    "TenantId"    VARCHAR(128)  NOT NULL,
+    "Action"      VARCHAR(32)   NOT NULL,
+    "ActorUserId" VARCHAR(256)  NOT NULL,
+    "Feedback"    TEXT          NULL,
+    "OccurredAt"  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    CONSTRAINT "PK_agent_approval_history" PRIMARY KEY ("Id"),
+    CONSTRAINT "CK_agent_approval_history_Action"
+        CHECK ("Action" IN ('Submitted', 'Resubmitted', 'Approved', 'Rejected'))
+);
+
+CREATE INDEX IF NOT EXISTS "IX_agent_approval_history_DraftId"
+    ON aihub.agent_approval_history ("DraftId");
+
+CREATE INDEX IF NOT EXISTS "IX_agent_approval_history_TenantId_OccurredAt"
+    ON aihub.agent_approval_history ("TenantId", "OccurredAt" DESC);
+
 CREATE TABLE IF NOT EXISTS aihub.workflow_definitions (
     "Id"         VARCHAR(256) NOT NULL,
     "Name"       VARCHAR(512) NOT NULL,
