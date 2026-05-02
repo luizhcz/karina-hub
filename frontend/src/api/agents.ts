@@ -77,6 +77,8 @@ export interface AgentDef {
   originTenantId?: string
   /** Whitelist opcional de projetos autorizados (apenas com visibility=global). null = qualquer projeto do tenant. */
   allowedProjectIds?: string[] | null
+  /** Quando false, runtime pula o agent em workflows que o referenciam. Default true. */
+  enabled?: boolean
   createdAt?: string
   updatedAt?: string
 }
@@ -164,6 +166,8 @@ export const publishAgentVersion = (id: string, body: { breakingChange: boolean;
   post<AgentVersionDetail>(`/agents/${id}/versions`, body)
 export const updateAgentVisibility = (id: string, body: { visibility: AgentVisibility; reason?: string }) =>
   patch<AgentDef>(`/agents/${id}/visibility`, body)
+export const updateAgentEnabled = (id: string, body: { enabled: boolean; reason?: string }) =>
+  patch<AgentDef>(`/agents/${id}/enabled`, body)
 export const sandboxAgent = (id: string, body: { input: string }) => post<SandboxResult>(`/agents/${id}/sandbox`, body)
 export const compareAgent = (id: string, body: { versionA: string; versionB: string }) =>
   post<CompareResult>(`/agents/${id}/compare`, body)
@@ -217,6 +221,18 @@ export function useUpdateAgentVisibility() {
   return useMutation({
     mutationFn: ({ id, visibility, reason }: { id: string; visibility: AgentVisibility; reason?: string }) =>
       updateAgentVisibility(id, { visibility, reason }),
+    onSuccess: (_d, { id }) => {
+      qc.invalidateQueries({ queryKey: KEYS.all })
+      qc.invalidateQueries({ queryKey: KEYS.detail(id) })
+    },
+  })
+}
+
+export function useUpdateAgentEnabled() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, enabled, reason }: { id: string; enabled: boolean; reason?: string }) =>
+      updateAgentEnabled(id, { enabled, reason }),
     onSuccess: (_d, { id }) => {
       qc.invalidateQueries({ queryKey: KEYS.all })
       qc.invalidateQueries({ queryKey: KEYS.detail(id) })

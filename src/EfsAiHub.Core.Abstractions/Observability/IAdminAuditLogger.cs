@@ -96,6 +96,13 @@ public static class AdminAuditActions
     public const string AgentVisibilityChanged = "agent.visibility_changed";
 
     /// <summary>
+    /// Liga/desliga o agent (Enabled true ↔ false). Emitido pelo PATCH
+    /// /api/agents/{id}/enabled. Quando Enabled=false, AgentFactory pula o agent
+    /// em runtime (workflows continuam mas sem invocá-lo).
+    /// </summary>
+    public const string AgentEnabledChanged = "agent.enabled_changed";
+
+    /// <summary>
     /// Workflow do projeto X resolveu agent global do projeto Y.
     /// Evento operacional emitido em cada execução cross-project pelo AgentFactory.
     /// PayloadAfter inclui callerProjectId, ownerProjectId, workflowId, agentId.

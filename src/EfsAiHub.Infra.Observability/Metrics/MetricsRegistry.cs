@@ -151,6 +151,23 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("agents.version_lossless_roundtrip_failures_total",
             description: "Falhas de deserialização de snapshot AgentVersion (sev1). Tags: agent_version_id.");
 
+    /// <summary>
+    /// Contador de invocações puladas por agent estar desabilitado (Enabled=false).
+    /// Cada vez que AgentFactory encontra um agent ref de workflow apontando pra agent
+    /// disabled e pula a criação. Tags: agent_id, workflow_id.
+    /// </summary>
+    public static readonly Counter<long> AgentDisabledInvocations =
+        _meter.CreateCounter<long>("agents.disabled_invocations_total",
+            description: "Invocações puladas por agent disabled. Tags: agent_id, workflow_id.");
+
+    /// <summary>
+    /// Contador de mudanças de Enabled em AgentDefinition (toggle on↔off).
+    /// Tags: from (true|false), to (true|false), tenant.
+    /// </summary>
+    public static readonly Counter<long> AgentEnabledChanges =
+        _meter.CreateCounter<long>("agents.enabled_changes_total",
+            description: "Mudanças de Enabled em AgentDefinition. Tags: from, to, tenant.");
+
     public static readonly Counter<long> StaleExecutionCompletionSkipped =
         _meter.CreateCounter<long>("chat.stale_completion.skipped",
             description: "Completions ignoradas por corresponderem a execução não mais ativa na conversa");

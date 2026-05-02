@@ -76,6 +76,14 @@ public class AgentDefinition
     /// </summary>
     public IReadOnlyList<string>? AllowedProjectIds { get; set; }
 
+    /// <summary>
+    /// Agent ligado/desligado. Default true. Quando false, workflows que referenciam o
+    /// agent continuam saváveis (warning UI), mas o agent é pulado em runtime — pipeline
+    /// continua sem invocar o agent. Permite manutenção sem migrar todos os workflows callers.
+    /// Mutável via PATCH /api/agents/{id}/enabled.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
     public static readonly IReadOnlySet<string> AllowedVisibilities =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "project", "global" };
 
@@ -186,6 +194,13 @@ public class AgentDefinition
 
         return AllowedProjectIds.Any(p => string.Equals(p, callerProjectId, StringComparison.OrdinalIgnoreCase));
     }
+
+    /// <summary>
+    /// Combina <see cref="Enabled"/> + <see cref="CanBeReferencedBy"/> — útil pra
+    /// AgentFactory decidir se invoca o agent num workflow do caller.
+    /// </summary>
+    public bool CanBeInvokedBy(string callerProjectId) =>
+        Enabled && CanBeReferencedBy(callerProjectId);
 }
 
 public class AgentProviderConfig

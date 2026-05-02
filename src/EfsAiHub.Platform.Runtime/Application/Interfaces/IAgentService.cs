@@ -39,6 +39,12 @@ public interface IAgentService
     Task<AgentDefinition> UpdateVisibilityAsync(string id, string newVisibility, CancellationToken ct = default);
 
     /// <summary>
+    /// Liga/desliga o agent. Owner gate, idempotente. Quando <c>Enabled=false</c>,
+    /// workflows que referenciam o agent continuam saváveis mas pulam o agent em runtime.
+    /// </summary>
+    Task<AgentDefinition> UpdateEnabledAsync(string id, bool enabled, CancellationToken ct = default);
+
+    /// <summary>
     /// Publica uma nova AgentVersion do agent corrente declarando explicitamente se a
     /// mudança é breaking (afeta workflows pinados — não propaga automático) ou patch
     /// (propaga pra workflows pinados em ancestor sem breaking entre).

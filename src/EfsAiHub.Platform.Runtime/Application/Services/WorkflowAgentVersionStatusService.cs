@@ -79,7 +79,8 @@ public sealed class WorkflowAgentVersionStatusService : IWorkflowAgentVersionSta
                 CurrentRevision: currentRev,
                 IsPinnedBlockedByBreaking: blocked,
                 HasUpdate: hasUpdate,
-                Changes: changes));
+                Changes: changes,
+                IsAgentDisabled: agent is not null && !agent.Enabled));
         }
 
         return result;

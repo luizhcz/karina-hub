@@ -32,7 +32,8 @@ public sealed record WorkflowAgentVersionStatus(
     int? CurrentRevision,
     bool IsPinnedBlockedByBreaking,
     bool HasUpdate,
-    IReadOnlyList<WorkflowAgentVersionChangeEntry> Changes);
+    IReadOnlyList<WorkflowAgentVersionChangeEntry> Changes,
+    bool IsAgentDisabled = false);
 
 /// <summary>Mudança individual entre pinned e current — usada pelo diff modal.</summary>
 public sealed record WorkflowAgentVersionChangeEntry(

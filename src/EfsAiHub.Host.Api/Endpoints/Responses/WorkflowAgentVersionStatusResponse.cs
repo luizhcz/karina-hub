@@ -35,6 +35,12 @@ public class WorkflowAgentVersionStatusResponse
 
     /// <summary>true quando há current.Revision > pinned.Revision (UI mostra badge).</summary>
     public bool HasUpdate { get; init; }
+
+    /// <summary>
+    /// true quando o owner desligou o agent (Enabled=false). UI mostra badge
+    /// "Desabilitado" e workflow runtime pula o agent.
+    /// </summary>
+    public bool IsAgentDisabled { get; init; }
 }
 
 /// <summary>Entry individual da lista de mudanças entre pinned e current.</summary>

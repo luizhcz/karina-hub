@@ -105,11 +105,17 @@ function AgentVersionCard({ status, onOpenDiff, onQuickPin, quickPinPending }: A
             <h3 className="font-semibold text-text-primary truncate">
               {status.agentName ?? status.agentId}
             </h3>
+            {status.isAgentDisabled && <Badge variant="red">Desabilitado</Badge>}
             {updateBadge}
           </div>
           <p className="text-xs text-text-muted mt-1 font-mono">
             ID: {status.agentId}
           </p>
+          {status.isAgentDisabled && (
+            <p className="text-xs text-red-400 mt-2">
+              Este agente está desligado pelo owner — runtime vai pulá-lo na execução do workflow.
+            </p>
+          )}
 
           <div className="grid grid-cols-2 gap-4 mt-3 text-sm">
             <PinSummary

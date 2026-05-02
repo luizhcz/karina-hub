@@ -167,6 +167,56 @@ public class AgentsController : ControllerBase
         }
     }
 
+    [HttpPatch("{id}/enabled")]
+    [SwaggerOperation(Summary = "Liga/desliga o agent. Workflows que referenciam continuam saváveis; runtime pula o agent quando desligado.")]
+    [ProducesResponseType(typeof(AgentResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateEnabled(
+        string id,
+        [FromBody] UpdateAgentEnabledRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var existing = await _agentService.GetAsync(id, ct);
+            if (existing is null) return NotFound();
+
+            var beforeEnabled = existing.Enabled;
+            var updated = await _agentService.UpdateEnabledAsync(id, request.Enabled, ct);
+
+            // No-op: já estava no estado pedido.
+            if (beforeEnabled == updated.Enabled)
+                return Ok(AgentResponse.FromDomain(updated));
+
+            await _audit.RecordAsync(_auditContext.Build(
+                AdminAuditActions.AgentEnabledChanged,
+                AdminAuditResources.Agent,
+                updated.Id,
+                payloadBefore: AdminAuditContext.Snapshot(new { enabled = beforeEnabled }),
+                payloadAfter: AdminAuditContext.Snapshot(new
+                {
+                    enabled = updated.Enabled,
+                    reason = request.Reason
+                })), ct);
+
+            EfsAiHub.Infra.Observability.MetricsRegistry.AgentEnabledChanges.Add(1,
+                new KeyValuePair<string, object?>("from", beforeEnabled),
+                new KeyValuePair<string, object?>("to", updated.Enabled),
+                new KeyValuePair<string, object?>("tenant", updated.TenantId));
+
+            return Ok(AgentResponse.FromDomain(updated));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
     [HttpDelete("{id}")]
     [SwaggerOperation(Summary = "Remove uma definição de agente")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
