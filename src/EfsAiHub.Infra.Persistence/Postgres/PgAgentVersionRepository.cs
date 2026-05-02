@@ -113,6 +113,33 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
         return row is null ? null : Deserialize(row);
     }
 
+    public async Task<IReadOnlyList<(string AgentVersionId, string AgentDefinitionId)>> ListOrphanVersionsAsync(
+        int limit = 50,
+        CancellationToken ct = default)
+    {
+        if (limit <= 0) return Array.Empty<(string, string)>();
+
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+
+        // IgnoreQueryFilters porque agent_definitions tem HasQueryFilter (project-scoped).
+        // Health check precisa enxergar orphans cross-project pra dashboards de ops.
+        var existingAgentIds = await ctx.AgentDefinitions
+            .IgnoreQueryFilters()
+            .Select(a => a.Id)
+            .ToHashSetAsync(ct);
+
+        var orphans = await ctx.AgentVersions
+            .Where(v => !existingAgentIds.Contains(v.AgentDefinitionId))
+            .OrderByDescending(v => v.CreatedAt)
+            .Take(limit)
+            .Select(v => new { v.AgentVersionId, v.AgentDefinitionId })
+            .ToListAsync(ct);
+
+        return orphans
+            .Select(o => (o.AgentVersionId, o.AgentDefinitionId))
+            .ToList();
+    }
+
     public async Task<AgentVersion> ResolveEffectiveAsync(
         string agentDefinitionId,
         string pinnedVersionId,
@@ -158,7 +185,10 @@ public sealed class PgAgentVersionRepository : IAgentVersionRepository
             };
         }
 
-        // Fallback defensivo — snapshot corrompido: reconstrói um esqueleto mínimo.
+        // Fallback defensivo — snapshot corrompido ou JSON null literal. Workflows pinados
+        // executam com esqueleto + defaults inseguros, então alimenta alerta sev1.
+        EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionLosslessRoundtripFailures.Add(1,
+            new KeyValuePair<string, object?>("agent_version_id", row.AgentVersionId));
         return new AgentVersion(
             AgentVersionId: row.AgentVersionId,
             AgentDefinitionId: row.AgentDefinitionId,

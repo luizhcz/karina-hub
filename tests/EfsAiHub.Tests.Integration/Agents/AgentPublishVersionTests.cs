@@ -1,6 +1,10 @@
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Exceptions;
+using EfsAiHub.Core.Abstractions.Observability;
+using EfsAiHub.Infra.Persistence.Postgres;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 
 namespace EfsAiHub.Tests.Integration.Agents;
 
@@ -12,6 +16,25 @@ public class AgentPublishVersionTests(IntegrationWebApplicationFactory factory)
     private IAgentDefinitionRepository AgentRepo => factory.Services.GetRequiredService<IAgentDefinitionRepository>();
     private IAgentVersionRepository VersionRepo => factory.Services.GetRequiredService<IAgentVersionRepository>();
     private IProjectContextAccessor ProjectAccessor => factory.Services.GetRequiredService<IProjectContextAccessor>();
+    private IDbContextFactory<AgentFwDbContext> CtxFactory => factory.Services.GetRequiredService<IDbContextFactory<AgentFwDbContext>>();
+
+    private async Task<int> CountAuditRowsAsync(string action, string resourceId)
+    {
+        await using var ctx = await CtxFactory.CreateDbContextAsync();
+        var conn = (NpgsqlConnection)ctx.Database.GetDbConnection();
+        await conn.OpenAsync();
+        try
+        {
+            await using var cmd = new NpgsqlCommand(
+                @"SELECT COUNT(*) FROM aihub.admin_audit_log
+                  WHERE ""Action"" = @action AND ""ResourceId"" = @resource",
+                conn);
+            cmd.Parameters.AddWithValue("action", action);
+            cmd.Parameters.AddWithValue("resource", resourceId);
+            return Convert.ToInt32(await cmd.ExecuteScalarAsync() ?? 0);
+        }
+        finally { await conn.CloseAsync(); }
+    }
 
     private async Task<AgentDefinition> CreateAgentAsync(string instructions = "instr")
     {
@@ -70,6 +93,32 @@ public class AgentPublishVersionTests(IntegrationWebApplicationFactory factory)
             "agent-fantasma", breakingChange: false);
 
         await act.Should().ThrowAsync<KeyNotFoundException>();
+    }
+
+    [Fact]
+    public async Task Publish_Sucesso_EmiteAuditAgentVersionPublished()
+    {
+        var def = await CreateAgentAsync("audit test");
+        var version = await AgentService.PublishVersionAsync(
+            def.Id, breakingChange: true, changeReason: "schema mudou", createdBy: "user-audit");
+
+        var count = await CountAuditRowsAsync(AdminAuditActions.AgentVersionPublished, def.Id);
+        count.Should().BeGreaterThanOrEqualTo(1);
+    }
+
+    [Fact]
+    public async Task Publish_NoOpPorIdempotencia_NaoEmiteAuditDuplicado()
+    {
+        var def = await CreateAgentAsync("idempotent audit");
+
+        await AgentService.PublishVersionAsync(def.Id, breakingChange: false);
+        var afterFirst = await CountAuditRowsAsync(AdminAuditActions.AgentVersionPublished, def.Id);
+
+        // Re-publish sem mudança no conteúdo: idempotente, audit count deve ficar igual.
+        await AgentService.PublishVersionAsync(def.Id, breakingChange: false);
+        var afterSecond = await CountAuditRowsAsync(AdminAuditActions.AgentVersionPublished, def.Id);
+
+        afterSecond.Should().Be(afterFirst);
     }
 
     [Fact]

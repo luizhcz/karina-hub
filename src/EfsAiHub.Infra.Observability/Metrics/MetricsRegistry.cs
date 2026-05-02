@@ -141,6 +141,16 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("agents.version_lossless_governance_missing_total",
             description: "Pin com governance source ausente (orphan). Tags: agent_id.");
 
+    /// <summary>
+    /// Contador de falhas de roundtrip lossless em AgentVersion — snapshot JSON
+    /// corrompido força o path de fallback defensivo no Deserialize. Severidade
+    /// sev1: workflows pinados podem executar com defaults inseguros até re-publish.
+    /// Tag: agent_version_id pra trace.
+    /// </summary>
+    public static readonly Counter<long> AgentVersionLosslessRoundtripFailures =
+        _meter.CreateCounter<long>("agents.version_lossless_roundtrip_failures_total",
+            description: "Falhas de deserialização de snapshot AgentVersion (sev1). Tags: agent_version_id.");
+
     public static readonly Counter<long> StaleExecutionCompletionSkipped =
         _meter.CreateCounter<long>("chat.stale_completion.skipped",
             description: "Completions ignoradas por corresponderem a execução não mais ativa na conversa");
