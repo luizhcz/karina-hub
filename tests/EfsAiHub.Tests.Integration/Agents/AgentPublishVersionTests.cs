@@ -60,7 +60,6 @@ public class AgentPublishVersionTests(IntegrationWebApplicationFactory factory)
         version.BreakingChange.Should().BeTrue();
         version.ChangeReason.Should().Be("schema do output mudou");
         version.CreatedBy.Should().Be("user-1");
-        version.SchemaVersion.Should().Be(2);
     }
 
     [Fact]

@@ -20,7 +20,7 @@ public class WorkflowValidationTests
         Id = "wf-test",
         Name = "Workflow Válido",
         OrchestrationMode = mode,
-        Agents = [new WorkflowAgentReference { AgentId = "agent-1" }],
+        Agents = [new WorkflowAgentReference { AgentId = "agent-1", AgentVersionId = "v-test" }],
     };
 
     [Fact]
@@ -92,7 +92,7 @@ public class WorkflowValidationTests
             Id = "",
             Name = "Nome OK",
             OrchestrationMode = OrchestrationMode.Sequential,
-            Agents = [new WorkflowAgentReference { AgentId = "a-1" }],
+            Agents = [new WorkflowAgentReference { AgentId = "a-1", AgentVersionId = "v-test" }],
         };
 
         var (isValid, errors) = await validator.ValidateAsync(def);
@@ -110,7 +110,7 @@ public class WorkflowValidationTests
             Id = "wf-seq",
             Name = "Sequential com executors",
             OrchestrationMode = OrchestrationMode.Sequential,
-            Agents = [new WorkflowAgentReference { AgentId = "a-1" }],
+            Agents = [new WorkflowAgentReference { AgentId = "a-1", AgentVersionId = "v-test" }],
             Executors = [new WorkflowExecutorStep { Id = "exec-1", FunctionName = "fn" }],
         };
 
@@ -135,7 +135,7 @@ public class WorkflowValidationTests
             Id = "wf-vis",
             Name = "Visibility test",
             OrchestrationMode = OrchestrationMode.Sequential,
-            Agents = [new WorkflowAgentReference { AgentId = "a-1" }],
+            Agents = [new WorkflowAgentReference { AgentId = "a-1", AgentVersionId = "v-test" }],
             Visibility = visibility,
         };
 
@@ -157,7 +157,7 @@ public class WorkflowValidationTests
             Id = "wf-vis-bad",
             Name = "Visibility inválida",
             OrchestrationMode = OrchestrationMode.Sequential,
-            Agents = [new WorkflowAgentReference { AgentId = "a-1" }],
+            Agents = [new WorkflowAgentReference { AgentId = "a-1", AgentVersionId = "v-test" }],
             Visibility = visibility,
         };
 
@@ -176,7 +176,7 @@ public class WorkflowValidationTests
             Id = "wf-x",
             Name = "X",
             OrchestrationMode = OrchestrationMode.Sequential,
-            Agents = [new WorkflowAgentReference { AgentId = "a-1" }],
+            Agents = [new WorkflowAgentReference { AgentId = "a-1", AgentVersionId = "v-test" }],
             Visibility = "project",
         };
 
@@ -194,7 +194,7 @@ public class WorkflowValidationTests
             Id = "wf-x",
             Name = "X",
             OrchestrationMode = OrchestrationMode.Sequential,
-            Agents = [new WorkflowAgentReference { AgentId = "a-1" }],
+            Agents = [new WorkflowAgentReference { AgentId = "a-1", AgentVersionId = "v-test" }],
             Visibility = "project",
         };
 
@@ -212,7 +212,7 @@ public class WorkflowValidationTests
             Id = "wf-x",
             Name = "X",
             OrchestrationMode = OrchestrationMode.Sequential,
-            Agents = [new WorkflowAgentReference { AgentId = "a-1" }],
+            Agents = [new WorkflowAgentReference { AgentId = "a-1", AgentVersionId = "v-test" }],
             Visibility = "everywhere",
         };
 

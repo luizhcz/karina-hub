@@ -28,13 +28,13 @@ public class WorkflowValidatorPinTests
         PromptVersionId: null,
         Model: new AgentModelSnapshot("gpt-4o", null, null),
         Provider: new AgentProviderSnapshot("AzureOpenAI", "ChatCompletion", null, false),
-        ToolFingerprints: Array.Empty<ToolFingerprint>(),
         MiddlewarePipeline: Array.Empty<AgentMiddlewareSnapshot>(),
         OutputSchema: null,
         Resilience: null,
         CostBudget: null,
         SkillRefs: Array.Empty<SkillRef>(),
-        ContentHash: "hash");
+        ContentHash: "hash",
+        Tools: Array.Empty<AgentToolSnapshot>());
 
     private static WorkflowDefinition BuildWorkflow(string agentId, string? pinnedVersionId = null) => new()
     {
@@ -52,14 +52,16 @@ public class WorkflowValidatorPinTests
     };
 
     [Fact]
-    public async Task ValidateAsync_SemPin_NaoValidaPinExistencia()
+    public async Task ValidateAsync_SemPin_RejeitaComMensagemDirecionandoListaDeVersions()
     {
+        // Pin é obrigatório global pós-cleanup pré-prod (não há mais MandatoryPin flag).
         var (validator, versionRepo) = BuildValidator();
         var def = BuildWorkflow("agent-x");
 
-        var (isValid, _) = await validator.ValidateAsync(def);
+        var (isValid, errors) = await validator.ValidateAsync(def);
 
-        isValid.Should().BeTrue();
+        isValid.Should().BeFalse();
+        errors.Should().Contain(e => e.Contains("agent-x") && e.Contains("pin de versão"));
         await versionRepo.DidNotReceiveWithAnyArgs().GetByIdAsync(default!, default);
     }
 
@@ -106,13 +108,14 @@ public class WorkflowValidatorPinTests
     }
 
     [Fact]
-    public async Task ValidateAsync_SemVersionRepo_NaoBloqueia()
+    public async Task ValidateAsync_SemVersionRepo_AceitaPinSemValidarExistencia()
     {
+        // Sem IAgentVersionRepository injetado (cenário de teste isolado), o validator
+        // não pode confirmar existência do pin — aceita defensivamente.
         var agentRepo = Substitute.For<IAgentDefinitionRepository>();
         agentRepo.GetExistingIdsAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
             .Returns(callInfo => (IReadOnlySet<string>)callInfo.Arg<IEnumerable<string>>().ToHashSet());
 
-        // versionRepo=null preserva BC com chamadores legacy.
         var validator = new WorkflowValidator(agentRepo, versionRepo: null);
         var def = BuildWorkflow("agent-x", pinnedVersionId: "v-qualquer");
 

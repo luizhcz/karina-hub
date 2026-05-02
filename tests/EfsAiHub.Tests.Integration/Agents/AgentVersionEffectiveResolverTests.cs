@@ -22,7 +22,7 @@ public class AgentVersionEffectiveResolverTests(IntegrationWebApplicationFactory
         string agentId,
         int revision,
         string instructions,
-        bool? breakingChange = null,
+        bool breakingChange = false,
         string? changeReason = null)
     {
         var def = BuildDefinition(agentId, instructions);
@@ -170,20 +170,6 @@ public class AgentVersionEffectiveResolverTests(IntegrationWebApplicationFactory
     }
 
     [Fact]
-    public async Task GetAncestorBreaking_BreakingNullLegacy_NaoConsideradoBreaking()
-    {
-        var agentId = $"agent-ancestor-legacy-{Guid.NewGuid():N}";
-        await AppendAsync(agentId, 1, "v1", breakingChange: null); // legacy
-        await AppendAsync(agentId, 2, "v2", breakingChange: null); // legacy
-        await AppendAsync(agentId, 3, "v3", breakingChange: false);
-
-        var ancestor = await VersionRepo.GetAncestorBreakingAsync(agentId, fromRevisionExclusive: 1, toRevisionInclusive: 3);
-
-        // null != true → não é considerado breaking. Caller decide tratar conservativamente em camadas acima.
-        ancestor.Should().BeNull();
-    }
-
-    [Fact]
     public async Task AppendAsync_BreakingTrueSemChangeReason_RejeitaAntesDePersistir()
     {
         var agentId = $"agent-append-invalid-{Guid.NewGuid():N}";
@@ -213,6 +199,5 @@ public class AgentVersionEffectiveResolverTests(IntegrationWebApplicationFactory
 
         fetched.Should().NotBeNull();
         fetched!.BreakingChange.Should().BeTrue();
-        fetched.SchemaVersion.Should().Be(2); // FromDefinition emite v2.
     }
 }
