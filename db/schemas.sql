@@ -158,16 +158,18 @@ CREATE TABLE IF NOT EXISTS aihub.agent_versions (
     "Status"            VARCHAR(32)   NOT NULL,         -- Draft | Published | Deprecated
     "ContentHash"       VARCHAR(128)  NOT NULL,
     "Snapshot"          JSONB         NOT NULL,         -- snapshot completo do agente no momento do publish
-    "BreakingChange"    BOOLEAN       NULL,             -- true=breaking; false=patch; null=legacy/unknown
-    "SchemaVersion"     INTEGER       NOT NULL DEFAULT 1, -- 1=lossy legacy; 2=lossless (Tools cheias + Description/Metadata/FallbackProvider)
+    "BreakingChange"    BOOLEAN       NOT NULL DEFAULT FALSE, -- true=breaking; false=patch (default)
     CONSTRAINT "PK_agent_versions" PRIMARY KEY ("AgentVersionId")
 );
 
--- ALTER idempotente pra DBs existentes.
+-- ALTER idempotente pra DBs existentes que tinham as colunas legacy (BreakingChange NULL + SchemaVersion).
+-- Backfill BreakingChange NULL → FALSE, depois NOT NULL constraint, depois drop SchemaVersion.
 ALTER TABLE aihub.agent_versions
-    ADD COLUMN IF NOT EXISTS "BreakingChange" BOOLEAN NULL;
-ALTER TABLE aihub.agent_versions
-    ADD COLUMN IF NOT EXISTS "SchemaVersion" INTEGER NOT NULL DEFAULT 1;
+    ADD COLUMN IF NOT EXISTS "BreakingChange" BOOLEAN;
+UPDATE aihub.agent_versions SET "BreakingChange" = FALSE WHERE "BreakingChange" IS NULL;
+ALTER TABLE aihub.agent_versions ALTER COLUMN "BreakingChange" SET DEFAULT FALSE;
+ALTER TABLE aihub.agent_versions ALTER COLUMN "BreakingChange" SET NOT NULL;
+ALTER TABLE aihub.agent_versions DROP COLUMN IF EXISTS "SchemaVersion";
 
 CREATE UNIQUE INDEX IF NOT EXISTS "IX_agent_versions_AgentDefinitionId_Revision"
     ON aihub.agent_versions ("AgentDefinitionId", "Revision");
