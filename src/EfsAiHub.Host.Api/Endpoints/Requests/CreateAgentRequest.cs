@@ -39,6 +39,22 @@ public class CreateAgentRequest
     /// </summary>
     public List<string>? AllowedProjectIds { get; init; }
 
+    /// <summary>
+    /// Intent declarado pelo owner ao publicar o snapshot resultante deste upsert.
+    /// <c>true</c> = workflow caller pinado em ancestor desta version não recebe
+    /// patch propagation (fica preso no pin). <c>false</c> = patch (propaga).
+    /// <c>null</c> = legacy/sem intent (tratado conservativamente como breaking pelo
+    /// resolver). <c>BreakingChange=true</c> exige <c>ChangeReason</c> não-vazio
+    /// (validado em <c>AgentVersion.EnsureInvariants</c>).
+    /// </summary>
+    public bool? BreakingChange { get; init; }
+
+    /// <summary>
+    /// Justificativa da mudança — obrigatória quando <c>BreakingChange=true</c>.
+    /// Usada por callers pra decidir migração de pin.
+    /// </summary>
+    public string? ChangeReason { get; init; }
+
     public AgentDefinition ToDomain() => new()
     {
         Id = Id,

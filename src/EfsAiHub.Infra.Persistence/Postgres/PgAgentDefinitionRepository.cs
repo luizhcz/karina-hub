@@ -93,7 +93,11 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
     }
 
     public async Task<AgentDefinition> UpsertAsync(
-        AgentDefinition definition, CancellationToken ct = default)
+        AgentDefinition definition,
+        CancellationToken ct = default,
+        bool? breakingChange = null,
+        string? changeReason = null,
+        string? createdBy = null)
     {
         // Carimba FingerprintHash em cada function tool com o hash canônico
         // (sha256 de name|description|jsonSchema) do AIFunction atualmente registrado.
@@ -198,7 +202,10 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
                 revision,
                 promptContent: prompt?.Content,
                 promptVersionId: prompt?.VersionId,
-                skillRefs: materializedSkills);
+                createdBy: createdBy,
+                changeReason: changeReason,
+                skillRefs: materializedSkills,
+                breakingChange: breakingChange);
 
             await _versionRepo.AppendAsync(snapshot, ct);
         }
