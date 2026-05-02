@@ -163,17 +163,11 @@ public class WorkflowAgentReference
     public string? OriginProjectId { get; init; }
 
     /// <summary>
-    /// Pin opcional de versão de agent. Quando setado, o AgentFactory resolve
-    /// via <c>IAgentVersionRepository.GetByIdAsync(AgentVersionId)</c> e materializa
-    /// snapshot imutável — não vai pelo repo de definitions (atual). Útil quando caller
-    /// quer estabilidade contra publishes do owner. Null = versão flutuante (default).
+    /// Pin de versão de agent. Obrigatório no save (validado em <c>WorkflowValidator</c>);
+    /// AgentFactory resolve via <c>IAgentVersionRepository.ResolveEffectiveAsync</c> aplicando
+    /// patch propagation. Mutável pra permitir migration de pin via
+    /// <c>PATCH /api/workflows/{id}/agents/{agentId}/pin</c> sem rebuild do agregado.
     /// </summary>
-    /// <remarks>
-    /// Mutável (não init-only) pra permitir auto-pin lazy via
-    /// <c>IWorkflowAutoPinService.AutoPinLegacyReferencesAsync</c> — quando
-    /// <c>Sharing:MandatoryPin=true</c>, refs sem pin recebem o current
-    /// AgentVersionId no first execute pós-flag.
-    /// </remarks>
     public string? AgentVersionId { get; set; }
 }
 

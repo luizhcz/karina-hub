@@ -123,7 +123,6 @@ public static class AdminAuditActions
     /// </summary>
     public const string AgentVersionLosslessRoundtripFailed = "agent.version_lossless_roundtrip_failed";
 
-
     /// <summary>
     /// Atualização manual de pin de agent ref em workflow via UI/API
     /// (PATCH /api/workflows/{id}/agents/{agentId}/pin). Emitido em toda
