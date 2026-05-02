@@ -190,6 +190,8 @@ public class WorkflowValidator
 
         var requestedIds = definition.Agents.Select(a => a.AgentId);
         var existingIds = await _agentRepo.GetExistingIdsAsync(requestedIds, ct);
+        var isHandoff = definition.OrchestrationMode == OrchestrationMode.Handoff;
+
         foreach (var agentRef in definition.Agents)
         {
             if (!existingIds.Contains(agentRef.AgentId))
@@ -206,6 +208,22 @@ public class WorkflowValidator
                     $"Agent '{agentRef.AgentId}' precisa de pin de versão. " +
                     $"Use GET /api/agents/{agentRef.AgentId}/versions e informe AgentVersionId.");
                 continue;
+            }
+
+            // Handoff é orquestração explícita (manager → especialista por nome). Agent disabled
+            // como participante quebra a roteamento — fail-fast no save evita workflow salvo
+            // que nunca consegue rotear. Outros modos (Sequential/Concurrent/GroupChat/Graph)
+            // toleram skip silencioso em runtime — UI mostra badge "Desabilitado" via status service.
+            if (isHandoff)
+            {
+                var agent = await _agentRepo.GetByIdAsync(agentRef.AgentId, ct);
+                if (agent is not null && !agent.Enabled)
+                {
+                    errors.Add(
+                        $"Agente '{agentRef.AgentId}' está desabilitado e não pode ser referenciado em workflow Handoff " +
+                        $"(orquestração explícita). Habilite o agent ou remova a ref.");
+                    continue;
+                }
             }
 
             // Pin: valida que a version existe e pertence ao agent.

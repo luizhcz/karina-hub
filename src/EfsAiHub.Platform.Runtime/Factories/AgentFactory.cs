@@ -210,6 +210,20 @@ public class AgentFactory : IAgentFactory
                 }
             }
 
+            // Agent desligado pelo owner: pula completamente — não entra no dict, não cria
+            // chat client, não invoca HITL. Workflow continua execução com agent ausente
+            // (Sequential pula step, Graph ignora edges órfãs, GroupChat exclui participant).
+            if (!definition.Enabled)
+            {
+                _logger.LogWarning(
+                    "[AgentFactory] Agent '{AgentId}' desabilitado — pulado em workflow '{WorkflowId}'.",
+                    definition.Id, workflow.Id);
+                EfsAiHub.Infra.Observability.MetricsRegistry.AgentDisabledInvocations.Add(1,
+                    new KeyValuePair<string, object?>("agent_id", definition.Id),
+                    new KeyValuePair<string, object?>("workflow_id", workflow.Id));
+                continue;
+            }
+
             var sharing = _sharingOptions?.CurrentValue;
             var crossProjectEnabled = sharing?.CrossProjectEnabled ?? true;
             var whitelistEnabled = sharing?.WhitelistEnabled ?? true;
