@@ -61,4 +61,11 @@ public interface IAgentVersionRepository
     Task<IReadOnlyList<(string AgentVersionId, string AgentDefinitionId)>> ListOrphanVersionsAsync(
         int limit = 50,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Conta AgentVersions com <c>Status=Retired</c>. Workflows pinados em retired
+    /// continuam executando OK (snapshot é imutável), mas ops deve revisar pra
+    /// migrar callers se a retirada for definitiva. Sinal informativo no health check.
+    /// </summary>
+    Task<int> CountRetiredVersionsAsync(CancellationToken ct = default);
 }

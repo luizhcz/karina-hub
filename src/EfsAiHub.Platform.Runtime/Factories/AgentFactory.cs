@@ -165,10 +165,11 @@ public class AgentFactory : IAgentFactory
     {
         var result = new Dictionary<string, ExecutableWorkflow>();
 
-        // Pré-loop: quando MandatoryPin=true, auto-pina refs legacy resolvendo current
-        // version. Idempotente + concorrência-safe (re-fetch no service). Falha do
-        // auto-pin é não-bloqueante: se algum ref ficar sem pin, o loop abaixo trata.
-        var mandatoryPin = _sharingOptions?.CurrentValue.MandatoryPin ?? false;
+        // Pré-loop: quando MandatoryPin enforça pra este tenant, auto-pina refs legacy
+        // resolvendo current version. Tenant-staged: respeita MandatoryPinTenants whitelist
+        // — tenant fora da whitelist mantém comportamento legacy. Idempotente +
+        // concorrência-safe (re-fetch no service). Falha do auto-pin é não-bloqueante.
+        var mandatoryPin = _sharingOptions?.CurrentValue.IsMandatoryPinFor(workflow.TenantId) ?? false;
         if (mandatoryPin && _autoPinService is not null)
         {
             try
@@ -202,6 +203,11 @@ public class AgentFactory : IAgentFactory
                     $"Agent '{agentRef.AgentId}' referenced in workflow '{workflow.Id}' not found.");
             }
 
+            // Kill switch: quando LosslessAgentVersion=false, ignora SchemaVersion=2
+            // e cai sempre no path legado (live definition). Útil pra rollback rápido
+            // se lossless apresentar regressão.
+            var losslessEnabled = _sharingOptions?.CurrentValue.LosslessAgentVersion ?? true;
+
             AgentDefinition definition;
             if (!string.IsNullOrEmpty(agentRef.AgentVersionId) && _agentVersionRepo is not null)
             {
@@ -210,7 +216,7 @@ public class AgentFactory : IAgentFactory
                 var snapshot = await _agentVersionRepo.ResolveEffectiveAsync(
                     agentRef.AgentId, agentRef.AgentVersionId, ct);
 
-                if (snapshot.SchemaVersion >= 2)
+                if (snapshot.SchemaVersion >= 2 && losslessEnabled)
                 {
                     // Lossless path: reconstrói AgentDefinition do snapshot, hidratando
                     // governança da row corrente.
