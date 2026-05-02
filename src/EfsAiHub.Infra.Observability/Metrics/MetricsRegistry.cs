@@ -532,4 +532,23 @@ public static class MetricsRegistry
     public static readonly Counter<long> SecretsLiteralDetected =
         _meter.CreateCounter<long>("secrets.literal_detected_total",
             description: "Valor literal (não-referência) chegou ao resolver. Indica que algum caminho ainda passa credencial em claro.");
+
+    /// <summary>
+    /// Invocações de Generic Tools (HTTP genéricas) executadas por agentes. Tags:
+    /// tool_id, project, success (true|false), status_class (2xx|4xx|5xx|error).
+    /// status_class=error em timeout/network/parse — sucesso=false sempre que o
+    /// envelope retornado tem Success=false.
+    /// </summary>
+    public static readonly Counter<long> GenericToolInvocations =
+        _meter.CreateCounter<long>("generic_tools.invocations_total",
+            description: "Invocações de Generic Tool. Tags: tool_id, project, success, status_class.");
+
+    /// <summary>
+    /// Latência da chamada HTTP de Generic Tool (build URL → response parsed).
+    /// Tags: tool_id, success.
+    /// </summary>
+    public static readonly Histogram<double> GenericToolDurationMs =
+        _meter.CreateHistogram<double>("generic_tools.duration_ms",
+            unit: "ms",
+            description: "Duração de execução de Generic Tool. Tags: tool_id, success.");
 }
