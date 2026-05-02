@@ -22,7 +22,7 @@ public class PatchPropagationTests(IntegrationWebApplicationFactory factory)
         string agentId,
         int revision,
         string instructions,
-        bool? breakingChange,
+        bool breakingChange,
         string? changeReason = null)
     {
         var def = Build(agentId, instructions);

@@ -125,8 +125,8 @@ public static class MetricsRegistry
     /// <summary>
     /// Contador de resoluções de pin de AgentVersion. Tags:
     /// strategy=exact (snapshot pinado retornado), propagated (current adotado por
-    /// patch propagation), legacy_fallback (snapshot v1 lossy → cai pro live definition),
-    /// no_version_repo (sem IAgentVersionRepository configurado).
+    /// patch propagation), no_pin_unexpected (ref sem pin atinge runtime — divergência
+    /// já que validator sempre exige pin no save).
     /// </summary>
     public static readonly Counter<long> AgentVersionPinResolutions =
         _meter.CreateCounter<long>("agents.version_pin_resolutions_total",
@@ -150,15 +150,6 @@ public static class MetricsRegistry
     public static readonly Counter<long> AgentVersionLosslessRoundtripFailures =
         _meter.CreateCounter<long>("agents.version_lossless_roundtrip_failures_total",
             description: "Falhas de deserialização de snapshot AgentVersion (sev1). Tags: agent_version_id.");
-
-    /// <summary>
-    /// Contador de auto-pins de workflow agent refs. Tag: workflow_id.
-    /// Spike alto sinaliza backlog de refs sem pin sendo resolvidos;
-    /// estabiliza após convergência (todos os refs já pinados).
-    /// </summary>
-    public static readonly Counter<long> WorkflowAgentVersionAutoPins =
-        _meter.CreateCounter<long>("workflows.agent_version_auto_pin_total",
-            description: "Auto-pins de workflow agent refs (lazy). Tags: workflow_id.");
 
     public static readonly Counter<long> StaleExecutionCompletionSkipped =
         _meter.CreateCounter<long>("chat.stale_completion.skipped",

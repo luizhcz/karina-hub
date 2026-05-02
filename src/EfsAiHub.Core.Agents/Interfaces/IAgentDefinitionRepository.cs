@@ -15,7 +15,7 @@ public interface IAgentDefinitionRepository
     Task<AgentDefinition> UpsertAsync(
         AgentDefinition definition,
         CancellationToken ct = default,
-        bool? breakingChange = null,
+        bool breakingChange = false,
         string? changeReason = null,
         string? createdBy = null);
     Task<bool> DeleteAsync(string id, CancellationToken ct = default);

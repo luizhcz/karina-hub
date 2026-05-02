@@ -8,17 +8,13 @@ using EfsAiHub.Core.Abstractions.Persistence;
 namespace EfsAiHub.Core.Agents;
 
 /// <summary>
-/// Snapshot imutável de um agente num determinado ponto do tempo.
+/// Snapshot imutável e lossless de um agente num determinado ponto do tempo.
 /// Captura prompt + model + tools + schema + middlewares em um único blob hashable.
-/// Rollback determinístico = apontar CurrentVersionId de AgentDefinition para uma revision anterior.
+/// <see cref="ToDefinition"/> reconstrói AgentDefinition determinístico.
 ///
 /// Append-only: UpsertAsync de AgentDefinition cria um novo AgentVersion com Revision = MAX+1
-/// e atualiza o ponteiro na mesma transação.
-///
-/// SchemaVersion=1 (legado): snapshots por campo, lossy. Tools só com fingerprints (hashes);
-/// faltam Description/Metadata/FallbackProvider. AgentFactory cai no path legado quando vê v1.
-/// SchemaVersion=2: snapshot lossless — <see cref="ToDefinition"/> reconstrói AgentDefinition
-/// determinístico. Tools cheias persistidas em <see cref="Tools"/>.
+/// e atualiza o ponteiro na mesma transação. Rollback determinístico = apontar
+/// CurrentVersionId de AgentDefinition para uma revision anterior.
 /// </summary>
 public sealed record AgentVersion(
     string AgentVersionId,
@@ -32,26 +28,21 @@ public sealed record AgentVersion(
     string? PromptVersionId,
     AgentModelSnapshot Model,
     AgentProviderSnapshot Provider,
-    IReadOnlyList<ToolFingerprint> ToolFingerprints,
     IReadOnlyList<AgentMiddlewareSnapshot> MiddlewarePipeline,
     AgentStructuredOutputSnapshot? OutputSchema,
-    // Política de retry e orçamento de custo capturados no snapshot.
     ResiliencePolicy? Resilience,
     AgentCostBudget? CostBudget,
-    // Referências a skills materializadas com SkillVersionId explícito para rollback determinístico.
     IReadOnlyList<SkillRef> SkillRefs,
     string ContentHash,
-    // Lossless additions (SchemaVersion >= 2). Default null/false/1 pra preservar BC com snapshots v1.
     string? Description = null,
     IReadOnlyDictionary<string, string>? Metadata = null,
     AgentProviderSnapshot? FallbackProvider = null,
     IReadOnlyList<AgentToolSnapshot>? Tools = null,
-    bool? BreakingChange = null,
-    int SchemaVersion = 1)
+    bool BreakingChange = false)
 {
     /// <summary>
     /// Constrói um snapshot a partir de uma AgentDefinition viva + conteúdo de prompt resolvido.
-    /// Calcula ContentHash canônico (sha256) para rollback idempotente. Sempre emite SchemaVersion=2.
+    /// Calcula ContentHash canônico (sha256) para rollback idempotente.
     /// </summary>
     public static AgentVersion FromDefinition(
         AgentDefinition definition,
@@ -61,7 +52,7 @@ public sealed record AgentVersion(
         string? createdBy = null,
         string? changeReason = null,
         IReadOnlyList<SkillRef>? skillRefs = null,
-        bool? breakingChange = null)
+        bool breakingChange = false)
     {
         var model = new AgentModelSnapshot(
             definition.Model.DeploymentName,
@@ -83,10 +74,6 @@ public sealed record AgentVersion(
                 fb.Endpoint,
                 HasValue: !string.IsNullOrEmpty(fb.ApiKey));
         }
-
-        var fingerprints = definition.Tools
-            .Select(t => ToolFingerprint.FromDefinition(t))
-            .ToList();
 
         var tools = definition.Tools
             .Select(t => AgentToolSnapshot.FromDefinition(t))
@@ -112,7 +99,6 @@ public sealed record AgentVersion(
 
         var canonical = JsonSerializer.Serialize(new
         {
-            schemaVersion = 2,
             agentId = definition.Id,
             description = definition.Description,
             metadata,
@@ -150,7 +136,6 @@ public sealed record AgentVersion(
             PromptVersionId: promptVersionId,
             Model: model,
             Provider: provider,
-            ToolFingerprints: fingerprints,
             MiddlewarePipeline: middlewares,
             OutputSchema: outputSchema,
             Resilience: definition.Resilience,
@@ -161,8 +146,7 @@ public sealed record AgentVersion(
             Metadata: metadata,
             FallbackProvider: fallbackProvider,
             Tools: tools,
-            BreakingChange: breakingChange,
-            SchemaVersion: 2);
+            BreakingChange: breakingChange);
     }
 
     /// <summary>
@@ -171,10 +155,6 @@ public sealed record AgentVersion(
     /// da row corrente — esses campos são cross-cutting e mutáveis (mudança de visibility do owner
     /// deve afetar workflows pinados). Quando null, defaults seguros: project-scoped, default tenant,
     /// sem whitelist.
-    ///
-    /// SchemaVersion=1 (legado): <see cref="Tools"/> é null; reconstrói de melhor-esforço a partir
-    /// dos <see cref="ToolFingerprints"/> (apenas Type/Name/FingerprintHash). Caller deve detectar
-    /// SchemaVersion=1 e cair pro path legado em AgentFactory.
     /// </summary>
     public AgentDefinition ToDefinition(AgentDefinition? governanceSource = null)
     {
@@ -205,28 +185,9 @@ public sealed record AgentVersion(
             };
         }
 
-        IReadOnlyList<AgentToolDefinition> tools;
-        if (Tools is { Count: > 0 })
-        {
-            tools = Tools.Select(t => t.ToDefinition()).ToList();
-        }
-        else if (ToolFingerprints.Count > 0)
-        {
-            tools = ToolFingerprints
-                .Select(f => new AgentToolDefinition
-                {
-                    Type = f.Type,
-                    Name = f.Name,
-                    FingerprintHash = f.SignatureHash,
-                    ServerLabel = f.ServerLabel,
-                    ServerUrl = f.ServerUrl,
-                })
-                .ToList();
-        }
-        else
-        {
-            tools = [];
-        }
+        var tools = Tools is null
+            ? Array.Empty<AgentToolDefinition>()
+            : Tools.Select(t => t.ToDefinition()).ToList().AsReadOnly() as IReadOnlyList<AgentToolDefinition>;
 
         AgentStructuredOutputDefinition? outputDef = null;
         if (OutputSchema is { } output)
@@ -295,8 +256,7 @@ public sealed record AgentVersion(
             throw new DomainException("AgentVersion.ContentHash é obrigatório.");
 
         // BreakingChange=true exige ChangeReason explícito (rastreabilidade pra caller decidir migrar).
-        // BreakingChange=null (legacy) é permitido — versions antigas pré-flag não declaravam intent.
-        if (BreakingChange == true && string.IsNullOrWhiteSpace(ChangeReason))
+        if (BreakingChange && string.IsNullOrWhiteSpace(ChangeReason))
             throw new DomainException(
                 "AgentVersion.BreakingChange=true exige ChangeReason não-vazio (justifica a quebra pra workflows pinados).");
     }
@@ -318,59 +278,9 @@ public enum AgentVersionStatus
 }
 
 /// <summary>
-/// Identifica uma tool referenciada por um AgentVersion. Quando a tool ainda não
-/// carrega fingerprint canônico (sha256 do JSONSchema), o SignatureHash é derivado
-/// dos campos declarativos do AgentToolDefinition como fallback.
-/// </summary>
-public sealed record ToolFingerprint(
-    string Type,
-    string? Name,
-    string SignatureHash,
-    string? ServerLabel = null,
-    string? ServerUrl = null)
-{
-    public static ToolFingerprint FromDefinition(AgentToolDefinition tool)
-    {
-        // Quando o registry já populou o fingerprint canônico (sha256 do JSONSchema),
-        // prefere-o ao hash declarativo derivado dos campos.
-        if (!string.IsNullOrEmpty(tool.FingerprintHash))
-        {
-            return new ToolFingerprint(
-                Type: tool.Type,
-                Name: tool.Name,
-                SignatureHash: tool.FingerprintHash!,
-                ServerLabel: tool.ServerLabel,
-                ServerUrl: tool.ServerUrl);
-        }
-
-        var canonical = JsonSerializer.Serialize(new
-        {
-            tool.Type,
-            tool.Name,
-            tool.RequiresApproval,
-            tool.ServerLabel,
-            tool.ServerUrl,
-            tool.AllowedTools,
-            tool.RequireApproval,
-            tool.ConnectionId
-        }, JsonDefaults.Domain);
-
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
-
-        return new ToolFingerprint(
-            Type: tool.Type,
-            Name: tool.Name,
-            SignatureHash: hash,
-            ServerLabel: tool.ServerLabel,
-            ServerUrl: tool.ServerUrl);
-    }
-}
-
-/// <summary>
 /// Snapshot lossless de uma <see cref="AgentToolDefinition"/>. Persistido em
-/// <see cref="AgentVersion.Tools"/> (SchemaVersion >= 2) pra reconstrução determinística
-/// via <see cref="ToDefinition"/>. Difere de <see cref="ToolFingerprint"/> (que carrega só
-/// hash + identificadores básicos): AgentToolSnapshot carrega TODOS os campos da tool.
+/// <see cref="AgentVersion.Tools"/> pra reconstrução determinística via <see cref="ToDefinition"/>.
+/// Carrega TODOS os campos da tool — não há perda na ida/volta.
 /// </summary>
 public sealed record AgentToolSnapshot(
     string Type,

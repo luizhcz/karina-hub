@@ -8,7 +8,7 @@ public class AgentVersionBreakingValidationTests
 {
     private static AgentVersion BuildValid(
         string? changeReason = null,
-        bool? breakingChange = null) =>
+        bool breakingChange = false) =>
         new(
             AgentVersionId: "v-1",
             AgentDefinitionId: "agent-1",
@@ -21,15 +21,14 @@ public class AgentVersionBreakingValidationTests
             PromptVersionId: null,
             Model: new AgentModelSnapshot("gpt-4o", null, null),
             Provider: new AgentProviderSnapshot("AzureOpenAI", "ChatCompletion", null, false),
-            ToolFingerprints: Array.Empty<ToolFingerprint>(),
             MiddlewarePipeline: Array.Empty<AgentMiddlewareSnapshot>(),
             OutputSchema: null,
             Resilience: null,
             CostBudget: null,
             SkillRefs: Array.Empty<SkillRef>(),
             ContentHash: "deadbeef",
-            BreakingChange: breakingChange,
-            SchemaVersion: 2);
+            Tools: Array.Empty<AgentToolSnapshot>(),
+            BreakingChange: breakingChange);
 
     [Fact]
     public void EnsureInvariants_BreakingTrueComChangeReason_Passa()
@@ -65,19 +64,8 @@ public class AgentVersionBreakingValidationTests
     [Fact]
     public void EnsureInvariants_BreakingFalseSemChangeReason_Passa()
     {
-        // Patch (BreakingChange=false) não exige reason — fix de typo, etc.
+        // Patch (BreakingChange=false, default) não exige reason — fix de typo, etc.
         var v = BuildValid(changeReason: null, breakingChange: false);
-
-        var act = () => v.EnsureInvariants();
-
-        act.Should().NotThrow();
-    }
-
-    [Fact]
-    public void EnsureInvariants_BreakingNullLegacy_Passa()
-    {
-        // Versions pré-feature não declaravam intent. Permitido.
-        var v = BuildValid(changeReason: null, breakingChange: null);
 
         var act = () => v.EnsureInvariants();
 

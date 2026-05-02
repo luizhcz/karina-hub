@@ -75,9 +75,8 @@ internal class AgentVersionRow
     public string Status { get; set; } = "Published";
     public string ContentHash { get; set; } = "";
     public string Snapshot { get; set; } = "{}"; // JSONB — record completo serializado
-    // Promoted fields (também presentes no snapshot JSON) pra index e filter eficientes.
-    public bool? BreakingChange { get; set; }
-    public int SchemaVersion { get; set; } = 1;
+    // Promoted field (também presente no snapshot JSON) pra index parcial em breaking versions.
+    public bool BreakingChange { get; set; }
 }
 
 internal class WorkflowVersionRow
@@ -670,8 +669,7 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.Status).HasMaxLength(32).IsRequired();
             b.Property(e => e.ContentHash).HasMaxLength(128).IsRequired();
             b.Property(e => e.Snapshot).HasColumnType("jsonb").IsRequired();
-            b.Property(e => e.BreakingChange).IsRequired(false);
-            b.Property(e => e.SchemaVersion).HasDefaultValue(1).IsRequired();
+            b.Property(e => e.BreakingChange).HasDefaultValue(false).IsRequired();
             b.HasIndex(e => new { e.AgentDefinitionId, e.Revision }).IsUnique();
             b.HasIndex(e => e.AgentDefinitionId);
             b.HasIndex(e => e.ContentHash);

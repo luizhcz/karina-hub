@@ -50,11 +50,8 @@ public class AgentFactory : IAgentFactory
     private readonly EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? _auditLogger;
     private readonly EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor? _projectContextAccessor;
     // Feature flags com IOptionsMonitor (atualização runtime sem restart).
-    // Optional pra preservar BC.
+    // Optional pra preservar BC com testes que não injetam.
     private readonly IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? _sharingOptions;
-    // Auto-pin lazy de refs sem AgentVersionId quando MandatoryPin=true. Optional
-    // pra preservar BC com chamadores legacy/testes que não injetam o serviço.
-    private readonly IWorkflowAutoPinService? _autoPinService;
 
     // Throttle pra cross_project_invoke audit. Capacity 1000, janela 60s,
     // emite métrica ao despejar. Static singleton: factory é registrado scoped em DI
@@ -87,8 +84,7 @@ public class AgentFactory : IAgentFactory
         IWorkflowEventBus? eventBus = null,
         EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? auditLogger = null,
         EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor? projectContextAccessor = null,
-        IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? sharingOptions = null,
-        IWorkflowAutoPinService? autoPinService = null)
+        IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? sharingOptions = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
@@ -113,7 +109,6 @@ public class AgentFactory : IAgentFactory
         _auditLogger = auditLogger;
         _projectContextAccessor = projectContextAccessor;
         _sharingOptions = sharingOptions;
-        _autoPinService = autoPinService;
     }
 
     public async Task<ExecutableWorkflow> CreateAgentAsync(AgentDefinition definition, CancellationToken ct = default)
@@ -165,25 +160,6 @@ public class AgentFactory : IAgentFactory
     {
         var result = new Dictionary<string, ExecutableWorkflow>();
 
-        // Pré-loop: quando MandatoryPin enforça pra este tenant, auto-pina refs legacy
-        // resolvendo current version. Tenant-staged: respeita MandatoryPinTenants whitelist
-        // — tenant fora da whitelist mantém comportamento legacy. Idempotente +
-        // concorrência-safe (re-fetch no service). Falha do auto-pin é não-bloqueante.
-        var mandatoryPin = _sharingOptions?.CurrentValue.IsMandatoryPinFor(workflow.TenantId) ?? false;
-        if (mandatoryPin && _autoPinService is not null)
-        {
-            try
-            {
-                await _autoPinService.AutoPinLegacyReferencesAsync(workflow, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "[AgentFactory] Auto-pin falhou pra workflow '{WorkflowId}' (não-bloqueante).",
-                    workflow.Id);
-            }
-        }
-
         foreach (var agentRef in workflow.Agents)
         {
             // Governance source = live row (Visibility/ProjectId/TenantId/AllowedProjectIds
@@ -203,53 +179,33 @@ public class AgentFactory : IAgentFactory
                     $"Agent '{agentRef.AgentId}' referenced in workflow '{workflow.Id}' not found.");
             }
 
-            // Kill switch: quando LosslessAgentVersion=false, ignora SchemaVersion=2
-            // e cai sempre no path legado (live definition). Útil pra rollback rápido
-            // se lossless apresentar regressão.
-            var losslessEnabled = _sharingOptions?.CurrentValue.LosslessAgentVersion ?? true;
-
             AgentDefinition definition;
             if (!string.IsNullOrEmpty(agentRef.AgentVersionId) && _agentVersionRepo is not null)
             {
                 // Pin setado: resolve via patch propagation (current se não há breaking
-                // entre pinned e current; pin exato senão).
+                // entre pinned e current; pin exato senão). Reconstrói AgentDefinition
+                // do snapshot lossless hidratando governança da row corrente.
                 var snapshot = await _agentVersionRepo.ResolveEffectiveAsync(
                     agentRef.AgentId, agentRef.AgentVersionId, ct);
+                definition = snapshot.ToDefinition(governanceSource);
 
-                if (snapshot.SchemaVersion >= 2 && losslessEnabled)
-                {
-                    // Lossless path: reconstrói AgentDefinition do snapshot, hidratando
-                    // governança da row corrente.
-                    definition = snapshot.ToDefinition(governanceSource);
-
-                    var strategy = string.Equals(snapshot.AgentVersionId, agentRef.AgentVersionId, StringComparison.OrdinalIgnoreCase)
-                        ? "exact"
-                        : "propagated";
-                    EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionPinResolutions.Add(1,
-                        new KeyValuePair<string, object?>("strategy", strategy),
-                        new KeyValuePair<string, object?>("agent_id", agentRef.AgentId));
-                }
-                else
-                {
-                    // Snapshot v1 (lossy): falta material pra reconstrução determinística.
-                    // Cai pro live definition + warning estruturado pra runbook ler.
-                    definition = governanceSource;
-                    _logger.LogWarning(
-                        "[AgentFactory] AgentVersion '{VersionId}' tem SchemaVersion=1 (legacy lossy). Resolvendo current pra '{AgentId}'. Re-publish recomendado pra obter snapshot lossless.",
-                        agentRef.AgentVersionId, agentRef.AgentId);
-                    EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionPinResolutions.Add(1,
-                        new KeyValuePair<string, object?>("strategy", "legacy_fallback"),
-                        new KeyValuePair<string, object?>("agent_id", agentRef.AgentId));
-                }
+                var strategy = string.Equals(snapshot.AgentVersionId, agentRef.AgentVersionId, StringComparison.OrdinalIgnoreCase)
+                    ? "exact"
+                    : "propagated";
+                EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionPinResolutions.Add(1,
+                    new KeyValuePair<string, object?>("strategy", strategy),
+                    new KeyValuePair<string, object?>("agent_id", agentRef.AgentId));
             }
             else
             {
-                // Sem pin (ou IAgentVersionRepository não-injetado em testes): live definition.
+                // Sem pin: cenário esperado apenas em testes que não injetam IAgentVersionRepository
+                // ou em runtime stale (cache não-invalidado pós-criação). Workflow validator
+                // sempre exige pin no save — atinge esse branch sinaliza divergência.
                 definition = governanceSource;
-                if (!string.IsNullOrEmpty(agentRef.AgentVersionId))
+                if (!string.IsNullOrEmpty(agentRef.AgentVersionId) || _agentVersionRepo is null)
                 {
                     EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionPinResolutions.Add(1,
-                        new KeyValuePair<string, object?>("strategy", "no_version_repo"),
+                        new KeyValuePair<string, object?>("strategy", "no_pin_unexpected"),
                         new KeyValuePair<string, object?>("agent_id", agentRef.AgentId));
                 }
             }

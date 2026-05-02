@@ -38,13 +38,14 @@ public class AgentVersionSnapshotTests
     }
 
     [Fact]
-    public void FromDefinition_CapturaToolFingerprints()
+    public void FromDefinition_CapturaTools()
     {
         var def = BuildDefinition();
         var version = AgentVersion.FromDefinition(def, revision: 1, promptContent: null, promptVersionId: null);
 
-        version.ToolFingerprints.Should().HaveCount(1);
-        version.ToolFingerprints[0].Name.Should().Be("search_asset");
+        version.Tools.Should().NotBeNull();
+        version.Tools!.Should().HaveCount(1);
+        version.Tools[0].Name.Should().Be("search_asset");
     }
 
     [Fact]

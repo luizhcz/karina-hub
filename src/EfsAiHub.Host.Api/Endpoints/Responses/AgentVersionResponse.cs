@@ -21,26 +21,22 @@ public class AgentVersionResponse
     public string? PromptVersionId { get; init; }
     public AgentModelSnapshot? Model { get; init; }
     public AgentProviderSnapshot? Provider { get; init; }
-    public IReadOnlyList<ToolFingerprint> ToolFingerprints { get; init; } = [];
+    public AgentProviderSnapshot? FallbackProvider { get; init; }
+    public IReadOnlyList<AgentToolSnapshot> Tools { get; init; } = [];
     public IReadOnlyList<AgentMiddlewareSnapshot> MiddlewarePipeline { get; init; } = [];
     public AgentStructuredOutputSnapshot? OutputSchema { get; init; }
     public ResiliencePolicy? Resilience { get; init; }
     public AgentCostBudget? CostBudget { get; init; }
     public IReadOnlyList<SkillRef> SkillRefs { get; init; } = [];
     public required string ContentHash { get; init; }
+    public string? Description { get; init; }
+    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
 
     /// <summary>
-    /// true=breaking change (workflows pinados não recebem patch propagation automática),
-    /// false=patch (propaga), null=legacy/unknown (versions pré-feature ou auto-snapshot
-    /// via UpsertAsync que não declara intent).
+    /// true=breaking change (workflows pinados não recebem patch propagation automática);
+    /// false=patch (propaga pra workflows pinados em ancestor sem breaking entre).
     /// </summary>
-    public bool? BreakingChange { get; init; }
-
-    /// <summary>
-    /// 1=lossy legacy (snapshots por campo, tools só com fingerprints), 2=lossless
-    /// (Tools cheias + Description + Metadata + FallbackProvider preservados).
-    /// </summary>
-    public int SchemaVersion { get; init; }
+    public bool BreakingChange { get; init; }
 
     public static AgentVersionResponse FromDomain(AgentVersion v) => new()
     {
@@ -55,15 +51,17 @@ public class AgentVersionResponse
         PromptVersionId = v.PromptVersionId,
         Model = v.Model,
         Provider = v.Provider,
-        ToolFingerprints = v.ToolFingerprints,
+        FallbackProvider = v.FallbackProvider,
+        Tools = v.Tools ?? Array.Empty<AgentToolSnapshot>(),
         MiddlewarePipeline = v.MiddlewarePipeline,
         OutputSchema = v.OutputSchema,
         Resilience = v.Resilience,
         CostBudget = v.CostBudget,
         SkillRefs = v.SkillRefs,
         ContentHash = v.ContentHash,
-        BreakingChange = v.BreakingChange,
-        SchemaVersion = v.SchemaVersion
+        Description = v.Description,
+        Metadata = v.Metadata,
+        BreakingChange = v.BreakingChange
     };
 }
 

@@ -55,15 +55,6 @@ public class AgentVersionLosslessTests
     };
 
     [Fact]
-    public void FromDefinition_SetaSchemaVersion2()
-    {
-        var def = BuildRichDefinition();
-        var version = AgentVersion.FromDefinition(def, revision: 1, promptContent: "Você é um agente de testes lossless.", promptVersionId: null);
-
-        version.SchemaVersion.Should().Be(2);
-    }
-
-    [Fact]
     public void FromDefinition_CapturaDescription()
     {
         var def = BuildRichDefinition();
@@ -211,42 +202,33 @@ public class AgentVersionLosslessTests
     }
 
     [Fact]
-    public void ToDefinition_SchemaV1Legacy_FazFallbackParaToolFingerprints()
+    public void ToDefinition_ToolsNull_ProduzListaVazia()
     {
-        // Simula snapshot v1: Tools=null (não populado), só ToolFingerprints existem.
-        var v1 = new AgentVersion(
+        // Defesa contra snapshot JSON corrompido onde Tools veio null —
+        // ToDefinition deve retornar lista vazia em vez de NRE.
+        var v = new AgentVersion(
             AgentVersionId: "v1-id",
-            AgentDefinitionId: "agent-legacy",
+            AgentDefinitionId: "agent-empty",
             Revision: 1,
             CreatedAt: DateTime.UtcNow,
             CreatedBy: null,
             ChangeReason: null,
             Status: AgentVersionStatus.Published,
-            PromptContent: "instr legacy",
+            PromptContent: "instr",
             PromptVersionId: null,
             Model: new AgentModelSnapshot("gpt-4o", null, null),
             Provider: new AgentProviderSnapshot("AzureOpenAI", "ChatCompletion", null, false),
-            ToolFingerprints: new[]
-            {
-                new ToolFingerprint("function", "legacy_tool", "hash-legacy", null, null),
-            },
             MiddlewarePipeline: Array.Empty<AgentMiddlewareSnapshot>(),
             OutputSchema: null,
             Resilience: null,
             CostBudget: null,
             SkillRefs: Array.Empty<EfsAiHub.Core.Agents.Skills.SkillRef>(),
             ContentHash: "hash",
-            // Defaults: Description=null, Metadata=null, FallbackProvider=null, Tools=null, BreakingChange=null, SchemaVersion=1
-            Tools: null,
-            SchemaVersion: 1);
+            Tools: null);
 
-        v1.SchemaVersion.Should().Be(1);
-        var def = v1.ToDefinition(governanceSource: null);
+        var def = v.ToDefinition(governanceSource: null);
 
-        def.Tools.Should().HaveCount(1);
-        def.Tools[0].Type.Should().Be("function");
-        def.Tools[0].Name.Should().Be("legacy_tool");
-        def.Tools[0].FingerprintHash.Should().Be("hash-legacy");
+        def.Tools.Should().BeEmpty();
     }
 
     [Fact]
