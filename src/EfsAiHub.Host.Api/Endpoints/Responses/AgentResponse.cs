@@ -38,6 +38,11 @@ public class AgentResponse
     /// </summary>
     public IReadOnlyList<string>? AllowedProjectIds { get; init; }
 
+    /// <summary>
+    /// Quando false, runtime pula o agent em workflows que o referenciam.
+    /// </summary>
+    public bool Enabled { get; init; }
+
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 
@@ -60,6 +65,7 @@ public class AgentResponse
         OriginProjectId = def.ProjectId,
         OriginTenantId = def.TenantId,
         AllowedProjectIds = def.AllowedProjectIds,
+        Enabled = def.Enabled,
         CreatedAt = def.CreatedAt,
         UpdatedAt = def.UpdatedAt
     };
