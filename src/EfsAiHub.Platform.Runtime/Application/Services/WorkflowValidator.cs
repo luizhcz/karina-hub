@@ -1,4 +1,6 @@
+using EfsAiHub.Core.Abstractions.Sharing;
 using EfsAiHub.Platform.Runtime.Interfaces;
+using Microsoft.Extensions.Options;
 
 namespace EfsAiHub.Platform.Runtime.Services;
 
@@ -19,11 +21,16 @@ public class WorkflowValidator
 
     private readonly IAgentDefinitionRepository _agentRepo;
     private readonly IAgentVersionRepository? _versionRepo;
+    private readonly IOptionsMonitor<SharingOptions>? _sharingOptions;
 
-    public WorkflowValidator(IAgentDefinitionRepository agentRepo, IAgentVersionRepository? versionRepo = null)
+    public WorkflowValidator(
+        IAgentDefinitionRepository agentRepo,
+        IAgentVersionRepository? versionRepo = null,
+        IOptionsMonitor<SharingOptions>? sharingOptions = null)
     {
         _agentRepo = agentRepo;
         _versionRepo = versionRepo;
+        _sharingOptions = sharingOptions;
     }
 
     public async Task<(bool IsValid, IReadOnlyList<string> Errors)> ValidateAsync(
@@ -186,6 +193,8 @@ public class WorkflowValidator
     {
         if (definition.Agents.Count == 0) return;
 
+        var mandatoryPin = _sharingOptions?.CurrentValue.MandatoryPin ?? false;
+
         var requestedIds = definition.Agents.Select(a => a.AgentId);
         var existingIds = await _agentRepo.GetExistingIdsAsync(requestedIds, ct);
         foreach (var agentRef in definition.Agents)
@@ -196,7 +205,17 @@ public class WorkflowValidator
                 continue;
             }
 
-            // Pin opcional: valida que a version existe e pertence ao agent.
+            // MandatoryPin: ref sem AgentVersionId é rejeitada com mensagem clara
+            // direcionando o caller pra obter um pin via GET /api/agents/{id}/versions.
+            if (mandatoryPin && string.IsNullOrEmpty(agentRef.AgentVersionId))
+            {
+                errors.Add(
+                    $"Agent '{agentRef.AgentId}' precisa de pin de versão (Sharing:MandatoryPin=true). " +
+                    $"Use GET /api/agents/{agentRef.AgentId}/versions e informe AgentVersionId.");
+                continue;
+            }
+
+            // Pin: valida que a version existe e pertence ao agent.
             // _versionRepo é optional (BC com chamadores legacy), mas é provido em DI.
             if (!string.IsNullOrEmpty(agentRef.AgentVersionId) && _versionRepo is not null)
             {
