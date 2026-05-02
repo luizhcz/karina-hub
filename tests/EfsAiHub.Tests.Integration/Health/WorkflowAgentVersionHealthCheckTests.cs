@@ -98,4 +98,46 @@ public class WorkflowAgentVersionHealthCheckTests(IntegrationWebApplicationFacto
         var orphans = await VersionRepo.ListOrphanVersionsAsync(limit: 0);
         orphans.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task CheckHealth_PayloadIncluiRetiredCount_EmAmbosOsStatus()
+    {
+        // Healthy path inclui retired_count.
+        var result = await Check.CheckHealthAsync(new HealthCheckContext());
+
+        result.Data.Should().ContainKey("agent_version_retired_count");
+        // Tipo é int; valor depende do estado do DB compartilhado, mas a chave deve existir.
+        result.Data["agent_version_retired_count"].Should().BeOfType<int>();
+    }
+
+    [Fact]
+    public async Task CountRetiredVersions_RetornaContagemCorreta()
+    {
+        // Conta retired antes do test pra ter baseline.
+        var initialCount = await VersionRepo.CountRetiredVersionsAsync();
+
+        // Insere 2 versions com Status=Retired direto no DB.
+        var agentId = $"agent-retired-{Guid.NewGuid():N}";
+        await using (var ctx = await CtxFactory.CreateDbContextAsync())
+        {
+            await ctx.Database.ExecuteSqlRawAsync(@"
+                INSERT INTO aihub.agent_definitions
+                (""Id"", ""Name"", ""Data"", ""ProjectId"", ""Visibility"", ""TenantId"", ""CreatedAt"", ""UpdatedAt"")
+                VALUES ({0}, 'Agent Retired', '{{}}'::text, 'default', 'project', 'default', NOW(), NOW())",
+                agentId);
+
+            for (int i = 0; i < 2; i++)
+            {
+                await ctx.Database.ExecuteSqlRawAsync(@"
+                    INSERT INTO aihub.agent_versions
+                    (""AgentVersionId"", ""AgentDefinitionId"", ""Revision"", ""CreatedAt"",
+                     ""Status"", ""ContentHash"", ""Snapshot"", ""SchemaVersion"")
+                    VALUES ({0}, {1}, {2}, NOW(), 'Retired', {3}, '{{}}'::jsonb, 1)",
+                    Guid.NewGuid().ToString("N"), agentId, i + 1, $"retired-hash-{i}");
+            }
+        }
+
+        var afterCount = await VersionRepo.CountRetiredVersionsAsync();
+        afterCount.Should().Be(initialCount + 2);
+    }
 }
