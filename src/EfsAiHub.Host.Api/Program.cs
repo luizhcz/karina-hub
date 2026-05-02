@@ -117,6 +117,8 @@ builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolE
     EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolExecutor>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Interfaces.IGenericToolService,
     EfsAiHub.Platform.Runtime.Services.GenericToolService>();
+builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolBinder,
+    EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolBinder>();
 
 // ── Factories (Agente e Workflow) ─────────────────────────────────────────────
 builder.Services.AddScoped<IAgentFactory, AgentFactory>();

@@ -79,6 +79,43 @@ public sealed record AgentVersion(
             .Select(t => AgentToolSnapshot.FromDefinition(t))
             .ToList();
 
+        // Projeção canônica: tools com GenericToolId=null serializam exatamente
+        // como antes da extensão (preserva ContentHash de agents existentes —
+        // re-publish idempotente). Tools com GenericToolId definido adicionam o
+        // campo no final; mudanças aí geram hash novo intencionalmente.
+        var canonicalTools = tools
+            .Select(t => t.GenericToolId is null
+                ? (object)new
+                {
+                    t.Type,
+                    t.Name,
+                    t.RequiresApproval,
+                    t.FingerprintHash,
+                    t.McpServerId,
+                    t.ServerLabel,
+                    t.ServerUrl,
+                    t.AllowedTools,
+                    t.RequireApproval,
+                    t.Headers,
+                    t.ConnectionId,
+                }
+                : new
+                {
+                    t.Type,
+                    t.Name,
+                    t.RequiresApproval,
+                    t.FingerprintHash,
+                    t.McpServerId,
+                    t.ServerLabel,
+                    t.ServerUrl,
+                    t.AllowedTools,
+                    t.RequireApproval,
+                    t.Headers,
+                    t.ConnectionId,
+                    t.GenericToolId,
+                })
+            .ToList();
+
         var middlewares = definition.Middlewares
             .Select(m => new AgentMiddlewareSnapshot(m.Type, m.Enabled, new Dictionary<string, string>(m.Settings)))
             .ToList();
@@ -114,7 +151,7 @@ public sealed record AgentVersion(
                     fallbackProvider.Endpoint,
                     fallbackProvider.HasValue,
                 },
-            tools,
+            tools = canonicalTools,
             middlewares,
             outputSchema,
             resilience = definition.Resilience,
@@ -293,7 +330,8 @@ public sealed record AgentToolSnapshot(
     IReadOnlyList<string> AllowedTools,
     string? RequireApproval,
     IReadOnlyDictionary<string, string> Headers,
-    string? ConnectionId)
+    string? ConnectionId,
+    string? GenericToolId)
 {
     public static AgentToolSnapshot FromDefinition(AgentToolDefinition tool) => new(
         Type: tool.Type,
@@ -310,7 +348,8 @@ public sealed record AgentToolSnapshot(
         Headers: tool.Headers
             .OrderBy(h => h.Key, StringComparer.Ordinal)
             .ToDictionary(h => h.Key, h => h.Value, StringComparer.Ordinal),
-        ConnectionId: tool.ConnectionId);
+        ConnectionId: tool.ConnectionId,
+        GenericToolId: tool.GenericToolId);
 
     public AgentToolDefinition ToDefinition() => new()
     {
@@ -325,6 +364,7 @@ public sealed record AgentToolSnapshot(
         RequireApproval = RequireApproval,
         Headers = new Dictionary<string, string>(Headers),
         ConnectionId = ConnectionId,
+        GenericToolId = GenericToolId,
     };
 }
 

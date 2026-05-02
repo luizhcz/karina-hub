@@ -12,6 +12,7 @@ using EfsAiHub.Platform.Runtime.Guards;
 using EfsAiHub.Platform.Runtime.Middlewares;
 using EfsAiHub.Platform.Runtime.Interfaces;
 using EfsAiHub.Platform.Runtime.Resilience;
+using EfsAiHub.Platform.Runtime.Tools.Generic;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
@@ -53,6 +54,10 @@ public class AgentFactory : IAgentFactory
     // Feature flags com IOptionsMonitor (atualização runtime sem restart).
     // Optional pra preservar BC com testes que não injetam.
     private readonly IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? _sharingOptions;
+    // Resolve GenericTools referenciadas pelo agent (Type="generic_http") e
+    // registra dinamicamente como AIFunction project-scoped no FunctionToolRegistry.
+    // Optional: testes que não envolvem generic tools podem omitir.
+    private readonly IGenericToolBinder? _genericToolBinder;
 
     // Throttle pra cross_project_invoke audit. Capacity 1000, janela 60s,
     // emite métrica ao despejar. Static singleton: factory é registrado scoped em DI
@@ -85,7 +90,8 @@ public class AgentFactory : IAgentFactory
         IWorkflowEventBus? eventBus = null,
         EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? auditLogger = null,
         EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor? projectContextAccessor = null,
-        IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? sharingOptions = null)
+        IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? sharingOptions = null,
+        IGenericToolBinder? genericToolBinder = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
@@ -110,6 +116,7 @@ public class AgentFactory : IAgentFactory
         _auditLogger = auditLogger;
         _projectContextAccessor = projectContextAccessor;
         _sharingOptions = sharingOptions;
+        _genericToolBinder = genericToolBinder;
     }
 
     public async Task<ExecutableWorkflow> CreateAgentAsync(AgentDefinition definition, CancellationToken ct = default)
@@ -124,6 +131,7 @@ public class AgentFactory : IAgentFactory
         definition = await InjectProjectCredentials(definition, ct);
         definition = await ResolveActivePrompt(definition, ct);
         definition = await ResolveSkills(definition, ct);
+        await BindGenericToolsAsync(definition, ct);
         await TrackAgentVersionAsync(definition.Id, ct);
         var provider = ResolveProvider(definition);
         var options = ChatOptionsBuilder.BuildAgentOptions(definition, _functionRegistry, _toolPersistence.Writer, _trackedFnLogger, _logger, _allowFingerprintMismatch, projectId: definition.ProjectId);
@@ -150,6 +158,7 @@ public class AgentFactory : IAgentFactory
         definition = await InjectProjectCredentials(definition, ct);
         definition = await ResolveActivePrompt(definition, ct);
         definition = await ResolveSkills(definition, ct);
+        await BindGenericToolsAsync(definition, ct);
         await TrackAgentVersionAsync(definition.Id, ct);
         var provider = ResolveProvider(definition);
         var rawClient = await provider.CreateChatClientAsync(definition, ct);
@@ -333,6 +342,7 @@ public class AgentFactory : IAgentFactory
         }
 
         definition = await InjectProjectCredentials(definition, ct);
+        await BindGenericToolsAsync(definition, ct);
         var agentVersionId = await TrackAgentVersionAsync(agentId, ct);
         var provider = ResolveProvider(definition);
         var rawChatClient = await provider.CreateChatClientAsync(definition, ct);
@@ -476,6 +486,22 @@ public class AgentFactory : IAgentFactory
 
         DelegateExecutor.Current.Value?.PromptVersions.TryAdd(definition.Id, promptResult.Value.VersionId);
         return CopyWithInstructions(definition, promptResult.Value.Content);
+    }
+
+    private async Task BindGenericToolsAsync(AgentDefinition definition, CancellationToken ct)
+    {
+        if (_genericToolBinder is null) return;
+        try
+        {
+            await _genericToolBinder.BindAsync(definition, ct);
+        }
+        catch (Exception ex)
+        {
+            // Bind nunca aborta a criação do agent. Ferramenta perdida vira tool
+            // não-resolvida no ChatOptionsBuilder (já tratado via fingerprint mismatch).
+            _logger.LogWarning(ex,
+                "[AgentFactory] Falha ao bindar generic tools de agent '{AgentId}'.", definition.Id);
+        }
     }
 
     private async Task<AgentDefinition> ResolveSkills(AgentDefinition definition, CancellationToken ct)

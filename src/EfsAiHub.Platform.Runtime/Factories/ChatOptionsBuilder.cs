@@ -117,6 +117,37 @@ public static class ChatOptionsBuilder
             addedNames.Add(toolDef.Name!);
         }
 
+        // Resolve generic_http tools: o GenericToolBinder já registrou a
+        // DynamicGenericAIFunction project-scoped no FunctionToolRegistry usando
+        // GenericToolId como chave; aqui só recuperamos e envolvemos no tracker.
+        foreach (var toolDef in definition.Tools.Where(t =>
+            t.Type.Equals("generic_http", StringComparison.OrdinalIgnoreCase)))
+        {
+            var key = toolDef.GenericToolId;
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                logger.LogWarning(
+                    "Agent '{AgentId}': generic_http tool sem GenericToolId — ignorada.", definition.Id);
+                continue;
+            }
+            if (addedNames.Contains(key))
+                continue;
+
+            var found = projectId is not null
+                ? functionRegistry.TryGet(key, projectId, out var fn)
+                : functionRegistry.TryGet(key, out fn);
+            if (!found || fn is null)
+            {
+                logger.LogWarning(
+                    "Agent '{AgentId}': generic_http tool '{ToolId}' não encontrada no registry (binder pulou ou tool foi removido) — ignorada.",
+                    definition.Id, key);
+                continue;
+            }
+
+            tools.Add(new TrackedAIFunction(fn, definition.Id, toolWriter, trackedFnLogger));
+            addedNames.Add(key);
+        }
+
         // Resolve MCP tools: se uma entrada AllowedTools existe no FunctionToolRegistry,
         // usa a implementação registrada como fallback (evita precisar de um cliente MCP em runtime).
         foreach (var toolDef in definition.Tools.Where(t =>

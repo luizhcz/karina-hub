@@ -241,11 +241,18 @@ public class AgentModelConfig
 
 public class AgentToolDefinition
 {
-    /// <summary>"code_interpreter" | "file_search" | "function" | "mcp" | "web_search"</summary>
+    /// <summary>"code_interpreter" | "file_search" | "function" | "generic_http" | "mcp" | "web_search"</summary>
     public required string Type { get; init; }
 
     public string? Name { get; init; }
     public bool RequiresApproval { get; init; } = false;
+
+    /// <summary>
+    /// Quando <see cref="Type"/>="generic_http", referência ao Id imutável de um
+    /// <c>GenericTool</c> cadastrado no projeto. O binder resolve em runtime e
+    /// monta uma <c>AIFunction</c> dinâmica que dispara o <c>GenericToolExecutor</c>.
+    /// </summary>
+    public string? GenericToolId { get; init; }
 
     /// <summary>
     /// Fingerprint (sha256 canônico de <c>{Name, Description, JsonSchema}</c>)
