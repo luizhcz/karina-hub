@@ -1,6 +1,4 @@
-using EfsAiHub.Core.Abstractions.Sharing;
 using EfsAiHub.Platform.Runtime.Interfaces;
-using Microsoft.Extensions.Options;
 
 namespace EfsAiHub.Platform.Runtime.Services;
 
@@ -21,16 +19,13 @@ public class WorkflowValidator
 
     private readonly IAgentDefinitionRepository _agentRepo;
     private readonly IAgentVersionRepository? _versionRepo;
-    private readonly IOptionsMonitor<SharingOptions>? _sharingOptions;
 
     public WorkflowValidator(
         IAgentDefinitionRepository agentRepo,
-        IAgentVersionRepository? versionRepo = null,
-        IOptionsMonitor<SharingOptions>? sharingOptions = null)
+        IAgentVersionRepository? versionRepo = null)
     {
         _agentRepo = agentRepo;
         _versionRepo = versionRepo;
-        _sharingOptions = sharingOptions;
     }
 
     public async Task<(bool IsValid, IReadOnlyList<string> Errors)> ValidateAsync(
@@ -193,10 +188,6 @@ public class WorkflowValidator
     {
         if (definition.Agents.Count == 0) return;
 
-        // Tenant-staged enforcement: respeita MandatoryPinTenants whitelist.
-        // Workflow.TenantId é hidratado no upsert via lookup do owner project.
-        var mandatoryPin = _sharingOptions?.CurrentValue.IsMandatoryPinFor(definition.TenantId) ?? false;
-
         var requestedIds = definition.Agents.Select(a => a.AgentId);
         var existingIds = await _agentRepo.GetExistingIdsAsync(requestedIds, ct);
         foreach (var agentRef in definition.Agents)
@@ -207,12 +198,12 @@ public class WorkflowValidator
                 continue;
             }
 
-            // MandatoryPin: ref sem AgentVersionId é rejeitada com mensagem clara
+            // Pin obrigatório global: ref sem AgentVersionId é rejeitada com mensagem clara
             // direcionando o caller pra obter um pin via GET /api/agents/{id}/versions.
-            if (mandatoryPin && string.IsNullOrEmpty(agentRef.AgentVersionId))
+            if (string.IsNullOrEmpty(agentRef.AgentVersionId))
             {
                 errors.Add(
-                    $"Agent '{agentRef.AgentId}' precisa de pin de versão (Sharing:MandatoryPin=true). " +
+                    $"Agent '{agentRef.AgentId}' precisa de pin de versão. " +
                     $"Use GET /api/agents/{agentRef.AgentId}/versions e informe AgentVersionId.");
                 continue;
             }
