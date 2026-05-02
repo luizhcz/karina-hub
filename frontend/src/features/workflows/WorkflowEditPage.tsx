@@ -6,14 +6,18 @@ import { Card } from '../../shared/ui/Card'
 import { ConfirmDialog } from '../../shared/ui/ConfirmDialog'
 import { PageLoader } from '../../shared/ui/LoadingSpinner'
 import { ErrorCard } from '../../shared/ui/ErrorCard'
-import { useWorkflow, useUpdateWorkflow, useUpdateWorkflowVisibility } from '../../api/workflows'
+import { Tabs } from '../../shared/ui/Tabs'
+import { useWorkflow, useUpdateWorkflow, useUpdateWorkflowVisibility, useWorkflowAgentVersionStatus } from '../../api/workflows'
 import type { WorkflowVisibility } from '../../api/workflows'
 import { ApiError } from '../../api/client'
 import { toast } from '../../stores/toast'
 import { useProjectStore } from '../../stores/project'
 import { WorkflowForm } from './components/WorkflowForm'
+import { WorkflowAgentVersionsTab } from './components/WorkflowAgentVersionsTab'
 import { formValuesToWorkflowRequest } from './formMapping'
 import type { WorkflowFormValues } from './types'
+
+type EditorTab = 'definition' | 'agent-versions'
 
 export function WorkflowEditPage() {
   const { id } = useParams<{ id: string }>()
@@ -22,6 +26,11 @@ export function WorkflowEditPage() {
   const updateMutation = useUpdateWorkflow()
   const visibilityMutation = useUpdateWorkflowVisibility()
   const [pendingVisibility, setPendingVisibility] = useState<WorkflowVisibility | null>(null)
+  const [activeTab, setActiveTab] = useState<EditorTab>('definition')
+
+  // Conta refs com update disponível pra mostrar badge na tab.
+  const { data: agentVersionStatus } = useWorkflowAgentVersionStatus(id ?? '', !!id)
+  const updatesAvailable = (agentVersionStatus ?? []).filter((s) => s.hasUpdate).length
 
   if (isLoading) return <PageLoader />
   if (error || !workflow)
@@ -177,18 +186,35 @@ export function WorkflowEditPage() {
         </div>
       </Card>
 
-      <WorkflowForm
-        initialValues={workflow}
-        onSubmit={handleSubmit}
-        loading={updateMutation.isPending}
-        isEdit
-        apiErrors={invariantErrors}
+      <Tabs
+        items={[
+          { key: 'definition', label: 'Definição' },
+          { key: 'agent-versions', label: 'Versões dos agentes', badge: updatesAvailable },
+        ]}
+        active={activeTab}
+        onChange={(k) => setActiveTab(k as EditorTab)}
       />
 
-      {apiError && !invariantErrors && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-400">
-          Erro ao salvar workflow: {(apiError as Error).message}
-        </div>
+      {activeTab === 'definition' && (
+        <>
+          <WorkflowForm
+            initialValues={workflow}
+            onSubmit={handleSubmit}
+            loading={updateMutation.isPending}
+            isEdit
+            apiErrors={invariantErrors}
+          />
+
+          {apiError && !invariantErrors && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-400">
+              Erro ao salvar workflow: {(apiError as Error).message}
+            </div>
+          )}
+        </>
+      )}
+
+      {activeTab === 'agent-versions' && id && (
+        <WorkflowAgentVersionsTab workflowId={id} />
       )}
 
       <ConfirmDialog

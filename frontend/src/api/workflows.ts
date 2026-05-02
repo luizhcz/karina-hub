@@ -177,6 +177,32 @@ export interface WorkflowVersion {
   description?: string
 }
 
+/** Mudança individual entre pinned e current — usada pelo diff modal. */
+export interface WorkflowAgentVersionChangeEntry {
+  agentVersionId: string
+  revision: number
+  /** true=breaking, false=patch, null=legacy/unknown (tratado como breaking pelo resolver). */
+  breakingChange?: boolean | null
+  changeReason?: string | null
+  createdAt: string
+  createdBy?: string | null
+}
+
+/** Status consolidado de um agent ref dentro de um workflow. */
+export interface WorkflowAgentVersionStatus {
+  agentId: string
+  agentName?: string | null
+  pinnedVersionId?: string | null
+  pinnedRevision?: number | null
+  currentVersionId?: string | null
+  currentRevision?: number | null
+  /** true se há AgentVersion com BreakingChange=true entre pinned e current. */
+  isPinnedBlockedByBreaking: boolean
+  /** true quando há current.Revision > pinned.Revision (UI mostra badge). */
+  hasUpdate: boolean
+  /** Versions intermediárias entre pinned e current (ordenadas por revision ASC). */
+  changes: WorkflowAgentVersionChangeEntry[]
+}
 
 export const KEYS = {
   all: ['workflows'] as const,
@@ -186,6 +212,7 @@ export const KEYS = {
   diagram: (id: string) => ['workflows', id, 'diagram'] as const,
   versions: (id: string) => ['workflows', id, 'versions'] as const,
   version: (id: string, vid: string) => ['workflows', id, 'versions', vid] as const,
+  agentVersionStatus: (id: string) => ['workflows', id, 'agent-version-status'] as const,
 }
 
 
@@ -209,6 +236,15 @@ export const getWorkflowVersion = (id: string, vid: string) => get<WorkflowDef>(
 export const rollbackWorkflow = (id: string, body?: { versionId?: string }) => post<WorkflowDef>(`/workflows/${id}/rollback`, body)
 export const updateWorkflowVisibility = (id: string, body: { visibility: WorkflowVisibility; reason?: string }) =>
   patch<WorkflowDef>(`/workflows/${id}/visibility`, body)
+
+export const getWorkflowAgentVersionStatus = (id: string) =>
+  get<WorkflowAgentVersionStatus[]>(`/workflows/${id}/agent-version-status`)
+
+export const updateWorkflowAgentPin = (
+  workflowId: string,
+  agentId: string,
+  body: { newVersionId: string; reason?: string },
+) => patch<WorkflowDef>(`/workflows/${workflowId}/agents/${agentId}/pin`, body)
 
 export const toggleWorkflowTrigger = (workflow: WorkflowDef, enabled: boolean) => {
   const body = { ...workflow, trigger: workflow.trigger ? { ...workflow.trigger, enabled } : undefined }
@@ -284,6 +320,29 @@ export function useTriggerWorkflow() {
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: { input: string } }) => triggerWorkflow(id, body),
     onSuccess: (_d, { id }) => { qc.invalidateQueries({ queryKey: KEYS.executions(id) }) },
+  })
+}
+
+export function useWorkflowAgentVersionStatus(workflowId: string, enabled = true) {
+  return useQuery({
+    queryKey: KEYS.agentVersionStatus(workflowId),
+    queryFn: () => getWorkflowAgentVersionStatus(workflowId),
+    enabled,
+  })
+}
+
+export function useUpdateWorkflowAgentPin() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ workflowId, agentId, body }: {
+      workflowId: string
+      agentId: string
+      body: { newVersionId: string; reason?: string }
+    }) => updateWorkflowAgentPin(workflowId, agentId, body),
+    onSuccess: (_d, { workflowId }) => {
+      qc.invalidateQueries({ queryKey: KEYS.detail(workflowId) })
+      qc.invalidateQueries({ queryKey: KEYS.agentVersionStatus(workflowId) })
+    },
   })
 }
 
