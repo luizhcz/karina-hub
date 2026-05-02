@@ -80,6 +80,30 @@ internal class AgentApprovalHistoryRow
     public DateTime OccurredAt { get; set; }
 }
 
+// Tool HTTP genérica owner-only (project-scoped strict). Workflows e agents
+// de outros projetos nunca enxergam essa tabela — o binder em runtime resolve
+// só pelo agent.ProjectId atual.
+internal class GenericToolRow
+{
+    public string Id { get; set; } = "";
+    public string ProjectId { get; set; } = "default";
+    public string TenantId { get; set; } = "default";
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string HttpMethod { get; set; } = "GET";
+    public string UrlTemplate { get; set; } = "";
+    public string PathParams { get; set; } = "{}";
+    public string QueryParams { get; set; } = "{}";
+    public string CustomHeaders { get; set; } = "{}";
+    public string InputContentType { get; set; } = "None";
+    public string? InputSchema { get; set; }
+    public string OutputContentType { get; set; } = "Json";
+    public string? OutputSchema { get; set; }
+    public int? TimeoutSecondsOverride { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
 internal class ProjectRow
 {
     public string Id { get; set; } = "";
@@ -539,6 +563,7 @@ public class AgentFwDbContext : DbContext
     internal DbSet<AgentDefinitionRow> AgentDefinitions => Set<AgentDefinitionRow>();
     internal DbSet<AgentDraftRow> AgentDrafts => Set<AgentDraftRow>();
     internal DbSet<AgentApprovalHistoryRow> AgentApprovalHistory => Set<AgentApprovalHistoryRow>();
+    internal DbSet<GenericToolRow> GenericTools => Set<GenericToolRow>();
     internal DbSet<AgentPromptVersionRow> AgentPromptVersions => Set<AgentPromptVersionRow>();
     internal DbSet<AgentVersionRow> AgentVersions => Set<AgentVersionRow>();
     internal DbSet<WorkflowVersionRow> WorkflowVersions => Set<WorkflowVersionRow>();
@@ -746,6 +771,37 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.OccurredAt })
                 .HasDatabaseName("IX_agent_approval_history_TenantId_OccurredAt")
                 .IsDescending(false, true);
+        });
+
+        modelBuilder.Entity<GenericToolRow>(b =>
+        {
+            b.ToTable("generic_tools");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(64);
+            b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.TenantId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Name).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Description).HasColumnType("text").HasMaxLength(4096).HasDefaultValue("");
+            b.Property(e => e.HttpMethod).HasMaxLength(8).IsRequired();
+            b.Property(e => e.UrlTemplate).HasColumnType("text").IsRequired();
+            b.Property(e => e.PathParams).HasColumnType("jsonb").IsRequired();
+            b.Property(e => e.QueryParams).HasColumnType("jsonb").IsRequired();
+            b.Property(e => e.CustomHeaders).HasColumnType("jsonb").IsRequired();
+            b.Property(e => e.InputContentType).HasMaxLength(32).IsRequired();
+            b.Property(e => e.InputSchema).HasColumnType("text");
+            b.Property(e => e.OutputContentType).HasMaxLength(32).IsRequired();
+            b.Property(e => e.OutputSchema).HasColumnType("text");
+            b.Property(e => e.TimeoutSecondsOverride);
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.HasIndex(e => new { e.ProjectId, e.TenantId })
+                .HasDatabaseName("IX_generic_tools_ProjectId_TenantId");
+            b.HasIndex(e => new { e.ProjectId, e.Name })
+                .IsUnique()
+                .HasDatabaseName("UX_generic_tools_ProjectId_Name");
+            // Strictamente owner-only: sem cláusula global. Workflows não enxergam
+            // tools de outros projects mesmo via Id direto.
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
         });
 
         modelBuilder.Entity<AgentVersionRow>(b =>
