@@ -37,6 +37,12 @@ docker compose run --rm \
 
 Log de saída resume: `Agents regenerados: X. Workflows pinados: Y. Workflows deletados (orphan): Z`.
 
+### Side effects esperados
+
+- **`background_response_jobs.AgentVersionId`** e **`llm_token_usage.AgentVersionId`** apontam pra os IDs antigos (não há FK hard). Esses campos viram dangling pointers — analytics retroativos por AgentVersionId nesses jobs/tokens não dão JOIN com `agent_versions`. Token usage e jobs **prospectivos** (pós-migration) vão referenciar os AgentVersionIds novos.
+- **`evaluation_runs`/`evaluation_results`/`evaluation_run_progress`** são deletados (FK hard pra `agent_versions`). Histórico de runs de avaliação some — re-rodar runs no novo formato é o caminho.
+- **Workflows com agent ref órfão** (agent deletado antes da migration) são **deletados** completamente (workflow_definitions + workflow_versions correspondentes).
+
 ## Após sucesso — cleanup obrigatório
 
 Confirme via SQL:

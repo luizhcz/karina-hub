@@ -78,7 +78,7 @@ internal sealed class MigrationRunner
             int pinned = 0;
             int deletedWorkflows = 0;
             var deletedIds = new List<string>();
-            foreach (var (workflowId, projectId, workflow) in workflows)
+            foreach (var (workflowId, workflow) in workflows)
             {
                 var orphanRefs = workflow.Agents
                     .Where(a => !currentVersionByAgentId.ContainsKey(a.AgentId))
@@ -203,26 +203,25 @@ internal sealed class MigrationRunner
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    private static async Task<List<(string Id, string ProjectId, WorkflowDefinition Workflow)>> LoadWorkflowsAsync(
+    private static async Task<List<(string Id, WorkflowDefinition Workflow)>> LoadWorkflowsAsync(
         NpgsqlConnection conn, NpgsqlTransaction tx, CancellationToken ct)
     {
         const string sql = """
-            SELECT "Id", "ProjectId", "Data"
+            SELECT "Id", "Data"
               FROM aihub.workflow_definitions
              ORDER BY "Id";
             """;
         await using var cmd = new NpgsqlCommand(sql, conn, tx);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
 
-        var list = new List<(string, string, WorkflowDefinition)>();
+        var list = new List<(string, WorkflowDefinition)>();
         while (await reader.ReadAsync(ct))
         {
             var id = reader.GetString(0);
-            var projectId = reader.GetString(1);
-            var data = reader.GetString(2);
+            var data = reader.GetString(1);
             var wf = JsonSerializer.Deserialize<WorkflowDefinition>(data, JsonDefaults.Domain)
                 ?? throw new InvalidOperationException($"WorkflowDefinition '{id}' tem JSON inválido em \"Data\".");
-            list.Add((id, projectId, wf));
+            list.Add((id, wf));
         }
         return list;
     }
