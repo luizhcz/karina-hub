@@ -40,6 +40,7 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
 
   const [activeTab, setActiveTab] = useState<string>(initialTab)
   const [pendingVisibility, setPendingVisibility] = useState<AgentVisibility | null>(null)
+  const [pendingDisable, setPendingDisable] = useState(false)
 
   if (isLoading) return <PageLoader />
   if (error || !agent) return <ErrorCard message="Erro ao carregar agente." onRetry={refetch} />
@@ -50,21 +51,33 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
   const currentProjectId = useProjectStore.getState().projectId
   const isOwnedByCurrentProject = !agent.originProjectId || agent.originProjectId === currentProjectId
 
-  const toggleEnabled = () => {
+  const applyEnabledChange = (nextEnabled: boolean) => {
     enabledMutation.mutate(
-      { id: id!, enabled: !isEnabled },
+      { id: id!, enabled: nextEnabled },
       {
         onSuccess: () => {
-          toast.success(isEnabled
-            ? 'Agente desabilitado. Workflows que o referenciam vão pulá-lo em runtime.'
-            : 'Agente habilitado novamente.')
+          toast.success(nextEnabled
+            ? 'Agente habilitado novamente. Workflows callers voltam a invocá-lo.'
+            : 'Agente desabilitado. Workflows que o referenciam vão pulá-lo em runtime.')
+          setPendingDisable(false)
         },
         onError: (err) => {
           const msg = err instanceof ApiError ? err.message : 'Erro ao alterar Enabled.'
           toast.error(msg)
+          setPendingDisable(false)
         },
       },
     )
+  }
+
+  const handleEnabledClick = () => {
+    if (isEnabled) {
+      // Desabilitar tem impacto runtime imediato em workflows callers — pede confirmação.
+      setPendingDisable(true)
+    } else {
+      // Habilitar é reversível e sem efeito runtime negativo — direto.
+      applyEnabledChange(true)
+    }
   }
 
   const confirmVisibilityChange = () => {
@@ -175,7 +188,7 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
         </div>
       </Card>
 
-      <Card>
+      <Card title="Habilitação">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2">
@@ -195,7 +208,7 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
           <Button
             variant="secondary"
             size="sm"
-            onClick={toggleEnabled}
+            onClick={handleEnabledClick}
             disabled={enabledMutation.isPending || !isOwnedByCurrentProject}
           >
             {isEnabled ? 'Desabilitar' : 'Habilitar'}
@@ -242,6 +255,16 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
         }
         confirmLabel={pendingVisibility === 'global' ? 'Compartilhar' : 'Tornar privado'}
         loading={visibilityMutation.isPending}
+      />
+
+      <ConfirmDialog
+        open={pendingDisable}
+        onClose={() => setPendingDisable(false)}
+        onConfirm={() => applyEnabledChange(false)}
+        title="Desabilitar agent?"
+        message="Workflows que referenciam este agent continuam saváveis, mas runtime vai pulá-lo na execução (Sequential continua pipeline com step ausente; Graph ignora edges órfãs; Handoff já existente fica em erro até reabilitar). Você pode reverter a qualquer momento."
+        confirmLabel="Desabilitar"
+        loading={enabledMutation.isPending}
       />
     </div>
   )
