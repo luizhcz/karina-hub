@@ -18,10 +18,12 @@ public class WorkflowValidator
         new(StringComparer.OrdinalIgnoreCase) { "manager", "participant" };
 
     private readonly IAgentDefinitionRepository _agentRepo;
+    private readonly IAgentVersionRepository? _versionRepo;
 
-    public WorkflowValidator(IAgentDefinitionRepository agentRepo)
+    public WorkflowValidator(IAgentDefinitionRepository agentRepo, IAgentVersionRepository? versionRepo = null)
     {
         _agentRepo = agentRepo;
+        _versionRepo = versionRepo;
     }
 
     public async Task<(bool IsValid, IReadOnlyList<string> Errors)> ValidateAsync(
@@ -189,7 +191,27 @@ public class WorkflowValidator
         foreach (var agentRef in definition.Agents)
         {
             if (!existingIds.Contains(agentRef.AgentId))
+            {
                 errors.Add($"Agente '{agentRef.AgentId}' referenciado no workflow não foi encontrado.");
+                continue;
+            }
+
+            // Pin opcional: valida que a version existe e pertence ao agent.
+            // _versionRepo é optional (BC com chamadores legacy), mas é provido em DI.
+            if (!string.IsNullOrEmpty(agentRef.AgentVersionId) && _versionRepo is not null)
+            {
+                var pinned = await _versionRepo.GetByIdAsync(agentRef.AgentVersionId, ct);
+                if (pinned is null)
+                {
+                    errors.Add(
+                        $"AgentVersion '{agentRef.AgentVersionId}' (pin do agent '{agentRef.AgentId}') não foi encontrada.");
+                }
+                else if (!string.Equals(pinned.AgentDefinitionId, agentRef.AgentId, StringComparison.OrdinalIgnoreCase))
+                {
+                    errors.Add(
+                        $"AgentVersion '{agentRef.AgentVersionId}' não pertence ao agent '{agentRef.AgentId}'.");
+                }
+            }
         }
     }
 }
