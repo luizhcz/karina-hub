@@ -158,8 +158,16 @@ CREATE TABLE IF NOT EXISTS aihub.agent_versions (
     "Status"            VARCHAR(32)   NOT NULL,         -- Draft | Published | Deprecated
     "ContentHash"       VARCHAR(128)  NOT NULL,
     "Snapshot"          JSONB         NOT NULL,         -- snapshot completo do agente no momento do publish
+    "BreakingChange"    BOOLEAN       NULL,             -- true=breaking; false=patch; null=legacy/unknown
+    "SchemaVersion"     INTEGER       NOT NULL DEFAULT 1, -- 1=lossy legacy; 2=lossless (Tools cheias + Description/Metadata/FallbackProvider)
     CONSTRAINT "PK_agent_versions" PRIMARY KEY ("AgentVersionId")
 );
+
+-- ALTER idempotente pra DBs existentes.
+ALTER TABLE aihub.agent_versions
+    ADD COLUMN IF NOT EXISTS "BreakingChange" BOOLEAN NULL;
+ALTER TABLE aihub.agent_versions
+    ADD COLUMN IF NOT EXISTS "SchemaVersion" INTEGER NOT NULL DEFAULT 1;
 
 CREATE UNIQUE INDEX IF NOT EXISTS "IX_agent_versions_AgentDefinitionId_Revision"
     ON aihub.agent_versions ("AgentDefinitionId", "Revision");
@@ -169,6 +177,12 @@ CREATE INDEX IF NOT EXISTS "IX_agent_versions_AgentDefinitionId"
 
 CREATE INDEX IF NOT EXISTS "IX_agent_versions_ContentHash"
     ON aihub.agent_versions ("ContentHash");
+
+-- Index parcial cobre o predicate "alguma version BreakingChange=true entre rev_pinned e rev_current"
+-- usado pela patch propagation. Como breaking é raro, parcial mantém o índice pequeno.
+CREATE INDEX IF NOT EXISTS "IX_agent_versions_AgentDefId_Breaking"
+    ON aihub.agent_versions ("AgentDefinitionId", "Revision")
+    WHERE "BreakingChange" = TRUE;
 
 CREATE TABLE IF NOT EXISTS aihub.workflow_versions (
     "WorkflowVersionId"    VARCHAR(64)   NOT NULL,
