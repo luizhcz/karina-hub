@@ -123,4 +123,71 @@ public class WorkflowValidatorPinTests
 
         isValid.Should().BeTrue();
     }
+
+    [Fact]
+    public async Task ValidateAsync_HandoffComAgentDisabled_RejeitaComMensagemClara()
+    {
+        var agentRepo = Substitute.For<IAgentDefinitionRepository>();
+        agentRepo.GetExistingIdsAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => (IReadOnlySet<string>)callInfo.Arg<IEnumerable<string>>().ToHashSet());
+        agentRepo.GetByIdAsync("agent-x", Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition
+            {
+                Id = "agent-x",
+                Name = "Agent X",
+                Model = new AgentModelConfig { DeploymentName = "gpt-4o" },
+                Enabled = false,
+            });
+        agentRepo.GetByIdAsync("agent-y", Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition
+            {
+                Id = "agent-y",
+                Name = "Agent Y",
+                Model = new AgentModelConfig { DeploymentName = "gpt-4o" },
+                Enabled = true,
+            });
+
+        var versionRepo = Substitute.For<IAgentVersionRepository>();
+        versionRepo.GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => BuildVersion(callInfo.Arg<string>(), callInfo.Arg<string>().Replace("v-", "agent-")));
+
+        var validator = new WorkflowValidator(agentRepo, versionRepo);
+        var def = new WorkflowDefinition
+        {
+            Id = "wf-handoff",
+            Name = "Handoff",
+            OrchestrationMode = OrchestrationMode.Handoff,
+            Agents =
+            [
+                new WorkflowAgentReference { AgentId = "agent-x", AgentVersionId = "v-x" },
+                new WorkflowAgentReference { AgentId = "agent-y", AgentVersionId = "v-y" },
+            ],
+        };
+
+        var (isValid, errors) = await validator.ValidateAsync(def);
+
+        isValid.Should().BeFalse();
+        errors.Should().Contain(e => e.Contains("agent-x") && e.Contains("desabilitado") && e.Contains("Handoff"));
+    }
+
+    [Fact]
+    public async Task ValidateAsync_SequentialComAgentDisabled_AceitaComoNonBlocking()
+    {
+        // Sequential tolera skip silencioso em runtime (UI sinaliza via status service).
+        // Validator não bloqueia o save.
+        var agentRepo = Substitute.For<IAgentDefinitionRepository>();
+        agentRepo.GetExistingIdsAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => (IReadOnlySet<string>)callInfo.Arg<IEnumerable<string>>().ToHashSet());
+
+        var versionRepo = Substitute.For<IAgentVersionRepository>();
+        versionRepo.GetByIdAsync("v-1", Arg.Any<CancellationToken>())
+            .Returns(BuildVersion("v-1", "agent-x"));
+
+        var validator = new WorkflowValidator(agentRepo, versionRepo);
+        var def = BuildWorkflow("agent-x", pinnedVersionId: "v-1");
+
+        var (isValid, _) = await validator.ValidateAsync(def);
+
+        isValid.Should().BeTrue();
+    }
 }
