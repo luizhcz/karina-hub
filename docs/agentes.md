@@ -799,24 +799,35 @@ middlewareRegistry.Register(
 ### Modelo (Append-Only)
 
 ```csharp
-public sealed record AgentVersion
-{
-    public string AgentVersionId { get; init; }      // GUID
-    public string AgentDefinitionId { get; init; }
-    public int Revision { get; init; }               // MAX+1
-    public AgentVersionStatus Status { get; init; }  // Draft, Published, Retired
-    public string? PromptContent { get; init; }      // Prompt congelado
-    public string? PromptVersionId { get; init; }
-    public AgentModelSnapshot Model { get; init; }
-    public AgentProviderSnapshot Provider { get; init; }
-    public IReadOnlyList<ToolFingerprint> ToolFingerprints { get; init; }
-    public IReadOnlyList<AgentMiddlewareSnapshot> MiddlewarePipeline { get; init; }
-    public IReadOnlyList<SkillRef> SkillRefs { get; init; }  // SkillVersionId resolvido
-    public string ContentHash { get; init; }         // SHA-256 canônico
-    public string? CreatedBy { get; init; }
-    public string? ChangeReason { get; init; }
-}
+public sealed record AgentVersion(
+    string AgentVersionId,                                       // GUID
+    string AgentDefinitionId,
+    int Revision,                                                 // MAX+1
+    DateTime CreatedAt,
+    string? CreatedBy,
+    string? ChangeReason,
+    AgentVersionStatus Status,                                    // Draft, Published, Retired
+    string? PromptContent,                                        // Prompt congelado
+    string? PromptVersionId,
+    AgentModelSnapshot Model,
+    AgentProviderSnapshot Provider,
+    IReadOnlyList<ToolFingerprint> ToolFingerprints,              // só hashes (legacy)
+    IReadOnlyList<AgentMiddlewareSnapshot> MiddlewarePipeline,
+    AgentStructuredOutputSnapshot? OutputSchema,
+    ResiliencePolicy? Resilience,
+    AgentCostBudget? CostBudget,
+    IReadOnlyList<SkillRef> SkillRefs,                            // SkillVersionId resolvido
+    string ContentHash,                                           // SHA-256 canônico
+    // Lossless additions (SchemaVersion >= 2):
+    string? Description = null,
+    IReadOnlyDictionary<string, string>? Metadata = null,
+    AgentProviderSnapshot? FallbackProvider = null,
+    IReadOnlyList<AgentToolSnapshot>? Tools = null,               // tools cheias (lossless)
+    bool? BreakingChange = null,                                  // intent de breaking declarado pelo owner
+    int SchemaVersion = 1);                                       // 1=legacy, 2=lossless
 ```
+
+`SchemaVersion=1` (legado) usa `ToolFingerprints` (lossy). `SchemaVersion=2` carrega `Tools` cheias com todos os campos da `AgentToolDefinition` (Type, Name, JsonSchema/FingerprintHash, McpServerId, ServerLabel/Url, AllowedTools, Headers, ConnectionId, RequireApproval, RequiresApproval). `AgentVersion.ToDefinition(governanceSource?)` reconstrói `AgentDefinition` determinístico.
 
 ### Quando é Criada
 
@@ -840,11 +851,14 @@ Se o conteúdo não mudou (ex: update sem alteração real), nenhuma versão nov
 
 ```
 SHA256(JSON({
-    agentId, prompt, model, provider, tools,
-    middlewares, outputSchema, resilience,
-    costBudget, skills
+    schemaVersion, agentId, description, metadata, prompt,
+    model, provider, fallbackProvider, tools, middlewares,
+    outputSchema, resilience, costBudget, skills
 }))
 ```
+
+> Em `SchemaVersion=2` o canonical inclui `description`, `metadata`, `fallbackProvider` e `tools` cheias (não só fingerprints) — mudanças nesses campos invalidam o hash mesmo sem alteração no prompt/model.
+> `BreakingChange` e `SchemaVersion` são **promoted columns** persistidas como colunas separadas em `agent_versions`; não entram no canonical do ContentHash (intent declarado no momento do publish, não influencia identidade do snapshot).
 
 ### Rollback (Determinístico)
 
@@ -890,6 +904,66 @@ SHA256(JSON({
 | `GET /api/agents/{id}/versions` | Lista versões (Revision DESC) |
 | `POST /api/agents/{id}/rollback` | Restaura de snapshot |
 | `POST /api/agents/{id}/compare` | Compara duas versões |
+
+### Pinning Lossless + Patch Propagation
+
+`WorkflowAgentReference.AgentVersionId?` permite que workflow caller fixe um snapshot específico de agent. `AgentFactory.CreateAgentsForWorkflowAsync` resolve o pin via `IAgentVersionRepository.ResolveEffectiveAsync`:
+
+1. Resolve `governanceSource = _agentRepo.GetByIdAsync(agentId)` — live row pra Visibility/ProjectId/TenantId/AllowedProjectIds.
+2. Chama `ResolveEffectiveAsync(agentId, pinnedVersionId)` — encapsula patch propagation.
+3. Snapshot resolvido + governanceSource → `snapshot.ToDefinition(governanceSource)` reconstrói `AgentDefinition` determinístico.
+
+**Hidratação de governança via row, não snapshot**: `Visibility/ProjectId/TenantId/AllowedProjectIds` vêm da `agent_definitions` row corrente. Owner que demote `global → project` afeta workflows pinados imediatamente. Snapshot carrega *behavior*; row carrega *governança*. Decisão em [ADR 0018](adr/0018-lossless-agent-version-pinning.md).
+
+#### Política breaking/patch
+
+Owner declara intent no publish via `AgentService.PublishVersionAsync(agentId, breakingChange, changeReason?)`:
+
+- `BreakingChange=true` exige `ChangeReason` não-vazio (validado em `AgentVersion.EnsureInvariants` chamado dentro de `AppendAsync`). Workflows pinados em ancestor desta version **não** recebem patch propagation.
+- `BreakingChange=false` é patch — propaga pra workflows pinados em ancestor sem breaking entre eles.
+- `BreakingChange=null` (legacy ou auto-snapshot via `UpsertAsync`): tratado conservativamente como breaking (não propaga). Permite BC com snapshots pré-feature.
+
+`IAgentVersionRepository.GetAncestorBreakingAsync(agentDefId, fromRevExclusive, toRevInclusive)` retorna a primeira version com `BreakingChange=true` no range half-open. Index parcial cobre o predicate hot path: `IX_agent_versions_AgentDefId_Breaking ON agent_versions(AgentDefinitionId, Revision) WHERE BreakingChange = TRUE`.
+
+#### Matriz de comportamento (`AgentFactory`)
+
+| Pin set | SchemaVersion | Cenário | Resultado | Métrica `strategy` |
+|---|---|---|---|---|
+| Não | — | (path comum) | live definition (current) | (sem métrica) |
+| Sim | v2 | Pin == current | pin (= current) | `exact` |
+| Sim | v2 | Patch propagation: sem breaking entre pin e current | current | `propagated` |
+| Sim | v2 | Há breaking entre pin e current | snapshot pinado | `exact` |
+| Sim | v2 | Pin > current (raro) | pin | `exact` |
+| Sim | v1 (legacy lossy) | snapshot sem Tools cheias | live definition + warning | `legacy_fallback` |
+| Sim | — | `_versionRepo` não-injetado (testes) | live definition | `no_version_repo` |
+| Sim | — | governance row sumiu (orphan) | throw + métrica `governance_missing` | (`InvalidOperationException`) |
+
+#### Save-time validation
+
+`WorkflowValidator.ValidateAgentReferencesAsync` valida pin no save: `_versionRepo.GetByIdAsync` confirma existência + `pinned.AgentDefinitionId == agentRef.AgentId` confirma ownership. Erros surfacam antes de runtime, com mensagem clara.
+
+#### Idempotência por ContentHash
+
+`PublishVersionAsync` re-chamado sem mudança no conteúdo retorna existing `AgentVersion` (ContentHash bate). Audit `agent.version_published` é emitido apenas em publish efetivo (não no-op idempotente) — detecção via comparação de `AgentVersionId` entre snapshot tentado e persistido.
+
+#### Health check de orphans
+
+`WorkflowAgentVersionHealthCheck` (tag `[ready, sharing, pinning]`) reporta `Degraded` quando há `AgentVersions` cujo `agent_definitions` parent foi deletado. `Degraded` (não `Unhealthy`) — afeta apenas pinned workflows, não tira o pod do load balancer. Sample capped a 5 entries no payload.
+
+#### Métricas OTel
+
+| Métrica | Descrição |
+|---|---|
+| `agents.version_pin_resolutions_total{strategy, agent_id}` | Distribuição de strategy (exact/propagated/legacy_fallback/no_version_repo) |
+| `agents.version_lossless_governance_missing_total{agent_id}` | Orphan pins (governance row sumiu) |
+| `agents.version_lossless_roundtrip_failures_total{agent_version_id}` | sev1 — JSON snapshot corrompido força fallback defensivo |
+
+#### Audit constants
+
+| Action | Quando | Payload |
+|---|---|---|
+| `agent.version_published` | `PublishVersionAsync` em publish efetivo | `{revision, breakingChange, changeReason, contentHash}` |
+| `agent.version_lossless_roundtrip_failed` | (declarada — emissão futura via dispatcher) | `{agentVersionId, agentDefinitionId, contentHash}` |
 
 ---
 
@@ -1721,7 +1795,7 @@ Quando `workflow.ProjectId != agent.ProjectId` (workflow caller resolveu agent g
 ### Phase 3 — Hardening completo (entregue)
 
 - **Whitelist** `AllowedProjectIds[]?` em `AgentDefinition`. `null` = qualquer projeto do tenant; lista vazia = bloqueado pra todos exceto owner; lista com IDs = whitelist explícita. Owner sempre tem acesso. `AgentDefinition.CanBeReferencedBy(callerProjectId)` resolve a decisão. Bloqueado pelo `AgentFactory` antes de criar chat client (não em runtime LLM).
-- **Pin de versão** `WorkflowAgentReference.AgentVersionId?` opcional. Campo no domain pronto; materialização lossless de `AgentVersion → AgentDefinition` reservada pra Phase 4 (snapshots por campo, não JSON cru). AgentFactory loga warning quando setado mas resolve current.
+- **Pin de versão** `WorkflowAgentReference.AgentVersionId?` opcional. Campo no domain pronto; resolução lossless via `ResolveEffectiveAsync` + `ToDefinition` entregue no épico Pinning Federated (ver seção "Pinning Lossless + Patch Propagation" e [ADR 0018](adr/0018-lossless-agent-version-pinning.md)).
 - **MCP cross-project**: `IMcpServerRepository.GetByIdForOwnerAsync(id, ownerProjectId)` com `IgnoreQueryFilters` + filter por owner. Análogo a Skills.
 - **`SecretContext.OriginProjectId`**: adicionado ao record + helper `CrossProject(caller, owner)` + `EffectiveProjectId`. `AwsSecretsManagerResolver` emite métrica `secrets.cross_project_resolutions_total{caller, owner}` quando detectado.
 - **Health check** `SharedAgentsHealthCheck` (tag `[ready, sharing]`) reporta orphans (agents globais cujo project owner foi deletado). `Degraded` (não derruba pod). Backed por `IAgentDefinitionRepository.ListOrphanGlobalAgentsAsync`.
@@ -1740,7 +1814,8 @@ Quando `workflow.ProjectId != agent.ProjectId` (workflow caller resolveu agent g
 
 ### Phase 4 (futuras melhorias)
 
-- Pin lossless de versão (snapshot completo de `AgentDefinition` em `AgentVersion`).
+- `MandatoryPin` rollout tenant-staged + auto-pin lazy de workflows legados (épico Pinning Federated, Fase 2).
+- UI flow de migration (notification bell + modal de diff) — épico Pinning Federated, Fase 3.
 - `SharedAgentsCoherenceCheck` (workflows referenciando agents inexistentes).
 - Audit log table partitioning.
 - Performance benchmark p99 < 50ms com 1000 agents globais.
