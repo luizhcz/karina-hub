@@ -119,6 +119,10 @@ builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Interfaces.IGenericToolServ
     EfsAiHub.Platform.Runtime.Services.GenericToolService>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolBinder,
     EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolBinder>();
+builder.Services.AddScoped<EfsAiHub.Core.Agents.IPredefinedModelRepository,
+    EfsAiHub.Infra.Persistence.Postgres.PgPredefinedModelRepository>();
+builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Interfaces.IPredefinedModelService,
+    EfsAiHub.Platform.Runtime.Services.PredefinedModelService>();
 
 // ── Factories (Agente e Workflow) ─────────────────────────────────────────────
 builder.Services.AddScoped<IAgentFactory, AgentFactory>();

@@ -179,6 +179,26 @@ public static class AdminAuditActions
     public const string WorkflowAgentVersionPinned = "workflow.agent_version_pinned";
 
     /// <summary>
+    /// Criação de Predefined Model (preset global). Emitido pelo
+    /// POST /api/admin/predefined-models. PayloadAfter inclui id, displayName,
+    /// provider, deploymentName.
+    /// </summary>
+    public const string PredefinedModelCreated = "predefined_model.created";
+
+    /// <summary>
+    /// Atualização de Predefined Model. Emitido pelo
+    /// PUT /api/admin/predefined-models/{id}. PayloadAfter inclui id, updatedAt.
+    /// </summary>
+    public const string PredefinedModelUpdated = "predefined_model.updated";
+
+    /// <summary>
+    /// Remoção de Predefined Model. Emitido pelo
+    /// DELETE /api/admin/predefined-models/{id}. Agents que referenciam o preset
+    /// não conseguirão invocar até serem reapontados ou re-seedados.
+    /// </summary>
+    public const string PredefinedModelDeleted = "predefined_model.deleted";
+
+    /// <summary>
     /// Criação de Generic Tool (HTTP genérica). Emitido pelo POST /api/generic-tools.
     /// PayloadAfter inclui toolId, name, httpMethod, projectId.
     /// </summary>
@@ -214,6 +234,9 @@ public static class AdminAuditResources
 
     /// <summary>Tool HTTP genérica cadastrada por projeto.</summary>
     public const string GenericTool = "generic_tool";
+
+    /// <summary>Catálogo global de presets de modelo (provider+deployment+defaults).</summary>
+    public const string PredefinedModel = "predefined_model";
 }
 
 /// <summary>

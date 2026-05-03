@@ -39,3 +39,10 @@ public sealed class PredefinedModelConcurrencyException : Exception
         : base($"PredefinedModel '{id}' foi modificado por outra requisição (UpdatedAt divergente).")
     { }
 }
+
+public sealed class PredefinedModelIdConflictException : Exception
+{
+    public PredefinedModelIdConflictException(string id)
+        : base($"Já existe PredefinedModel com Id '{id}'.")
+    { }
+}

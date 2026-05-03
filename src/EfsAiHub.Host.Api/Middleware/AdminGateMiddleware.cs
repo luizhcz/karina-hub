@@ -146,6 +146,13 @@ public sealed class AdminGateMiddleware
             && path.StartsWith("/api/notifications", StringComparison.OrdinalIgnoreCase))
             return true;
 
+        // Predefined models (GET) — catálogo público lido pelo AgentForm pra montar
+        // o dropdown de presets. CRUD admin vive em /api/admin/predefined-models e
+        // fica sob o gate (path contém "/admin/", não bate aqui).
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && path.StartsWith("/api/predefined-models", StringComparison.OrdinalIgnoreCase))
+            return true;
+
         // Developer portal (dev-only, served via EmbeddedResource)
         if (path.Equals("/dev", StringComparison.OrdinalIgnoreCase))
             return true;
