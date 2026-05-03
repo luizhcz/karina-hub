@@ -80,6 +80,25 @@ internal class AgentApprovalHistoryRow
     public DateTime OccurredAt { get; set; }
 }
 
+// Catálogo global de presets de model+provider. Sem ProjectId/TenantId —
+// admin-managed cross-tenant. Agents referenciam via
+// AgentDefinition.Model.PredefinedModelId.
+internal class PredefinedModelRow
+{
+    public string Id { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string Provider { get; set; } = "";
+    public string? ClientType { get; set; }
+    public string? Endpoint { get; set; }
+    public string DeploymentName { get; set; } = "";
+    public float? DefaultTemperature { get; set; }
+    public int? DefaultMaxTokens { get; set; }
+    public bool Enabled { get; set; } = true;
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
 // Tool HTTP genérica owner-only (project-scoped strict). Workflows e agents
 // de outros projetos nunca enxergam essa tabela — o binder em runtime resolve
 // só pelo agent.ProjectId atual.
@@ -564,6 +583,7 @@ public class AgentFwDbContext : DbContext
     internal DbSet<AgentDraftRow> AgentDrafts => Set<AgentDraftRow>();
     internal DbSet<AgentApprovalHistoryRow> AgentApprovalHistory => Set<AgentApprovalHistoryRow>();
     internal DbSet<GenericToolRow> GenericTools => Set<GenericToolRow>();
+    internal DbSet<PredefinedModelRow> PredefinedModels => Set<PredefinedModelRow>();
     internal DbSet<AgentPromptVersionRow> AgentPromptVersions => Set<AgentPromptVersionRow>();
     internal DbSet<AgentVersionRow> AgentVersions => Set<AgentVersionRow>();
     internal DbSet<WorkflowVersionRow> WorkflowVersions => Set<WorkflowVersionRow>();
@@ -802,6 +822,28 @@ public class AgentFwDbContext : DbContext
             // Strictamente owner-only: sem cláusula global. Workflows não enxergam
             // tools de outros projects mesmo via Id direto.
             b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+        });
+
+        modelBuilder.Entity<PredefinedModelRow>(b =>
+        {
+            b.ToTable("predefined_models");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(64);
+            b.Property(e => e.DisplayName).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Description).HasColumnType("text").HasDefaultValue("");
+            b.Property(e => e.Provider).HasMaxLength(64).IsRequired();
+            b.Property(e => e.ClientType).HasMaxLength(64);
+            b.Property(e => e.Endpoint).HasMaxLength(512);
+            b.Property(e => e.DeploymentName).HasMaxLength(256).IsRequired();
+            b.Property(e => e.DefaultTemperature);
+            b.Property(e => e.DefaultMaxTokens);
+            b.Property(e => e.Enabled).HasDefaultValue(true);
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.HasIndex(e => e.Enabled)
+                .HasDatabaseName("IX_predefined_models_Enabled")
+                .HasFilter("\"Enabled\" = TRUE");
+            // Sem query filter — catálogo global cross-tenant.
         });
 
         modelBuilder.Entity<AgentVersionRow>(b =>

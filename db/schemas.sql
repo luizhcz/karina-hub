@@ -1452,3 +1452,32 @@ CREATE INDEX IF NOT EXISTS "IX_generic_tools_ProjectId_TenantId"
 -- tem o próprio namespace de tools).
 CREATE UNIQUE INDEX IF NOT EXISTS "UX_generic_tools_ProjectId_Name"
     ON aihub.generic_tools ("ProjectId", "Name");
+
+-- =============================================================================
+-- 29. PREDEFINED MODELS — catálogo global de presets para agents
+--
+-- Receitas curadas (DisplayName + Description + Provider + DeploymentName +
+-- defaults) cadastradas por admins. Agents referenciam via Model.PredefinedModelId
+-- e o runtime resolve live no AgentFactory antes de BuildAgentOptions. Cross-tenant
+-- — sem ProjectId/TenantId.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.predefined_models (
+    "Id"                  VARCHAR(64)   NOT NULL,
+    "DisplayName"         VARCHAR(128)  NOT NULL,
+    "Description"         TEXT          NOT NULL DEFAULT '',
+    "Provider"            VARCHAR(64)   NOT NULL,
+    "ClientType"          VARCHAR(64)   NULL,
+    "Endpoint"            VARCHAR(512)  NULL,
+    "DeploymentName"      VARCHAR(256)  NOT NULL,
+    "DefaultTemperature"  REAL          NULL,
+    "DefaultMaxTokens"    INTEGER       NULL,
+    "Enabled"             BOOLEAN       NOT NULL DEFAULT TRUE,
+    "CreatedAt"           TIMESTAMPTZ   NOT NULL,
+    "UpdatedAt"           TIMESTAMPTZ   NOT NULL,
+    CONSTRAINT "PK_predefined_models" PRIMARY KEY ("Id")
+);
+
+CREATE INDEX IF NOT EXISTS "IX_predefined_models_Enabled"
+    ON aihub.predefined_models ("Enabled")
+    WHERE "Enabled" = TRUE;
