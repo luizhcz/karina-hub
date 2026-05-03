@@ -88,6 +88,9 @@ public sealed class DefaultProjectGuard
             return true;
         if (path.StartsWith("/api/notifications", StringComparison.OrdinalIgnoreCase))
             return true;
+        // Catálogo público de presets — recurso global cross-tenant.
+        if (path.StartsWith("/api/predefined-models", StringComparison.OrdinalIgnoreCase))
+            return true;
         if (path.Equals("/dev", StringComparison.OrdinalIgnoreCase))
             return true;
 
