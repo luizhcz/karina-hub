@@ -153,6 +153,37 @@ public sealed class AdminGateMiddleware
             && path.StartsWith("/api/predefined-models", StringComparison.OrdinalIgnoreCase))
             return true;
 
+        // Generic tools — read+write liberados pra PMs/POs montarem ferramentas
+        // dos próprios projetos pelo MVP. Owner-scope garantido via query filter
+        // por ProjectId no DbContext (tool de project A é invisível pra project
+        // B mesmo via id direto). DELETE permanece admin-only por design.
+        if (path.StartsWith("/api/generic-tools", StringComparison.OrdinalIgnoreCase)
+            && (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+                || method.Equals("POST", StringComparison.OrdinalIgnoreCase)
+                || method.Equals("PUT", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        // MCP servers — read+write liberados pelo mesmo motivo dos generic tools.
+        // O controller mora em /api/admin/mcp-servers (path historicamente prefixado
+        // com /admin/), mas o repository é project-scoped via HasQueryFilter, então
+        // PMs só enxergam MCPs do próprio projeto. DELETE continua admin-only.
+        if (path.StartsWith("/api/admin/mcp-servers", StringComparison.OrdinalIgnoreCase)
+            && (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+                || method.Equals("POST", StringComparison.OrdinalIgnoreCase)
+                || method.Equals("PUT", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        // Agent drafts — read+write liberados pra que clientes não-admin possam
+        // criar/editar rascunhos dos próprios projetos. Project-scope garantido via
+        // HasQueryFilter no DbContext (rascunho de project A é invisível pra project
+        // B mesmo via id direto). POST /{id}/submit também cai aqui pra que o autor
+        // submeta o rascunho à aprovação. DELETE permanece admin-only.
+        if (path.StartsWith("/api/agent-drafts", StringComparison.OrdinalIgnoreCase)
+            && (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+                || method.Equals("POST", StringComparison.OrdinalIgnoreCase)
+                || method.Equals("PUT", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
         // Developer portal (dev-only, served via EmbeddedResource)
         if (path.Equals("/dev", StringComparison.OrdinalIgnoreCase))
             return true;

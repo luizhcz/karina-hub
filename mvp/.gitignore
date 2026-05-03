@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-ssr
+*.local
+.vite
+
+.DS_Store
+.idea
+.vscode
+*.log
+
+# Build artifacts gerados pelo tsc (composite project) e vite
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js

@@ -131,6 +131,21 @@ services:
       - backend
     restart: unless-stopped
 
+  # Frontend MVP enxuto pensado pra PMs/POs — onboarding leve + Ferramentas.
+  # Compartilha o mesmo backend pela rede do compose; expõe na porta 3001 pra
+  # rodar lado a lado com o frontend principal (3000).
+  mvp:
+    build:
+      context: ./mvp
+      dockerfile: Dockerfile
+    ports:
+      - "3001:80"
+    environment:
+      BACKEND_URL: http://backend:5189
+    depends_on:
+      - backend
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
