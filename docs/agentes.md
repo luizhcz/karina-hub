@@ -1999,3 +1999,82 @@ Seção `GenericTools` em `appsettings.json`:
 - Tool deletada com agent referenciando → binder skipa (LogWarning), agent perde acesso silenciosamente.
 - CSV sem header → primeira linha vira header; CSV vazio retorna lista vazia.
 - Race entre `NameExistsAsync` e `CreateAsync` coberto via unique constraint do DB (`UX_generic_tools_ProjectId_Name`) + detecção via `PostgresException.SqlState=23505`.
+
+## 13. Modelos Pré-definidos (catálogo de presets para PMs)
+
+Catálogo global de "presets" curado por admins — abstração sobre `Provider` + `Model.DeploymentName` + `Temperature` + `MaxTokens` com `DisplayName` friendly e `Description` legível. PM cria agent escolhendo um preset por descrição em vez de preencher provider/deployment crus. Botão **Configuração avançada** no AgentForm liberta o modo dev.
+
+### Tabela `predefined_models`
+
+```sql
+aihub.predefined_models (
+    Id varchar(64) PK,                    -- slug (ex: smart-default)
+    DisplayName varchar(128),             -- friendly (ex: Smart)
+    Description text,                     -- explica quando usar
+    Provider varchar(64),                 -- AzureOpenAI | OpenAI | AzureFoundry
+    ClientType varchar(64),               -- ChatCompletion
+    Endpoint varchar(512),                -- override opcional
+    DeploymentName varchar(256),          -- gpt-4o, gpt-4o-mini, ...
+    DefaultTemperature real,              -- nullable
+    DefaultMaxTokens int,                 -- nullable
+    Enabled boolean,                      -- false = invisível pra PMs
+    CreatedAt timestamptz, UpdatedAt timestamptz
+)
+INDEX IX_predefined_models_Enabled WHERE Enabled = TRUE
+```
+
+Sem `ProjectId`/`TenantId` — catálogo é cross-tenant, único pra todo o deploy.
+
+### Endpoints REST
+
+| Endpoint | Comportamento |
+|---|---|
+| `POST /api/admin/predefined-models` | Cria preset. Admin-gated. 400/409. |
+| `GET /api/admin/predefined-models` | Lista todos (`?includeDisabled=true` default). Admin-gated. |
+| `GET /api/admin/predefined-models/{id}` | Lê preset (inclui disabled). Admin-gated. |
+| `PUT /api/admin/predefined-models/{id}` | Optimistic concurrency via `expectedUpdatedAt`. 200/400/404/412. |
+| `DELETE /api/admin/predefined-models/{id}` | Remove. Agents referenciando falham ao invocar. |
+| `GET /api/predefined-models` | Público (whitelisted no AdminGate). Apenas Enabled=true. |
+| `GET /api/predefined-models/{id}` | Público. 404 quando disabled. |
+
+### Integração com Agents (Reference)
+
+`AgentDefinition.Model.PredefinedModelId : string?` aponta pro preset. Quando setado:
+
+1. `EnsureInvariants()` relaxa: `Model.DeploymentName` pode ser vazio (será resolvido).
+2. Em runtime, `AgentFactory.ResolvePredefinedModelAsync` (após `InjectProjectCredentials`, antes de `BuildAgentOptions`) chama `IPredefinedModelBinder.BindAsync` que:
+   - Busca preset live no catálogo.
+   - Substitui `Model.DeploymentName/Temperature/MaxTokens` e `Provider.Type/ClientType/Endpoint` pelos valores do preset.
+   - Preserva `Provider.ApiKey` (vem de `InjectProjectCredentials` ou config global).
+3. `AgentVersion.AgentModelSnapshot.PredefinedModelId` viaja no JSON canonical do snapshot (com canonical condicional — ver §11.4).
+4. **Mudança no preset propaga live**: agents pegam o estado atual do preset a cada invocação. Decisão consciente — projeto pré-prod, OK rebindar/reseed quando preset evoluir.
+
+### Botão "Configuração avançada"
+
+`ModelSection` no `AgentForm` tem dois modos:
+
+- **Simples (default)**: dropdown populado por `GET /api/predefined-models` (filtro Enabled=true). Selecionar preset mostra Description + provider/deployment técnico abaixo.
+- **Avançado**: campos crus (Provider Select, ClientType, DeploymentName, Temperature slider, MaxTokens). Ao trocar pra avançado com preset selecionado, os campos são pré-populados com valores do preset e `predefinedModelId` é limpo — agent vira custom.
+
+Estado de `advancedMode` é **local da página** (não persiste). Default em edit:
+- Agent com `predefinedModelId` setado → modo simples.
+- Agent legacy sem preset (deploymentName cru) → modo avançado.
+
+### Audit + Métricas
+
+- `predefined_model.created` / `predefined_model.updated` / `predefined_model.deleted` (audit actions, resource type `predefined_model`).
+- Sem métricas dedicadas — invocações de agent já cobertas por `agents.invocation.duration` etc.
+
+### Seeds default
+
+`db/seeds.sql` insere 4 presets na seção 6.5 (antes de agent_definitions):
+- **Smart** (`smart-default`) — gpt-4o, balanceado, default geral.
+- **Fast** (`fast-summarizer`) — gpt-4o-mini, latência baixa.
+- **Cheap** (`cheap-bulk`) — gpt-4o-mini com temp maior, alto volume.
+- **Vision** (`vision-gpt4o`) — gpt-4o multimodal.
+
+### Riscos conhecidos
+
+- **Preset deletado com agent referenciando** → binder loga Warning, retorna definition unchanged, downstream falha com mensagem clara quando DeploymentName fica vazio. v1 não impede DELETE — admin precisa coordenar.
+- **Mudança em preset propaga em produção** → comportamento desejado, mas não há aviso automático. Mitigação operacional pós-MVP.
+- **AgentVersion snapshot não captura valores resolvidos** — guarda só `PredefinedModelId`. Pin de revision N ainda resolve preset live. Comportamento aceitável.

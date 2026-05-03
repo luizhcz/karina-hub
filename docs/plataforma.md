@@ -299,6 +299,9 @@ CREATE TABLE aihub.admin_audit_log (
 | `generic_tool.created` | `POST /api/generic-tools` | `{ toolId, name, httpMethod, projectId }` |
 | `generic_tool.updated` | `PUT /api/generic-tools/{id}` | `{ toolId, updatedAt }` |
 | `generic_tool.deleted` | `DELETE /api/generic-tools/{id}` | (ResourceId = toolId) |
+| `predefined_model.created` | `POST /api/admin/predefined-models` | `{ id, displayName, provider, deploymentName }` |
+| `predefined_model.updated` | `PUT /api/admin/predefined-models/{id}` | `{ id, updatedAt }` |
+| `predefined_model.deleted` | `DELETE /api/admin/predefined-models/{id}` | (ResourceId = id) |
 
 ### Generic Tools — endpoints
 

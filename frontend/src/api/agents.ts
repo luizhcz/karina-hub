@@ -63,7 +63,7 @@ export interface AgentDef {
   id: string
   name: string
   description?: string
-  model: { deploymentName: string; temperature?: number; maxTokens?: number }
+  model: { deploymentName: string; temperature?: number; maxTokens?: number; predefinedModelId?: string | null }
   provider?: { type?: string; clientType?: string; endpoint?: string }
   fallbackProvider?: { type?: string; endpoint?: string }
   instructions?: string
@@ -92,7 +92,7 @@ export interface CreateAgentRequest {
   id: string
   name: string
   description?: string
-  model: { deploymentName: string; temperature?: number; maxTokens?: number }
+  model: { deploymentName: string; temperature?: number; maxTokens?: number; predefinedModelId?: string | null }
   provider?: { type?: string; clientType?: string; endpoint?: string }
   instructions?: string
   tools?: AgentToolDef[]
