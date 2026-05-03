@@ -158,8 +158,14 @@ public class AgentDefinition
             throw new DomainException("AgentDefinition.Id é obrigatório.");
         if (string.IsNullOrWhiteSpace(Name))
             throw new DomainException("AgentDefinition.Name é obrigatório.");
-        if (Model is null || string.IsNullOrWhiteSpace(Model.DeploymentName))
-            throw new DomainException("AgentDefinition.Model.DeploymentName é obrigatório.");
+        if (Model is null)
+            throw new DomainException("AgentDefinition.Model é obrigatório.");
+        // DeploymentName só é obrigatório quando NÃO há preset — runtime binder
+        // hidrata DeploymentName/Temperature/MaxTokens/Provider do preset.
+        if (string.IsNullOrWhiteSpace(Model.PredefinedModelId)
+            && string.IsNullOrWhiteSpace(Model.DeploymentName))
+            throw new DomainException(
+                "AgentDefinition.Model.DeploymentName é obrigatório quando PredefinedModelId não é informado.");
         if (Model.Temperature is < 0 or > 2)
             throw new DomainException("AgentDefinition.Model.Temperature deve estar em [0, 2] quando presente.");
         if (!AllowedVisibilities.Contains(Visibility))
@@ -237,6 +243,15 @@ public class AgentModelConfig
     public required string DeploymentName { get; set; }
     public float? Temperature { get; init; }
     public int? MaxTokens { get; init; }
+
+    /// <summary>
+    /// Quando setado, referencia um preset em <c>aihub.predefined_models</c>.
+    /// O <c>PredefinedModelBinder</c> resolve em runtime e substitui
+    /// <see cref="DeploymentName"/>/<see cref="Temperature"/>/<see cref="MaxTokens"/>
+    /// + <c>Provider</c> pelos valores do preset. Quando presente, invariantes
+    /// relaxam — DeploymentName pode estar vazio (será preenchido pelo binder).
+    /// </summary>
+    public string? PredefinedModelId { get; init; }
 }
 
 public class AgentToolDefinition

@@ -13,6 +13,7 @@ using EfsAiHub.Platform.Runtime.Middlewares;
 using EfsAiHub.Platform.Runtime.Interfaces;
 using EfsAiHub.Platform.Runtime.Resilience;
 using EfsAiHub.Platform.Runtime.Tools.Generic;
+using EfsAiHub.Platform.Runtime.Tools.PredefinedModels;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
@@ -58,6 +59,9 @@ public class AgentFactory : IAgentFactory
     // registra dinamicamente como AIFunction project-scoped no FunctionToolRegistry.
     // Optional: testes que não envolvem generic tools podem omitir.
     private readonly IGenericToolBinder? _genericToolBinder;
+    // Resolve PredefinedModelId no catálogo global e hidrata Provider/Model do
+    // agent com os valores do preset. Optional pra BC com testes que não injetam.
+    private readonly IPredefinedModelBinder? _predefinedModelBinder;
 
     // Throttle pra cross_project_invoke audit. Capacity 1000, janela 60s,
     // emite métrica ao despejar. Static singleton: factory é registrado scoped em DI
@@ -91,7 +95,8 @@ public class AgentFactory : IAgentFactory
         EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? auditLogger = null,
         EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor? projectContextAccessor = null,
         IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? sharingOptions = null,
-        IGenericToolBinder? genericToolBinder = null)
+        IGenericToolBinder? genericToolBinder = null,
+        IPredefinedModelBinder? predefinedModelBinder = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
@@ -117,6 +122,7 @@ public class AgentFactory : IAgentFactory
         _projectContextAccessor = projectContextAccessor;
         _sharingOptions = sharingOptions;
         _genericToolBinder = genericToolBinder;
+        _predefinedModelBinder = predefinedModelBinder;
     }
 
     public async Task<ExecutableWorkflow> CreateAgentAsync(AgentDefinition definition, CancellationToken ct = default)
@@ -129,6 +135,7 @@ public class AgentFactory : IAgentFactory
         DelegateExecutor.CurrentLogger.Value = _logger;
 
         definition = await InjectProjectCredentials(definition, ct);
+        definition = await ResolvePredefinedModelAsync(definition, ct);
         definition = await ResolveActivePrompt(definition, ct);
         definition = await ResolveSkills(definition, ct);
         await BindGenericToolsAsync(definition, ct);
@@ -156,6 +163,7 @@ public class AgentFactory : IAgentFactory
         DelegateExecutor.CurrentLogger.Value = _logger;
 
         definition = await InjectProjectCredentials(definition, ct);
+        definition = await ResolvePredefinedModelAsync(definition, ct);
         definition = await ResolveActivePrompt(definition, ct);
         definition = await ResolveSkills(definition, ct);
         await BindGenericToolsAsync(definition, ct);
@@ -342,6 +350,7 @@ public class AgentFactory : IAgentFactory
         }
 
         definition = await InjectProjectCredentials(definition, ct);
+        definition = await ResolvePredefinedModelAsync(definition, ct);
         await BindGenericToolsAsync(definition, ct);
         var agentVersionId = await TrackAgentVersionAsync(agentId, ct);
         var provider = ResolveProvider(definition);
@@ -501,6 +510,25 @@ public class AgentFactory : IAgentFactory
             // não-resolvida no ChatOptionsBuilder (já tratado via fingerprint mismatch).
             _logger.LogWarning(ex,
                 "[AgentFactory] Falha ao bindar generic tools de agent '{AgentId}'.", definition.Id);
+        }
+    }
+
+    private async Task<AgentDefinition> ResolvePredefinedModelAsync(
+        AgentDefinition definition, CancellationToken ct)
+    {
+        if (_predefinedModelBinder is null) return definition;
+        try
+        {
+            return await _predefinedModelBinder.BindAsync(definition, ct);
+        }
+        catch (Exception ex)
+        {
+            // Falha de lookup (DB indisponível, preset corrompido) loga e segue
+            // com a definição original — downstream falha com mensagem clara
+            // se DeploymentName ficar vazio.
+            _logger.LogWarning(ex,
+                "[AgentFactory] Falha ao resolver PredefinedModel de agent '{AgentId}'.", definition.Id);
+            return definition;
         }
     }
 

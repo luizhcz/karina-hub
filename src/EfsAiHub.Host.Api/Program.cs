@@ -123,6 +123,8 @@ builder.Services.AddScoped<EfsAiHub.Core.Agents.IPredefinedModelRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgPredefinedModelRepository>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Interfaces.IPredefinedModelService,
     EfsAiHub.Platform.Runtime.Services.PredefinedModelService>();
+builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.PredefinedModels.IPredefinedModelBinder,
+    EfsAiHub.Platform.Runtime.Tools.PredefinedModels.PredefinedModelBinder>();
 
 // ── Factories (Agente e Workflow) ─────────────────────────────────────────────
 builder.Services.AddScoped<IAgentFactory, AgentFactory>();

@@ -57,7 +57,8 @@ public sealed record AgentVersion(
         var model = new AgentModelSnapshot(
             definition.Model.DeploymentName,
             definition.Model.Temperature,
-            definition.Model.MaxTokens);
+            definition.Model.MaxTokens,
+            definition.Model.PredefinedModelId);
 
         var provider = new AgentProviderSnapshot(
             definition.Provider.Type,
@@ -116,6 +117,25 @@ public sealed record AgentVersion(
                 })
             .ToList();
 
+        // Projeção canônica: agent sem preset serializa model exatamente como
+        // antes (sem PredefinedModelId no JSON) — preserva ContentHash de agents
+        // existentes. Agent com preset adiciona o campo no final, gerando hash
+        // novo intencionalmente.
+        var canonicalModel = model.PredefinedModelId is null
+            ? (object)new
+            {
+                model.DeploymentName,
+                model.Temperature,
+                model.MaxTokens,
+            }
+            : new
+            {
+                model.DeploymentName,
+                model.Temperature,
+                model.MaxTokens,
+                model.PredefinedModelId,
+            };
+
         var middlewares = definition.Middlewares
             .Select(m => new AgentMiddlewareSnapshot(m.Type, m.Enabled, new Dictionary<string, string>(m.Settings)))
             .ToList();
@@ -140,7 +160,7 @@ public sealed record AgentVersion(
             description = definition.Description,
             metadata,
             prompt = promptContent,
-            model,
+            model = canonicalModel,
             provider = new { provider.Type, provider.ClientType, provider.Endpoint, provider.HasValue },
             fallbackProvider = fallbackProvider is null
                 ? null
@@ -200,6 +220,7 @@ public sealed record AgentVersion(
             DeploymentName = Model.DeploymentName,
             Temperature = Model.Temperature,
             MaxTokens = Model.MaxTokens,
+            PredefinedModelId = Model.PredefinedModelId,
         };
 
         // ApiKey não é persistida no snapshot. Hidratada em runtime via InjectProjectCredentials
@@ -371,7 +392,8 @@ public sealed record AgentToolSnapshot(
 public sealed record AgentModelSnapshot(
     string DeploymentName,
     float? Temperature,
-    int? MaxTokens);
+    int? MaxTokens,
+    string? PredefinedModelId = null);
 
 public sealed record AgentProviderSnapshot(
     string Type,
