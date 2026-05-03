@@ -1,3 +1,4 @@
+using System.ClientModel;
 using Azure.AI.Agents.Persistent;
 using Azure.Core;
 using EfsAiHub.Core.Abstractions.Secrets;
@@ -41,6 +42,14 @@ public class AzureFoundryClientProvider : ILlmClientProvider
     public async Task<object> CreateAgentAsync(
         AgentDefinition definition, ChatClientAgentOptions options, CancellationToken ct = default)
     {
+        // ClientType=Responses → Foundry v1 Responses API (OpenAI-compatible),
+        // sem PersistentAgentsClient (nem state managed nem tools server-side).
+        if (IsResponsesClientType(definition))
+        {
+            var responsesChat = await CreateResponsesChatClientAsync(definition, ct);
+            return responsesChat.AsAIAgent(options);
+        }
+
         var endpoint = definition.Provider.Endpoint ?? _options.Endpoint;
         var client = new PersistentAgentsClient(endpoint, _credential);
 
@@ -63,6 +72,9 @@ public class AzureFoundryClientProvider : ILlmClientProvider
 
     public async Task<IChatClient> CreateChatClientAsync(AgentDefinition definition, CancellationToken ct = default)
     {
+        if (IsResponsesClientType(definition))
+            return await CreateResponsesChatClientAsync(definition, ct);
+
         // Foundry no modo Graph usa a mesma API compatível com OpenAI
         var scope = string.IsNullOrWhiteSpace(definition.ProjectId)
             ? SecretContext.Global($"azurefoundry:agent:{definition.Id}")
@@ -77,6 +89,46 @@ public class AzureFoundryClientProvider : ILlmClientProvider
         var endpoint = new Uri(definition.Provider.Endpoint ?? _options.Endpoint);
         var azureClient = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, _credential);
         return azureClient.GetChatClient(ResolveDeployment(definition)).AsIChatClient();
+    }
+
+    private static bool IsResponsesClientType(AgentDefinition definition) =>
+        string.Equals(definition.Provider.ClientType, "Responses", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Constrói um <see cref="IChatClient"/> que fala a Responses API v1 do Foundry
+    /// (path <c>{endpoint}/responses</c>). O endpoint do agent precisa apontar até a
+    /// raiz da API v1 — ex.: <c>https://{resource}.services.ai.azure.com/api/projects/
+    /// {project}/openai/v1</c>. Usamos o SDK OpenAI da Microsoft com endpoint
+    /// customizado; auth via Bearer header (Foundry aceita).
+    /// </summary>
+    private async Task<IChatClient> CreateResponsesChatClientAsync(AgentDefinition definition, CancellationToken ct)
+    {
+        var scope = string.IsNullOrWhiteSpace(definition.ProjectId)
+            ? SecretContext.Global($"azurefoundry:agent:{definition.Id}")
+            : SecretContext.Project(definition.ProjectId, "azurefoundry", definition.Id);
+
+        var rawKey = string.IsNullOrWhiteSpace(definition.Provider.ApiKey)
+            ? _options.ApiKey
+            : definition.Provider.ApiKey;
+        var apiKey = await _secretResolver.ResolveAsync(rawKey, scope, ct);
+        if (string.IsNullOrWhiteSpace(apiKey))
+            throw new InvalidOperationException(
+                $"Agent '{definition.Id}': Foundry Responses requer ApiKey (defina Provider.ApiKey ou AzureAI.ApiKey).");
+
+        var endpointStr = definition.Provider.Endpoint ?? _options.Endpoint;
+        if (string.IsNullOrWhiteSpace(endpointStr))
+            throw new InvalidOperationException(
+                $"Agent '{definition.Id}': Foundry Responses requer Endpoint apontando até a raiz da API v1 " +
+                "(ex.: https://{resource}.services.ai.azure.com/api/projects/{project}/openai/v1).");
+
+        var endpointUri = new Uri(endpointStr.TrimEnd('/'));
+        var clientOptions = new OpenAI.OpenAIClientOptions { Endpoint = endpointUri };
+        var client = new OpenAI.OpenAIClient(new ApiKeyCredential(apiKey), clientOptions);
+
+        // Responses API trata o modelo no body (não na URL), então o
+        // ResponsesClient é parameterless e o defaultModelId vai pra
+        // Microsoft.Extensions.AI via overload do AsIChatClient.
+        return client.GetResponsesClient().AsIChatClient(ResolveDeployment(definition));
     }
 
     private string ResolveDeployment(AgentDefinition definition) =>

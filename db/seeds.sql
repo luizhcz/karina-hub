@@ -334,7 +334,12 @@ VALUES
     'AzureOpenAI', 'ChatCompletion', NULL, 'gpt-4o-mini', 0.5, 1024, TRUE, NOW(), NOW()),
   ('vision-gpt4o', 'Vision',
     'Suporta imagens no input. Use em fluxos de OCR, análise de documentos e multimodal.',
-    'AzureOpenAI', 'ChatCompletion', NULL, 'gpt-4o', 0.2, 4096, TRUE, NOW(), NOW())
+    'AzureOpenAI', 'ChatCompletion', NULL, 'gpt-4o', 0.2, 4096, TRUE, NOW(), NOW()),
+  ('foundry-cerquela', 'Foundry GPT-5.4 Mini',
+    'Modelo gpt-5.4-mini hospedado em Azure AI Foundry (project cerquela-1742) via Responses API v1. Use quando precisar do raciocínio mais recente com tool calling estruturado e custo reduzido. Endpoint project-scoped.',
+    'AzureFoundry', 'Responses',
+    'https://cerquela-1742-resource.services.ai.azure.com/api/projects/cerquela-1742/openai/v1',
+    'gpt-5.4-mini', NULL, 4096, TRUE, NOW(), NOW())
 ON CONFLICT ("Id") DO NOTHING;
 
 -- ── 7. agent_definitions (extraído do DB) ────────────────────────────
