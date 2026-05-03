@@ -1434,6 +1434,7 @@ CREATE TABLE IF NOT EXISTS aihub.generic_tools (
     "OutputContentType"        VARCHAR(32)   NOT NULL DEFAULT 'Json',
     "OutputSchema"             TEXT          NULL,
     "TimeoutSecondsOverride"   INTEGER       NULL,
+    "WhenToUse"                TEXT          NULL,
     "CreatedAt"                TIMESTAMPTZ   NOT NULL,
     "UpdatedAt"                TIMESTAMPTZ   NOT NULL,
     CONSTRAINT "PK_generic_tools" PRIMARY KEY ("Id"),

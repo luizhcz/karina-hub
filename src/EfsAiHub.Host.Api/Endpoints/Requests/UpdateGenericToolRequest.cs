@@ -37,6 +37,9 @@ public sealed class UpdateGenericToolRequest
     [Range(1, int.MaxValue)]
     public int? TimeoutSecondsOverride { get; init; }
 
+    [MaxLength(2048)]
+    public string? WhenToUse { get; init; }
+
     [Required]
     public DateTime ExpectedUpdatedAt { get; init; }
 
@@ -63,5 +66,6 @@ public sealed class UpdateGenericToolRequest
         OutputContentType = OutputContentType,
         OutputSchema = OutputSchema,
         TimeoutSecondsOverride = TimeoutSecondsOverride,
+        WhenToUse = string.IsNullOrWhiteSpace(WhenToUse) ? null : WhenToUse.Trim(),
     };
 }

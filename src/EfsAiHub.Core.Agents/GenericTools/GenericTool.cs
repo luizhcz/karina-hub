@@ -45,6 +45,13 @@ public sealed class GenericTool
     /// </summary>
     public int? TimeoutSecondsOverride { get; set; }
 
+    /// <summary>
+    /// Texto livre opcional que documenta quando o agente deve invocar essa tool —
+    /// repassado pro system prompt como gatilho de uso ("Use quando: ..."). Não
+    /// afeta runtime nem validação; apenas orientação semântica pro LLM.
+    /// </summary>
+    public string? WhenToUse { get; set; }
+
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

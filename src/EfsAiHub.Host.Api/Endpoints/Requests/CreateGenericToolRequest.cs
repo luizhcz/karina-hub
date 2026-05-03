@@ -42,6 +42,13 @@ public sealed class CreateGenericToolRequest
     public int? TimeoutSecondsOverride { get; init; }
 
     /// <summary>
+    /// Texto livre opcional descrevendo o gatilho de uso da tool. Repassado
+    /// pro system prompt do agente como "Use quando: ...".
+    /// </summary>
+    [MaxLength(2048)]
+    public string? WhenToUse { get; init; }
+
+    /// <summary>
     /// Materializa um template de <see cref="GenericTool"/>. Id/ProjectId/TenantId
     /// ficam como string.Empty propositalmente — o service substitui por valores
     /// canônicos (Id gerado/ProjectId/TenantId do contexto da request) antes de
@@ -64,5 +71,6 @@ public sealed class CreateGenericToolRequest
         OutputContentType = OutputContentType,
         OutputSchema = OutputSchema,
         TimeoutSecondsOverride = TimeoutSecondsOverride,
+        WhenToUse = string.IsNullOrWhiteSpace(WhenToUse) ? null : WhenToUse.Trim(),
     };
 }

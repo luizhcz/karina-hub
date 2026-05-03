@@ -26,6 +26,17 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
         return row is null ? null : Hydrate(row);
     }
 
+    public async Task<GenericTool?> GetByIdAsync(string id, string projectId, CancellationToken ct = default)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        // IgnoreQueryFilters bypassa o HasQueryFilter por CurrentProjectId — o caller
+        // já passou o projectId explícito (vem do agent definition no binder).
+        var row = await ctx.GenericTools
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(r => r.Id == id && r.ProjectId == projectId, ct);
+        return row is null ? null : Hydrate(row);
+    }
+
     public async Task<IReadOnlyList<GenericTool>> ListAsync(CancellationToken ct = default)
     {
         await using var ctx = await _factory.CreateDbContextAsync(ct);
@@ -65,6 +76,7 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
             OutputContentType = tool.OutputContentType.ToString(),
             OutputSchema = tool.OutputSchema,
             TimeoutSecondsOverride = tool.TimeoutSecondsOverride,
+            WhenToUse = tool.WhenToUse,
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -114,6 +126,7 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
         current.OutputContentType = tool.OutputContentType.ToString();
         current.OutputSchema = tool.OutputSchema;
         current.TimeoutSecondsOverride = tool.TimeoutSecondsOverride;
+        current.WhenToUse = tool.WhenToUse;
         current.UpdatedAt = now;
 
         try
@@ -157,6 +170,7 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
             OutputContentType = ParseEnum(row.OutputContentType, OutputContentType.Json, nameof(row.OutputContentType), row.Id),
             OutputSchema = row.OutputSchema,
             TimeoutSecondsOverride = row.TimeoutSecondsOverride,
+            WhenToUse = row.WhenToUse,
             CreatedAt = row.CreatedAt,
             UpdatedAt = row.UpdatedAt,
         };

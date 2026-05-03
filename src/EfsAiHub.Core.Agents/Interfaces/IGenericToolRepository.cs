@@ -11,6 +11,16 @@ public interface IGenericToolRepository
     /// <summary>Busca tool pelo Id no scope do projeto atual; null se não existir.</summary>
     Task<GenericTool?> GetByIdAsync(string id, CancellationToken ct = default);
 
+    /// <summary>
+    /// Busca tool pelo Id no scope explícito de um projeto, ignorando o QueryFilter
+    /// global do contexto atual. Usado durante o bind de recursos do agent (tools,
+    /// MCPs, presets) onde o caller pode estar num project diferente do agent
+    /// (ex.: agent com Visibility=global invocado de outro project, ou sandbox que
+    /// não recebe header de project do frontend). Retorna null se não existir
+    /// nesse projeto.
+    /// </summary>
+    Task<GenericTool?> GetByIdAsync(string id, string projectId, CancellationToken ct = default);
+
     /// <summary>Lista tools do projeto atual ordenadas por UpdatedAt desc.</summary>
     Task<IReadOnlyList<GenericTool>> ListAsync(CancellationToken ct = default);
 

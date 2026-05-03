@@ -38,7 +38,11 @@ public sealed class GenericToolBinder : IGenericToolBinder
         foreach (var toolRef in generic)
         {
             var toolId = toolRef.GenericToolId!;
-            var tool = await _repo.GetByIdAsync(toolId, ct);
+            // Resolve no scope do project do AGENT (não do caller). Tools são
+            // recursos do agent, então o filter por project tem que ser o do
+            // definition — caller pode estar num project diferente, especialmente
+            // quando Visibility=global ou quando o sandbox não passa o header.
+            var tool = await _repo.GetByIdAsync(toolId, definition.ProjectId, ct);
             if (tool is null)
             {
                 _logger.LogWarning(
