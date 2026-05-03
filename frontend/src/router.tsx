@@ -37,6 +37,8 @@ import { SkillCreatePage } from './features/skills/SkillCreatePage'
 import { SkillEditPage } from './features/skills/SkillEditPage'
 import { GenericToolsListPage } from './features/genericTools/GenericToolsListPage'
 import { GenericToolEditorPage } from './features/genericTools/GenericToolEditorPage'
+import { PredefinedModelsListPage } from './features/predefinedModels/PredefinedModelsListPage'
+import { PredefinedModelEditorPage } from './features/predefinedModels/PredefinedModelEditorPage'
 
 import { MetricsOverviewPage } from './features/metrics/MetricsOverviewPage'
 import { MetricsByAgentPage } from './features/metrics/MetricsByAgentPage'
@@ -130,6 +132,10 @@ export const router = createBrowserRouter([
           { path: 'generic-tools', element: <GenericToolsListPage /> },
           { path: 'generic-tools/new', element: <GenericToolEditorPage /> },
           { path: 'generic-tools/:id', element: <GenericToolEditorPage /> },
+
+          { path: 'admin/predefined-models', element: <PredefinedModelsListPage /> },
+          { path: 'admin/predefined-models/new', element: <PredefinedModelEditorPage /> },
+          { path: 'admin/predefined-models/:id', element: <PredefinedModelEditorPage /> },
 
           { path: 'metrics', element: <MetricsOverviewPage /> },
           { path: 'metrics/agents', element: <MetricsByAgentPage /> },

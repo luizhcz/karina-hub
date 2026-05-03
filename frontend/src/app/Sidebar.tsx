@@ -35,6 +35,7 @@ const adminItems: NavItem[] = [
   { label: 'Personas', path: '/admin/personas', icon: '👤' },
   { label: 'Persona Templates', path: '/admin/persona-templates', icon: '📝' },
   { label: 'Persona Experiments', path: '/admin/persona-experiments', icon: '🧪' },
+  { label: 'Modelos pré-definidos', path: '/admin/predefined-models', icon: '🎯' },
   { label: 'Config', path: '/config', icon: '⚙' },
   { label: 'Audit Admin', path: '/audit/admin', icon: '🛡' },
   { label: 'Background Svc', path: '/background', icon: '⏳' },

@@ -36,6 +36,9 @@ const ACTION_COLOR: Record<string, 'green' | 'yellow' | 'red' | 'blue' | 'purple
   'generic_tool.created': 'green',
   'generic_tool.updated': 'yellow',
   'generic_tool.deleted': 'red',
+  'predefined_model.created': 'green',
+  'predefined_model.updated': 'yellow',
+  'predefined_model.deleted': 'red',
 }
 
 const ACTION_FILTER_OPTIONS: { value: string; label: string }[] = [
@@ -58,6 +61,9 @@ const ACTION_FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: 'generic_tool.created', label: 'generic_tool.created' },
   { value: 'generic_tool.updated', label: 'generic_tool.updated' },
   { value: 'generic_tool.deleted', label: 'generic_tool.deleted' },
+  { value: 'predefined_model.created', label: 'predefined_model.created' },
+  { value: 'predefined_model.updated', label: 'predefined_model.updated' },
+  { value: 'predefined_model.deleted', label: 'predefined_model.deleted' },
 ]
 
 const RESOURCE_LABEL: Record<string, string> = {
