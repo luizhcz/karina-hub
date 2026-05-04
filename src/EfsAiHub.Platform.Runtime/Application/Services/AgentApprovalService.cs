@@ -28,7 +28,7 @@ public sealed class AgentApprovalService : IAgentApprovalService
         string? changeReason,
         CancellationToken ct = default)
     {
-        var published = await _draftRepo.ApproveAsync(id, actorUserId, changeReason, ct);
+        var published = await _draftRepo.ApproveAsync(id, actorUserId, changeReason, AgentApprovalAction.Approved, null, ct);
 
         _logger.LogInformation(
             "[AgentApprovalService] Draft '{DraftId}' aprovado por '{Actor}' como agent '{AgentId}'.",

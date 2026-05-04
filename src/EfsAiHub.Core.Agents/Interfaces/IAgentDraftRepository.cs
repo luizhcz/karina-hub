@@ -61,12 +61,21 @@ public interface IAgentDraftRepository
     /// <summary>
     /// Transição PendingApproval → agent_definitions. Detecta race com re-publish
     /// concorrente do agent base (edit-draft) via BaseRevision. Cria AgentVersion
-    /// snapshot, deleta draft, escreve entry no history (action=Approved).
+    /// snapshot, deleta draft, escreve entry no history.
+    /// <para>
+    /// O caminho normal (admin aprovando manualmente) usa <paramref name="action"/>
+    /// = <see cref="AgentApprovalAction.Approved"/>. Auto-aprovação cosmética
+    /// passa <see cref="AgentApprovalAction.AutoApproved"/> + <paramref name="tier"/>
+    /// = <see cref="AgentChangeTier.Cosmetic"/> pra ficar registrado no histórico
+    /// que a transição foi automática.
+    /// </para>
     /// </summary>
     Task<AgentDefinition> ApproveAsync(
         string id,
         string actorUserId,
         string? changeReason,
+        AgentApprovalAction action = AgentApprovalAction.Approved,
+        AgentChangeTier? tier = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -83,6 +92,27 @@ public interface IAgentDraftRepository
     /// <summary>Lista history de transições do draft (ordenado por OccurredAt asc).</summary>
     Task<IReadOnlyList<AgentApprovalHistoryEntry>> GetHistoryAsync(
         string draftId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Lista todas as entries de history relacionadas a um agent publicado —
+    /// soma drafts (pelo AgentDefinitionId persistido em cada entry) + qualquer
+    /// AdminOverride aplicado via PUT direto. Ordem por OccurredAt asc.
+    /// </summary>
+    Task<IReadOnlyList<AgentApprovalHistoryEntry>> GetHistoryByAgentAsync(
+        string agentDefinitionId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Append-only de uma entry de AdminOverride: usado quando admin atualiza
+    /// agent direto via PUT /api/agents/{id} (sem passar por draft → approve).
+    /// Mantém audit unificado em agent_approval_history.
+    /// </summary>
+    Task AppendAdminOverrideAsync(
+        string agentDefinitionId,
+        string tenantId,
+        string actorUserId,
+        string changeReason,
         CancellationToken ct = default);
 }
 
@@ -127,14 +157,22 @@ public enum AgentDraftStatus
     Rejected,
 }
 
-/// <summary>Entry imutável do agent_approval_history.</summary>
+/// <summary>
+/// Entry imutável do agent_approval_history. Cobre TODA mudança rastreável de
+/// agent — incluindo PUT direto via API (action=AdminOverride) e auto-aprovação
+/// de mudança cosmética (action=AutoApproved). <see cref="AgentDefinitionId"/>
+/// liga a entry ao agent publicado mesmo após o draft ter sido removido —
+/// permite query unificada por agent (GET /api/agents/{id}/approval-history).
+/// </summary>
 public sealed record AgentApprovalHistoryEntry(
     string Id,
     string DraftId,
+    string? AgentDefinitionId,
     string TenantId,
     AgentApprovalAction Action,
     string ActorUserId,
     string? Feedback,
+    string? Tier,
     DateTime OccurredAt);
 
 public enum AgentApprovalAction
@@ -143,6 +181,28 @@ public enum AgentApprovalAction
     Resubmitted,
     Approved,
     Rejected,
+    /// <summary>
+    /// Mudança cosmética em edit-draft que o sistema aprovou automaticamente
+    /// no submit (sem fila pra admin). Registrada com ActorUserId="system:auto"
+    /// e Tier="Cosmetic". Comportamentais sempre vão pra Approved/Rejected.
+    /// </summary>
+    AutoApproved,
+    /// <summary>
+    /// Mudança aplicada por admin via PUT direto em /api/agents/{id} sem passar
+    /// pelo flow de draft → approve. Mantida como caminho de break-glass — toda
+    /// chamada gera entry obrigatória com ChangeReason no Feedback pra audit.
+    /// </summary>
+    AdminOverride,
+}
+
+/// <summary>
+/// Tier de mudança em edit-draft. Cosmetic = só Description/Metadata mudaram
+/// (auto-aprovável). Behavioral = qualquer outro campo (precisa revisão humana).
+/// </summary>
+public enum AgentChangeTier
+{
+    Cosmetic,
+    Behavioral,
 }
 
 public sealed class DraftConcurrencyException : Exception

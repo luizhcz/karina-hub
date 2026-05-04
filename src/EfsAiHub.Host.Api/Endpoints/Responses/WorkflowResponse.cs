@@ -23,7 +23,20 @@ public class WorkflowResponse
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 
-    public static WorkflowResponse FromDomain(WorkflowDefinition def) => new()
+    /// <summary>
+    /// Snapshot ativo em runtime — corresponde à row em workflow_versions cujo
+    /// ContentHash bate com o estado mutável atual do workflow. Útil pra UI
+    /// destacar "esta é a versão em produção" na timeline. null quando não há
+    /// versionamento ativo ou quando a row correspondente sumiu (caso patológico).
+    /// </summary>
+    public string? CurrentVersionId { get; init; }
+
+    /// <summary>Revision (int) da CurrentVersionId — atalho pra UI exibir "rN".</summary>
+    public int? CurrentRevision { get; init; }
+
+    public static WorkflowResponse FromDomain(WorkflowDefinition def) => FromDomain(def, null);
+
+    public static WorkflowResponse FromDomain(WorkflowDefinition def, WorkflowVersion? currentVersion) => new()
     {
         Id = def.Id,
         Name = def.Name,
@@ -39,6 +52,8 @@ public class WorkflowResponse
         OriginProjectId = def.ProjectId,
         OriginTenantId = def.TenantId,
         CreatedAt = def.CreatedAt,
-        UpdatedAt = def.UpdatedAt
+        UpdatedAt = def.UpdatedAt,
+        CurrentVersionId = currentVersion?.WorkflowVersionId,
+        CurrentRevision = currentVersion?.Revision
     };
 }

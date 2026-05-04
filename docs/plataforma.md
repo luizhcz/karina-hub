@@ -296,6 +296,31 @@ CREATE TABLE aihub.admin_audit_log (
 | `agent.draft_submitted` | `POST /api/agent-drafts/{id}/submit` | `{ draftId, isEditDraft, baseAgentId, wasResubmit }` |
 | `agent.draft_approved` | `POST /api/agent-approvals/{id}/approve` em approve efetivo | `{ agentId, fromDraftId, wasEditDraft, approverUserId, ageHours }` (correlacionado com `agent.version_published`) |
 | `agent.draft_rejected` | `POST /api/agent-approvals/{id}/reject` | `{ draftId, approverUserId, feedback }` |
+| `generic_tool.created` | `POST /api/generic-tools` | `{ toolId, name, httpMethod, projectId }` |
+| `generic_tool.updated` | `PUT /api/generic-tools/{id}` | `{ toolId, updatedAt }` |
+| `generic_tool.deleted` | `DELETE /api/generic-tools/{id}` | (ResourceId = toolId) |
+| `predefined_model.created` | `POST /api/admin/predefined-models` | `{ id, displayName, provider, deploymentName }` |
+| `predefined_model.updated` | `PUT /api/admin/predefined-models/{id}` | `{ id, updatedAt }` |
+| `predefined_model.deleted` | `DELETE /api/admin/predefined-models/{id}` | (ResourceId = id) |
+
+### Generic Tools — endpoints
+
+Tools HTTP genéricas cadastradas por projeto, owner-only. Resolvidas em runtime pelo `GenericToolBinder` e expostas ao LLM como `AIFunction` dinâmica. Detalhamento em [docs/agentes.md § 12 Generic Tools](agentes.md#12-generic-tools-http-genéricos-por-projeto).
+
+| Método | Rota | Descrição | Audit |
+|---|---|---|---|
+| `POST` | `/api/generic-tools` | Cria tool. Validações domain: placeholders ↔ PathParams, headers reservados (`Content-Type`, `Accept` proibidos), FormUrlEncoded plano, GET força `InputContentType=None`, timeout ≤ MaxTimeoutSeconds. | `generic_tool.created` |
+| `GET` | `/api/generic-tools` | Lista do projeto atual (query filter strict). | (sem audit) |
+| `GET` | `/api/generic-tools/{id}` | 200/404. Owner-only. | (sem audit) |
+| `PUT` | `/api/generic-tools/{id}` | Optimistic concurrency via `expectedUpdatedAt`. ProjectId/TenantId/CreatedAt nunca modificáveis pelo client. | `generic_tool.updated` |
+| `DELETE` | `/api/generic-tools/{id}` | Agents que referenciam perdem tool graciosamente em runtime. | `generic_tool.deleted` |
+
+### Métricas Generic Tools
+
+| Métrica | Tipo | Tags |
+|---|---|---|
+| `generic_tools.invocations_total` | Counter | `tool_id`, `project`, `success`, `status_class` (2xx/4xx/5xx/error) |
+| `generic_tools.duration_ms` | Histogram (ms) | `tool_id`, `success` |
 
 ### Pinning Federated — endpoints
 

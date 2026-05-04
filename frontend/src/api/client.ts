@@ -56,7 +56,7 @@ export class ApiError extends Error {
  * Status codes em que o backend emite payload `{ error: string }` pelo
  * `GlobalExceptionMiddleware` ou handlers equivalentes. Safe para tentar `res.clone().json()`.
  */
-const STATUS_WITH_ERROR_BODY: ReadonlySet<number> = new Set([400, 402, 403, 404, 409, 429])
+const STATUS_WITH_ERROR_BODY: ReadonlySet<number> = new Set([400, 402, 403, 404, 409, 412, 429])
 
 /**
  * Tenta extrair body de erro padronizado da Response. Nunca throws — retorna o fallback

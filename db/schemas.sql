@@ -157,20 +157,33 @@ CREATE INDEX IF NOT EXISTS "IX_agent_drafts_TenantId_Status"
 -- delete do draft após approve. Sem FK formal pra agent_drafts (drafts
 -- aprovados são removidos, history persiste).
 CREATE TABLE IF NOT EXISTS aihub.agent_approval_history (
-    "Id"          VARCHAR(64)   NOT NULL,
-    "DraftId"     VARCHAR(256)  NOT NULL,
-    "TenantId"    VARCHAR(128)  NOT NULL,
-    "Action"      VARCHAR(32)   NOT NULL,
-    "ActorUserId" VARCHAR(256)  NOT NULL,
-    "Feedback"    TEXT          NULL,
-    "OccurredAt"  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    "Id"                VARCHAR(64)   NOT NULL,
+    "DraftId"           VARCHAR(256)  NOT NULL,
+    "AgentDefinitionId" VARCHAR(256)  NULL,
+    "TenantId"          VARCHAR(128)  NOT NULL,
+    "Action"            VARCHAR(32)   NOT NULL,
+    "ActorUserId"       VARCHAR(256)  NOT NULL,
+    "Feedback"          TEXT          NULL,
+    "Tier"              VARCHAR(32)   NULL,
+    "OccurredAt"        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     CONSTRAINT "PK_agent_approval_history" PRIMARY KEY ("Id"),
     CONSTRAINT "CK_agent_approval_history_Action"
-        CHECK ("Action" IN ('Submitted', 'Resubmitted', 'Approved', 'Rejected'))
+        CHECK ("Action" IN ('Submitted', 'Resubmitted', 'Approved', 'Rejected', 'AutoApproved', 'AdminOverride')),
+    CONSTRAINT "CK_agent_approval_history_Tier"
+        CHECK ("Tier" IS NULL OR "Tier" IN ('Cosmetic', 'Behavioral'))
 );
 
 CREATE INDEX IF NOT EXISTS "IX_agent_approval_history_DraftId"
     ON aihub.agent_approval_history ("DraftId");
+
+-- Hot path do endpoint de histórico unificado por agent
+-- (GET /api/agents/{id}/approval-history). Drafts são deletados após approve,
+-- então DraftId não serve pra lookup pós-publish — daí a coluna dedicada
+-- AgentDefinitionId, populada no momento do Submitted/Approved/Rejected/
+-- AutoApproved/AdminOverride.
+CREATE INDEX IF NOT EXISTS "IX_agent_approval_history_AgentDefinitionId_OccurredAt"
+    ON aihub.agent_approval_history ("AgentDefinitionId", "OccurredAt" DESC)
+    WHERE "AgentDefinitionId" IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS "IX_agent_approval_history_TenantId_OccurredAt"
     ON aihub.agent_approval_history ("TenantId", "OccurredAt" DESC);
@@ -1408,3 +1421,77 @@ ALTER TABLE aihub.llm_token_usage
 CREATE INDEX IF NOT EXISTS "IX_llm_token_usage_Metadata_source"
     ON aihub.llm_token_usage (("Metadata"->>'source'))
     WHERE "Metadata" IS NOT NULL;
+
+-- =============================================================================
+-- 28. GENERIC TOOLS — tools HTTP genéricas cadastradas por projeto
+--
+-- Owner-only stricto: query filter por ProjectId no DbContext (sem cláusula
+-- global). Tool de project A é invisível pra project B mesmo via Id direto.
+-- AgentDefinition referencia via AgentToolDefinition.GenericToolId; binder em
+-- runtime monta AIFunction dinâmica por agent.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.generic_tools (
+    "Id"                       VARCHAR(64)   NOT NULL,
+    "ProjectId"                VARCHAR(128)  NOT NULL,
+    "TenantId"                 VARCHAR(128)  NOT NULL,
+    "Name"                     VARCHAR(256)  NOT NULL,
+    "Description"              TEXT          NOT NULL DEFAULT '',
+    "HttpMethod"               VARCHAR(8)    NOT NULL,
+    "UrlTemplate"              TEXT          NOT NULL,
+    "PathParams"               JSONB         NOT NULL DEFAULT '{}'::jsonb,
+    "QueryParams"              JSONB         NOT NULL DEFAULT '{}'::jsonb,
+    "CustomHeaders"            JSONB         NOT NULL DEFAULT '{}'::jsonb,
+    "InputContentType"         VARCHAR(32)   NOT NULL DEFAULT 'None',
+    "InputSchema"              TEXT          NULL,
+    "OutputContentType"        VARCHAR(32)   NOT NULL DEFAULT 'Json',
+    "OutputSchema"             TEXT          NULL,
+    "TimeoutSecondsOverride"   INTEGER       NULL,
+    "WhenToUse"                TEXT          NULL,
+    "CreatedAt"                TIMESTAMPTZ   NOT NULL,
+    "UpdatedAt"                TIMESTAMPTZ   NOT NULL,
+    CONSTRAINT "PK_generic_tools" PRIMARY KEY ("Id"),
+    CONSTRAINT "CK_generic_tools_HttpMethod"
+        CHECK ("HttpMethod" IN ('GET', 'POST')),
+    CONSTRAINT "CK_generic_tools_InputContentType"
+        CHECK ("InputContentType" IN ('None', 'Json', 'Text', 'FormUrlEncoded')),
+    CONSTRAINT "CK_generic_tools_OutputContentType"
+        CHECK ("OutputContentType" IN ('Json', 'Text', 'Csv'))
+);
+
+CREATE INDEX IF NOT EXISTS "IX_generic_tools_ProjectId_TenantId"
+    ON aihub.generic_tools ("ProjectId", "TenantId");
+
+-- Name único por projeto. Permite mesmos nomes em projetos diferentes (cada um
+-- tem o próprio namespace de tools).
+CREATE UNIQUE INDEX IF NOT EXISTS "UX_generic_tools_ProjectId_Name"
+    ON aihub.generic_tools ("ProjectId", "Name");
+
+-- =============================================================================
+-- 29. PREDEFINED MODELS — catálogo global de presets para agents
+--
+-- Receitas curadas (DisplayName + Description + Provider + DeploymentName +
+-- defaults) cadastradas por admins. Agents referenciam via Model.PredefinedModelId
+-- e o runtime resolve live no AgentFactory antes de BuildAgentOptions. Cross-tenant
+-- — sem ProjectId/TenantId.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.predefined_models (
+    "Id"                  VARCHAR(64)   NOT NULL,
+    "DisplayName"         VARCHAR(128)  NOT NULL,
+    "Description"         TEXT          NOT NULL DEFAULT '',
+    "Provider"            VARCHAR(64)   NOT NULL,
+    "ClientType"          VARCHAR(64)   NULL,
+    "Endpoint"            VARCHAR(512)  NULL,
+    "DeploymentName"      VARCHAR(256)  NOT NULL,
+    "DefaultTemperature"  REAL          NULL,
+    "DefaultMaxTokens"    INTEGER       NULL,
+    "Enabled"             BOOLEAN       NOT NULL DEFAULT TRUE,
+    "CreatedAt"           TIMESTAMPTZ   NOT NULL,
+    "UpdatedAt"           TIMESTAMPTZ   NOT NULL,
+    CONSTRAINT "PK_predefined_models" PRIMARY KEY ("Id")
+);
+
+CREATE INDEX IF NOT EXISTS "IX_predefined_models_Enabled"
+    ON aihub.predefined_models ("Enabled")
+    WHERE "Enabled" = TRUE;

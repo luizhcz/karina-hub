@@ -40,12 +40,48 @@ public interface IAgentDraftService
     Task DeleteAsync(string id, CancellationToken ct = default);
 
     /// <summary>
-    /// Submete o draft ao painel de aprovação (Draft|Rejected → PendingApproval).
-    /// Ao aprovar, agent vai pra agent_definitions; rejeitado volta com feedback.
+    /// Submete o draft ao painel de aprovação. Comportamento depende do
+    /// resultado do <c>AgentChangeClassifier</c> em edit-drafts:
+    /// <list type="bullet">
+    ///   <item><b>New draft</b> (isEditDraft=false): sempre Draft|Rejected → PendingApproval.</item>
+    ///   <item><b>Edit-draft cosmético</b> (só Description/Metadata mudaram):
+    ///         <see cref="SubmitForApprovalResult.AutoApproved"/> — pula a fila,
+    ///         publica direto e escreve <c>AutoApproved</c> no history.</item>
+    ///   <item><b>Edit-draft comportamental</b>: vai pra PendingApproval normal.</item>
+    /// </list>
     /// Owner gate: só projeto dono submete.
     /// </summary>
-    Task<AgentDraft> SubmitForApprovalAsync(
+    Task<SubmitForApprovalResult> SubmitForApprovalAsync(
         string id,
         string actorUserId,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Retorna a trilha de approval unificada de um agent publicado — drafts
+    /// passados (Submitted/Approved/Rejected/AutoApproved) + AdminOverride
+    /// aplicado via PUT direto. Ordem por OccurredAt asc.
+    /// </summary>
+    Task<IReadOnlyList<AgentApprovalHistoryEntry>> GetApprovalHistoryByAgentAsync(
+        string agentDefinitionId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Registra uma entry de AdminOverride no history quando admin atualiza
+    /// agent direto via PUT /api/agents/{id}. Mantém audit unificado.
+    /// </summary>
+    Task AppendAdminOverrideAsync(
+        string agentDefinitionId,
+        string actorUserId,
+        string changeReason,
+        CancellationToken ct = default);
 }
+
+/// <summary>
+/// Resultado da submissão de um draft. Em edit-drafts cosméticos o sistema
+/// aprova automaticamente — o caller (controller/UI) usa esse retorno pra
+/// sinalizar a diferença pro usuário ("publicado" vs "aguardando aprovação").
+/// </summary>
+public sealed record SubmitForApprovalResult(
+    AgentDraft Draft,
+    bool AutoApproved,
+    AgentChangeTier? Tier);

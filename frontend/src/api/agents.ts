@@ -22,6 +22,11 @@ export interface AgentToolDef {
   /** Legacy/fallback (BC): headers inline de MCP. */
   headers?: Record<string, string>
   connectionId?: string
+  /**
+   * Quando type="generic_http", referência ao Id imutável de um GenericTool
+   * cadastrado no projeto. Resolvido em runtime pelo binder no backend.
+   */
+  genericToolId?: string
 }
 
 export interface AgentStructuredOutput {
@@ -58,7 +63,7 @@ export interface AgentDef {
   id: string
   name: string
   description?: string
-  model: { deploymentName: string; temperature?: number; maxTokens?: number }
+  model: { deploymentName: string; temperature?: number; maxTokens?: number; predefinedModelId?: string | null }
   provider?: { type?: string; clientType?: string; endpoint?: string }
   fallbackProvider?: { type?: string; endpoint?: string }
   instructions?: string
@@ -87,7 +92,7 @@ export interface CreateAgentRequest {
   id: string
   name: string
   description?: string
-  model: { deploymentName: string; temperature?: number; maxTokens?: number }
+  model: { deploymentName: string; temperature?: number; maxTokens?: number; predefinedModelId?: string | null }
   provider?: { type?: string; clientType?: string; endpoint?: string }
   instructions?: string
   tools?: AgentToolDef[]

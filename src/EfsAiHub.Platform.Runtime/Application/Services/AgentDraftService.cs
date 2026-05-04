@@ -156,7 +156,7 @@ public sealed class AgentDraftService : IAgentDraftService
         _logger.LogInformation("[AgentDraftService] Draft '{DraftId}' descartado.", id);
     }
 
-    public async Task<AgentDraft> SubmitForApprovalAsync(
+    public async Task<SubmitForApprovalResult> SubmitForApprovalAsync(
         string id,
         string actorUserId,
         CancellationToken ct = default)
@@ -170,12 +170,85 @@ public sealed class AgentDraftService : IAgentDraftService
                 $"Draft '{id}' não pertence ao projeto atual.");
 
         var wasResubmit = existing.Status == AgentDraftStatus.Rejected;
+
+        // Edit-draft cosmético é auto-aprovado: o sistema empurra direto pra
+        // PendingApproval e na sequência aprova com action=AutoApproved. Isso
+        // evita fila pra mudanças triviais (Description/Metadata) sem perder
+        // trilha de auditoria. Edit comportamental e new draft seguem fluxo
+        // normal: PendingApproval, espera admin.
+        var tier = await ClassifyEditDraftAsync(existing, ct);
+
         var submitted = await _draftRepo.SubmitForApprovalAsync(id, actorUserId, ct);
-
         _logger.LogInformation(
-            "[AgentDraftService] Draft '{DraftId}' submetido ao painel (wasResubmit={WasResubmit}, isEditDraft={IsEdit}).",
-            id, wasResubmit, submitted.IsEditDraft);
+            "[AgentDraftService] Draft '{DraftId}' submetido ao painel (wasResubmit={WasResubmit}, isEditDraft={IsEdit}, tier={Tier}).",
+            id, wasResubmit, submitted.IsEditDraft, tier);
 
-        return submitted;
+        if (tier == AgentChangeTier.Cosmetic)
+        {
+            // Aprova já no fluxo de submit. Race detection do BaseRevision
+            // continua válido — se outro publish bumpa entre o submit e o
+            // approve aqui, levanta DraftRePublishRaceException e o caller
+            // recebe 409 com a mensagem padrão do AgentApprovalService.
+            await _draftRepo.ApproveAsync(
+                id,
+                actorUserId: "system:auto",
+                changeReason: $"Auto-approved (cosmetic change submitted by {actorUserId}).",
+                action: AgentApprovalAction.AutoApproved,
+                tier: AgentChangeTier.Cosmetic,
+                ct: ct);
+
+            _logger.LogInformation(
+                "[AgentDraftService] Draft '{DraftId}' auto-aprovado (cosmetic).",
+                id);
+
+            // Draft foi deletado pelo ApproveAsync. Devolve o estado pré-delete
+            // só pra o caller ter feedback claro do que aconteceu.
+            return new SubmitForApprovalResult(submitted, AutoApproved: true, Tier: tier);
+        }
+
+        return new SubmitForApprovalResult(submitted, AutoApproved: false, Tier: tier);
+    }
+
+    public Task<IReadOnlyList<AgentApprovalHistoryEntry>> GetApprovalHistoryByAgentAsync(
+        string agentDefinitionId,
+        CancellationToken ct = default)
+        => _draftRepo.GetHistoryByAgentAsync(agentDefinitionId, ct);
+
+    public Task AppendAdminOverrideAsync(
+        string agentDefinitionId,
+        string actorUserId,
+        string changeReason,
+        CancellationToken ct = default)
+        => _draftRepo.AppendAdminOverrideAsync(
+            agentDefinitionId,
+            tenantId: _tenantAccessor.Current.TenantId,
+            actorUserId: actorUserId,
+            changeReason: changeReason,
+            ct: ct);
+
+    /// <summary>
+    /// Compara payload do edit-draft contra o estado atual do agent base via
+    /// <see cref="AgentChangeClassifier"/>. New drafts (sem BaseAgentId) são
+    /// sempre Behavioral por definição (não há "antes" pra comparar). Falha
+    /// silenciosa retorna Behavioral pra fail-safe.
+    /// </summary>
+    private async Task<AgentChangeTier> ClassifyEditDraftAsync(AgentDraft draft, CancellationToken ct)
+    {
+        if (!draft.IsEditDraft || string.IsNullOrWhiteSpace(draft.BaseAgentId))
+            return AgentChangeTier.Behavioral;
+
+        try
+        {
+            var current = await _agentRepo.GetByIdAsync(draft.BaseAgentId!, ct);
+            if (current is null) return AgentChangeTier.Behavioral;
+            return AgentChangeClassifier.Classify(current, draft.Payload);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "[AgentDraftService] Falha ao classificar diff do edit-draft '{DraftId}'. Tratando como Behavioral.",
+                draft.Id);
+            return AgentChangeTier.Behavioral;
+        }
     }
 }

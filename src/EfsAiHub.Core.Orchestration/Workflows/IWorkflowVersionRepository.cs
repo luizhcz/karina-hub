@@ -21,6 +21,15 @@ public interface IWorkflowVersionRepository
     Task<int> GetNextRevisionAsync(string workflowDefinitionId, CancellationToken ct = default);
 
     /// <summary>
+    /// Recupera a row cujo ContentHash bate com o estado mutável atual do workflow.
+    /// Usado pra resolver "qual revision corresponde ao Data JSON de workflow_definitions"
+    /// após rollback (que é idempotente por hash, não cria nova entry). O par
+    /// (WorkflowDefinitionId, ContentHash) tem unique index — query é O(1).
+    /// </summary>
+    Task<WorkflowVersion?> GetByContentHashAsync(
+        string workflowDefinitionId, string contentHash, CancellationToken ct = default);
+
+    /// <summary>
     /// Recupera o snapshot da WorkflowDefinition persistido para uma versão específica.
     /// Usado no rollback para restaurar o estado exato da definição.
     /// </summary>

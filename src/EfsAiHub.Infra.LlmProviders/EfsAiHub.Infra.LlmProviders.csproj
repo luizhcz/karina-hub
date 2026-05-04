@@ -15,7 +15,16 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.6" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.6" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.6" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.5.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.5.1" />
+    <!--
+      Microsoft.Extensions.AI.OpenAI explícito pra alinhar com OpenAI 2.10.0:
+      a versão puxada transitivamente por Microsoft.Agents.AI.OpenAI 1.1.0 é
+      10.4.0 (compilada contra um pre-release do OpenAI SDK que tem props/métodos
+      ainda não publicados). Sem o pin pra 10.5.1, runtime quebra com
+      MissingMethodException ao chamar OpenAIResponsesChatClient — ver
+      microsoft/agent-framework#4380.
+    -->
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.5.1" />
     <PackageReference Include="Microsoft.Agents.AI" Version="1.1.0" />
     <PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.1.0" />
     <PackageReference Include="Azure.AI.OpenAI" Version="2.9.0-beta.1" />

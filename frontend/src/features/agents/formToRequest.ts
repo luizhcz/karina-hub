@@ -20,11 +20,19 @@ export function formToRequest(values: AgentFormValues): FormToRequestResult {
       id: values.id,
       name: values.name,
       description: values.description || undefined,
-      model: {
-        deploymentName: values.model.deploymentName,
-        temperature: values.model.temperature,
-        maxTokens: values.model.maxTokens,
-      },
+      model: values.predefinedModelId
+        ? {
+            // Quando há preset, backend resolve provider/deployment/temperature/maxTokens
+            // em runtime via PredefinedModelBinder. Enviamos apenas o id; deploymentName
+            // vai como string vazia (invariante relaxada quando predefinedModelId é setado).
+            deploymentName: '',
+            predefinedModelId: values.predefinedModelId,
+          }
+        : {
+            deploymentName: values.model.deploymentName,
+            temperature: values.model.temperature,
+            maxTokens: values.model.maxTokens,
+          },
       provider: values.provider.type
         ? {
             type: values.provider.type,
@@ -37,6 +45,7 @@ export function formToRequest(values: AgentFormValues): FormToRequestResult {
         const merged = [
           ...values.tools.map((name) => ({ type: 'function', name })),
           ...values.mcpServerIds.map((mcpServerId) => ({ type: 'mcp', mcpServerId })),
+          ...values.genericToolIds.map((genericToolId) => ({ type: 'generic_http', genericToolId })),
         ]
         return merged.length > 0 ? merged : undefined
       })(),

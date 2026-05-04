@@ -60,6 +60,8 @@ builder.Services.Configure<AdminOptions>(
     builder.Configuration.GetSection(AdminOptions.SectionName));
 builder.Services.Configure<EfsAiHub.Platform.Runtime.Options.DocumentIntelligenceOptions>(
     builder.Configuration.GetSection(EfsAiHub.Platform.Runtime.Options.DocumentIntelligenceOptions.SectionName));
+builder.Services.Configure<EfsAiHub.Platform.Runtime.Configuration.GenericToolsOptions>(
+    builder.Configuration.GetSection(EfsAiHub.Platform.Runtime.Configuration.GenericToolsOptions.SectionName));
 
 // ── Azure Identity ────────────────────────────────────────────────────────────
 // SP do Azure é resolvido lazy a partir de Azure:ServicePrincipal:* (populado
@@ -101,7 +103,28 @@ builder.Services.AddHttpClient("mermaid-ink", c =>
     c.BaseAddress = new Uri("https://mermaid.ink");
     c.Timeout = TimeSpan.FromSeconds(15);
 });
+// Timeout exclusivo via CancellationTokenSource no executor. Default do
+// HttpClient (100s) cortaria antes do CTS quando MaxTimeoutSeconds > 100,
+// então fixamos Infinite aqui pro executor manter controle total.
+builder.Services.AddHttpClient("generic-tool-executor", c =>
+{
+    c.Timeout = Timeout.InfiniteTimeSpan;
+});
 builder.Services.AddSingleton<BoletaToolFunctions>();
+builder.Services.AddScoped<EfsAiHub.Core.Agents.IGenericToolRepository,
+    EfsAiHub.Infra.Persistence.Postgres.PgGenericToolRepository>();
+builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolExecutor,
+    EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolExecutor>();
+builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Interfaces.IGenericToolService,
+    EfsAiHub.Platform.Runtime.Services.GenericToolService>();
+builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolBinder,
+    EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolBinder>();
+builder.Services.AddScoped<EfsAiHub.Core.Agents.IPredefinedModelRepository,
+    EfsAiHub.Infra.Persistence.Postgres.PgPredefinedModelRepository>();
+builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Interfaces.IPredefinedModelService,
+    EfsAiHub.Platform.Runtime.Services.PredefinedModelService>();
+builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.PredefinedModels.IPredefinedModelBinder,
+    EfsAiHub.Platform.Runtime.Tools.PredefinedModels.PredefinedModelBinder>();
 
 // ── Factories (Agente e Workflow) ─────────────────────────────────────────────
 builder.Services.AddScoped<IAgentFactory, AgentFactory>();

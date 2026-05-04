@@ -88,6 +88,15 @@ public sealed class DefaultProjectGuard
             return true;
         if (path.StartsWith("/api/notifications", StringComparison.OrdinalIgnoreCase))
             return true;
+        // Catálogo público de presets — recurso global cross-tenant.
+        if (path.StartsWith("/api/predefined-models", StringComparison.OrdinalIgnoreCase))
+            return true;
+        // Listagem/lookup de projetos é global (tenant-scoped). Controller filtra
+        // o projeto 'default' pra non-admins (ver ProjectsController.List/GetById),
+        // então liberar aqui não vaza nada — só permite o onboarding inicial
+        // pegar a lista antes do user escolher um projectId.
+        if (path.StartsWith("/api/projects", StringComparison.OrdinalIgnoreCase))
+            return true;
         if (path.Equals("/dev", StringComparison.OrdinalIgnoreCase))
             return true;
 

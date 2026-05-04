@@ -1,4 +1,4 @@
-import { useMemo, createContext, useContext, type ReactNode } from 'react'
+import { useMemo, useState, createContext, useContext, type ReactNode } from 'react'
 import { useForm, FormProvider, useFormContext } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -13,6 +13,8 @@ import { useFunctions } from '../../../api/tools'
 import { ToolPicker } from './ToolPicker'
 import { MiddlewarePicker, type MiddlewareEntry } from './MiddlewarePicker'
 import { useSkills } from '../../../api/skills'
+import { useGenericTools } from '../../../api/genericTools'
+import { usePublicPresets } from '../../../api/predefinedModels'
 import { useMcpServers } from '../../../api/mcpServers'
 import { useModelCatalog } from '../../../api/modelCatalog'
 import type { AgentFormValues } from '../types'
@@ -34,10 +36,14 @@ export const agentFormSchema = z.object({
   description: z.string().optional().default(''),
   metadata: z.record(z.string()).optional().default({}),
   model: z.object({
-    deploymentName: z.string().min(1, 'Deployment name is required'),
+    // DeploymentName fica opcional aqui; cross-field check abaixo exige ele
+    // OU predefinedModelId — backend hidrata Deployment via binder quando preset.
+    deploymentName: z.string().optional().default(''),
     temperature: z.number().min(0).max(2).optional().default(0.7),
     maxTokens: z.number().min(0).optional().default(4096),
   }),
+  predefinedModelId: z.string().optional().default(''),
+  genericToolIds: z.array(z.string()).optional().default([]),
   provider: z.object({
     type: z.string().optional().default(''),
     clientType: z.string().optional().default(''),
@@ -72,7 +78,13 @@ export const agentFormSchema = z.object({
     maxTokensPerExecution: z.number().min(0).optional().default(0),
     maxCostUsd: z.number().min(0).optional().default(0),
   }).optional().default({}),
-})
+}).refine(
+  (vals) => Boolean(vals.predefinedModelId) || vals.model.deploymentName.trim().length > 0,
+  {
+    path: ['model', 'deploymentName'],
+    message: 'Selecione um preset OU informe o Deployment name (modo avançado).',
+  },
+)
 
 
 const defaultValues: AgentFormValues = {
@@ -86,6 +98,8 @@ const defaultValues: AgentFormValues = {
   instructions: '',
   tools: [],
   mcpServerIds: [],
+  genericToolIds: [],
+  predefinedModelId: '',
   skills: [],
   structuredOutput: { responseFormat: 'text', schemaName: '', schemaDescription: '', schema: '' },
   middlewares: [],
@@ -121,6 +135,8 @@ export function agentToFormValues(agent: AgentDef): AgentFormValues {
     // config inline legacy são preservados no submit (ver formToRequest do caller),
     // mas não aparecem no picker — a UI é id-based only.
     mcpServerIds: agent.tools?.filter((t) => t.type === 'mcp' && !!t.mcpServerId).map((t) => t.mcpServerId!) ?? [],
+    genericToolIds: agent.tools?.filter((t) => t.type === 'generic_http' && !!t.genericToolId).map((t) => t.genericToolId!) ?? [],
+    predefinedModelId: agent.model.predefinedModelId ?? '',
     skills: agent.skillRefs?.map((s) => s.skillId) ?? [],
     structuredOutput: {
       responseFormat: agent.structuredOutput?.responseFormat ?? 'text',
@@ -189,8 +205,51 @@ function ModelSection() {
   const { register, watch, setValue, formState: { errors } } = useFormContext<AgentFormValues>()
   const temperature = watch('model.temperature')
   const currentDeployment = watch('model.deploymentName')
+  const currentPresetId = watch('predefinedModelId')
 
   const { data: models = [] } = useModelCatalog()
+  const { data: presets = [] } = usePublicPresets()
+
+  // Default mode = preset quando há um setado OU quando o agent é novo (sem
+  // deploymentName). Modo avançado quando agent legacy tem deploymentName cru.
+  const [advancedMode, setAdvancedMode] = useState<boolean>(
+    () => !currentPresetId && !!currentDeployment,
+  )
+
+  const selectedPreset = presets.find((p) => p.id === currentPresetId)
+
+  const handlePresetChange = (presetId: string) => {
+    setValue('predefinedModelId', presetId)
+    if (presetId) {
+      // Limpa campos crus pra evitar confusão visual quando trocar pra avançado
+      // depois — backend preenche em runtime via binder.
+      setValue('model.deploymentName', '')
+    }
+  }
+
+  const switchToAdvanced = () => {
+    // Pré-popula campos crus com valores do preset selecionado pra orientar o
+    // PM/dev sobre o que está por baixo. Limpa o predefinedModelId — agent
+    // vira custom a partir desse momento.
+    if (selectedPreset) {
+      setValue('model.deploymentName', selectedPreset.deploymentName)
+      setValue('provider.type', selectedPreset.provider)
+      if (selectedPreset.clientType) setValue('provider.clientType', selectedPreset.clientType)
+      if (selectedPreset.endpoint) setValue('provider.endpoint', selectedPreset.endpoint)
+      if (selectedPreset.defaultTemperature !== null && selectedPreset.defaultTemperature !== undefined) {
+        setValue('model.temperature', selectedPreset.defaultTemperature)
+      }
+      if (selectedPreset.defaultMaxTokens) {
+        setValue('model.maxTokens', selectedPreset.defaultMaxTokens)
+      }
+      setValue('predefinedModelId', '')
+    }
+    setAdvancedMode(true)
+  }
+
+  const switchToSimple = () => {
+    setAdvancedMode(false)
+  }
 
   const handleModelChange = (modelId: string) => {
     setValue('model.deploymentName', modelId)
@@ -203,8 +262,71 @@ function ModelSection() {
 
   const isCustom = !!currentDeployment && !models.find((m) => m.id === currentDeployment)
 
+  if (!advancedMode) {
+    return (
+      <Card
+        title="Modelo"
+        actions={
+          <Button variant="ghost" size="sm" type="button" onClick={switchToAdvanced}>
+            Configuração avançada →
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-text-muted">
+              Selecione um preset
+              {!currentPresetId && (
+                <span className="text-text-dimmed ml-2">
+                  (escolha um modelo curado pelo time de plataforma)
+                </span>
+              )}
+            </label>
+            <select
+              value={currentPresetId}
+              onChange={(e) => handlePresetChange(e.target.value)}
+              className="bg-bg-tertiary border border-border-secondary rounded-md px-2.5 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+            >
+              <option value="">— escolha —</option>
+              {presets.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.displayName}
+                </option>
+              ))}
+            </select>
+          </div>
+          {selectedPreset && (
+            <div className="bg-bg-tertiary/50 border border-border-secondary rounded-md p-3">
+              <p className="text-sm text-text-secondary">{selectedPreset.description}</p>
+              <p className="text-[11px] text-text-dimmed mt-2 font-mono">
+                {selectedPreset.provider} · {selectedPreset.deploymentName}
+                {selectedPreset.defaultTemperature !== null && selectedPreset.defaultTemperature !== undefined &&
+                  ` · temp=${selectedPreset.defaultTemperature}`}
+                {selectedPreset.defaultMaxTokens && ` · max=${selectedPreset.defaultMaxTokens}`}
+              </p>
+            </div>
+          )}
+          {presets.length === 0 && (
+            <p className="text-xs text-text-dimmed italic">
+              Nenhum preset disponível. Peça pro time de plataforma cadastrar em
+              <code className="ml-1">/admin/predefined-models</code>, ou clique em
+              <span className="ml-1 text-text-muted">"Configuração avançada"</span> pra escolher provider/modelo crus.
+            </p>
+          )}
+        </div>
+      </Card>
+    )
+  }
+
   return (
-    <Card title="Modelo">
+    <Card
+      title="Modelo (configuração avançada)"
+      actions={
+        <Button variant="ghost" size="sm" type="button" onClick={switchToSimple}>
+          ← Voltar a presets
+        </Button>
+      }
+    >
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-text-muted">
@@ -437,6 +559,64 @@ function McpToolsSection() {
   )
 }
 
+function GenericToolsSection() {
+  const { watch, setValue } = useFormContext<AgentFormValues>()
+  const selected = watch('genericToolIds')
+  const { data: genericTools } = useGenericTools()
+
+  const toggle = (id: string) => {
+    const next = selected.includes(id)
+      ? selected.filter((s) => s !== id)
+      : [...selected, id]
+    setValue('genericToolIds', next)
+  }
+
+  return (
+    <Card title="Generic Tools (HTTP)">
+      <p className="text-xs text-text-muted mb-3">
+        Selecione tools HTTP genéricas cadastradas em{' '}
+        <code className="text-xs bg-bg-tertiary px-1 py-0.5 rounded">/generic-tools</code>{' '}
+        do projeto atual. O backend monta uma <code className="text-xs">AIFunction</code>{' '}
+        dinâmica e o LLM enxerga como tool callable.
+      </p>
+      {!genericTools || genericTools.length === 0 ? (
+        <p className="text-sm text-text-dimmed">
+          Nenhum Generic Tool cadastrado. Crie um em{' '}
+          <code className="text-xs">/generic-tools</code>.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto">
+          {genericTools.map((tool) => (
+            <label
+              key={tool.id}
+              className="flex items-start gap-2 text-sm text-text-secondary hover:text-text-primary cursor-pointer p-2 rounded hover:bg-bg-tertiary"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(tool.id)}
+                onChange={() => toggle(tool.id)}
+                className="accent-accent-blue mt-0.5"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{tool.name}</span>
+                  <span className="text-[10px] text-text-dimmed font-mono">{tool.httpMethod}</span>
+                </div>
+                <div className="text-xs text-text-muted font-mono truncate">{tool.urlTemplate}</div>
+                {tool.description && (
+                  <div className="text-[11px] text-text-dimmed mt-0.5 truncate">
+                    {tool.description}
+                  </div>
+                )}
+              </div>
+            </label>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 function SkillsSection() {
   const { watch, setValue } = useFormContext<AgentFormValues>()
   const selected = watch('skills')
@@ -614,6 +794,7 @@ export function AgentForm({ initialValues, onSubmit, loading, existingIds, disab
           <PromptSection />
           <ToolsSection />
           <McpToolsSection />
+          <GenericToolsSection />
           <SkillsSection />
           <StructuredOutputSection />
           <MiddlewaresSection />

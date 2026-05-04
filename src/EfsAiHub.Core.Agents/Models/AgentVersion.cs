@@ -57,7 +57,8 @@ public sealed record AgentVersion(
         var model = new AgentModelSnapshot(
             definition.Model.DeploymentName,
             definition.Model.Temperature,
-            definition.Model.MaxTokens);
+            definition.Model.MaxTokens,
+            definition.Model.PredefinedModelId);
 
         var provider = new AgentProviderSnapshot(
             definition.Provider.Type,
@@ -78,6 +79,62 @@ public sealed record AgentVersion(
         var tools = definition.Tools
             .Select(t => AgentToolSnapshot.FromDefinition(t))
             .ToList();
+
+        // Projeção canônica: tools com GenericToolId=null serializam exatamente
+        // como antes da extensão (preserva ContentHash de agents existentes —
+        // re-publish idempotente). Tools com GenericToolId definido adicionam o
+        // campo no final; mudanças aí geram hash novo intencionalmente.
+        var canonicalTools = tools
+            .Select(t => t.GenericToolId is null
+                ? (object)new
+                {
+                    t.Type,
+                    t.Name,
+                    t.RequiresApproval,
+                    t.FingerprintHash,
+                    t.McpServerId,
+                    t.ServerLabel,
+                    t.ServerUrl,
+                    t.AllowedTools,
+                    t.RequireApproval,
+                    t.Headers,
+                    t.ConnectionId,
+                }
+                : new
+                {
+                    t.Type,
+                    t.Name,
+                    t.RequiresApproval,
+                    t.FingerprintHash,
+                    t.McpServerId,
+                    t.ServerLabel,
+                    t.ServerUrl,
+                    t.AllowedTools,
+                    t.RequireApproval,
+                    t.Headers,
+                    t.ConnectionId,
+                    t.GenericToolId,
+                })
+            .ToList();
+
+        // Projeção canônica: agent sem preset serializa model exatamente como
+        // antes (sem PredefinedModelId no JSON) — preserva ContentHash de agents
+        // existentes. Agent com preset adiciona o campo no final, gerando hash
+        // novo intencionalmente.
+        var canonicalModel = model.PredefinedModelId is null
+            ? (object)new
+            {
+                model.DeploymentName,
+                model.Temperature,
+                model.MaxTokens,
+            }
+            : new
+            {
+                model.DeploymentName,
+                model.Temperature,
+                model.MaxTokens,
+                model.PredefinedModelId,
+            };
 
         var middlewares = definition.Middlewares
             .Select(m => new AgentMiddlewareSnapshot(m.Type, m.Enabled, new Dictionary<string, string>(m.Settings)))
@@ -103,7 +160,7 @@ public sealed record AgentVersion(
             description = definition.Description,
             metadata,
             prompt = promptContent,
-            model,
+            model = canonicalModel,
             provider = new { provider.Type, provider.ClientType, provider.Endpoint, provider.HasValue },
             fallbackProvider = fallbackProvider is null
                 ? null
@@ -114,7 +171,7 @@ public sealed record AgentVersion(
                     fallbackProvider.Endpoint,
                     fallbackProvider.HasValue,
                 },
-            tools,
+            tools = canonicalTools,
             middlewares,
             outputSchema,
             resilience = definition.Resilience,
@@ -163,6 +220,7 @@ public sealed record AgentVersion(
             DeploymentName = Model.DeploymentName,
             Temperature = Model.Temperature,
             MaxTokens = Model.MaxTokens,
+            PredefinedModelId = Model.PredefinedModelId,
         };
 
         // ApiKey não é persistida no snapshot. Hidratada em runtime via InjectProjectCredentials
@@ -293,7 +351,8 @@ public sealed record AgentToolSnapshot(
     IReadOnlyList<string> AllowedTools,
     string? RequireApproval,
     IReadOnlyDictionary<string, string> Headers,
-    string? ConnectionId)
+    string? ConnectionId,
+    string? GenericToolId)
 {
     public static AgentToolSnapshot FromDefinition(AgentToolDefinition tool) => new(
         Type: tool.Type,
@@ -310,7 +369,8 @@ public sealed record AgentToolSnapshot(
         Headers: tool.Headers
             .OrderBy(h => h.Key, StringComparer.Ordinal)
             .ToDictionary(h => h.Key, h => h.Value, StringComparer.Ordinal),
-        ConnectionId: tool.ConnectionId);
+        ConnectionId: tool.ConnectionId,
+        GenericToolId: tool.GenericToolId);
 
     public AgentToolDefinition ToDefinition() => new()
     {
@@ -325,13 +385,15 @@ public sealed record AgentToolSnapshot(
         RequireApproval = RequireApproval,
         Headers = new Dictionary<string, string>(Headers),
         ConnectionId = ConnectionId,
+        GenericToolId = GenericToolId,
     };
 }
 
 public sealed record AgentModelSnapshot(
     string DeploymentName,
     float? Temperature,
-    int? MaxTokens);
+    int? MaxTokens,
+    string? PredefinedModelId = null);
 
 public sealed record AgentProviderSnapshot(
     string Type,

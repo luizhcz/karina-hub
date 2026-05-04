@@ -73,11 +73,57 @@ internal class AgentApprovalHistoryRow
 {
     public string Id { get; set; } = "";
     public string DraftId { get; set; } = "";
+    public string? AgentDefinitionId { get; set; }
     public string TenantId { get; set; } = "default";
     public string Action { get; set; } = "Submitted";
     public string ActorUserId { get; set; } = "";
     public string? Feedback { get; set; }
+    public string? Tier { get; set; }
     public DateTime OccurredAt { get; set; }
+}
+
+// Catálogo global de presets de model+provider. Sem ProjectId/TenantId —
+// admin-managed cross-tenant. Agents referenciam via
+// AgentDefinition.Model.PredefinedModelId.
+internal class PredefinedModelRow
+{
+    public string Id { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string Provider { get; set; } = "";
+    public string? ClientType { get; set; }
+    public string? Endpoint { get; set; }
+    public string DeploymentName { get; set; } = "";
+    public float? DefaultTemperature { get; set; }
+    public int? DefaultMaxTokens { get; set; }
+    public bool Enabled { get; set; } = true;
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+// Tool HTTP genérica owner-only (project-scoped strict). Workflows e agents
+// de outros projetos nunca enxergam essa tabela — o binder em runtime resolve
+// só pelo agent.ProjectId atual.
+internal class GenericToolRow
+{
+    public string Id { get; set; } = "";
+    public string ProjectId { get; set; } = "default";
+    public string TenantId { get; set; } = "default";
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string HttpMethod { get; set; } = "GET";
+    public string UrlTemplate { get; set; } = "";
+    public string PathParams { get; set; } = "{}";
+    public string QueryParams { get; set; } = "{}";
+    public string CustomHeaders { get; set; } = "{}";
+    public string InputContentType { get; set; } = "None";
+    public string? InputSchema { get; set; }
+    public string OutputContentType { get; set; } = "Json";
+    public string? OutputSchema { get; set; }
+    public int? TimeoutSecondsOverride { get; set; }
+    public string? WhenToUse { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }
 
 internal class ProjectRow
@@ -539,6 +585,8 @@ public class AgentFwDbContext : DbContext
     internal DbSet<AgentDefinitionRow> AgentDefinitions => Set<AgentDefinitionRow>();
     internal DbSet<AgentDraftRow> AgentDrafts => Set<AgentDraftRow>();
     internal DbSet<AgentApprovalHistoryRow> AgentApprovalHistory => Set<AgentApprovalHistoryRow>();
+    internal DbSet<GenericToolRow> GenericTools => Set<GenericToolRow>();
+    internal DbSet<PredefinedModelRow> PredefinedModels => Set<PredefinedModelRow>();
     internal DbSet<AgentPromptVersionRow> AgentPromptVersions => Set<AgentPromptVersionRow>();
     internal DbSet<AgentVersionRow> AgentVersions => Set<AgentVersionRow>();
     internal DbSet<WorkflowVersionRow> WorkflowVersions => Set<WorkflowVersionRow>();
@@ -736,16 +784,76 @@ public class AgentFwDbContext : DbContext
             b.HasKey(e => e.Id);
             b.Property(e => e.Id).HasMaxLength(64);
             b.Property(e => e.DraftId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.AgentDefinitionId).HasMaxLength(256);
             b.Property(e => e.TenantId).HasMaxLength(128).IsRequired();
             b.Property(e => e.Action).HasMaxLength(32).IsRequired();
             b.Property(e => e.ActorUserId).HasMaxLength(256).IsRequired();
             b.Property(e => e.Feedback).HasColumnType("text");
+            b.Property(e => e.Tier).HasMaxLength(32);
             b.Property(e => e.OccurredAt).IsRequired();
             b.HasIndex(e => e.DraftId)
                 .HasDatabaseName("IX_agent_approval_history_DraftId");
             b.HasIndex(e => new { e.TenantId, e.OccurredAt })
                 .HasDatabaseName("IX_agent_approval_history_TenantId_OccurredAt")
                 .IsDescending(false, true);
+            b.HasIndex(e => new { e.AgentDefinitionId, e.OccurredAt })
+                .HasDatabaseName("IX_agent_approval_history_AgentDefinitionId_OccurredAt")
+                .HasFilter("\"AgentDefinitionId\" IS NOT NULL")
+                .IsDescending(false, true);
+        });
+
+        modelBuilder.Entity<GenericToolRow>(b =>
+        {
+            b.ToTable("generic_tools");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(64);
+            b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.TenantId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Name).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Description).HasColumnType("text").HasMaxLength(4096).HasDefaultValue("");
+            b.Property(e => e.HttpMethod).HasMaxLength(8).IsRequired();
+            b.Property(e => e.UrlTemplate).HasColumnType("text").IsRequired();
+            b.Property(e => e.PathParams).HasColumnType("jsonb").IsRequired();
+            b.Property(e => e.QueryParams).HasColumnType("jsonb").IsRequired();
+            b.Property(e => e.CustomHeaders).HasColumnType("jsonb").IsRequired();
+            b.Property(e => e.InputContentType).HasMaxLength(32).IsRequired();
+            b.Property(e => e.InputSchema).HasColumnType("text");
+            b.Property(e => e.OutputContentType).HasMaxLength(32).IsRequired();
+            b.Property(e => e.OutputSchema).HasColumnType("text");
+            b.Property(e => e.TimeoutSecondsOverride);
+            b.Property(e => e.WhenToUse).HasColumnType("text");
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.HasIndex(e => new { e.ProjectId, e.TenantId })
+                .HasDatabaseName("IX_generic_tools_ProjectId_TenantId");
+            b.HasIndex(e => new { e.ProjectId, e.Name })
+                .IsUnique()
+                .HasDatabaseName("UX_generic_tools_ProjectId_Name");
+            // Strictamente owner-only: sem cláusula global. Workflows não enxergam
+            // tools de outros projects mesmo via Id direto.
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+        });
+
+        modelBuilder.Entity<PredefinedModelRow>(b =>
+        {
+            b.ToTable("predefined_models");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(64);
+            b.Property(e => e.DisplayName).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Description).HasColumnType("text").HasDefaultValue("");
+            b.Property(e => e.Provider).HasMaxLength(64).IsRequired();
+            b.Property(e => e.ClientType).HasMaxLength(64);
+            b.Property(e => e.Endpoint).HasMaxLength(512);
+            b.Property(e => e.DeploymentName).HasMaxLength(256).IsRequired();
+            b.Property(e => e.DefaultTemperature);
+            b.Property(e => e.DefaultMaxTokens);
+            b.Property(e => e.Enabled).HasDefaultValue(true);
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.HasIndex(e => e.Enabled)
+                .HasDatabaseName("IX_predefined_models_Enabled")
+                .HasFilter("\"Enabled\" = TRUE");
+            // Sem query filter — catálogo global cross-tenant.
         });
 
         modelBuilder.Entity<AgentVersionRow>(b =>
