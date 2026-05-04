@@ -72,8 +72,8 @@ export function Implantacoes() {
     <div className="mx-auto max-w-6xl">
       <div className="mb-8 flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Implantações</h1>
-          <p className="mt-1 text-sm text-fg-muted">
+          <h1 className="text-[28px] font-semibold tracking-tight">Implantações</h1>
+          <p className="mt-2 text-sm text-fg-muted">
             Cada implantação cria um workflow Graph que expõe um agente publicado para consumo via API.
           </p>
         </div>

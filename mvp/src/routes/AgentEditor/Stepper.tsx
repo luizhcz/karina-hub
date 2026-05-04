@@ -42,7 +42,7 @@ export function Stepper({ steps, current, onSelect, disabled }: StepperProps) {
                 className={cn(
                   'flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold',
                   isCurrent
-                    ? 'bg-white/20 text-white'
+                    ? 'bg-accent-contrast/20 text-accent-contrast'
                     : isDone
                       ? 'bg-success/20 text-success'
                       : 'bg-bg-soft text-fg-dim',

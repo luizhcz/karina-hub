@@ -24,7 +24,7 @@ export function Sidebar() {
         </div>
         <div className="leading-tight">
           <div className="text-sm font-semibold tracking-tight text-fg">AI Hub</div>
-          <div className="text-[10px] uppercase tracking-widest text-fg-dim">MVP</div>
+          <div className="text-[10px] uppercase tracking-widest text-fg-dim">Governance Platform</div>
         </div>
       </div>
 
@@ -35,10 +35,13 @@ export function Sidebar() {
             to={item.to}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition',
+                'relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition',
+                // Quick-win UX: barra lateral à esquerda no item ativo dá hierarquia
+                // visual de menu enterprise (Linear/Stripe pattern).
+                'before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-r before:transition',
                 isActive
-                  ? 'bg-accent-subtle text-accent'
-                  : 'text-fg-muted hover:bg-surface-hover hover:text-fg',
+                  ? 'bg-accent-subtle text-accent before:bg-accent'
+                  : 'text-fg-muted before:bg-transparent hover:bg-surface-hover hover:text-fg',
               )
             }
           >
@@ -47,10 +50,6 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
-
-      <div className="border-t border-border px-5 py-4 text-[10px] text-fg-dim">
-        Plataforma de agents · v0.1
-      </div>
     </aside>
   )
 }

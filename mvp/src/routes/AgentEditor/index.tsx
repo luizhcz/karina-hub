@@ -464,7 +464,12 @@ export function AgentEditor({ mode }: Props) {
         </p>
       )}
 
-      <div className="pointer-events-none fixed inset-x-0 bottom-6 z-30 px-6">
+      {/* Botões flutuantes no rodapé — ancorados ao mesmo grid do conteúdo
+          (left-60 = sidebar; mx-auto max-w-4xl = mesmo eixo do step).
+          pointer-events-none no wrapper deixa o conteúdo atrás clicável;
+          pointer-events-auto reativa só nos botões. shadow-xl dá elevação
+          sem fundo de footer. */}
+      <div className="pointer-events-none fixed bottom-6 left-60 right-0 z-30 px-8">
         <div className="mx-auto flex max-w-4xl items-center justify-between">
           <div className="pointer-events-auto">
             {!isFirst && (
@@ -491,12 +496,7 @@ export function AgentEditor({ mode }: Props) {
                 Avançar
               </Button>
             ) : (
-              <Button
-                onClick={onSave}
-                loading={submitting}
-                disabled={readonly}
-                className="shadow-xl"
-              >
+              <Button onClick={onSave} loading={submitting} disabled={readonly} className="shadow-xl">
                 {mode === 'edit' ? 'Salvar' : 'Criar rascunho'}
               </Button>
             )}

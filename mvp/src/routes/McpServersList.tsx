@@ -56,8 +56,8 @@ export function McpServersList() {
     <div className="mx-auto max-w-6xl">
       <div className="mb-8 flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">MCPs</h1>
-          <p className="mt-1 text-sm text-fg-muted">
+          <h1 className="text-[28px] font-semibold tracking-tight">MCPs</h1>
+          <p className="mt-2 text-sm text-fg-muted">
             Servidores Model Context Protocol que seus agentes podem consumir. O agente referencia
             pelo Id e o runtime resolve label, URL e tools permitidas em cada execução.
           </p>

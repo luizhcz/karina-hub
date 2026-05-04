@@ -16,9 +16,12 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
     <div
       ref={ref}
       className={cn(
-        'rounded-xl border border-border bg-surface shadow-card',
+        // Quick-win UX: rounded-2xl + shadow-sm pra estética banking-fintech
+        // (Stripe / BTG Mais). Hover lift dá feedback premium em cards clicáveis.
+        'rounded-2xl border border-border bg-surface shadow-sm',
         padded && 'p-5',
-        interactive && 'transition hover:border-accent/40 hover:shadow-soft',
+        interactive &&
+          'transition-all duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-md',
         className,
       )}
       {...rest}

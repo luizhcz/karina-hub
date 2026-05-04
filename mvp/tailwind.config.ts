@@ -34,7 +34,10 @@ export default {
         danger: tokenColor('--color-danger'),
       },
       boxShadow: {
-        soft: '0 6px 24px -10px rgb(var(--color-accent) / 0.35)',
+        // Sombra "soft" reduzida pra estilo BTG mais minimalista: em light
+        // mode é navy a 18% (sutil), em dark mode é branco a 18% (glow leve
+        // mas não estridente).
+        soft: '0 6px 20px -10px rgb(var(--color-accent) / 0.18)',
         card: '0 1px 0 rgb(var(--color-border) / 0.6) inset, 0 4px 12px -4px rgb(0 0 0 / 0.06)',
       },
     },

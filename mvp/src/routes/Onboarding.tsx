@@ -123,7 +123,7 @@ export function Onboarding() {
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-subtle text-accent shadow-soft">
             <LogoIcon className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Bem-vindo ao AI Hub</h1>
+          <h1 className="text-[28px] font-semibold tracking-tight">Bem-vindo ao AI Hub</h1>
           <p className="mt-2 text-sm text-fg-muted">
             Identifique-se para começar a montar suas ferramentas.
           </p>

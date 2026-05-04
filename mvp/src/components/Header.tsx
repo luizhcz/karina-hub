@@ -45,8 +45,8 @@ export function Header() {
         <IconButton aria-label="Configurações" onClick={() => setOpenSettings(true)}>
           <SettingsIcon className="h-4 w-4" />
         </IconButton>
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-1.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-[11px] font-semibold text-accent">
+        <div className="flex items-center gap-2.5 px-1">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-subtle text-[11px] font-semibold text-accent">
             {initials}
           </div>
           <div className="leading-tight">

@@ -84,8 +84,8 @@ export function AgentVersions() {
           Voltar
         </Button>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-xl font-semibold tracking-tight">Versões — {agent?.name ?? id}</h1>
-          <p className="text-xs text-fg-muted">
+          <h1 className="truncate text-2xl font-semibold tracking-tight">Versões — {agent?.name ?? id}</h1>
+          <p className="mt-1 text-xs text-fg-muted">
             Selecione até duas versões para comparar campo a campo.
           </p>
         </div>

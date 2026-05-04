@@ -83,8 +83,8 @@ export function Aprovacoes() {
   return (
     <div className="mx-auto max-w-6xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Aprovações</h1>
-        <p className="mt-1 text-sm text-fg-muted">
+        <h1 className="text-[28px] font-semibold tracking-tight">Aprovações</h1>
+        <p className="mt-2 text-sm text-fg-muted">
           Revisão de rascunhos submetidos pelos times. Aprovar promove a uma versão publicada do agente; rejeitar
           devolve com feedback.
         </p>

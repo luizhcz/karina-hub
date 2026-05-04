@@ -40,14 +40,18 @@ export function Modal({ open, onClose, title, description, children, footer, siz
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur"
+      // Overlay token-aware: bg-fg/30 escurece em light (fg=navy) e
+      // esbranquiça-suaviza em dark (fg=branco), criando contraste consistente
+      // sem o "buraco preto" do bg-black/40 em fundos navy.
+      className="fixed inset-0 z-50 flex items-center justify-center bg-fg/30 p-6 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       onClick={onClose}
     >
       <div
         className={cn(
-          'w-full overflow-hidden rounded-xl border border-border bg-surface shadow-2xl',
+          // Quick-win: rounded-2xl + shadow-xl + ring sutil pra finish bancário.
+          'w-full overflow-hidden rounded-2xl border border-border bg-surface shadow-xl ring-1 ring-border/50',
           sizeClasses[size],
         )}
         onClick={(e) => e.stopPropagation()}

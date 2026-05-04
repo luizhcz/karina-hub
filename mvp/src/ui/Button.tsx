@@ -14,8 +14,10 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantClasses: Record<Variant, string> = {
+  // Primary: chapado por padrão (parece mais profissional banking-style),
+  // shadow só no hover pra dar feedback de elevação.
   primary:
-    'bg-accent text-accent-contrast hover:bg-accent-soft focus-visible:ring-accent/40 shadow-soft',
+    'bg-accent text-accent-contrast hover:bg-accent-soft hover:shadow-soft focus-visible:ring-accent/40',
   secondary:
     'border border-border bg-surface text-fg hover:bg-surface-hover focus-visible:ring-accent/30',
   ghost:

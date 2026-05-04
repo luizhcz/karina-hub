@@ -202,10 +202,10 @@ export function AgentDeploy() {
           Voltar
         </Button>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-xl font-semibold tracking-tight">
+          <h1 className="truncate text-2xl font-semibold tracking-tight">
             Implantação — {agent.name}
           </h1>
-          <p className="text-xs text-fg-muted">
+          <p className="mt-1 text-xs text-fg-muted">
             Provisiona um workflow Graph single-agent que expõe esse agente para consumo via API.
           </p>
         </div>
