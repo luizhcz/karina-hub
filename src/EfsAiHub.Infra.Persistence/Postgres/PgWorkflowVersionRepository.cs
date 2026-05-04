@@ -67,18 +67,35 @@ public sealed class PgWorkflowVersionRepository : IWorkflowVersionRepository
         return (max ?? 0) + 1;
     }
 
+    public async Task<WorkflowVersion?> GetByContentHashAsync(
+        string workflowDefinitionId, string contentHash, CancellationToken ct = default)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        var row = await ctx.WorkflowVersions
+            .Where(r => r.WorkflowDefinitionId == workflowDefinitionId
+                        && r.ContentHash == contentHash)
+            .OrderByDescending(r => r.Revision)
+            .FirstOrDefaultAsync(ct);
+        return row is null ? null : ToVersion(row);
+    }
+
     public async Task<WorkflowVersion> AppendAsync(WorkflowVersion version, CancellationToken ct = default)
     {
         await using var ctx = await _factory.CreateDbContextAsync(ct);
 
-        // Idempotência por hash: se a última revision já carrega esse content hash, no-op.
-        var last = await ctx.WorkflowVersions
-            .Where(r => r.WorkflowDefinitionId == version.WorkflowDefinitionId)
+        // Idempotência total por (WorkflowDefinitionId, ContentHash): se já existe
+        // QUALQUER revision com esse hash (não só a última), retorna a existente
+        // sem inserir. Necessário porque a tabela tem unique constraint nesse par
+        // — sem essa checagem, rollback pra um conteúdo antigo (que já consta como
+        // rN) explode com 23505 e a tentativa de bumpar a revision nunca completa.
+        var existing = await ctx.WorkflowVersions
+            .Where(r => r.WorkflowDefinitionId == version.WorkflowDefinitionId
+                        && r.ContentHash == version.ContentHash)
             .OrderByDescending(r => r.Revision)
             .FirstOrDefaultAsync(ct);
 
-        if (last is not null && last.ContentHash == version.ContentHash)
-            return ToVersion(last);
+        if (existing is not null)
+            return ToVersion(existing);
 
         var row = new WorkflowVersionRow
         {

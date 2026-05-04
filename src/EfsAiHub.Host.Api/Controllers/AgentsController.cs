@@ -81,11 +81,14 @@ public class AgentsController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [SwaggerOperation(Summary = "Atualiza uma definição de agente")]
+    [SwaggerOperation(Summary = "Atualiza uma definição de agente. Admin-only " +
+        "(non-admin é empurrado pro fluxo de edit-draft → approve). Toda chamada " +
+        "exige ChangeReason e gera entry de AdminOverride em agent_approval_history " +
+        "pra trilha de auditoria unificada.")]
     [ProducesResponseType(typeof(AgentResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Update(string id, [FromBody] CreateAgentRequest request, CancellationToken ct)
+    public async Task<IActionResult> Update(string id, [FromBody] UpdateAgentRequest request, CancellationToken ct)
     {
         try
         {
@@ -93,16 +96,27 @@ public class AgentsController : ControllerBase
             var before = existing is null ? null : AdminAuditContext.Snapshot(AgentResponse.FromDomain(existing));
 
             var definition = request.ToDomain();
+            var actorUserId = _auditContext.GetActorUserId() ?? "anonymous";
             var updated = await _agentService.UpdateAsync(definition, ct,
                 breakingChange: request.BreakingChange,
                 changeReason: request.ChangeReason,
-                createdBy: _auditContext.GetActorUserId());
+                createdBy: actorUserId);
+
+            // Audit operacional (admin_audit_log) + trilha de governança
+            // (agent_approval_history). Os dois servem auditores diferentes
+            // (SecOps vs Compliance) e precisam coexistir.
             await _audit.RecordAsync(_auditContext.Build(
                 AdminAuditActions.Update,
                 AdminAuditResources.Agent,
                 updated.Id,
                 payloadBefore: before,
                 payloadAfter: AdminAuditContext.Snapshot(AgentResponse.FromDomain(updated))), ct);
+            await _draftService.AppendAdminOverrideAsync(
+                agentDefinitionId: updated.Id,
+                actorUserId: actorUserId,
+                changeReason: request.ChangeReason,
+                ct: ct);
+
             return Ok(AgentResponse.FromDomain(updated));
         }
         catch (ArgumentException ex)
@@ -268,6 +282,24 @@ public class AgentsController : ControllerBase
         }
     }
 
+    [HttpGet("{id}/approval-history")]
+    [SwaggerOperation(Summary = "Trilha unificada de approval do agent. " +
+        "Soma drafts (Submitted/Approved/Rejected/AutoApproved) com qualquer " +
+        "AdminOverride aplicado via PUT direto. Ordenado por OccurredAt asc.")]
+    [ProducesResponseType(typeof(IReadOnlyList<AgentApprovalHistoryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetApprovalHistory(string id, CancellationToken ct)
+    {
+        // Confirma que o agent existe e é visível pro caller (HasQueryFilter
+        // já restringe por project/tenant). Sem essa checagem, qualquer um do
+        // tenant podia varrer ids alheios.
+        var agent = await _agentService.GetAsync(id, ct);
+        if (agent is null) return NotFound();
+
+        var entries = await _draftService.GetApprovalHistoryByAgentAsync(id, ct);
+        return Ok(entries.Select(AgentApprovalHistoryResponse.FromDomain));
+    }
+
     [HttpDelete("{id}")]
     [SwaggerOperation(Summary = "Remove uma definição de agente")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -289,8 +321,12 @@ public class AgentsController : ControllerBase
     [HttpGet("{id}/versions")]
     [SwaggerOperation(Summary = "Lista todas as revisões (AgentVersion) de um agente, ordenadas por Revision DESC.")]
     [ProducesResponseType(typeof(IReadOnlyList<AgentVersionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ListVersions(string id, CancellationToken ct)
     {
+        var agent = await _agentService.GetAsync(id, ct);
+        if (agent is null) return NotFound();
+
         var versions = await _versionRepo.ListByDefinitionAsync(id, ct);
         return Ok(versions.Select(AgentVersionResponse.FromDomain));
     }
@@ -301,6 +337,9 @@ public class AgentsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetVersion(string id, string versionId, CancellationToken ct)
     {
+        var agent = await _agentService.GetAsync(id, ct);
+        if (agent is null) return NotFound();
+
         var v = await _versionRepo.GetByIdAsync(versionId, ct);
         if (v is null || !string.Equals(v.AgentDefinitionId, id, StringComparison.OrdinalIgnoreCase))
             return NotFound();

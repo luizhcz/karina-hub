@@ -64,6 +64,14 @@ export function put<T>(path: string, body: unknown): Promise<T> {
   })
 }
 
+export function patch<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 // Marcadores de mensagens internas do backend que NÃO devem aparecer pra
 // PMs/POs (ex.: "projeto 'default'", "permissão de administrador"). Filtramos
 // pra evitar vazar detalhes do gating administrativo.

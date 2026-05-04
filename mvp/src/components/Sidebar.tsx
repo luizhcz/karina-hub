@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router'
-import { AgentIcon, LogoIcon, ServerIcon, ToolIcon, cn } from '../ui'
+import { AgentIcon, BoltIcon, CheckIcon, LogoIcon, ServerIcon, ToolIcon, cn } from '../ui'
 
 interface NavItem {
   label: string
@@ -9,6 +9,8 @@ interface NavItem {
 
 const items: NavItem[] = [
   { label: 'Agentes', to: '/agentes', icon: <AgentIcon className="h-5 w-5" /> },
+  { label: 'Aprovações', to: '/aprovacoes', icon: <CheckIcon className="h-5 w-5" /> },
+  { label: 'Implantações', to: '/implantacoes', icon: <BoltIcon className="h-5 w-5" /> },
   { label: 'Ferramentas', to: '/ferramentas', icon: <ToolIcon className="h-5 w-5" /> },
   { label: 'MCPs', to: '/mcps', icon: <ServerIcon className="h-5 w-5" /> },
 ]

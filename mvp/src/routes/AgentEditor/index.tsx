@@ -285,10 +285,9 @@ export function AgentEditor({ mode }: Props) {
         })
         setDraft(updated)
       }
-      const submitted = await submitAgentDraft(id)
-      setDraft(submitted)
-      setForm((prev) => ({ ...fromDraft(submitted), currentStep: prev.currentStep, agentMode: prev.agentMode }))
+      const result = await submitAgentDraft(id)
       setConfirmSubmit(false)
+      navigate(result.autoApproved ? '/agentes?tab=published' : '/agentes', { replace: true })
     } catch (err) {
       if (err instanceof ApiError && err.status === 412) {
         setError('O rascunho foi alterado em paralelo. Recarregamos os valores — revise antes de submeter de novo.')

@@ -1,22 +1,36 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { listAgentDrafts, type AgentDraft, type AgentDraftStatus } from '../api/agentDrafts'
-import { friendlyError } from '../api/client'
+import {
+  listAgents,
+  createEditDraft,
+  getApprovalHistory,
+  updateAgentEnabled,
+  type Agent,
+  type ApprovalAction,
+  type ApprovalHistoryEntry,
+} from '../api/agents'
+import { ApiError, friendlyError } from '../api/client'
 import { NewAgentModeModal } from '../components/NewAgentModeModal'
 import {
   AgentIcon,
   Badge,
+  BoltIcon,
   Button,
   Card,
   ErrorMessage,
   Input,
+  Modal,
   PlusIcon,
   SearchIcon,
   Spinner,
+  Textarea,
   cn,
 } from '../ui'
 
-type StatusTone = 'neutral' | 'accent' | 'warning'
+type Tab = 'drafts' | 'published'
+
+type StatusTone = 'neutral' | 'accent' | 'warning' | 'success' | 'danger'
 
 const STATUS_TONE: Record<AgentDraftStatus, StatusTone> = {
   Draft: 'neutral',
@@ -30,7 +44,6 @@ const STATUS_LABEL: Record<AgentDraftStatus, string> = {
   Rejected: 'Rejeitado',
 }
 
-// Faixa lateral colorida por status — diferencia rapidamente cards na grade.
 const STATUS_ACCENT: Record<AgentDraftStatus, string> = {
   Draft: 'before:bg-fg-dim/30',
   PendingApproval: 'before:bg-accent',
@@ -39,31 +52,67 @@ const STATUS_ACCENT: Record<AgentDraftStatus, string> = {
 
 export function AgentsList() {
   const navigate = useNavigate()
-  const [drafts, setDrafts] = useState<AgentDraft[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialTab: Tab = searchParams.get('tab') === 'published' ? 'published' : 'drafts'
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const [search, setSearch] = useState('')
   const [modeModalOpen, setModeModalOpen] = useState(false)
 
+  // Drafts state
+  const [drafts, setDrafts] = useState<AgentDraft[]>([])
+  const [draftsLoading, setDraftsLoading] = useState(true)
+  const [draftsError, setDraftsError] = useState<string | null>(null)
+
+  // Published state
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [agentsLoading, setAgentsLoading] = useState(true)
+  const [agentsError, setAgentsError] = useState<string | null>(null)
+
+  // Edit-draft fork state
+  const [forkingId, setForkingId] = useState<string | null>(null)
+  const [forkError, setForkError] = useState<string | null>(null)
+
+  // Approval history modal state
+  const [historyAgent, setHistoryAgent] = useState<Agent | null>(null)
+  const [history, setHistory] = useState<ApprovalHistoryEntry[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+
+  // Enable/disable confirmation modal state
+  const [toggleAgent, setToggleAgent] = useState<Agent | null>(null)
+  const [toggleReason, setToggleReason] = useState('')
+  const [toggling, setToggling] = useState(false)
+  const [toggleError, setToggleError] = useState<string | null>(null)
+
+  // Carrega ambos em paralelo no mount — usuário pode trocar de tab sem espera.
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
     listAgentDrafts()
       .then((list) => {
         if (!cancelled) setDrafts(list)
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(friendlyError(err, 'Não foi possível carregar os rascunhos.'))
+        if (!cancelled) setDraftsError(friendlyError(err, 'Não foi possível carregar os rascunhos.'))
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setDraftsLoading(false)
+      })
+    listAgents()
+      .then((list) => {
+        if (!cancelled) setAgents(list)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setAgentsError(friendlyError(err, 'Não foi possível carregar os agentes publicados.'))
+      })
+      .finally(() => {
+        if (!cancelled) setAgentsLoading(false)
       })
     return () => {
       cancelled = true
     }
   }, [])
 
-  const filtered = useMemo(() => {
+  const filteredDrafts = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return drafts
     return drafts.filter((d) => {
@@ -73,12 +122,94 @@ export function AgentsList() {
     })
   }, [drafts, search])
 
+  const filteredAgents = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return agents
+    return agents.filter((a) => {
+      const name = (a.name ?? '').toLowerCase()
+      const desc = (a.description ?? '').toLowerCase()
+      return name.includes(q) || desc.includes(q)
+    })
+  }, [agents, search])
+
   const handleSelectMode = (mode: 'basic' | 'advanced') => {
     setModeModalOpen(false)
     navigate(`/agentes/novo?mode=${mode}`)
   }
 
-  const showCreateCard = !loading && !error && search.trim().length === 0
+  const handleEdit = async (agentId: string) => {
+    setForkingId(agentId)
+    setForkError(null)
+    try {
+      const draft = await createEditDraft(agentId)
+      navigate(`/agentes/${draft.id}`)
+    } catch (err) {
+      const msg =
+        err instanceof ApiError && err.status === 409
+          ? 'Já existe um rascunho de edição em aberto para este agente. Procure-o na aba Rascunhos.'
+          : friendlyError(err, 'Não foi possível abrir o agente para edição.')
+      setForkError(msg)
+    } finally {
+      setForkingId(null)
+    }
+  }
+
+  const handleOpenHistory = async (agent: Agent) => {
+    setHistoryAgent(agent)
+    setHistory([])
+    setHistoryError(null)
+    setHistoryLoading(true)
+    try {
+      const list = await getApprovalHistory(agent.id)
+      setHistory(list)
+    } catch (err) {
+      setHistoryError(friendlyError(err, 'Não foi possível carregar o histórico de aprovações.'))
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  const handleCloseHistory = () => {
+    setHistoryAgent(null)
+    setHistory([])
+    setHistoryError(null)
+  }
+
+  const handleOpenToggle = (agent: Agent) => {
+    setToggleAgent(agent)
+    setToggleReason('')
+    setToggleError(null)
+  }
+
+  const handleCloseToggle = () => {
+    if (toggling) return
+    setToggleAgent(null)
+    setToggleReason('')
+    setToggleError(null)
+  }
+
+  const handleConfirmToggle = async () => {
+    if (!toggleAgent) return
+    const target = toggleAgent
+    const nextEnabled = !(target.enabled !== false)
+    setToggling(true)
+    setToggleError(null)
+    try {
+      const updated = await updateAgentEnabled(target.id, {
+        enabled: nextEnabled,
+        reason: toggleReason.trim() || null,
+      })
+      setAgents((prev) => prev.map((a) => (a.id === target.id ? updated : a)))
+      setToggleAgent(null)
+      setToggleReason('')
+    } catch (err) {
+      setToggleError(friendlyError(err, 'Não foi possível alterar o estado do agente.'))
+    } finally {
+      setToggling(false)
+    }
+  }
+
+  const showCreateCard = activeTab === 'drafts' && !draftsLoading && !draftsError && search.trim().length === 0
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -86,45 +217,78 @@ export function AgentsList() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Agentes</h1>
           <p className="mt-1 text-sm text-fg-muted">
-            Rascunhos dos agentes que você está montando. Salve o progresso a qualquer momento e
-            envie para aprovação quando estiver pronto.
+            Gerencie seus rascunhos e visualize os agentes publicados após aprovação.
           </p>
         </div>
-        <Button leftIcon={<PlusIcon className="h-4 w-4" />} onClick={() => setModeModalOpen(true)}>
-          Novo agente
-        </Button>
+        {activeTab === 'drafts' && (
+          <Button leftIcon={<PlusIcon className="h-4 w-4" />} onClick={() => setModeModalOpen(true)}>
+            Novo agente
+          </Button>
+        )}
+      </div>
+
+      <div className="mb-6 flex items-center gap-1 border-b border-border">
+        <TabButton
+          active={activeTab === 'drafts'}
+          label="Rascunhos"
+          count={draftsLoading ? null : drafts.length}
+          onClick={() => {
+            setActiveTab('drafts')
+            setSearchParams({}, { replace: true })
+          }}
+        />
+        <TabButton
+          active={activeTab === 'published'}
+          label="Publicados"
+          count={agentsLoading ? null : agents.length}
+          onClick={() => {
+            setActiveTab('published')
+            setSearchParams({ tab: 'published' }, { replace: true })
+          }}
+        />
       </div>
 
       <div className="mb-6 max-w-md">
         <Input
-          placeholder="Buscar por nome ou descrição…"
+          placeholder={
+            activeTab === 'drafts'
+              ? 'Buscar rascunho por nome ou descrição…'
+              : 'Buscar agente publicado por nome ou descrição…'
+          }
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           leftAddon={<SearchIcon className="h-4 w-4" />}
         />
       </div>
 
-      {loading && (
-        <Card className="flex items-center justify-center py-12">
-          <Spinner className="h-6 w-6 text-fg-muted" />
-        </Card>
+      {forkError && <ErrorMessage message={forkError} className="mb-4" />}
+
+      {activeTab === 'drafts' && (
+        <DraftsTab
+          loading={draftsLoading}
+          error={draftsError}
+          items={filteredDrafts}
+          totalItems={drafts.length}
+          showCreateCard={showCreateCard}
+          searchActive={search.trim().length > 0}
+          onCreateClick={() => setModeModalOpen(true)}
+          onCardClick={(id) => navigate(`/agentes/${id}`)}
+        />
       )}
 
-      {error && <ErrorMessage message={error} />}
-
-      {!loading && !error && filtered.length === 0 && search.trim().length > 0 && (
-        <Card padded className="mb-5 text-center">
-          <p className="text-sm text-fg-muted">Nada bate com a busca. Tente ajustar o termo.</p>
-        </Card>
-      )}
-
-      {!loading && !error && (filtered.length > 0 || showCreateCard) && (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {showCreateCard && <CreateAgentCard onClick={() => setModeModalOpen(true)} />}
-          {filtered.map((d) => (
-            <DraftCard key={d.id} draft={d} onClick={() => navigate(`/agentes/${d.id}`)} />
-          ))}
-        </div>
+      {activeTab === 'published' && (
+        <PublishedTab
+          loading={agentsLoading}
+          error={agentsError}
+          items={filteredAgents}
+          searchActive={search.trim().length > 0}
+          forkingId={forkingId}
+          onEdit={handleEdit}
+          onTest={(id) => navigate(`/agentes/${id}/sandbox`)}
+          onVersions={(id) => navigate(`/agentes/${id}/versoes`)}
+          onHistory={handleOpenHistory}
+          onToggleEnabled={handleOpenToggle}
+        />
       )}
 
       <NewAgentModeModal
@@ -132,6 +296,179 @@ export function AgentsList() {
         onClose={() => setModeModalOpen(false)}
         onSelect={handleSelectMode}
       />
+
+      <ApprovalHistoryModal
+        agent={historyAgent}
+        entries={history}
+        loading={historyLoading}
+        error={historyError}
+        onClose={handleCloseHistory}
+      />
+
+      <ToggleEnabledModal
+        agent={toggleAgent}
+        reason={toggleReason}
+        onReasonChange={setToggleReason}
+        loading={toggling}
+        error={toggleError}
+        onClose={handleCloseToggle}
+        onConfirm={handleConfirmToggle}
+      />
+    </div>
+  )
+}
+
+interface TabButtonProps {
+  active: boolean
+  label: string
+  count: number | null
+  onClick: () => void
+}
+
+function TabButton({ active, label, count, onClick }: TabButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'relative flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30',
+        active ? 'text-fg' : 'text-fg-muted hover:text-fg',
+      )}
+    >
+      {label}
+      {count !== null && (
+        <span
+          className={cn(
+            'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+            active ? 'bg-accent text-accent-contrast' : 'bg-bg-soft text-fg-muted',
+          )}
+        >
+          {count}
+        </span>
+      )}
+      {active && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-accent" aria-hidden="true" />}
+    </button>
+  )
+}
+
+interface DraftsTabProps {
+  loading: boolean
+  error: string | null
+  items: AgentDraft[]
+  totalItems: number
+  showCreateCard: boolean
+  searchActive: boolean
+  onCreateClick: () => void
+  onCardClick: (id: string) => void
+}
+
+function DraftsTab({
+  loading,
+  error,
+  items,
+  totalItems,
+  showCreateCard,
+  searchActive,
+  onCreateClick,
+  onCardClick,
+}: DraftsTabProps) {
+  if (loading) {
+    return (
+      <Card className="flex items-center justify-center py-12">
+        <Spinner className="h-6 w-6 text-fg-muted" />
+      </Card>
+    )
+  }
+  if (error) return <ErrorMessage message={error} />
+  if (items.length === 0 && searchActive) {
+    return (
+      <Card padded className="text-center">
+        <p className="text-sm text-fg-muted">Nada bate com a busca. Tente ajustar o termo.</p>
+      </Card>
+    )
+  }
+  if (totalItems === 0 && !searchActive) {
+    return (
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <CreateAgentCard onClick={onCreateClick} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {showCreateCard && <CreateAgentCard onClick={onCreateClick} />}
+      {items.map((d) => (
+        <DraftCard key={d.id} draft={d} onClick={() => onCardClick(d.id)} />
+      ))}
+    </div>
+  )
+}
+
+interface PublishedTabProps {
+  loading: boolean
+  error: string | null
+  items: Agent[]
+  searchActive: boolean
+  forkingId: string | null
+  onEdit: (id: string) => void
+  onTest: (id: string) => void
+  onVersions: (id: string) => void
+  onHistory: (agent: Agent) => void
+  onToggleEnabled: (agent: Agent) => void
+}
+
+function PublishedTab({
+  loading,
+  error,
+  items,
+  searchActive,
+  forkingId,
+  onEdit,
+  onTest,
+  onVersions,
+  onHistory,
+  onToggleEnabled,
+}: PublishedTabProps) {
+  if (loading) {
+    return (
+      <Card className="flex items-center justify-center py-12">
+        <Spinner className="h-6 w-6 text-fg-muted" />
+      </Card>
+    )
+  }
+  if (error) return <ErrorMessage message={error} />
+  if (items.length === 0 && searchActive) {
+    return (
+      <Card padded className="text-center">
+        <p className="text-sm text-fg-muted">Nada bate com a busca. Tente ajustar o termo.</p>
+      </Card>
+    )
+  }
+  if (items.length === 0) {
+    return (
+      <Card padded className="text-center">
+        <p className="text-sm text-fg-muted">
+          Nenhum agente publicado ainda neste projeto. Crie um rascunho e submeta para aprovação.
+        </p>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {items.map((a) => (
+        <PublishedAgentCard
+          key={a.id}
+          agent={a}
+          forking={forkingId === a.id}
+          onEdit={() => onEdit(a.id)}
+          onTest={() => onTest(a.id)}
+          onVersions={() => onVersions(a.id)}
+          onHistory={() => onHistory(a)}
+          onToggleEnabled={() => onToggleEnabled(a)}
+        />
+      ))}
     </div>
   )
 }
@@ -155,9 +492,7 @@ function CreateAgentCard({ onClick }: CreateAgentCardProps) {
       </div>
       <div>
         <p className="text-sm font-semibold text-fg">Criar novo agente</p>
-        <p className="mt-1 text-xs text-fg-muted">
-          Escolha entre modo básico e avançado.
-        </p>
+        <p className="mt-1 text-xs text-fg-muted">Escolha entre modo básico e avançado.</p>
       </div>
     </button>
   )
@@ -187,7 +522,6 @@ function DraftCard({ draft, onClick }: DraftCardProps) {
       }}
       className={cn(
         'group relative flex min-h-[180px] cursor-pointer flex-col gap-3 overflow-hidden p-5',
-        // Faixa lateral colorida via pseudo-elemento — accent visual sutil.
         'before:absolute before:inset-y-0 before:left-0 before:w-1',
         STATUS_ACCENT[draft.status],
       )}
@@ -217,6 +551,289 @@ function DraftCard({ draft, onClick }: DraftCardProps) {
       </div>
     </Card>
   )
+}
+
+interface PublishedAgentCardProps {
+  agent: Agent
+  forking: boolean
+  onEdit: () => void
+  onTest: () => void
+  onVersions: () => void
+  onHistory: () => void
+  onToggleEnabled: () => void
+}
+
+function PublishedAgentCard({ agent, forking, onEdit, onTest, onVersions, onHistory, onToggleEnabled }: PublishedAgentCardProps) {
+  const description = agent.description ?? ''
+  const modelLabel = agent.model?.predefinedModelId || agent.model?.deploymentName || ''
+  const toolCount = agent.tools?.length ?? 0
+  const enabled = agent.enabled !== false
+
+  return (
+    <Card
+      padded={false}
+      className={cn(
+        'group relative flex min-h-[180px] flex-col gap-3 overflow-hidden p-5',
+        'before:absolute before:inset-y-0 before:left-0 before:w-1',
+        enabled ? 'before:bg-success' : 'before:bg-warning',
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-success/10 text-success">
+            <AgentIcon className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold text-fg">
+              {agent.name || <span className="italic text-fg-dim">sem nome</span>}
+            </h3>
+            {modelLabel && (
+              <p className="mt-0.5 truncate font-mono text-[10px] uppercase tracking-wider text-fg-dim">
+                {modelLabel}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge tone={enabled ? 'success' : 'warning'}>
+            {enabled ? 'Publicado' : 'Desabilitado'}
+          </Badge>
+          <EnabledSwitch enabled={enabled} onToggle={onToggleEnabled} />
+        </div>
+      </div>
+
+      <p className="line-clamp-3 text-xs text-fg-muted">
+        {description || <span className="italic text-fg-dim">sem descrição</span>}
+      </p>
+
+      <div className="mt-auto flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-fg-dim">
+          {toolCount > 0 && <Badge>{toolCount} ferramenta{toolCount === 1 ? '' : 's'}</Badge>}
+          {agent.visibility === 'global' && <Badge tone="accent">global</Badge>}
+          <span>atualizado {formatRelative(agent.updatedAt)}</span>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onHistory}>
+            Histórico
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onVersions}>
+            Versões
+          </Button>
+          <Button variant="secondary" size="sm" onClick={onEdit} loading={forking}>
+            Editar
+          </Button>
+          <Button size="sm" onClick={onTest} leftIcon={<BoltIcon className="h-3.5 w-3.5" />}>
+            Testar
+          </Button>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+interface ApprovalHistoryModalProps {
+  agent: Agent | null
+  entries: ApprovalHistoryEntry[]
+  loading: boolean
+  error: string | null
+  onClose: () => void
+}
+
+const ACTION_LABEL: Record<ApprovalAction, string> = {
+  Submitted: 'Submetido',
+  Resubmitted: 'Reenviado',
+  Approved: 'Aprovado',
+  Rejected: 'Rejeitado',
+  AutoApproved: 'Auto-aprovado',
+  AdminOverride: 'Edição direta (admin)',
+}
+
+const ACTION_TONE: Record<ApprovalAction, 'neutral' | 'accent' | 'success' | 'warning' | 'danger'> = {
+  Submitted: 'accent',
+  Resubmitted: 'accent',
+  Approved: 'success',
+  Rejected: 'danger',
+  AutoApproved: 'success',
+  AdminOverride: 'warning',
+}
+
+function ApprovalHistoryModal({ agent, entries, loading, error, onClose }: ApprovalHistoryModalProps) {
+  return (
+    <Modal
+      open={agent !== null}
+      onClose={onClose}
+      size="lg"
+      title="Histórico de aprovações"
+      description={agent ? agent.name : undefined}
+    >
+      {loading && (
+        <div className="flex items-center justify-center py-8">
+          <Spinner className="h-6 w-6 text-fg-muted" />
+        </div>
+      )}
+      {!loading && error && <ErrorMessage message={error} />}
+      {!loading && !error && entries.length === 0 && (
+        <p className="py-6 text-center text-sm text-fg-muted">
+          Sem eventos registrados para este agente.
+        </p>
+      )}
+      {!loading && !error && entries.length > 0 && (
+        <ol className="relative space-y-4 border-l border-border pl-5">
+          {entries.map((entry) => {
+            const action = entry.action as ApprovalAction
+            const tone = ACTION_TONE[action] ?? 'neutral'
+            const label = ACTION_LABEL[action] ?? action
+            return (
+              <li key={entry.id} className="relative">
+                <span
+                  className={cn(
+                    'absolute -left-[27px] top-1.5 h-3 w-3 rounded-full ring-2 ring-surface',
+                    tone === 'success' && 'bg-success',
+                    tone === 'danger' && 'bg-danger',
+                    tone === 'warning' && 'bg-warning',
+                    tone === 'accent' && 'bg-accent',
+                    tone === 'neutral' && 'bg-fg-muted',
+                  )}
+                  aria-hidden="true"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone={tone}>{label}</Badge>
+                  {entry.tier && <Badge tone={entry.tier === 'Cosmetic' ? 'success' : 'accent'}>{entry.tier}</Badge>}
+                  <span className="text-[11px] text-fg-dim">{formatAbsolute(entry.occurredAt)}</span>
+                </div>
+                <p className="mt-1 text-xs text-fg-muted">
+                  por <span className="font-mono text-fg">{entry.actorUserId}</span>
+                </p>
+                {entry.feedback && (
+                  <p className="mt-1.5 whitespace-pre-wrap rounded-md border border-border bg-bg-soft px-3 py-2 text-xs text-fg">
+                    {entry.feedback}
+                  </p>
+                )}
+              </li>
+            )
+          })}
+        </ol>
+      )}
+    </Modal>
+  )
+}
+
+interface EnabledSwitchProps {
+  enabled: boolean
+  onToggle: () => void
+}
+
+function EnabledSwitch({ enabled, onToggle }: EnabledSwitchProps) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={enabled ? 'Desabilitar agente' : 'Habilitar agente'}
+      title={enabled ? 'Desabilitar agente' : 'Habilitar agente'}
+      onClick={onToggle}
+      className={cn(
+        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+        enabled ? 'bg-success' : 'bg-fg-dim/40',
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'inline-block h-4 w-4 transform rounded-full bg-white shadow transition',
+          enabled ? 'translate-x-[18px]' : 'translate-x-0.5',
+        )}
+      />
+    </button>
+  )
+}
+
+interface ToggleEnabledModalProps {
+  agent: Agent | null
+  reason: string
+  onReasonChange: (value: string) => void
+  loading: boolean
+  error: string | null
+  onClose: () => void
+  onConfirm: () => void
+}
+
+function ToggleEnabledModal({
+  agent,
+  reason,
+  onReasonChange,
+  loading,
+  error,
+  onClose,
+  onConfirm,
+}: ToggleEnabledModalProps) {
+  const enabled = agent ? agent.enabled !== false : false
+  const willDisable = enabled
+  const title = willDisable ? 'Desabilitar agente' : 'Habilitar agente'
+
+  return (
+    <Modal
+      open={agent !== null}
+      onClose={onClose}
+      title={title}
+      description={agent?.name}
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={loading}>
+            Cancelar
+          </Button>
+          <Button
+            variant={willDisable ? 'danger' : 'primary'}
+            onClick={onConfirm}
+            loading={loading}
+          >
+            {willDisable ? 'Desabilitar' : 'Habilitar'}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-sm text-fg-muted">
+          {willDisable
+            ? 'Quando desabilitado, o agente é pulado em runtime — workflows que o referenciam continuam saváveis, mas execuções não disparam o agente. Você pode reabilitar a qualquer momento.'
+            : 'Ao habilitar, o agente volta a ser invocado em runtime nos workflows que o referenciam.'}
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-fg-muted">
+            Motivo (opcional)
+          </label>
+          <Textarea
+            value={reason}
+            onChange={(e) => onReasonChange(e.target.value)}
+            placeholder={
+              willDisable
+                ? 'Ex: incidente de produção, retirada temporária para retreino…'
+                : 'Ex: incidente resolvido, retomando uso…'
+            }
+            rows={3}
+            className="mt-1"
+            disabled={loading}
+          />
+          <p className="mt-1 text-[11px] text-fg-dim">
+            O motivo fica registrado no audit log da plataforma.
+          </p>
+        </div>
+        {error && <ErrorMessage message={error} />}
+      </div>
+    </Modal>
+  )
+}
+
+function formatAbsolute(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function formatRelative(iso: string): string {

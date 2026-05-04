@@ -24,6 +24,8 @@ public class WorkflowsController : ControllerBase
     private readonly AdminAuditContext _auditContext;
     private readonly IWorkflowDefinitionRepository _workflowRepo;
     private readonly IAgentVersionRepository _agentVersionRepo;
+    private readonly IWorkflowVersionRepository _workflowVersionRepo;
+    private readonly IAgentDefinitionRepository _agentDefinitionRepo;
     private readonly IWorkflowAgentVersionStatusService _statusService;
 
     public WorkflowsController(
@@ -34,6 +36,8 @@ public class WorkflowsController : ControllerBase
         AdminAuditContext auditContext,
         IWorkflowDefinitionRepository workflowRepo,
         IAgentVersionRepository agentVersionRepo,
+        IWorkflowVersionRepository workflowVersionRepo,
+        IAgentDefinitionRepository agentDefinitionRepo,
         IWorkflowAgentVersionStatusService statusService)
     {
         _workflowService = workflowService;
@@ -43,7 +47,29 @@ public class WorkflowsController : ControllerBase
         _auditContext = auditContext;
         _workflowRepo = workflowRepo;
         _agentVersionRepo = agentVersionRepo;
+        _workflowVersionRepo = workflowVersionRepo;
+        _agentDefinitionRepo = agentDefinitionRepo;
         _statusService = statusService;
+    }
+
+    /// <summary>
+    /// Resolve a WorkflowVersion ativa em runtime — calcula o ContentHash do
+    /// estado mutável atual e busca a row correspondente em workflow_versions.
+    /// O par (DefinitionId, ContentHash) é único, então o lookup é O(1) via
+    /// index. Retorna null em casos patológicos (sem versionamento configurado).
+    /// </summary>
+    private async Task<WorkflowVersion?> ResolveCurrentVersionAsync(
+        WorkflowDefinition def, CancellationToken ct)
+    {
+        try
+        {
+            var canonical = WorkflowVersion.FromDefinition(def, revision: 0);
+            return await _workflowVersionRepo.GetByContentHashAsync(def.Id, canonical.ContentHash, ct);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     [HttpPost]
@@ -55,12 +81,14 @@ public class WorkflowsController : ControllerBase
         try
         {
             var definition = await _workflowService.CreateAsync(request.ToDomain(), ct);
+            var current = await ResolveCurrentVersionAsync(definition, ct);
+            var response = WorkflowResponse.FromDomain(definition, current);
             await _audit.RecordAsync(_auditContext.Build(
                 AdminAuditActions.Create,
                 AdminAuditResources.Workflow,
                 definition.Id,
-                payloadAfter: AdminAuditContext.Snapshot(WorkflowResponse.FromDomain(definition))), ct);
-            return CreatedAtAction(nameof(GetById), new { id = definition.Id }, WorkflowResponse.FromDomain(definition));
+                payloadAfter: AdminAuditContext.Snapshot(response)), ct);
+            return CreatedAtAction(nameof(GetById), new { id = definition.Id }, response);
         }
         catch (EfsAiHub.Core.Orchestration.Validation.WorkflowInvariantViolationException ex)
         {
@@ -93,7 +121,43 @@ public class WorkflowsController : ControllerBase
     {
         var workflow = await _workflowService.GetAsync(id, ct);
         if (workflow is null) return NotFound();
-        return Ok(WorkflowResponse.FromDomain(workflow));
+        var current = await ResolveCurrentVersionAsync(workflow, ct);
+        return Ok(WorkflowResponse.FromDomain(workflow, current));
+    }
+
+    [HttpGet("{id}/enabled-status")]
+    [SwaggerOperation(Summary = "Retorna se o workflow está habilitado em runtime — Enabled=false só quando TODOS os agentes referenciados estão desabilitados (ou ausentes do catálogo).")]
+    [ProducesResponseType(typeof(WorkflowEnabledStatusResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetEnabledStatus(string id, CancellationToken ct)
+    {
+        var workflow = await _workflowService.GetAsync(id, ct);
+        if (workflow is null) return NotFound();
+
+        var items = new List<WorkflowAgentEnabledItem>(workflow.Agents.Count);
+        var enabledCount = 0;
+        foreach (var agentRef in workflow.Agents)
+        {
+            var def = await _agentDefinitionRepo.GetByIdAsync(agentRef.AgentId, ct);
+            bool? enabled = def?.Enabled;
+            if (enabled == true) enabledCount++;
+            items.Add(new WorkflowAgentEnabledItem
+            {
+                AgentId = agentRef.AgentId,
+                Enabled = enabled
+            });
+        }
+
+        return Ok(new WorkflowEnabledStatusResponse
+        {
+            // Workflow desabilitado quando NENHUM agente está habilitado (todos
+            // false ou ausentes). Workflow sem agentes (caso patológico) também
+            // conta como desabilitado — não há nada pra executar.
+            Enabled = enabledCount > 0,
+            TotalAgents = items.Count,
+            EnabledAgents = enabledCount,
+            Agents = items
+        });
     }
 
     [HttpPut("{id}")]
@@ -110,13 +174,15 @@ public class WorkflowsController : ControllerBase
 
             var definition = request.ToDomain();
             var updated = await _workflowService.UpdateAsync(definition, ct);
+            var current = await ResolveCurrentVersionAsync(updated, ct);
+            var response = WorkflowResponse.FromDomain(updated, current);
             await _audit.RecordAsync(_auditContext.Build(
                 AdminAuditActions.Update,
                 AdminAuditResources.Workflow,
                 updated.Id,
                 payloadBefore: before,
-                payloadAfter: AdminAuditContext.Snapshot(WorkflowResponse.FromDomain(updated))), ct);
-            return Ok(WorkflowResponse.FromDomain(updated));
+                payloadAfter: AdminAuditContext.Snapshot(response)), ct);
+            return Ok(response);
         }
         catch (EfsAiHub.Core.Orchestration.Validation.WorkflowInvariantViolationException ex)
         {
@@ -345,7 +411,8 @@ public class WorkflowsController : ControllerBase
         try
         {
             var definition = await _workflowService.RollbackAsync(id, request.VersionId, ct);
-            return Ok(WorkflowResponse.FromDomain(definition));
+            var current = await ResolveCurrentVersionAsync(definition, ct);
+            return Ok(WorkflowResponse.FromDomain(definition, current));
         }
         catch (KeyNotFoundException)
         {

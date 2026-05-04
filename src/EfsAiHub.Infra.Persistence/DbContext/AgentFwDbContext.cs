@@ -73,10 +73,12 @@ internal class AgentApprovalHistoryRow
 {
     public string Id { get; set; } = "";
     public string DraftId { get; set; } = "";
+    public string? AgentDefinitionId { get; set; }
     public string TenantId { get; set; } = "default";
     public string Action { get; set; } = "Submitted";
     public string ActorUserId { get; set; } = "";
     public string? Feedback { get; set; }
+    public string? Tier { get; set; }
     public DateTime OccurredAt { get; set; }
 }
 
@@ -782,15 +784,21 @@ public class AgentFwDbContext : DbContext
             b.HasKey(e => e.Id);
             b.Property(e => e.Id).HasMaxLength(64);
             b.Property(e => e.DraftId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.AgentDefinitionId).HasMaxLength(256);
             b.Property(e => e.TenantId).HasMaxLength(128).IsRequired();
             b.Property(e => e.Action).HasMaxLength(32).IsRequired();
             b.Property(e => e.ActorUserId).HasMaxLength(256).IsRequired();
             b.Property(e => e.Feedback).HasColumnType("text");
+            b.Property(e => e.Tier).HasMaxLength(32);
             b.Property(e => e.OccurredAt).IsRequired();
             b.HasIndex(e => e.DraftId)
                 .HasDatabaseName("IX_agent_approval_history_DraftId");
             b.HasIndex(e => new { e.TenantId, e.OccurredAt })
                 .HasDatabaseName("IX_agent_approval_history_TenantId_OccurredAt")
+                .IsDescending(false, true);
+            b.HasIndex(e => new { e.AgentDefinitionId, e.OccurredAt })
+                .HasDatabaseName("IX_agent_approval_history_AgentDefinitionId_OccurredAt")
+                .HasFilter("\"AgentDefinitionId\" IS NOT NULL")
                 .IsDescending(false, true);
         });
 

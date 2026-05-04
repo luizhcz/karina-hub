@@ -130,19 +130,20 @@ public class WorkflowRunnerService
             catch { /* Input não é ChatTurnContext — fica anonymous */ }
         }
 
-        // ProjectId flui pelo metadata do workflow. Chat mode popula via
-        // ConversationService + enqueue; scheduled/webhook que não passe
-        // "projectId" no metadata resultam em null — HasQueryFilter tolera
-        // (`|| e.ProjectId == null`) mas as rows ficam visíveis a qualquer
-        // project, o que é débito conhecido. Logar warning pra troubleshoot.
-        string? projectId = null;
-        execution.Metadata?.TryGetValue("projectId", out projectId);
+        // ProjectId: campo tipado em WorkflowExecution é a fonte canônica
+        // (TriggerAsync popula a partir de _projectAccessor.Current.ProjectId).
+        // Metadata["projectId"] é fallback legacy pra fluxos Chat/conversation
+        // que populam só o dicionário. Se ambos vazios, fail-secure pra
+        // BlocklistChatClient + HasQueryFilter — log warning pra troubleshoot.
+        var projectId = execution.ProjectId;
+        if (string.IsNullOrWhiteSpace(projectId))
+            execution.Metadata?.TryGetValue("projectId", out projectId);
         if (string.IsNullOrWhiteSpace(projectId))
         {
             _logger.LogWarning(
-                "[WorkflowRunner] Execução '{ExecutionId}' iniciada SEM projectId no metadata. " +
+                "[WorkflowRunner] Execução '{ExecutionId}' iniciada SEM projectId (nem em ExecutionRow.ProjectId nem em Metadata). " +
                 "Escritas em node_executions/llm_token_usage ficarão com ProjectId=null e passarão " +
-                "pelo filter tolerante. Corrigir o caller a incluir metadata[\"projectId\"].",
+                "pelo filter tolerante; guardrails per-projeto (blocklist) vão derrubar a execução.",
                 execution.ExecutionId);
         }
 
@@ -359,12 +360,13 @@ public class WorkflowRunnerService
         // ProjectId precisa ser propagado também no resume — guardrails per-projeto
         // (BlocklistChatClient e similares) leem de DelegateExecutor.Current.Value.ProjectId.
         // Sem isso, HITL recovery rodaria sem cobertura de blocklist (fail-secure derrubaria o resume).
-        string? resumeProjectId = null;
-        execution.Metadata?.TryGetValue("projectId", out resumeProjectId);
+        var resumeProjectId = execution.ProjectId;
+        if (string.IsNullOrWhiteSpace(resumeProjectId))
+            execution.Metadata?.TryGetValue("projectId", out resumeProjectId);
         if (string.IsNullOrWhiteSpace(resumeProjectId))
         {
             _logger.LogWarning(
-                "[WorkflowRunner] Resume da execução '{ExecutionId}' SEM projectId no metadata. " +
+                "[WorkflowRunner] Resume da execução '{ExecutionId}' SEM projectId (nem em ExecutionRow nem em Metadata). " +
                 "Guardrails per-projeto (blocklist) não terão contexto e podem derrubar o resume.",
                 execution.ExecutionId);
         }

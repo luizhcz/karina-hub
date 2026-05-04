@@ -36,9 +36,88 @@ public sealed class AdminGateMiddleware
     private static readonly Regex WorkflowEditPattern =
         new(@"^/api/workflows/[^/]+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // POST /api/workflows/{id}/trigger — invocação on-demand de workflow.
+    // Liberado pra non-admin com a mesma garantia das outras rotas: WorkflowService
+    // valida ownership via HasQueryFilter por project/tenant antes de disparar a
+    // execução. /sandbox continua admin-only (não casa aqui).
+    private static readonly Regex WorkflowTriggerPattern =
+        new(@"^/api/workflows/[^/]+/trigger$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // GET /api/workflows/{id}/versions e /versions/{versionId} — leitura de
+    // snapshots imutáveis. Liberado pra non-admin: WorkflowService respeita
+    // HasQueryFilter por project/tenant no lookup do workflow base.
+    private static readonly Regex WorkflowVersionsPattern =
+        new(@"^/api/workflows/[^/]+/versions(/[^/]+)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // POST /api/workflows/{id}/rollback — restaura snapshot histórico como nova
+    // revision (append-only, não destrói histórico). Liberado pra non-admin com
+    // a mesma garantia: WorkflowService.RollbackAsync valida ownership do
+    // workflow base via project/tenant filter.
+    private static readonly Regex WorkflowRollbackPattern =
+        new(@"^/api/workflows/[^/]+/rollback$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // GET /api/workflows/{id}/enabled-status — leitura agregada do Enabled de
+    // todos os agentes referenciados. Usado pela tela de implantação pra exibir
+    // badge habilitado/desabilitado. WorkflowService faz o lookup dentro do
+    // project/tenant scope (HasQueryFilter).
+    private static readonly Regex WorkflowEnabledStatusPattern =
+        new(@"^/api/workflows/[^/]+/enabled-status$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // GET /api/executions/{id} — leitura individual de execução (status + steps).
+    // Liberado pra non-admin: WorkflowExecution tem HasQueryFilter strict por
+    // ProjectId, então PM só lê execuções do próprio projeto (cross-project →
+    // 404). Sub-rotas /full e /stream e a listagem GET /api/executions continuam
+    // admin-only — cobrem mais dados/eventos sensíveis.
+    private static readonly Regex ExecutionReadPattern =
+        new(@"^/api/executions/[^/]+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     // PUT /api/agents/{id} — exatamente 3 segmentos
+    // Mesmo regex serve pra GET /api/agents/{id} (read by id) — sub-rotas como
+    // /versions, /rollback, /enabled, /visibility, /sandbox NÃO casam (admin-only).
     private static readonly Regex AgentEditPattern =
         new(@"^/api/agents/[^/]+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // POST /api/agents/{id}/edit-draft — fork de agent publicado em rascunho
+    // de edição (cria AgentDraft com baseAgentId/baseRevision/isEditDraft=true).
+    // Liberado pra non-admin pra que clientes possam editar agentes do próprio
+    // projeto via wizard. Outras sub-rotas POST (/versions, /rollback, /sandbox,
+    // /compare, /validate) permanecem admin-only.
+    private static readonly Regex AgentEditDraftPattern =
+        new(@"^/api/agents/[^/]+/edit-draft$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // /api/agents/{id}/sessions[/...] — fluxo de chat sandbox que o cliente usa
+    // pra testar agentes do próprio projeto. Cobre criar/ler/encerrar sessão e
+    // os endpoints /run e /stream. AgentSessionService valida ownership do
+    // agent contra o ProjectContext, então non-admin só consegue criar sessão
+    // pra agentes visíveis pelo HasQueryFilter (próprio project ou Visibility=
+    // global do mesmo tenant).
+    private static readonly Regex AgentSessionsPattern =
+        new(@"^/api/agents/[^/]+/sessions(/.+)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // GET /api/agents/{id}/approval-history — trilha unificada de governança
+    // do agent (drafts + AdminOverride). Liberado pra non-admin: AgentsController
+    // valida ownership via _agentService.GetAsync (que respeita HasQueryFilter)
+    // antes de devolver o histórico, então só vem dado de agentes visíveis no
+    // project/tenant atual.
+    private static readonly Regex AgentApprovalHistoryPattern =
+        new(@"^/api/agents/[^/]+/approval-history$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // GET /api/agents/{id}/versions e /api/agents/{id}/versions/{versionId} —
+    // leitura de snapshots imutáveis do agent (timeline pra PM/PO comparar
+    // revisões). Liberado pra non-admin com a mesma garantia da approval-history:
+    // controller chama _agentService.GetAsync antes (HasQueryFilter scope), só
+    // depois consulta o IAgentVersionRepository. POST nas mesmas rotas (publish/
+    // rollback/compare) continua admin-only por design.
+    private static readonly Regex AgentVersionsPattern =
+        new(@"^/api/agents/[^/]+/versions(/[^/]+)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // PATCH /api/agents/{id}/enabled — kill switch do PM/PO sobre seu próprio
+    // agent (não passa pelo fluxo de aprovação por design — fast switch). Ownership
+    // garantida por _agentService.GetAsync no controller (HasQueryFilter por
+    // project/tenant). Toda chamada é auditada (AdminAudit + métrica) com
+    // before/after e reason opcional. Visibility/PUT continuam admin-only.
+    private static readonly Regex AgentEnabledPattern =
+        new(@"^/api/agents/[^/]+/enabled$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // GET /api/users/{userId}/conversations
     private static readonly Regex UserConversationsPattern =
@@ -110,13 +189,78 @@ public sealed class AdminGateMiddleware
             && WorkflowEditPattern.IsMatch(path))
             return true;
 
-        // Agent: apenas criar (POST) e editar (PUT /{id})
+        // GET /api/workflows/{id} — leitura individual. Necessário pra tela de
+        // implantação detectar workflow já existente (idempotência por agentId).
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && WorkflowEditPattern.IsMatch(path))
+            return true;
+
+        // GET /api/workflows — lista do projeto. Usado pela tela de Implantações
+        // pra mostrar o que o PM já implantou. Escopo de project/tenant garantido
+        // pelo HasQueryFilter no DbContext.
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && path.TrimEnd('/').Equals("/api/workflows", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (method.Equals("POST", StringComparison.OrdinalIgnoreCase)
+            && WorkflowTriggerPattern.IsMatch(path))
+            return true;
+
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && WorkflowVersionsPattern.IsMatch(path))
+            return true;
+
+        if (method.Equals("POST", StringComparison.OrdinalIgnoreCase)
+            && WorkflowRollbackPattern.IsMatch(path))
+            return true;
+
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && WorkflowEnabledStatusPattern.IsMatch(path))
+            return true;
+
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && ExecutionReadPattern.IsMatch(path))
+            return true;
+
+        // Agent: criar (POST), ler (GET lista + GET /{id}), forkar pra rascunho
+        // de edição (POST /{id}/edit-draft). Naturalmente escopadas por project/
+        // tenant via HasQueryFilter no DbContext.
+        //
+        // PUT /api/agents/{id} foi REMOVIDO da whitelist — atualização de agent
+        // já publicado precisa passar pelo fluxo de aprovação (edit-draft →
+        // submit → approve), nunca pela API direta. PUT permanece disponível
+        // pra admins como break-glass de incidente; non-admin recebe 403 e é
+        // empurrado pro caminho governado, mantendo dual-control de mudança
+        // comportamental em produção.
         if (method.Equals("POST", StringComparison.OrdinalIgnoreCase)
             && path.TrimEnd('/').Equals("/api/agents", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        if (method.Equals("PUT", StringComparison.OrdinalIgnoreCase)
-            && AgentEditPattern.IsMatch(path))
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && (path.TrimEnd('/').Equals("/api/agents", StringComparison.OrdinalIgnoreCase)
+                || AgentEditPattern.IsMatch(path)))
+            return true;
+
+        if (method.Equals("POST", StringComparison.OrdinalIgnoreCase)
+            && AgentEditDraftPattern.IsMatch(path))
+            return true;
+
+        if (AgentSessionsPattern.IsMatch(path)
+            && (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+                || method.Equals("POST", StringComparison.OrdinalIgnoreCase)
+                || method.Equals("DELETE", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && AgentApprovalHistoryPattern.IsMatch(path))
+            return true;
+
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && AgentVersionsPattern.IsMatch(path))
+            return true;
+
+        if (method.Equals("PATCH", StringComparison.OrdinalIgnoreCase)
+            && AgentEnabledPattern.IsMatch(path))
             return true;
 
         // Conversations — todos os métodos (chat via REST)
@@ -138,6 +282,13 @@ public sealed class AdminGateMiddleware
         // Enums — dados não-sensíveis, necessários para todos os clientes
         if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
             && path.TrimEnd('/').Equals("/api/enums", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // System info — publicBaseUrl que o frontend usa pra mostrar URL real do
+        // backend nos exemplos de consumo (tela de implantação). Só metadado
+        // não-sensível; demais sub-rotas /api/system/health/* continuam admin-only.
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && path.TrimEnd('/').Equals("/api/system/info", StringComparison.OrdinalIgnoreCase))
             return true;
 
         // Notifications (GET) — bell renderiza no Header pra qualquer usuário; visibility

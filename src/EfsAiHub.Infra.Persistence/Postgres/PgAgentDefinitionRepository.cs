@@ -169,6 +169,12 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
             try { prompt = await _promptRepo.GetActivePromptWithVersionAsync(definition.Id, ct); }
             catch { /* best-effort — prompt ainda pode não existir no momento do upsert inicial */ }
 
+            // Fallback: agents que não usam o PromptRepo têm o texto direto em
+            // definition.Instructions. Sem esse fallback, ContentHash ignoraria
+            // mudanças de instructions e AppendAsync no-opa em revisões diferentes
+            // — efeito visível: aprovação não gera nova AgentVersion.
+            var promptContent = prompt?.Content ?? definition.Instructions;
+
             var revision = await _versionRepo.GetNextRevisionAsync(definition.Id, ct);
 
             // Materializa SkillVersionId concreto para cada SkillRef;
@@ -200,7 +206,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
             var snapshot = AgentVersion.FromDefinition(
                 definition,
                 revision,
-                promptContent: prompt?.Content,
+                promptContent: promptContent,
                 promptVersionId: prompt?.VersionId,
                 createdBy: createdBy,
                 changeReason: changeReason,

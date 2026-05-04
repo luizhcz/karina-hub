@@ -8,6 +8,11 @@ import { McpServersList } from './routes/McpServersList'
 import { McpServerEditor } from './routes/McpServerEditor'
 import { AgentsList } from './routes/AgentsList'
 import { AgentEditor } from './routes/AgentEditor'
+import { AgentSandbox } from './routes/AgentSandbox'
+import { AgentVersions } from './routes/AgentVersions'
+import { AgentDeploy } from './routes/AgentDeploy'
+import { Implantacoes } from './routes/Implantacoes'
+import { Aprovacoes } from './routes/Aprovacoes'
 import { getIdentity, subscribeIdentity } from './stores/identity'
 
 export function App() {
@@ -33,6 +38,11 @@ export function App() {
         <Route index element={<Navigate to="/agentes" replace />} />
         <Route path="/agentes" element={<AgentsList />} />
         <Route path="/agentes/novo" element={<AgentEditor mode="create" />} />
+        <Route path="/agentes/:id/sandbox" element={<AgentSandbox />} />
+        <Route path="/agentes/:id/versoes" element={<AgentVersions />} />
+        <Route path="/agentes/:id/implantar" element={<AgentDeploy />} />
+        <Route path="/implantacoes" element={<Implantacoes />} />
+        <Route path="/aprovacoes" element={<Aprovacoes />} />
         <Route path="/agentes/:id" element={<AgentEditor mode="edit" />} />
         <Route path="/ferramentas" element={<ToolsList />} />
         <Route path="/ferramentas/nova" element={<ToolEditor mode="create" />} />

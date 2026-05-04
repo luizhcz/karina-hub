@@ -11,10 +11,28 @@ namespace EfsAiHub.Host.Api.Controllers;
 public class SystemController : ControllerBase
 {
     private readonly LlmCircuitBreaker _circuitBreaker;
+    private readonly IConfiguration _config;
 
-    public SystemController(LlmCircuitBreaker circuitBreaker)
+    public SystemController(LlmCircuitBreaker circuitBreaker, IConfiguration config)
     {
         _circuitBreaker = circuitBreaker;
+        _config = config;
+    }
+
+    [HttpGet("info")]
+    [SwaggerOperation(Summary = "Metadados públicos do backend — baseUrl que clientes externos devem usar pra consumir a API (PM/PO copia esse valor nos exemplos de implantação).")]
+    [ProducesResponseType(typeof(SystemInfoResponse), StatusCodes.Status200OK)]
+    public IActionResult GetInfo()
+    {
+        // Override explícito (prod atrás de ingress/proxy onde Request.Host pode
+        // apontar pra rede interna). Quando ausente, deriva do request — útil
+        // em dev/homolog onde a URL pública é a mesma da requisição.
+        var configured = _config["EfsAiHub:PublicBaseUrl"];
+        var baseUrl = string.IsNullOrWhiteSpace(configured)
+            ? $"{Request.Scheme}://{Request.Host}"
+            : configured.TrimEnd('/');
+
+        return Ok(new SystemInfoResponse { PublicBaseUrl = baseUrl });
     }
 
     [HttpGet("health/circuit-breakers")]
@@ -37,6 +55,11 @@ public class SystemController : ControllerBase
         return Ok(new CircuitBreakersResponse { CircuitBreakers = result });
     }
 
+}
+
+public sealed class SystemInfoResponse
+{
+    public required string PublicBaseUrl { get; init; }
 }
 
 public class CircuitBreakersResponse

@@ -162,7 +162,8 @@ public class AgentDraftsController : ControllerBase
             var actorUserId = _auditContext.GetActorUserId() ?? "anonymous";
             var wasResubmit = before.Status == AgentDraftStatus.Rejected;
 
-            var submitted = await _draftService.SubmitForApprovalAsync(id, actorUserId, ct);
+            var result = await _draftService.SubmitForApprovalAsync(id, actorUserId, ct);
+            var submitted = result.Draft;
 
             await _audit.RecordAsync(_auditContext.Build(
                 AdminAuditActions.AgentDraftSubmitted,
@@ -174,13 +175,25 @@ public class AgentDraftsController : ControllerBase
                     isEditDraft = submitted.IsEditDraft,
                     baseAgentId = submitted.BaseAgentId,
                     wasResubmit,
+                    autoApproved = result.AutoApproved,
+                    tier = result.Tier?.ToString(),
                 })), ct);
 
             MetricsRegistry.AgentDraftsSubmitted.Add(1,
                 new KeyValuePair<string, object?>("tenant", submitted.TenantId),
-                new KeyValuePair<string, object?>("was_resubmit", wasResubmit));
+                new KeyValuePair<string, object?>("was_resubmit", wasResubmit),
+                new KeyValuePair<string, object?>("auto_approved", result.AutoApproved));
 
-            return Ok(AgentDraftResponse.FromDomain(submitted));
+            // Quando auto-aprovado, o draft já foi consumido e o agent
+            // publicado/atualizado. Caller (UI) usa autoApproved=true pra
+            // pular a tela de "aguardando aprovação" e voltar pra lista de
+            // publicados direto.
+            return Ok(new
+            {
+                draft = AgentDraftResponse.FromDomain(submitted),
+                autoApproved = result.AutoApproved,
+                tier = result.Tier?.ToString(),
+            });
         }
         catch (KeyNotFoundException)
         {

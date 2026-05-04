@@ -20,6 +20,7 @@ global using EfsAiHub.Platform.Runtime.Services;
 global using EfsAiHub.Core.Agents.Interfaces;
 global using EfsAiHub.Core.Agents.Services;
 global using EfsAiHub.Core.Agents.Execution;
+global using EfsAiHub.Core.Agents.Approvals;
 global using EfsAiHub.Core.Orchestration.Executors;
 global using EfsAiHub.Platform.Runtime.Factories;
 global using EfsAiHub.Platform.Runtime.Middlewares;

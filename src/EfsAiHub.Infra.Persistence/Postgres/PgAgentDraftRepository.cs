@@ -213,6 +213,7 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
         {
             Id = Guid.NewGuid().ToString("N"),
             DraftId = id,
+            AgentDefinitionId = ResolveAgentDefinitionId(row),
             TenantId = row.TenantId,
             Action = (wasRejected ? AgentApprovalAction.Resubmitted : AgentApprovalAction.Submitted).ToString(),
             ActorUserId = actorUserId,
@@ -229,6 +230,8 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
         string id,
         string actorUserId,
         string? changeReason,
+        AgentApprovalAction action = AgentApprovalAction.Approved,
+        AgentChangeTier? tier = null,
         CancellationToken ct = default)
     {
         var draft = await GetByIdForTenantAsync(id, ct)
@@ -282,10 +285,12 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
         {
             Id = Guid.NewGuid().ToString("N"),
             DraftId = id,
+            AgentDefinitionId = published.Id,
             TenantId = draft.TenantId,
-            Action = AgentApprovalAction.Approved.ToString(),
+            Action = action.ToString(),
             ActorUserId = actorUserId,
             Feedback = changeReason,
+            Tier = tier?.ToString(),
             OccurredAt = DateTime.UtcNow,
         });
         await ctx.SaveChangesAsync(ct);
@@ -332,10 +337,17 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
             throw new DraftStatusTransitionException(id, AgentDraftStatus.Draft, "reject");
         }
 
+        // Pra preencher AgentDefinitionId no history precisamos do draft pós-update.
+        // Reload barato — já estamos no mesmo ctx + tx.
+        var draftRow = await ctx.AgentDrafts
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId, ct);
+
         ctx.AgentApprovalHistory.Add(new AgentApprovalHistoryRow
         {
             Id = Guid.NewGuid().ToString("N"),
             DraftId = id,
+            AgentDefinitionId = draftRow is null ? id : ResolveAgentDefinitionId(draftRow),
             TenantId = tenantId,
             Action = AgentApprovalAction.Rejected.ToString(),
             ActorUserId = actorUserId,
@@ -350,6 +362,17 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
         return refreshed;
     }
 
+    /// <summary>
+    /// Liga uma entry de history ao agent publicado: pra new draft (isEditDraft=
+    /// false) o draft.Id vira o AgentDefinition.Id após approve, então o próprio
+    /// id já serve. Pra edit-draft o vínculo é via BaseAgentId (agent existente
+    /// que será atualizado ou recém atualizado).
+    /// </summary>
+    private static string ResolveAgentDefinitionId(AgentDraftRow row)
+    {
+        return string.IsNullOrWhiteSpace(row.BaseAgentId) ? row.Id : row.BaseAgentId!;
+    }
+
     public async Task<IReadOnlyList<AgentApprovalHistoryEntry>> GetHistoryAsync(
         string draftId,
         CancellationToken ct = default)
@@ -360,15 +383,62 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
             .OrderBy(r => r.OccurredAt)
             .ToListAsync(ct);
 
-        return rows.Select(r => new AgentApprovalHistoryEntry(
+        return rows.Select(MapEntry).ToList();
+    }
+
+    public async Task<IReadOnlyList<AgentApprovalHistoryEntry>> GetHistoryByAgentAsync(
+        string agentDefinitionId,
+        CancellationToken ct = default)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        var rows = await ctx.AgentApprovalHistory
+            .Where(r => r.AgentDefinitionId == agentDefinitionId)
+            .OrderBy(r => r.OccurredAt)
+            .ToListAsync(ct);
+
+        return rows.Select(MapEntry).ToList();
+    }
+
+    public async Task AppendAdminOverrideAsync(
+        string agentDefinitionId,
+        string tenantId,
+        string actorUserId,
+        string changeReason,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(agentDefinitionId))
+            throw new ArgumentException("agentDefinitionId obrigatório", nameof(agentDefinitionId));
+        if (string.IsNullOrWhiteSpace(changeReason))
+            throw new ArgumentException("changeReason obrigatório", nameof(changeReason));
+
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        ctx.AgentApprovalHistory.Add(new AgentApprovalHistoryRow
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            // DraftId sintético — não há draft real envolvido. Mantém a coluna NOT
+            // NULL satisfeita e identifica o caminho na trilha de auditoria.
+            DraftId = $"admin-override:{agentDefinitionId}",
+            AgentDefinitionId = agentDefinitionId,
+            TenantId = tenantId,
+            Action = AgentApprovalAction.AdminOverride.ToString(),
+            ActorUserId = actorUserId,
+            Feedback = changeReason,
+            OccurredAt = DateTime.UtcNow,
+        });
+        await ctx.SaveChangesAsync(ct);
+    }
+
+    private static AgentApprovalHistoryEntry MapEntry(AgentApprovalHistoryRow r) =>
+        new(
             Id: r.Id,
             DraftId: r.DraftId,
+            AgentDefinitionId: r.AgentDefinitionId,
             TenantId: r.TenantId,
             Action: ParseAction(r.Action),
             ActorUserId: r.ActorUserId,
             Feedback: r.Feedback,
-            OccurredAt: r.OccurredAt)).ToList();
-    }
+            Tier: r.Tier,
+            OccurredAt: r.OccurredAt);
 
     private static AgentDraft Hydrate(AgentDraftRow row)
     {

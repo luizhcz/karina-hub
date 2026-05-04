@@ -157,20 +157,33 @@ CREATE INDEX IF NOT EXISTS "IX_agent_drafts_TenantId_Status"
 -- delete do draft após approve. Sem FK formal pra agent_drafts (drafts
 -- aprovados são removidos, history persiste).
 CREATE TABLE IF NOT EXISTS aihub.agent_approval_history (
-    "Id"          VARCHAR(64)   NOT NULL,
-    "DraftId"     VARCHAR(256)  NOT NULL,
-    "TenantId"    VARCHAR(128)  NOT NULL,
-    "Action"      VARCHAR(32)   NOT NULL,
-    "ActorUserId" VARCHAR(256)  NOT NULL,
-    "Feedback"    TEXT          NULL,
-    "OccurredAt"  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    "Id"                VARCHAR(64)   NOT NULL,
+    "DraftId"           VARCHAR(256)  NOT NULL,
+    "AgentDefinitionId" VARCHAR(256)  NULL,
+    "TenantId"          VARCHAR(128)  NOT NULL,
+    "Action"            VARCHAR(32)   NOT NULL,
+    "ActorUserId"       VARCHAR(256)  NOT NULL,
+    "Feedback"          TEXT          NULL,
+    "Tier"              VARCHAR(32)   NULL,
+    "OccurredAt"        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     CONSTRAINT "PK_agent_approval_history" PRIMARY KEY ("Id"),
     CONSTRAINT "CK_agent_approval_history_Action"
-        CHECK ("Action" IN ('Submitted', 'Resubmitted', 'Approved', 'Rejected'))
+        CHECK ("Action" IN ('Submitted', 'Resubmitted', 'Approved', 'Rejected', 'AutoApproved', 'AdminOverride')),
+    CONSTRAINT "CK_agent_approval_history_Tier"
+        CHECK ("Tier" IS NULL OR "Tier" IN ('Cosmetic', 'Behavioral'))
 );
 
 CREATE INDEX IF NOT EXISTS "IX_agent_approval_history_DraftId"
     ON aihub.agent_approval_history ("DraftId");
+
+-- Hot path do endpoint de histórico unificado por agent
+-- (GET /api/agents/{id}/approval-history). Drafts são deletados após approve,
+-- então DraftId não serve pra lookup pós-publish — daí a coluna dedicada
+-- AgentDefinitionId, populada no momento do Submitted/Approved/Rejected/
+-- AutoApproved/AdminOverride.
+CREATE INDEX IF NOT EXISTS "IX_agent_approval_history_AgentDefinitionId_OccurredAt"
+    ON aihub.agent_approval_history ("AgentDefinitionId", "OccurredAt" DESC)
+    WHERE "AgentDefinitionId" IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS "IX_agent_approval_history_TenantId_OccurredAt"
     ON aihub.agent_approval_history ("TenantId", "OccurredAt" DESC);

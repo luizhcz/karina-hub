@@ -85,8 +85,14 @@ export const createAgentDraft = (body: CreateAgentDraftBody) =>
   post<AgentDraft>(BASE, body)
 export const updateAgentDraft = (id: string, body: UpdateAgentDraftBody) =>
   put<AgentDraft>(`${BASE}/${id}`, body)
+export interface SubmitAgentDraftResult {
+  draft: AgentDraft
+  autoApproved: boolean
+  tier?: 'Cosmetic' | 'Behavioral' | null
+}
+
 export const submitAgentDraft = (id: string) =>
-  post<AgentDraft>(`${BASE}/${id}/submit`, {})
+  post<SubmitAgentDraftResult>(`${BASE}/${id}/submit`, {})
 
 // Gera GUID pra novo rascunho. Mesma estratégia do ToolEditor — backend aceita
 // qualquer string como Id (slug user-friendly também funciona), mas a tela
