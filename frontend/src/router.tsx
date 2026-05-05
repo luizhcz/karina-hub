@@ -175,6 +175,7 @@ export const router = createBrowserRouter([
           { path: 'admin/persona-experiments', element: <PersonaExperimentsPage /> },
 
           { path: 'evaluations/test-sets', element: <TestSetsListPage /> },
+          { path: 'evaluations/test-sets/new', element: <TestSetEditorPage /> },
           { path: 'evaluations/test-sets/:id', element: <TestSetEditorPage /> },
           { path: 'evaluations/runs/:runId', element: <EvaluationRunDetailPage /> },
           { path: 'evaluations/compare', element: <RunComparePage /> },

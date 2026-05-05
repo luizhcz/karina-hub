@@ -105,7 +105,22 @@ public sealed class EvaluationTestSetsController : ControllerBase
         CancellationToken ct = default)
     {
         var sets = await _testSetRepo.ListByProjectAsync(projectId, includeGlobal, ct);
-        return Ok(sets.Select(EvaluationTestSetResponse.FromDomain));
+
+        // Hidrata caseCount + currentRevision em batch (1 query agregada por
+        // tabela). Sets sem CurrentVersionId não vão pra query — saem com
+        // CaseCount/CurrentRevision = null no response.
+        var versionIds = sets
+            .Select(s => s.CurrentVersionId)
+            .Where(id => !string.IsNullOrEmpty(id))
+            .Cast<string>()
+            .ToList();
+        var stats = versionIds.Count > 0
+            ? await _testSetRepo.GetStatsForVersionsAsync(versionIds, ct)
+            : new Dictionary<string, TestSetVersionStats>();
+
+        return Ok(sets.Select(s => EvaluationTestSetResponse.FromDomainWithStats(
+            s,
+            !string.IsNullOrEmpty(s.CurrentVersionId) && stats.TryGetValue(s.CurrentVersionId, out var st) ? st : null)));
     }
 
     [HttpPost("api/evaluation-test-sets/{id}/versions")]

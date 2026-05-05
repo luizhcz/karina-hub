@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using EfsAiHub.Core.Abstractions.Projects;
+using EfsAiHub.Core.Abstractions.Secrets;
 using EfsAiHub.Core.Agents;
 using EfsAiHub.Core.Agents.Evaluation;
 using EfsAiHub.Infra.Messaging;
@@ -7,6 +9,7 @@ using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Runtime.Evaluation;
 using EfsAiHub.Platform.Runtime.Factories;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 // Alias evita conflito com EfsAiHub.Core.Abstractions.Conversations.ChatMessage
 // (importado via GlobalUsings).
 using AiChatMessage = Microsoft.Extensions.AI.ChatMessage;
@@ -196,10 +199,16 @@ public sealed class EvaluationRunnerService : BackgroundService
                 .Select(t => t.Name!)
                 .ToHashSet(StringComparer.Ordinal);
 
+            // Override MEAI judge: project.Settings.Evaluation.Meai permite trocar
+            // o modelo usado nos evaluators kind=meai. Ausente/Enabled=false →
+            // fallback no modelo do agente (legacy, com bias self-evaluation).
+            var (judgeClient, judgeModelId) = await ResolveMeaiJudgeAsync(
+                sp, run.ProjectId, definition, bareClient, runCts.Token);
+
             var evaluators = await evaluatorFactory.BuildAsync(
                 configVersion,
-                agentJudgeClient: bareClient,
-                agentJudgeModelId: definition.Model.DeploymentName,
+                agentJudgeClient: judgeClient,
+                agentJudgeModelId: judgeModelId,
                 projectId: run.ProjectId,
                 agentToolNames: agentToolNames,
                 ct: runCts.Token);
@@ -424,6 +433,90 @@ public sealed class EvaluationRunnerService : BackgroundService
 
             }
         });
+    }
+
+    /// <summary>
+    /// Resolve o judge LLM pra bindings <c>kind=meai</c> a partir das settings
+    /// do projeto (<c>Settings.Evaluation.Meai</c>). Quando ausente ou
+    /// <c>Enabled=false</c>, retorna o cliente do próprio agente (legacy
+    /// fallback) — mantém compat com runs existentes que dependem disso.
+    /// </summary>
+    /// <returns>(judgeClient, judgeModelId) que vão pro EvaluatorFactory.</returns>
+    private async Task<(IChatClient JudgeClient, string? JudgeModelId)> ResolveMeaiJudgeAsync(
+        IServiceProvider sp,
+        string projectId,
+        AgentDefinition agentDefinition,
+        IChatClient agentBareClient,
+        CancellationToken ct)
+    {
+        var projectRepo = sp.GetRequiredService<IProjectRepository>();
+        var project = await projectRepo.GetByIdAsync(projectId, ct);
+        var meai = project?.Settings.Evaluation?.Meai;
+
+        if (meai is null
+            || !meai.Enabled
+            || string.IsNullOrWhiteSpace(meai.DeploymentName)
+            || string.IsNullOrWhiteSpace(meai.Provider))
+        {
+            return (agentBareClient, agentDefinition.Model.DeploymentName);
+        }
+
+        // Resolve API key (secret://aws/... ou literal). Pra AzureFoundry sem
+        // ApiKeyRef o provider usa DefaultAzureCredential — passa null.
+        var secretResolver = sp.GetRequiredService<ISecretResolver>();
+        string? apiKey = null;
+        if (!string.IsNullOrWhiteSpace(meai.ApiKeyRef))
+        {
+            try
+            {
+                apiKey = await secretResolver.ResolveAsync(
+                    meai.ApiKeyRef, SecretContext.Foundry(projectId), ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "[EvaluationRunner] Falha ao resolver MEAI judge ApiKeyRef do projeto '{ProjectId}' — fallback no modelo do agente.",
+                    projectId);
+                return (agentBareClient, agentDefinition.Model.DeploymentName);
+            }
+        }
+
+        // Constrói AgentDefinition stub só pra reusar AgentFactory →
+        // CreateBareAgentAsync (que sabe rotear pra OpenAI/AzureOpenAI/AzureFoundry
+        // e wrappa com TokenTrackingChatClient pra observability).
+        var judgeStub = new AgentDefinition
+        {
+            Id = $"_meai-judge:{projectId}",
+            ProjectId = projectId,
+            Name = "MEAI Judge",
+            Model = new AgentModelConfig { DeploymentName = meai.DeploymentName! },
+            Provider = new AgentProviderConfig
+            {
+                Type = meai.Provider!,
+                ClientType = "ChatCompletion",
+                Endpoint = string.IsNullOrWhiteSpace(meai.Endpoint) ? null : meai.Endpoint,
+                ApiKey = apiKey,
+            },
+            Tools = [],
+            Instructions = string.Empty,
+        };
+
+        try
+        {
+            var agentFactory = sp.GetRequiredService<AgentFactory>();
+            var judgeClient = await agentFactory.CreateBareAgentAsync(judgeStub, ct);
+            _logger.LogDebug(
+                "[EvaluationRunner] MEAI judge override: provider={Provider} deployment={Deployment} project={ProjectId}",
+                meai.Provider, meai.DeploymentName, projectId);
+            return (judgeClient, meai.DeploymentName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "[EvaluationRunner] Falha ao construir MEAI judge ({Provider}/{Deployment}) — fallback no modelo do agente.",
+                meai.Provider, meai.DeploymentName);
+            return (agentBareClient, agentDefinition.Model.DeploymentName);
+        }
     }
 
     private static bool BindingIdMatches(EvaluatorBinding binding, string evaluatorId)

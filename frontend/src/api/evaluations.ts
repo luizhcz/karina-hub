@@ -74,6 +74,10 @@ export interface TestSet {
   description?: string
   visibility: Visibility
   currentVersionId?: string
+  /** Quantidade de cases na current version. Null quando sem version publicada. */
+  caseCount?: number | null
+  /** Revision da current version (1, 2, …). Null quando sem version. */
+  currentRevision?: number | null
   createdAt: string
   updatedAt: string
   createdBy?: string

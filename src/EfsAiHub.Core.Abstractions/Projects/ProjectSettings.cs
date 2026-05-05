@@ -45,6 +45,44 @@ public sealed record ProjectSettings
 public sealed record EvaluationProjectSettings
 {
     public FoundryEvaluationSettings? Foundry { get; init; }
+
+    /// <summary>
+    /// Override do modelo usado como judge LLM em bindings kind=meai. Quando
+    /// null ou Enabled=false, o runner reusa o modelo do próprio agente avaliado
+    /// (legacy — barato mas com bias de self-evaluation). Banking/regulado deve
+    /// setar pra um judge isolado.
+    /// </summary>
+    public MeaiEvaluationSettings? Meai { get; init; }
+}
+
+/// <summary>
+/// Modelo dedicado pra MEAI evaluators atuarem como judge separado do modelo
+/// do agente — elimina bias de self-evaluation. Shape espelha
+/// <see cref="FoundryEvaluationSettings"/> mas o judge é um IChatClient
+/// ChatCompletion genérico (não exclusivo Foundry).
+/// </summary>
+public sealed record MeaiEvaluationSettings
+{
+    /// <summary>Default false — fallback no modelo do agente.</summary>
+    public bool Enabled { get; init; } = false;
+
+    /// <summary>"OpenAI" | "AzureOpenAI" | "AzureFoundry".</summary>
+    public string? Provider { get; init; }
+
+    /// <summary>Nome do deployment no provider (ex.: "gpt-4o-judge").</summary>
+    public string? DeploymentName { get; init; }
+
+    /// <summary>
+    /// Endpoint do Azure quando Provider é AzureOpenAI/AzureFoundry. Ignorado
+    /// para OpenAI (usa endpoint default).
+    /// </summary>
+    public string? Endpoint { get; init; }
+
+    /// <summary>
+    /// Referência de secret (ex.: "secret://aws/efs-meai-judge-key"). Aceita
+    /// literal API key se não começa com "secret://" (legacy — desencorajado).
+    /// </summary>
+    public string? ApiKeyRef { get; init; }
 }
 
 /// <summary>

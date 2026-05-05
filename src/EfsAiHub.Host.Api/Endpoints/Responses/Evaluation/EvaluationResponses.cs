@@ -101,6 +101,8 @@ public sealed record EvaluationTestSetResponse(
     string? Description,
     string Visibility,
     string? CurrentVersionId,
+    int? CaseCount,
+    int? CurrentRevision,
     DateTime CreatedAt,
     DateTime UpdatedAt,
     string? CreatedBy)
@@ -112,6 +114,27 @@ public sealed record EvaluationTestSetResponse(
         Description: ts.Description,
         Visibility: ts.Visibility.ToString().ToLowerInvariant(),
         CurrentVersionId: ts.CurrentVersionId,
+        CaseCount: null,
+        CurrentRevision: null,
+        CreatedAt: ts.CreatedAt,
+        UpdatedAt: ts.UpdatedAt,
+        CreatedBy: ts.CreatedBy);
+
+    /// <summary>
+    /// Variante usada pela listagem — recebe stats agregadas (count + revision)
+    /// pra evitar N+1 no controller.
+    /// </summary>
+    public static EvaluationTestSetResponse FromDomainWithStats(
+        EvaluationTestSet ts,
+        TestSetVersionStats? stats) => new(
+        Id: ts.Id,
+        ProjectId: ts.ProjectId,
+        Name: ts.Name,
+        Description: ts.Description,
+        Visibility: ts.Visibility.ToString().ToLowerInvariant(),
+        CurrentVersionId: ts.CurrentVersionId,
+        CaseCount: stats?.CaseCount,
+        CurrentRevision: stats?.Revision,
         CreatedAt: ts.CreatedAt,
         UpdatedAt: ts.UpdatedAt,
         CreatedBy: ts.CreatedBy);

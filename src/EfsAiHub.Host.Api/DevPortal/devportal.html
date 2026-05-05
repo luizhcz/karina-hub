@@ -231,6 +231,7 @@
   <a href="#quickstart">Quick Start</a>
   <a href="#auth">Autenticação</a>
   <a href="#endpoints">Endpoints</a>
+  <a href="#other-streams">Outros endpoints SSE</a>
   <a href="#events">Catálogo de Eventos</a>
   <a href="#turn-anatomy">Anatomia de um turno</a>
   <a href="#minimal-client">Cliente mínimo (JS)</a>
@@ -613,6 +614,214 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
 })</code></pre>
       </div>
     </div>
+  </section>
+
+  <!-- Outros endpoints SSE (não-AG-UI) -->
+  <section id="other-streams">
+    <h2>Outros endpoints SSE</h2>
+    <p>
+      Além do AG-UI, o backend expõe quatro endpoints SSE secundários — cada um com domínio próprio
+      (sandbox, read-side de conversa, debug de execução, progresso de avaliação). O formato SSE é
+      o mesmo (<code>text/event-stream</code> com frames <code>event:</code> + <code>data:</code>),
+      mas o catálogo de eventos e o ciclo de vida diferem.
+    </p>
+
+    <!-- Sandbox de agente -->
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="endpoint-method method-post">POST</span>
+        <span class="endpoint-path">/api/agents/{agentId}/sessions/{sessionId}/stream</span>
+        <span class="endpoint-desc">Sandbox de chat com agente individual (token-by-token)</span>
+      </div>
+      <div class="endpoint-body">
+        <p>
+          Envia mensagem pra uma session do agente e recebe o output em streaming token-a-token.
+          Diferente do AG-UI: <strong>não emite eventos discretos</strong> — cada frame é um pedaço
+          de texto cru. Sentinela <code>[DONE]</code> marca o fim do turn.
+        </p>
+        <h3>Body</h3>
+        <pre class="language-json"><code class="language-json">{ "message": "Olá, como você pode me ajudar?" }</code></pre>
+        <h3>Formato dos frames</h3>
+        <pre class="language-text"><code class="language-text">data: O saldo
+
+data: da conta
+
+data:  é R$ 15.000
+
+data: [DONE]
+</code></pre>
+        <h3>Quando usar</h3>
+        <p>
+          Tela de "testar agente" durante construção/edição. Não tem suporte a tools, HITL ou state —
+          é o caminho mais simples e direto pra ver a resposta do LLM. Pra produção use AG-UI.
+        </p>
+      </div>
+    </div>
+
+    <!-- Read-side de conversa -->
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="endpoint-method method-get">GET</span>
+        <span class="endpoint-path">/api/conversations/{id}/messages/stream</span>
+        <span class="endpoint-desc">Stream de eventos novos chegando numa conversa ativa</span>
+      </div>
+      <div class="endpoint-body">
+        <p>
+          Subscreve o bus de eventos da execução ativa (<code>session.ActiveExecutionId</code>) e
+          repassa via SSE. Read-side — não dispara turn novo, apenas observa. Encerra automaticamente
+          em <code>workflow_completed</code> ou <code>error</code>.
+        </p>
+        <h3>Códigos HTTP</h3>
+        <table class="event-table">
+          <tbody>
+            <tr><td><span class="badge badge-green">200</span></td><td>Stream aberto, eventos fluindo</td></tr>
+            <tr><td><span class="badge badge-yellow">204</span></td><td>Conversa existe mas não tem execução ativa — nada pra streamar</td></tr>
+            <tr><td><span class="badge badge-red">404</span></td><td>Conversa não encontrada</td></tr>
+          </tbody>
+        </table>
+        <h3>Eventos emitidos (mapeamento)</h3>
+        <p>O bus interno usa nomes domínio-específicos; o stream renomeia alguns pra terminologia de UI:</p>
+        <table class="event-table">
+          <thead><tr><th>Bus interno</th><th>Frame SSE (<code>event:</code>)</th><th>Quando</th></tr></thead>
+          <tbody>
+            <tr><td><code>hitl_required</code></td><td><code>waiting_for_input</code></td><td>Agente pediu aprovação humana</td></tr>
+            <tr><td><code>workflow_completed</code></td><td><code>message_complete</code> <span class="badge badge-red">terminal</span></td><td>Turn concluído com sucesso</td></tr>
+            <tr><td><em>(outros)</em></td><td>nome original</td><td>Eventos crus do bus repassados sem renaming</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Stream de execução -->
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="endpoint-method method-get">GET</span>
+        <span class="endpoint-path">/api/executions/{executionId}/stream</span>
+        <span class="endpoint-desc">Stream cru de eventos do bus de execução de workflow</span>
+      </div>
+      <div class="endpoint-body">
+        <p>
+          Mesma fonte de eventos do <code>/conversations/{id}/messages/stream</code> (o
+          <code>IWorkflowEventBus</code>) mas exposto sem renaming nem filtro — útil pra debug e
+          observabilidade. Encerra em <code>workflow_completed</code> ou <code>error</code>.
+          <strong>Admin-only</strong> (sub-rotas <code>/full</code> e <code>/stream</code> seguem
+          gated; <code>GET /api/executions/{id}</code> é liberado pra non-admin).
+        </p>
+        <h3>Frames</h3>
+        <pre class="language-text"><code class="language-text">event: agent_started
+data: {"agentId":"atendimento","stepId":"step-1"}
+
+event: tool_invocation
+data: {"toolCallId":"call-abc","toolName":"get_position"}
+
+event: workflow_completed
+data: {"executionId":"exec-xyz","status":"Completed"}
+</code></pre>
+        <h3>Quando usar</h3>
+        <p>
+          Inspeção em tempo real de uma execução já disparada (ex.: dashboard de operações vendo
+          workflow rodar). Pra abrir + executar + receber a resposta em uma chamada só, use AG-UI.
+        </p>
+      </div>
+    </div>
+
+    <!-- Stream de eval -->
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="endpoint-method method-get">GET</span>
+        <span class="endpoint-path">/api/evaluations/runs/{runId}/stream</span>
+        <span class="endpoint-desc">Progresso de uma evaluation run em tempo real</span>
+      </div>
+      <div class="endpoint-body">
+        <p>
+          Stream de progresso de <code>EvaluationRun</code> (auto-deploy ou manual). O backend faz
+          poll de 1s no estado da run + progress (<code>casesCompleted</code>, <code>casesPassed</code>,
+          <code>avgScore</code>, <code>totalCostUsd</code>) e emite <code>event: progress</code> só
+          quando o snapshot muda — minimiza tráfego idempotente.
+        </p>
+        <h3>Identidade</h3>
+        <p>
+          <code>EventSource</code> do browser não envia headers customizados. Como fallback, este
+          endpoint aceita <code>?projectId=&lt;id&gt;</code> na query string como substituto do
+          header <code>x-efs-project-id</code>. Use isso quando consumir do frontend via
+          <code>EventSource</code>.
+        </p>
+        <h3>Eventos</h3>
+        <table class="event-table">
+          <thead><tr><th>event</th><th>Quando</th><th>Payload (campos principais)</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>progress</code></td>
+              <td>Snapshot mudou desde a última emissão (estado dinâmico)</td>
+              <td><code>status, casesTotal, casesCompleted, casesPassed, casesFailed, avgScore, totalCostUsd, totalTokens, lastError, startedAt, completedAt</code></td>
+            </tr>
+            <tr>
+              <td><code>done</code> <span class="badge badge-red">terminal</span></td>
+              <td>Run terminou (<code>Completed</code> | <code>Failed</code> | <code>Cancelled</code>)</td>
+              <td>Mesmo schema do <code>progress</code> com <code>completedAt</code> populado</td>
+            </tr>
+            <tr>
+              <td><code>error</code> <span class="badge badge-red">terminal</span></td>
+              <td>Run desapareceu mid-stream (raro — DB drift)</td>
+              <td><code>{"error":"run_disappeared"}</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <h3>Keep-alive</h3>
+        <p>
+          A cada ~15s, o backend envia uma linha de comentário SSE (<code>: keep-alive\n\n</code>)
+          pra evitar que proxies (NGINX, Cloudflare) fechem a conexão por idle. Cliente ignora —
+          frames de comentário não disparam handlers de evento.
+        </p>
+        <h3>Exemplo (EventSource)</h3>
+        <pre class="language-javascript"><code class="language-javascript">const url = `/api/evaluations/runs/${runId}/stream?projectId=${projectId}`
+const es = new EventSource(url)
+
+es.addEventListener('progress', (ev) => {
+  const data = JSON.parse(ev.data)
+  console.log(`${data.casesCompleted}/${data.casesTotal} — score ${data.avgScore}`)
+})
+
+es.addEventListener('done', (ev) => {
+  console.log('Run completou:', JSON.parse(ev.data))
+  es.close()
+})</code></pre>
+      </div>
+    </div>
+
+    <h3>Diferenças vs AG-UI</h3>
+    <table class="event-table">
+      <thead>
+        <tr><th>Característica</th><th>AG-UI <code>/stream</code></th><th>Outros 4 streams</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Catálogo de eventos</td>
+          <td>30+ eventos discretos tipados (RUN_*, TEXT_MESSAGE_*, TOOL_CALL_*, STATE_*, etc.)</td>
+          <td>Específico por endpoint — varia de 1 (sandbox: só texto cru) a 3 (eval: progress/done/error)</td>
+        </tr>
+        <tr>
+          <td>Reconnect</td>
+          <td>Suportado via <code>Last-Event-ID</code> + endpoint <code>/reconnect</code> com replay</td>
+          <td>Não suportado — cliente precisa abrir nova conexão e perde os eventos do gap</td>
+        </tr>
+        <tr>
+          <td>HITL inline</td>
+          <td>Stream fica aberto esperando o humano clicar (<code>request_approval</code>)</td>
+          <td>Conversa marca <code>waiting_for_input</code> mas não bloqueia — resolução vai por outra rota</td>
+        </tr>
+        <tr>
+          <td>State sync</td>
+          <td>STATE_SNAPSHOT + STATE_DELTA (JSON Patch RFC 6902)</td>
+          <td>Não tem — payload de cada evento é auto-contido</td>
+        </tr>
+        <tr>
+          <td>Recomendação</td>
+          <td>Use pra UI de chat agente em produção</td>
+          <td>Use pra sandbox, debug, monitoring e progresso de jobs</td>
+        </tr>
+      </tbody>
+    </table>
   </section>
 
   <!-- Catálogo de Eventos -->
