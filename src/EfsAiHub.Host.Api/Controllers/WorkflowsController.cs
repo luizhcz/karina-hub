@@ -164,6 +164,7 @@ public class WorkflowsController : ControllerBase
     [SwaggerOperation(Summary = "Atualiza uma definição de workflow")]
     [ProducesResponseType(typeof(WorkflowResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Update(string id, [FromBody] CreateWorkflowRequest request, CancellationToken ct)
     {
@@ -183,6 +184,10 @@ public class WorkflowsController : ControllerBase
                 payloadBefore: before,
                 payloadAfter: AdminAuditContext.Snapshot(response)), ct);
             return Ok(response);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
         }
         catch (EfsAiHub.Core.Orchestration.Validation.WorkflowInvariantViolationException ex)
         {
@@ -258,19 +263,31 @@ public class WorkflowsController : ControllerBase
     [HttpDelete("{id}")]
     [SwaggerOperation(Summary = "Remove uma definição de workflow")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(string id, CancellationToken ct)
     {
-        var existing = await _workflowService.GetAsync(id, ct);
-        var before = existing is null ? null : AdminAuditContext.Snapshot(WorkflowResponse.FromDomain(existing));
+        try
+        {
+            var existing = await _workflowService.GetAsync(id, ct);
+            var before = existing is null ? null : AdminAuditContext.Snapshot(WorkflowResponse.FromDomain(existing));
 
-        await _workflowService.DeleteAsync(id, ct);
-        await _audit.RecordAsync(_auditContext.Build(
-            AdminAuditActions.Delete,
-            AdminAuditResources.Workflow,
-            id,
-            payloadBefore: before), ct);
-        return NoContent();
+            await _workflowService.DeleteAsync(id, ct);
+            await _audit.RecordAsync(_auditContext.Build(
+                AdminAuditActions.Delete,
+                AdminAuditResources.Workflow,
+                id,
+                payloadBefore: before), ct);
+            return NoContent();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
     }
 
     [HttpPost("{id}/trigger")]

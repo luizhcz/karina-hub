@@ -12,6 +12,12 @@ public interface IEvaluationService
     /// <summary>Enfileira run a partir de AgentVersion publicada; sem regression config retorna Skipped=true.</summary>
     Task<EnqueueRunResult> EnqueueAutotriggerAsync(AgentVersionPublishedRequest request, CancellationToken ct = default);
 
+    /// <summary>
+    /// Enfileira run auto-deploy: TestSet/Config sintéticos já criados; <c>preset</c> vai
+    /// no <c>TriggerContext</c> pra dedup posterior. TriggerSource=Manual com priority high.
+    /// </summary>
+    Task<EnqueueRunResult> EnqueueAutoDeployAsync(EnqueueAutoDeployRequest request, CancellationToken ct = default);
+
     /// <summary>CAS Pending|Running → Cancelled e emite NOTIFY eval_run_cancelled. Idempotente em estados terminais.</summary>
     Task<bool> CancelRunAsync(string runId, string? cancelledBy, CancellationToken ct = default);
 }
@@ -36,3 +42,13 @@ public sealed record EnqueueRunResult(
     bool Skipped,
     string? SkipReason,
     bool DeduplicatedFromExisting);
+
+public sealed record EnqueueAutoDeployRequest(
+    string ProjectId,
+    string AgentDefinitionId,
+    string AgentVersionId,
+    string TestSetVersionId,
+    string EvaluatorConfigVersionId,
+    string Preset,
+    string? DeployedFromWorkflowId,
+    string? TriggeredBy);

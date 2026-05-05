@@ -119,6 +119,44 @@ public sealed class AdminGateMiddleware
     private static readonly Regex AgentEnabledPattern =
         new(@"^/api/agents/[^/]+/enabled$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // POST /api/agents/{id}/evaluations/auto-deploy — fluxo composto disparado
+    // pelo PM/PO logo após "Implantar agente". Orquestra (gera test cases via
+    // wf-gerador-testcases → cria TestSet+EvaluatorConfig do preset → enfileira
+    // EvaluationRun) num único request. Ownership do agent via
+    // IProjectContextAccessor + HasQueryFilter no controller. POST manual em
+    // /evaluations/runs continua admin-only (rota de bypass com config livre).
+    private static readonly Regex EvaluationsAutoDeployPattern =
+        new(@"^/api/agents/[^/]+/evaluations/auto-deploy$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // GET /api/agents/{id}/evaluations/runs — listagem do último run pra alimentar
+    // badge na grid de /implantacoes. EvaluationRun tem ProjectId scope no repo
+    // (HasQueryFilter), PM só vê runs do próprio projeto.
+    private static readonly Regex EvaluationsRunsListByAgentPattern =
+        new(@"^/api/agents/[^/]+/evaluations/runs$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // GET /api/evaluations/runs/{id} e /results — leitura individual e dos results
+    // de uma run. Repo aplica project filter, PM só vê runs do próprio projeto.
+    // /cancel, /export, /compare seguem admin-only.
+    private static readonly Regex EvaluationsRunReadPattern =
+        new(@"^/api/evaluations/runs/[^/]+(/results)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // GET /api/evaluations/runs/{id}/stream — SSE de progresso. EventSource não
+    // envia headers customizados; identidade vai por query param projectId
+    // (controller já cobre isso em StreamRun). Mesmo project scope dos GETs acima.
+    private static readonly Regex EvaluationsRunStreamPattern =
+        new(@"^/api/evaluations/runs/[^/]+/stream$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // GET /api/analytics/projects/{id}/(overview|timeseries|agents|budget) —
+    // dashboard de uso/custo por projeto. Liberado pra non-admin com a mesma
+    // garantia do approval-history: ProjectAnalyticsController.EnsureProjectAccessAsync
+    // valida ownership (current.ProjectId == path.projectId OU caller é admin)
+    // antes de tocar o repo. Regex restrita aos 4 sufixos pra evitar vazamento
+    // de sub-rotas futuras (ex.: POST /refresh) que escapem revisão deste
+    // middleware.
+    private static readonly Regex ProjectAnalyticsPattern =
+        new(@"^/api/analytics/projects/[^/]+/(overview|timeseries|agents|budget)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     // GET /api/users/{userId}/conversations
     private static readonly Regex UserConversationsPattern =
         new(@"^/api/users/[^/]+/conversations$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -261,6 +299,30 @@ public sealed class AdminGateMiddleware
 
         if (method.Equals("PATCH", StringComparison.OrdinalIgnoreCase)
             && AgentEnabledPattern.IsMatch(path))
+            return true;
+
+        // Auto-deploy de avaliação (PM/PO chama logo após implantar agente).
+        if (method.Equals("POST", StringComparison.OrdinalIgnoreCase)
+            && EvaluationsAutoDeployPattern.IsMatch(path))
+            return true;
+
+        // Listagem do último run pra alimentar badge na grid de /implantacoes.
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && EvaluationsRunsListByAgentPattern.IsMatch(path))
+            return true;
+
+        // Leitura de run individual + results (drill-down do PM no card de status).
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && EvaluationsRunReadPattern.IsMatch(path))
+            return true;
+
+        // SSE de progresso (EventSource). Identidade via query param já tratada acima.
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && EvaluationsRunStreamPattern.IsMatch(path))
+            return true;
+
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && ProjectAnalyticsPattern.IsMatch(path))
             return true;
 
         // Conversations — todos os métodos (chat via REST)

@@ -119,6 +119,10 @@ public class AgentsController : ControllerBase
 
             return Ok(AgentResponse.FromDomain(updated));
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
         catch (ArgumentException ex)
         {
             return BadRequest(new { error = ex.Message });
@@ -303,19 +307,31 @@ public class AgentsController : ControllerBase
     [HttpDelete("{id}")]
     [SwaggerOperation(Summary = "Remove uma definição de agente")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(string id, CancellationToken ct)
     {
-        var existing = await _agentService.GetAsync(id, ct);
-        var before = existing is null ? null : AdminAuditContext.Snapshot(AgentResponse.FromDomain(existing));
+        try
+        {
+            var existing = await _agentService.GetAsync(id, ct);
+            var before = existing is null ? null : AdminAuditContext.Snapshot(AgentResponse.FromDomain(existing));
 
-        await _agentService.DeleteAsync(id, ct);
-        await _audit.RecordAsync(_auditContext.Build(
-            AdminAuditActions.Delete,
-            AdminAuditResources.Agent,
-            id,
-            payloadBefore: before), ct);
-        return NoContent();
+            await _agentService.DeleteAsync(id, ct);
+            await _audit.RecordAsync(_auditContext.Build(
+                AdminAuditActions.Delete,
+                AdminAuditResources.Agent,
+                id,
+                payloadBefore: before), ct);
+            return NoContent();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
     }
 
     [HttpGet("{id}/versions")]

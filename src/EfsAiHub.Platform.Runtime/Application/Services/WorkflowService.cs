@@ -100,6 +100,14 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         var existing = await _definitionRepo.GetByIdAsync(definition.Id, ct)
             ?? throw new KeyNotFoundException($"Workflow '{definition.Id}' não encontrado.");
 
+        // Owner gate: HasQueryFilter expõe workflows Visibility=global cross-project pra
+        // leitura, então o existing pode ser visível pra um projeto que NÃO é dono. Sem
+        // este check, qualquer projeto do tenant editaria o workflow global.
+        var currentProjectId = _projectAccessor.Current.ProjectId;
+        if (!string.Equals(existing.ProjectId, currentProjectId, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException(
+                $"Workflow '{definition.Id}' não pertence ao projeto atual; apenas o projeto dono pode editar.");
+
         // Preserva ownership/visibility do existing — request DTO não carrega esses campos
         // por design; sem isso o PUT silenciosamente reseta Visibility="project"/ProjectId="default".
         // PATCH /visibility é o único caminho documentado pra mudar Visibility.
@@ -166,6 +174,14 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)
     {
+        var existing = await _definitionRepo.GetByIdAsync(id, ct)
+            ?? throw new KeyNotFoundException($"Workflow '{id}' não encontrado.");
+
+        var currentProjectId = _projectAccessor.Current.ProjectId;
+        if (!string.Equals(existing.ProjectId, currentProjectId, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException(
+                $"Workflow '{id}' não pertence ao projeto atual; apenas o projeto dono pode remover.");
+
         var deleted = await _definitionRepo.DeleteAsync(id, ct);
         if (!deleted)
             throw new KeyNotFoundException($"Workflow '{id}' não encontrado.");

@@ -23,6 +23,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 public sealed class AgentEvaluationsController : ControllerBase
 {
     private readonly IEvaluationService _evaluationService;
+    private readonly EvaluationAutoDeployService _autoDeployService;
     private readonly IEvaluationRunRepository _runRepo;
     private readonly IEvaluationResultRepository _resultRepo;
     private readonly IProjectContextAccessor _projectAccessor;
@@ -32,6 +33,7 @@ public sealed class AgentEvaluationsController : ControllerBase
 
     public AgentEvaluationsController(
         IEvaluationService evaluationService,
+        EvaluationAutoDeployService autoDeployService,
         IEvaluationRunRepository runRepo,
         IEvaluationResultRepository resultRepo,
         IProjectContextAccessor projectAccessor,
@@ -40,12 +42,69 @@ public sealed class AgentEvaluationsController : ControllerBase
         ILogger<AgentEvaluationsController> logger)
     {
         _evaluationService = evaluationService;
+        _autoDeployService = autoDeployService;
         _runRepo = runRepo;
         _resultRepo = resultRepo;
         _projectAccessor = projectAccessor;
         _audit = audit;
         _auditContext = auditContext;
         _logger = logger;
+    }
+
+    [HttpPost("api/agents/{agentId}/evaluations/auto-deploy")]
+    [SwaggerOperation(Summary = "Auto-deploy: gera test cases sintéticos via wf-gerador-testcases, " +
+        "cria TestSet+EvaluatorConfig do preset e enfileira EvaluationRun. PM/PO chama isto após " +
+        "deploy do agente. Idempotente por (AgentVersionId, preset) em janela 30min.")]
+    [ProducesResponseType(typeof(AutoDeployEvaluationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(AutoDeployEvaluationResponse), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> AutoDeploy(
+        string agentId,
+        [FromBody] AutoDeployEvaluationRequest request,
+        CancellationToken ct)
+    {
+        if (!PresetCatalog.TryParse(request.Preset, out var preset))
+            return BadRequest(new { error = $"Preset inválido: '{request.Preset}'. Use basic|medium|advanced." });
+
+        try
+        {
+            var result = await _autoDeployService.RunAsync(new AutoDeployServiceRequest(
+                ProjectId: _projectAccessor.Current.ProjectId,
+                AgentDefinitionId: agentId,
+                Preset: preset,
+                AgentVersionId: request.AgentVersionId,
+                DeployedFromWorkflowId: request.DeployedFromWorkflowId,
+                TriggeredBy: ResolveActorUserId()), ct);
+
+            await _audit.RecordAsync(_auditContext.Build(
+                "AutoDeploy",
+                "EvaluationRun",
+                result.RunId ?? "(none)",
+                payloadAfter: AdminAuditContext.Snapshot(result)), ct);
+
+            var response = new AutoDeployEvaluationResponse(
+                RunId: result.RunId,
+                TestSetVersionId: result.TestSetVersionId,
+                EvaluatorConfigVersionId: result.EvaluatorConfigVersionId,
+                Preset: result.Preset.ToString().ToLowerInvariant(),
+                CaseCount: result.CaseCount,
+                EstimatedCostUsd: result.EstimatedCostUsd,
+                EstimatedDurationSeconds: result.EstimatedDurationSeconds,
+                Status: result.Status?.ToString(),
+                DeduplicatedFromExisting: result.DeduplicatedFromExisting,
+                GeneratorFailed: result.GeneratorFailed);
+
+            // Soft gate: gerador falhou → 422 mas com payload válido. Frontend
+            // mostra "avaliação não disponível" sem barrar deploy.
+            if (result.GeneratorFailed)
+                return UnprocessableEntity(response);
+
+            return AcceptedAtAction(nameof(GetRun), new { runId = result.RunId }, response);
+        }
+        catch (EvaluationValidationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
     [HttpPost("api/agents/{agentId}/evaluations/runs")]

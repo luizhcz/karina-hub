@@ -271,6 +271,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDocumentIntelligenceUsageQueries, PgDocumentIntelligenceUsageQueries>();
         services.AddSingleton<IWorkflowEventRepository, PgWorkflowEventRepository>();
         services.AddSingleton<IExecutionAnalyticsRepository, PgExecutionAnalyticsRepository>();
+        services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IProjectAnalyticsRepository, PgProjectAnalyticsRepository>();
         services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger, PgAdminAuditLogRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.McpServers.IMcpServerRepository, PgMcpServerRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentExtractionRepository, PgDocumentExtractionRepository>();
@@ -445,6 +446,7 @@ public static class ServiceCollectionExtensions
             EfsAiHub.Platform.Runtime.Evaluation.FoundryJudgeClientFactory>();
         services.AddScoped<EfsAiHub.Platform.Runtime.Evaluation.IEvaluationService,
             EfsAiHub.Platform.Runtime.Evaluation.EvaluationService>();
+        services.AddScoped<EfsAiHub.Platform.Runtime.Evaluation.EvaluationAutoDeployService>();
         services.AddScoped<EfsAiHub.Host.Api.Services.Evaluation.IAgentDefinitionApplicationService,
             EfsAiHub.Host.Api.Services.Evaluation.AgentDefinitionApplicationService>();
         services.AddHostedService<EfsAiHub.Host.Worker.Services.EvaluationRunnerService>();

@@ -13,6 +13,8 @@ import { AgentVersions } from './routes/AgentVersions'
 import { AgentDeploy } from './routes/AgentDeploy'
 import { Implantacoes } from './routes/Implantacoes'
 import { Aprovacoes } from './routes/Aprovacoes'
+import { Avaliacoes } from './routes/Avaliacoes'
+import { Dashboard } from './routes/Dashboard'
 import { getIdentity, subscribeIdentity } from './stores/identity'
 
 export function App() {
@@ -35,13 +37,15 @@ export function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<Navigate to="/agentes" replace />} />
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/agentes" element={<AgentsList />} />
         <Route path="/agentes/novo" element={<AgentEditor mode="create" />} />
         <Route path="/agentes/:id/sandbox" element={<AgentSandbox />} />
         <Route path="/agentes/:id/versoes" element={<AgentVersions />} />
         <Route path="/agentes/:id/implantar" element={<AgentDeploy />} />
         <Route path="/implantacoes" element={<Implantacoes />} />
+        <Route path="/avaliacoes" element={<Avaliacoes />} />
         <Route path="/aprovacoes" element={<Aprovacoes />} />
         <Route path="/agentes/:id" element={<AgentEditor mode="edit" />} />
         <Route path="/ferramentas" element={<ToolsList />} />

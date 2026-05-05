@@ -86,3 +86,16 @@ public sealed class UpsertRegressionConfigRequest
     public string? RegressionTestSetId { get; init; }
     public string? RegressionEvaluatorConfigVersionId { get; init; }
 }
+
+/// <summary>POST /api/agents/{agentId}/evaluations/auto-deploy</summary>
+public sealed class AutoDeployEvaluationRequest
+{
+    /// <summary>"basic" (default) | "medium" | "advanced".</summary>
+    public string Preset { get; init; } = "basic";
+
+    /// <summary>Snapshot AgentVersion específico. Null = current Published.</summary>
+    public string? AgentVersionId { get; init; }
+
+    /// <summary>Workflow id correlacionado ao deploy (idem <c>deploy-{agentId}</c>). Vai pro <c>TriggerContext</c>.</summary>
+    public string? DeployedFromWorkflowId { get; init; }
+}

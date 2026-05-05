@@ -68,6 +68,31 @@ public sealed class EvaluationService : IEvaluationService
             ct: ct);
     }
 
+    public async Task<EnqueueRunResult> EnqueueAutoDeployAsync(EnqueueAutoDeployRequest request, CancellationToken ct = default)
+    {
+        var def = await _agentRepo.GetByIdAsync(request.AgentDefinitionId, ct)
+            ?? throw new EvaluationValidationException($"AgentDefinition '{request.AgentDefinitionId}' não encontrada.");
+
+        var triggerContext = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            preset = request.Preset,
+            deployed_from_workflow_id = request.DeployedFromWorkflowId,
+            agent_version_id = request.AgentVersionId,
+            source = "auto-deploy"
+        }, JsonDefaults.Domain));
+
+        return await EnqueueCoreAsync(
+            projectId: request.ProjectId,
+            definition: def,
+            agentVersionId: request.AgentVersionId,
+            testSetVersionId: request.TestSetVersionId,
+            evaluatorConfigVersionId: request.EvaluatorConfigVersionId,
+            triggeredBy: request.TriggeredBy,
+            triggerSource: EvaluationTriggerSource.Manual,
+            triggerContext: triggerContext,
+            ct: ct);
+    }
+
     public async Task<EnqueueRunResult> EnqueueAutotriggerAsync(AgentVersionPublishedRequest request, CancellationToken ct = default)
     {
         var def = await _agentRepo.GetByIdAsync(request.AgentDefinitionId, ct);

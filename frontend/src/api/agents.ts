@@ -108,6 +108,17 @@ export interface CreateAgentRequest {
   allowedProjectIds?: string[] | null
 }
 
+/**
+ * Body do PUT /api/agents/{id}. Estende CreateAgentRequest exigindo
+ * <c>changeReason</c> (min 10 chars no backend) — toda atualização gera
+ * AdminOverride em agent_approval_history pra trilha de governança.
+ * <c>breakingChange=true</c> exige changeReason (já é required aqui).
+ */
+export interface UpdateAgentRequest extends CreateAgentRequest {
+  changeReason: string
+  breakingChange?: boolean
+}
+
 export interface AgentValidationResult {
   isValid: boolean
   errors: string[]
@@ -161,7 +172,7 @@ export const KEYS = {
 export const getAgents = () => get<AgentDef[]>('/agents')
 export const getAgent = (id: string) => get<AgentDef>(`/agents/${id}`)
 export const createAgent = (body: CreateAgentRequest) => post<AgentDef>('/agents', body)
-export const updateAgent = (id: string, body: CreateAgentRequest) => put<AgentDef>(`/agents/${id}`, body)
+export const updateAgent = (id: string, body: UpdateAgentRequest) => put<AgentDef>(`/agents/${id}`, body)
 export const deleteAgent = (id: string) => del(`/agents/${id}`)
 export const validateAgent = (id: string) => post<AgentValidationResult>(`/agents/${id}/validate`)
 export const getAgentVersions = (id: string) => get<AgentVersion[]>(`/agents/${id}/versions`)
@@ -205,7 +216,7 @@ export function useCreateAgent() {
 export function useUpdateAgent() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: CreateAgentRequest }) => updateAgent(id, body),
+    mutationFn: ({ id, body }: { id: string; body: UpdateAgentRequest }) => updateAgent(id, body),
     onSuccess: (_d, { id }) => {
       qc.invalidateQueries({ queryKey: KEYS.all })
       qc.invalidateQueries({ queryKey: KEYS.detail(id) })

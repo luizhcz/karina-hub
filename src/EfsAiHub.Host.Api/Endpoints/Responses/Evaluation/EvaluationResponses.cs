@@ -263,3 +263,15 @@ public sealed record EnqueueEvaluationRunResponse(
     bool Skipped,
     string? SkipReason,
     bool DeduplicatedFromExisting);
+
+public sealed record AutoDeployEvaluationResponse(
+    string? RunId,
+    string? TestSetVersionId,
+    string? EvaluatorConfigVersionId,
+    string Preset,
+    int CaseCount,
+    decimal EstimatedCostUsd,
+    int EstimatedDurationSeconds,
+    string? Status,
+    bool DeduplicatedFromExisting,
+    bool GeneratorFailed);

@@ -1,4 +1,5 @@
 import {
+  AgentIcon,
   ArrowRightIcon,
   BoltIcon,
   CheckIcon,
@@ -6,11 +7,12 @@ import {
   SparklesIcon,
   cn,
 } from '../ui'
+import { AGENT_TEMPLATES, type TemplateKey } from '../routes/AgentEditor/templates'
 
 interface NewAgentModeModalProps {
   open: boolean
   onClose: () => void
-  onSelect: (mode: 'basic' | 'advanced') => void
+  onSelect: (mode: 'basic' | 'advanced', template?: TemplateKey) => void
 }
 
 interface ModeChoice {
@@ -27,7 +29,7 @@ const CHOICES: ModeChoice[] = [
     mode: 'basic',
     title: 'Agente básico',
     pitch: 'Configuração rápida pra colocar um agente em pé com poucos cliques.',
-    steps: ['Perfil', 'Ferramentas e Conhecimento', 'Modelo', 'Revisão'],
+    steps: ['Perfil', 'Ferramentas e MCPs', 'Modelo', 'Revisão'],
     icon: <BoltIcon className="h-6 w-6" />,
     accent: 'from-emerald-500/15 to-emerald-500/0 text-emerald-600 dark:text-emerald-400',
   },
@@ -35,7 +37,7 @@ const CHOICES: ModeChoice[] = [
     mode: 'advanced',
     title: 'Agente avançado',
     pitch: 'Inclui input e output estruturados — útil quando outro sistema vai consumir o agente.',
-    steps: ['Perfil', 'Ferramentas e Conhecimento', 'Input', 'Output', 'Modelo', 'Revisão'],
+    steps: ['Perfil', 'Ferramentas e MCPs', 'Input', 'Output', 'Modelo', 'Revisão'],
     icon: <SparklesIcon className="h-6 w-6" />,
     accent: 'from-violet-500/15 to-violet-500/0 text-violet-600 dark:text-violet-400',
   },
@@ -47,9 +49,42 @@ export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModal
       open={open}
       onClose={onClose}
       title="Como você quer começar?"
-      description="Escolha o tipo de agente — você pode trocar de modo depois durante a edição."
+      description="Comece a partir de um modelo pronto ou monte do zero — você pode editar tudo depois."
       size="lg"
     >
+      {/* Templates pré-populados — atalho pro time-to-first-agent.
+          Clique cai em /agentes/novo?mode=basic&template=<key> e o editor
+          hidrata os campos de Profile via templates.ts. */}
+      <div className="mb-5 space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-dim">
+          Comece de um modelo
+        </p>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+          {AGENT_TEMPLATES.map((tpl) => (
+            <button
+              key={tpl.key}
+              type="button"
+              onClick={() => onSelect(tpl.defaultMode, tpl.key)}
+              className={cn(
+                'group flex flex-col items-start gap-2 rounded-xl border border-border bg-surface p-3 text-left transition',
+                'hover:border-accent/40 hover:bg-accent-subtle/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+              )}
+            >
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-subtle text-accent">
+                <AgentIcon className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-sm font-semibold text-fg">{tpl.title}</h4>
+                <p className="mt-0.5 line-clamp-2 text-[11px] text-fg-muted">{tpl.pitch}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-fg-dim">
+        Ou comece em branco
+      </p>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {CHOICES.map((choice) => (
           <button
