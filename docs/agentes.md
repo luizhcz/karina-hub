@@ -69,15 +69,15 @@ public class AgentDefinition : IProjectScoped
 
 | Operação | Método | Endpoint |
 |----------|--------|----------|
-| Criar/Atualizar | `PUT` | `/api/agents/{id}` |
-| Obter | `GET` | `/api/agents/{id}` |
-| Listar | `GET` | `/api/agents` |
-| Deletar | `DELETE` | `/api/agents/{id}` |
-| Validar | `POST` | `/api/agents/{id}/validate` |
-| Rollback | `POST` | `/api/agents/{id}/rollback` |
-| Sandbox | `POST` | `/api/agents/{id}/sandbox` |
-| Comparar versões | `POST` | `/api/agents/{id}/compare` |
-| Versões | `GET` | `/api/agents/{id}/versions` |
+| Criar/Atualizar | `PUT` | `/api/aihub/agents/{id}` |
+| Obter | `GET` | `/api/aihub/agents/{id}` |
+| Listar | `GET` | `/api/aihub/agents` |
+| Deletar | `DELETE` | `/api/aihub/agents/{id}` |
+| Validar | `POST` | `/api/aihub/agents/{id}/validate` |
+| Rollback | `POST` | `/api/aihub/agents/{id}/rollback` |
+| Sandbox | `POST` | `/api/aihub/agents/{id}/sandbox` |
+| Comparar versões | `POST` | `/api/aihub/agents/{id}/compare` |
+| Versões | `GET` | `/api/aihub/agents/{id}/versions` |
 
 ---
 
@@ -271,8 +271,8 @@ public class Skill : IProjectScoped
 
 | Operação | Endpoint |
 |----------|----------|
-| CRUD | `GET/PUT/DELETE /api/skills/{id}` |
-| Versões | `GET /api/skills/{id}/versions` |
+| CRUD | `GET/PUT/DELETE /api/aihub/skills/{id}` |
+| Versões | `GET /api/aihub/skills/{id}/versions` |
 
 ---
 
@@ -330,7 +330,7 @@ Lista completa em `/tools` na UI (com "Usado por N agents" em cada linha).
 
 ### MCP Servers Registry
 
-Agents referenciam MCPs pelo `McpServerId` ao invés de duplicar inline URL, label e allowed tools em cada definição. Ver [`docs/mcp.md`](./mcp.md) para o contrato completo, CRUD via `/api/admin/mcp-servers`, UI em `/mcp-servers` e resolução live pelo `AzureFoundryClientProvider`.
+Agents referenciam MCPs pelo `McpServerId` ao invés de duplicar inline URL, label e allowed tools em cada definição. Ver [`docs/mcp.md`](./mcp.md) para o contrato completo, CRUD via `/api/aihub/admin/mcp-servers`, UI em `/mcp-servers` e resolução live pelo `AzureFoundryClientProvider`.
 
 Não há validação de saúde (health check) no create/update do agent — cadastre MCPs mesmo que o endpoint esteja offline temporariamente.
 
@@ -390,10 +390,10 @@ public class AgentSessionRecord
 
 | Endpoint | Descrição |
 |----------|-----------|
-| `POST /api/agents/{id}/sessions` | Criar sessão |
-| `POST /api/agents/{id}/sessions/{sid}/run` | Turno (blocking) |
-| `POST /api/agents/{id}/sessions/{sid}/stream` | Turno (SSE) |
-| `GET/DELETE /api/agents/{id}/sessions/{sid}` | Get/Delete |
+| `POST /api/aihub/agents/{id}/sessions` | Criar sessão |
+| `POST /api/aihub/agents/{id}/sessions/{sid}/run` | Turno (blocking) |
+| `POST /api/aihub/agents/{id}/sessions/{sid}/stream` | Turno (SSE) |
+| `GET/DELETE /api/aihub/agents/{id}/sessions/{sid}` | Get/Delete |
 
 ### Contexto em Workflows (ChatTurnContext)
 
@@ -859,7 +859,7 @@ SHA256(JSON({
 
 ### Rollback (Determinístico)
 
-**Endpoint:** `POST /api/agents/{id}/rollback`
+**Endpoint:** `POST /api/aihub/agents/{id}/rollback`
 
 ```json
 { "targetVersionId": "version-guid", "changeReason": "Revertendo para v3" }
@@ -886,7 +886,7 @@ SHA256(JSON({
 
 ### Compare
 
-**Endpoint:** `POST /api/agents/{id}/compare`
+**Endpoint:** `POST /api/aihub/agents/{id}/compare`
 
 ```json
 { "versionIdA": "v1-guid", "versionIdB": "v2-guid", "input": "teste" }
@@ -898,9 +898,9 @@ SHA256(JSON({
 
 | Endpoint | Descrição |
 |----------|-----------|
-| `GET /api/agents/{id}/versions` | Lista versões (Revision DESC) |
-| `POST /api/agents/{id}/rollback` | Restaura de snapshot |
-| `POST /api/agents/{id}/compare` | Compara duas versões |
+| `GET /api/aihub/agents/{id}/versions` | Lista versões (Revision DESC) |
+| `POST /api/aihub/agents/{id}/rollback` | Restaura de snapshot |
+| `POST /api/aihub/agents/{id}/compare` | Compara duas versões |
 
 ### Pinning Lossless + Patch Propagation
 
@@ -935,7 +935,7 @@ Owner declara intent no publish via `AgentService.PublishVersionAsync(agentId, b
 
 #### Save-time validation
 
-`WorkflowValidator.ValidateAgentReferencesAsync` valida pin no save: `AgentVersionId` é **obrigatório global** (request sem pin → 400 com mensagem direcionando pra `GET /api/agents/{id}/versions`). Quando o caller omite, `WorkflowService.ResolveDefaultPinsAsync` pré-resolve `current` Published de cada agent ref antes da validação — caller que não declara intent recebe pin "current" automático; PATCH `/api/workflows/{id}/agents/{agentId}/pin` permite migration manual depois. `_versionRepo.GetByIdAsync` confirma existência + `pinned.AgentDefinitionId == agentRef.AgentId` confirma ownership.
+`WorkflowValidator.ValidateAgentReferencesAsync` valida pin no save: `AgentVersionId` é **obrigatório global** (request sem pin → 400 com mensagem direcionando pra `GET /api/aihub/agents/{id}/versions`). Quando o caller omite, `WorkflowService.ResolveDefaultPinsAsync` pré-resolve `current` Published de cada agent ref antes da validação — caller que não declara intent recebe pin "current" automático; PATCH `/api/aihub/workflows/{id}/agents/{agentId}/pin` permite migration manual depois. `_versionRepo.GetByIdAsync` confirma existência + `pinned.AgentDefinitionId == agentRef.AgentId` confirma ownership.
 
 #### Idempotência por ContentHash
 
@@ -964,7 +964,7 @@ Owner declara intent no publish via `AgentService.PublishVersionAsync(agentId, b
 
 Três superfícies no frontend dão visibilidade do estado de pin pra usuário e suportam o fluxo de migration entre versions:
 
-**Notification bell (Header).** `NotificationBell` consome `GET /api/notifications/agent-breaking-changes?days=7` (default 7d, 1-90d). Badge mostra count (cap "9+"); dropdown lista até 50 versions com `BreakingChange=true` publicadas no período, ordenadas por `CreatedAt DESC`. Click na entry navega pra `/agents/{id}/versions`. ResponseCache `Duration=60s` no controller; react-query `refetchInterval=60_000ms` + `staleTime=30_000ms` no client. Falha silenciosa (`isError → return null`) — bell não bloqueia header. Visibilidade respeita `agent_definitions.HasQueryFilter` por tenant + project; user só vê breaking changes de agents que ele pode ver.
+**Notification bell (Header).** `NotificationBell` consome `GET /api/aihub/notifications/agent-breaking-changes?days=7` (default 7d, 1-90d). Badge mostra count (cap "9+"); dropdown lista até 50 versions com `BreakingChange=true` publicadas no período, ordenadas por `CreatedAt DESC`. Click na entry navega pra `/agents/{id}/versions`. ResponseCache `Duration=60s` no controller; react-query `refetchInterval=60_000ms` + `staleTime=30_000ms` no client. Falha silenciosa (`isError → return null`) — bell não bloqueia header. Visibilidade respeita `agent_definitions.HasQueryFilter` por tenant + project; user só vê breaking changes de agents que ele pode ver.
 
 **Tab "Versões dos agentes" (WorkflowEditPage).** Nova tab no editor de workflow ao lado de "Definição". Renderiza um Card por `AgentReference`, com badge de estado:
 
@@ -974,9 +974,9 @@ Três superfícies no frontend dão visibilidade do estado de pin pra usuário e
 | `Patch disponível` (verde) | Pin é ancestor sem breaking entre — propagation já aplica em runtime | Atualizar pin pra current (cosmético, runtime já propaga) |
 | `Bloqueado por breaking` (amarelo) | Pin é ancestor com breaking entre pin e current (`isPinnedBlockedByBreaking=true`) | Ver diff → escolher: pin nova ou manter ancestor |
 
-`DiffModal` (interno à tab) mostra `WorkflowAgentVersionChangeEntry[]` retornado por `GET /api/workflows/{id}/agent-version-status`: lista de revisions entre pin e current com `Revision`, `CreatedAt`, `CreatedBy`, `BreakingChange`, `ChangeReason`. PATCH em `/api/workflows/{id}/agents/{agentId}/pin` body `{ newVersionId, reason? }` aplica nova pin (audit `workflow.agent_version_pinned`).
+`DiffModal` (interno à tab) mostra `WorkflowAgentVersionChangeEntry[]` retornado por `GET /api/aihub/workflows/{id}/agent-version-status`: lista de revisions entre pin e current com `Revision`, `CreatedAt`, `CreatedBy`, `BreakingChange`, `ChangeReason`. PATCH em `/api/aihub/workflows/{id}/agents/{agentId}/pin` body `{ newVersionId, reason? }` aplica nova pin (audit `workflow.agent_version_pinned`).
 
-**Modal "Publicar versão" (AgentVersionsPage).** Botão no header da página de versions abre `PublishVersionModal`. Form simples: checkbox `Breaking change` + textarea `Motivo da mudança` (validação inline: se breaking ticado, motivo é obrigatório e não pode ser whitespace-only). Submit chama `POST /api/agents/{id}/versions` body `{ breakingChange, changeReason }`. Backend roda `AgentService.PublishVersionAsync` — idempotência por ContentHash, audit `agent.version_published` apenas em publish efetivo. Modal exibe revision + ContentHash retornados em sucesso; erros (e.g. ChangeReason ausente em breaking) surfacam inline.
+**Modal "Publicar versão" (AgentVersionsPage).** Botão no header da página de versions abre `PublishVersionModal`. Form simples: checkbox `Breaking change` + textarea `Motivo da mudança` (validação inline: se breaking ticado, motivo é obrigatório e não pode ser whitespace-only). Submit chama `POST /api/aihub/agents/{id}/versions` body `{ breakingChange, changeReason }`. Backend roda `AgentService.PublishVersionAsync` — idempotência por ContentHash, audit `agent.version_published` apenas em publish efetivo. Modal exibe revision + ContentHash retornados em sucesso; erros (e.g. ChangeReason ausente em breaking) surfacam inline.
 
 **Audit log filterable por action.** [AdminAuditPage](../frontend/src/features/audit/AdminAuditPage.tsx) inclui filtro `Ação` com whitelist das actions canônicas (`create`/`update`/`delete` + `agent.version_published` + `workflow.agent_version_pinned` + `agent.visibility_changed` + `workflow.visibility_changed` + `cross_project_invoke`). `AdminAuditEntry.action` é `string` no client (não union) pra acomodar evolução do `AdminAuditActions` sem coupling de tipo.
 
@@ -1030,16 +1030,16 @@ Index parcial `IX_agent_drafts_TenantId_Status WHERE Status='PendingApproval'` a
 
 | Método | Rota | Comportamento |
 |---|---|---|
-| `POST /api/agent-drafts` | Cria draft (Status=Draft). Owner-scoped. |
-| `PUT /api/agent-drafts/{id}` | Edita. Status=PendingApproval rejeita 409. Status=Rejected → limpa feedback + volta pra Draft. Optimistic via `expectedUpdatedAt`. |
-| `DELETE /api/agent-drafts/{id}` | Owner descarta. |
-| `POST /api/agent-drafts/{id}/submit` | Draft\|Rejected → PendingApproval. Stamp `SubmittedAt`. Audit `agent.draft_submitted` + history `Submitted`/`Resubmitted`. |
-| `POST /api/agents/{id}/edit-draft` | Forka agent publicado pra edit-draft (BaseAgentId/BaseRevision setados). |
-| `GET /api/agent-approvals?status=pending\|rejected` | Lista do tenant inteiro (cross-project, bypass query filter). Default `pending`. Status inválido → 400. |
-| `GET /api/agent-approvals/{id}` | Detalhe tenant-scope. |
-| `POST /api/agent-approvals/{id}/approve` | Promove a `agent_definitions` + AgentVersion (Revision=1 ou MAX+1). Audit `agent.draft_approved` + history `Approved`. Detecta race de re-publish via BaseRevision (409). |
-| `POST /api/agent-approvals/{id}/reject` | Body `{ feedback: string (>=10 chars) }`. PendingApproval → Rejected. Audit `agent.draft_rejected` + history `Rejected`. |
-| `GET /api/agent-approvals/{id}/history` | Timeline append-only. |
+| `POST /api/aihub/agent-drafts` | Cria draft (Status=Draft). Owner-scoped. |
+| `PUT /api/aihub/agent-drafts/{id}` | Edita. Status=PendingApproval rejeita 409. Status=Rejected → limpa feedback + volta pra Draft. Optimistic via `expectedUpdatedAt`. |
+| `DELETE /api/aihub/agent-drafts/{id}` | Owner descarta. |
+| `POST /api/aihub/agent-drafts/{id}/submit` | Draft\|Rejected → PendingApproval. Stamp `SubmittedAt`. Audit `agent.draft_submitted` + history `Submitted`/`Resubmitted`. |
+| `POST /api/aihub/agents/{id}/edit-draft` | Forka agent publicado pra edit-draft (BaseAgentId/BaseRevision setados). |
+| `GET /api/aihub/agent-approvals?status=pending\|rejected` | Lista do tenant inteiro (cross-project, bypass query filter). Default `pending`. Status inválido → 400. |
+| `GET /api/aihub/agent-approvals/{id}` | Detalhe tenant-scope. |
+| `POST /api/aihub/agent-approvals/{id}/approve` | Promove a `agent_definitions` + AgentVersion (Revision=1 ou MAX+1). Audit `agent.draft_approved` + history `Approved`. Detecta race de re-publish via BaseRevision (409). |
+| `POST /api/aihub/agent-approvals/{id}/reject` | Body `{ feedback: string (>=10 chars) }`. PendingApproval → Rejected. Audit `agent.draft_rejected` + history `Rejected`. |
+| `GET /api/aihub/agent-approvals/{id}/history` | Timeline append-only. |
 
 ### Permissions (MVP)
 
@@ -1112,12 +1112,12 @@ AgentService.UpdateAsync(definition com novo Instructions)
 
 | Endpoint | Método | Descrição |
 |----------|--------|-----------|
-| `/api/agents/{id}/prompts` | GET | Lista todas as versões com flag IsActive |
-| `/api/agents/{id}/prompts/active` | GET | Retorna conteúdo da versão ativa |
-| `/api/agents/{id}/prompts` | POST | Cria/atualiza versão `{ versionId, content }` |
-| `/api/agents/{id}/prompts/master` | PUT | Ativa versão `{ versionId }` |
-| `/api/agents/{id}/prompts/master` | DELETE | Desativa todas (fallback: Instructions base) |
-| `/api/agents/{id}/prompts/{versionId}` | DELETE | Remove versão não-ativa |
+| `/api/aihub/agents/{id}/prompts` | GET | Lista todas as versões com flag IsActive |
+| `/api/aihub/agents/{id}/prompts/active` | GET | Retorna conteúdo da versão ativa |
+| `/api/aihub/agents/{id}/prompts` | POST | Cria/atualiza versão `{ versionId, content }` |
+| `/api/aihub/agents/{id}/prompts/master` | PUT | Ativa versão `{ versionId }` |
+| `/api/aihub/agents/{id}/prompts/master` | DELETE | Desativa todas (fallback: Instructions base) |
+| `/api/aihub/agents/{id}/prompts/{versionId}` | DELETE | Remove versão não-ativa |
 
 ### Invalidação de Cache
 
@@ -1193,14 +1193,14 @@ public sealed class MockedAIFunction : AIFunction
 
 | Endpoint | Descrição |
 |----------|-----------|
-| `POST /api/agents/{id}/sandbox` | Testa agente isolado com input |
-| `POST /api/agents/{id}/compare` | Compara duas versões (sandbox) |
-| `POST /api/workflows/{id}/sandbox` | Executa workflow em sandbox |
+| `POST /api/aihub/agents/{id}/sandbox` | Testa agente isolado com input |
+| `POST /api/aihub/agents/{id}/compare` | Compara duas versões (sandbox) |
+| `POST /api/aihub/workflows/{id}/sandbox` | Executa workflow em sandbox |
 
 ### Request
 
 ```json
-POST /api/agents/{id}/sandbox
+POST /api/aihub/agents/{id}/sandbox
 {
   "input": "Analise PETR4",
   "mockTools": ["buscar_ativo"]  // Opcional: apenas estas são mockadas
@@ -1513,7 +1513,7 @@ public enum ErrorCategory
 ### 1. Defina via API
 
 ```bash
-curl -X PUT /api/agents/meu-agente -d '{
+curl -X PUT /api/aihub/agents/meu-agente -d '{
   "id": "meu-agente",
   "name": "Meu Agente",
   "model": { "deploymentName": "gpt-4o", "temperature": 0.7 },
@@ -1541,7 +1541,7 @@ registry.Register("minha_tool", AIFunctionFactory.Create(funcs.MinhaFunction));
 ### 3. (Opcional) Crie Skills reutilizáveis
 
 ```bash
-curl -X PUT /api/skills/skill-mercado -d '{
+curl -X PUT /api/aihub/skills/skill-mercado -d '{
   "id": "skill-mercado",
   "name": "Dados de Mercado",
   "instructionsAddendum": "Use as tools de mercado quando solicitado.",
@@ -1565,10 +1565,10 @@ curl -X PUT /api/skills/skill-mercado -d '{
 ### 5. Ou use Standalone
 
 ```bash
-curl -X POST /api/agents/meu-agente/sessions
+curl -X POST /api/aihub/agents/meu-agente/sessions
 # → { "sessionId": "sess-123" }
 
-curl -X POST /api/agents/meu-agente/sessions/sess-123/run \
+curl -X POST /api/aihub/agents/meu-agente/sessions/sess-123/run \
   -d '{ "message": "Analise PETR4" }'
 # → { "response": "...", "turnCount": 1 }
 ```
@@ -1576,7 +1576,7 @@ curl -X POST /api/agents/meu-agente/sessions/sess-123/run \
 ### 6. Teste em Sandbox
 
 ```bash
-curl -X POST /api/agents/meu-agente/sandbox \
+curl -X POST /api/aihub/agents/meu-agente/sandbox \
   -d '{ "input": "Analise PETR4", "mockTools": null }'
 ```
 
@@ -1619,7 +1619,7 @@ curl -X POST /api/agents/meu-agente/sandbox \
 | `resumo` | string | Resumo do fato relevante |
 
 ```json
-PUT /api/agents/classificador-fato-relevante
+PUT /api/aihub/agents/classificador-fato-relevante
 {
   "id": "classificador-fato-relevante",
   "name": "Classificador de Fato Relevante",
@@ -1762,7 +1762,7 @@ Configuração em `appsettings.json`:
 - Métrica `persona.resolution.duration_ms` (Histogram, tag `outcome=cache_hit_l1|cache_hit_l2|api_hit|fallback`)
 - Métrica `persona.resolution.failures` (Counter) — API indisponível
 - Métrica `persona.prompt.compose.chars` (Histogram) — detecta inchaço acidental
-- Endpoint admin: `GET /api/admin/personas/{userId}` (debug) e `POST /api/admin/personas/{userId}/invalidate` (LGPD/refresh)
+- Endpoint admin: `GET /api/aihub/admin/personas/{userId}` (debug) e `POST /api/aihub/admin/personas/{userId}/invalidate` (LGPD/refresh)
 
 ### Não-objetivos (backlog)
 
@@ -1842,10 +1842,10 @@ Configuração em `appsettings.json`:
 
 ### API
 
-- `PATCH /api/agents/{id}/visibility` body `{visibility, reason?}` — endpoint dedicado com audit `agent.visibility_changed`.
+- `PATCH /api/aihub/agents/{id}/visibility` body `{visibility, reason?}` — endpoint dedicado com audit `agent.visibility_changed`.
 - Owner gate: somente o `ProjectId` dono pode alterar visibility (caller de outro projeto recebe `403`, mensagem genérica sem expor o ProjectId real).
 - Idempotência: re-marcar pra mesmo valor é no-op.
-- `GET /api/agents` retorna agents do projeto + globais do tenant.
+- `GET /api/aihub/agents` retorna agents do projeto + globais do tenant.
 - `AgentResponse` expõe `visibility`, `originProjectId`, `originTenantId`.
 
 ### Persistence
@@ -1957,11 +1957,11 @@ Query filter EF Core strict: `e.ProjectId == CurrentProjectId` — sem cláusula
 
 | Endpoint | Comportamento |
 |---|---|
-| `POST /api/generic-tools` | Cria tool. Validações: placeholders `{x}` ↔ PathParams bijetivos, headers reservados, FormUrl plano, GET força InputContentType=None, timeout ≤ MaxTimeoutSeconds. 400/409. |
-| `GET /api/generic-tools` | Lista do projeto atual. |
-| `GET /api/generic-tools/{id}` | 200/404. Owner-only. |
-| `PUT /api/generic-tools/{id}` | Optimistic concurrency via `expectedUpdatedAt`. 200/400/404/409/412. |
-| `DELETE /api/generic-tools/{id}` | 204/404. Agents que referenciam perdem o tool graciosamente em runtime. |
+| `POST /api/aihub/generic-tools` | Cria tool. Validações: placeholders `{x}` ↔ PathParams bijetivos, headers reservados, FormUrl plano, GET força InputContentType=None, timeout ≤ MaxTimeoutSeconds. 400/409. |
+| `GET /api/aihub/generic-tools` | Lista do projeto atual. |
+| `GET /api/aihub/generic-tools/{id}` | 200/404. Owner-only. |
+| `PUT /api/aihub/generic-tools/{id}` | Optimistic concurrency via `expectedUpdatedAt`. 200/400/404/409/412. |
+| `DELETE /api/aihub/generic-tools/{id}` | 204/404. Agents que referenciam perdem o tool graciosamente em runtime. |
 
 ### Integração com Agents
 
@@ -2029,13 +2029,13 @@ Sem `ProjectId`/`TenantId` — catálogo é cross-tenant, único pra todo o depl
 
 | Endpoint | Comportamento |
 |---|---|
-| `POST /api/admin/predefined-models` | Cria preset. Admin-gated. 400/409. |
-| `GET /api/admin/predefined-models` | Lista todos (`?includeDisabled=true` default). Admin-gated. |
-| `GET /api/admin/predefined-models/{id}` | Lê preset (inclui disabled). Admin-gated. |
-| `PUT /api/admin/predefined-models/{id}` | Optimistic concurrency via `expectedUpdatedAt`. 200/400/404/412. |
-| `DELETE /api/admin/predefined-models/{id}` | Remove. Agents referenciando falham ao invocar. |
-| `GET /api/predefined-models` | Público (whitelisted no AdminGate). Apenas Enabled=true. |
-| `GET /api/predefined-models/{id}` | Público. 404 quando disabled. |
+| `POST /api/aihub/admin/predefined-models` | Cria preset. Admin-gated. 400/409. |
+| `GET /api/aihub/admin/predefined-models` | Lista todos (`?includeDisabled=true` default). Admin-gated. |
+| `GET /api/aihub/admin/predefined-models/{id}` | Lê preset (inclui disabled). Admin-gated. |
+| `PUT /api/aihub/admin/predefined-models/{id}` | Optimistic concurrency via `expectedUpdatedAt`. 200/400/404/412. |
+| `DELETE /api/aihub/admin/predefined-models/{id}` | Remove. Agents referenciando falham ao invocar. |
+| `GET /api/aihub/predefined-models` | Público (whitelisted no AdminGate). Apenas Enabled=true. |
+| `GET /api/aihub/predefined-models/{id}` | Público. 404 quando disabled. |
 
 ### Integração com Agents (Reference)
 
@@ -2053,7 +2053,7 @@ Sem `ProjectId`/`TenantId` — catálogo é cross-tenant, único pra todo o depl
 
 `ModelSection` no `AgentForm` tem dois modos:
 
-- **Simples (default)**: dropdown populado por `GET /api/predefined-models` (filtro Enabled=true). Selecionar preset mostra Description + provider/deployment técnico abaixo.
+- **Simples (default)**: dropdown populado por `GET /api/aihub/predefined-models` (filtro Enabled=true). Selecionar preset mostra Description + provider/deployment técnico abaixo.
 - **Avançado**: campos crus (Provider Select, ClientType, DeploymentName, Temperature slider, MaxTokens). Ao trocar pra avançado com preset selecionado, os campos são pré-populados com valores do preset e `predefinedModelId` é limpo — agent vira custom.
 
 Estado de `advancedMode` é **local da página** (não persiste). Default em edit:

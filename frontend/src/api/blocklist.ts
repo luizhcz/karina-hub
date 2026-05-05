@@ -75,7 +75,7 @@ export interface BlocklistViolationRow {
   contextObfuscated?: string
 }
 
-// ── Request shape (PUT /api/projects/{id}/blocklist) ───────────────────────────
+// ── Request shape (PUT /api/aihub/projects/{id}/blocklist) ───────────────────────────
 
 export type UpdateBlocklistRequest = BlocklistSettings
 

@@ -25,7 +25,7 @@ public class ModelCatalogTests(IntegrationWebApplicationFactory factory) : IAsyn
     [Fact]
     public async Task GetAll_Retorna200()
     {
-        var response = await _client.GetAsync("/api/model-catalog");
+        var response = await _client.GetAsync("/api/aihub/model-catalog");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -36,7 +36,7 @@ public class ModelCatalogTests(IntegrationWebApplicationFactory factory) : IAsyn
     public async Task Post_CriaModelo_Retorna200()
     {
         var id = $"model-{Guid.NewGuid():N}";
-        var response = await _client.PostAsJsonAsync("/api/model-catalog", BuildModel(id));
+        var response = await _client.PostAsJsonAsync("/api/aihub/model-catalog", BuildModel(id));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -46,7 +46,7 @@ public class ModelCatalogTests(IntegrationWebApplicationFactory factory) : IAsyn
     [Fact]
     public async Task Post_SemIdOuProvider_Retorna400()
     {
-        var response = await _client.PostAsJsonAsync("/api/model-catalog", new { displayName = "No Id" });
+        var response = await _client.PostAsJsonAsync("/api/aihub/model-catalog", new { displayName = "No Id" });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -55,9 +55,9 @@ public class ModelCatalogTests(IntegrationWebApplicationFactory factory) : IAsyn
     public async Task GetById_ModeloExistente_Retorna200()
     {
         var id = $"model-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/model-catalog", BuildModel(id, "OPENAI"));
+        await _client.PostAsJsonAsync("/api/aihub/model-catalog", BuildModel(id, "OPENAI"));
 
-        var response = await _client.GetAsync($"/api/model-catalog/OPENAI/{id}");
+        var response = await _client.GetAsync($"/api/aihub/model-catalog/OPENAI/{id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -67,7 +67,7 @@ public class ModelCatalogTests(IntegrationWebApplicationFactory factory) : IAsyn
     [Fact]
     public async Task GetById_Inexistente_Retorna404()
     {
-        var response = await _client.GetAsync($"/api/model-catalog/OPENAI/nao-existe-xyz-999");
+        var response = await _client.GetAsync($"/api/aihub/model-catalog/OPENAI/nao-existe-xyz-999");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -77,10 +77,10 @@ public class ModelCatalogTests(IntegrationWebApplicationFactory factory) : IAsyn
     {
         var id1 = $"model-{Guid.NewGuid():N}";
         var id2 = $"model-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/model-catalog", BuildModel(id1, "OPENAI"));
-        await _client.PostAsJsonAsync("/api/model-catalog", BuildModel(id2, "AZUREOPENAI"));
+        await _client.PostAsJsonAsync("/api/aihub/model-catalog", BuildModel(id1, "OPENAI"));
+        await _client.PostAsJsonAsync("/api/aihub/model-catalog", BuildModel(id2, "AZUREOPENAI"));
 
-        var response = await _client.GetAsync("/api/model-catalog?provider=OPENAI");
+        var response = await _client.GetAsync("/api/aihub/model-catalog?provider=OPENAI");
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
 
         body.ValueKind.Should().Be(JsonValueKind.Array);
@@ -94,9 +94,9 @@ public class ModelCatalogTests(IntegrationWebApplicationFactory factory) : IAsyn
     public async Task Delete_SoftDelete_Retorna204()
     {
         var id = $"model-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/model-catalog", BuildModel(id));
+        await _client.PostAsJsonAsync("/api/aihub/model-catalog", BuildModel(id));
 
-        var response = await _client.DeleteAsync($"/api/model-catalog/OPENAI/{id}");
+        var response = await _client.DeleteAsync($"/api/aihub/model-catalog/OPENAI/{id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
@@ -104,7 +104,7 @@ public class ModelCatalogTests(IntegrationWebApplicationFactory factory) : IAsyn
     [Fact]
     public async Task Delete_Inexistente_Retorna404()
     {
-        var response = await _client.DeleteAsync("/api/model-catalog/OPENAI/nao-existe-xyz-999");
+        var response = await _client.DeleteAsync("/api/aihub/model-catalog/OPENAI/nao-existe-xyz-999");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }

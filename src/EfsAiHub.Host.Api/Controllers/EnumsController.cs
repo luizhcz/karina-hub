@@ -7,7 +7,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/enums")]
+[Route("api/aihub/enums")]
 [Produces("application/json")]
 public class EnumsController : ControllerBase
 {

@@ -17,7 +17,7 @@ public class GenericToolSchemaBuilderTests
             TenantId = "t",
             Name = "x",
             HttpMethod = HttpMethodType.GET,
-            UrlTemplate = "https://api/{tenant}/users/{id}",
+            UrlTemplate = "https://api/aihub/{tenant}/users/{id}",
             PathParams = new Dictionary<string, ParamDefinition>
             {
                 ["tenant"] = new("string", "tenant slug", true),
@@ -48,7 +48,7 @@ public class GenericToolSchemaBuilderTests
             TenantId = "t",
             Name = "x",
             HttpMethod = HttpMethodType.GET,
-            UrlTemplate = "https://api/search",
+            UrlTemplate = "https://api/aihub/search",
             QueryParams = new Dictionary<string, ParamDefinition>
             {
                 ["q"] = new("string", "term", true),
@@ -74,7 +74,7 @@ public class GenericToolSchemaBuilderTests
             TenantId = "t",
             Name = "x",
             HttpMethod = HttpMethodType.POST,
-            UrlTemplate = "https://api/post",
+            UrlTemplate = "https://api/aihub/post",
             InputContentType = InputContentType.Json,
             InputSchema = """
                 {
@@ -110,7 +110,7 @@ public class GenericToolSchemaBuilderTests
             TenantId = "t",
             Name = "x",
             HttpMethod = HttpMethodType.POST,
-            UrlTemplate = "https://api/post",
+            UrlTemplate = "https://api/aihub/post",
             InputContentType = InputContentType.Text,
             InputSchema = "{\"type\":\"object\",\"properties\":{\"raw\":{\"type\":\"string\"}}}",
             OutputContentType = OutputContentType.Text,
@@ -134,7 +134,7 @@ public class GenericToolSchemaBuilderTests
             TenantId = "t",
             Name = "x",
             HttpMethod = HttpMethodType.POST,
-            UrlTemplate = "https://api/post",
+            UrlTemplate = "https://api/aihub/post",
             InputContentType = InputContentType.Text,
             InputSchema = null,
             OutputContentType = OutputContentType.Text,
@@ -156,7 +156,7 @@ public class GenericToolSchemaBuilderTests
             TenantId = "t",
             Name = "x",
             HttpMethod = HttpMethodType.POST,
-            UrlTemplate = "https://api/users/{id}",
+            UrlTemplate = "https://api/aihub/users/{id}",
             PathParams = new Dictionary<string, ParamDefinition>
             {
                 ["id"] = new("string", "user id", true),

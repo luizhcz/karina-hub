@@ -8,7 +8,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/admin/model-pricing")]
+[Route("api/aihub/admin/model-pricing")]
 [Produces("application/json")]
 public class ModelPricingController : ControllerBase
 {
@@ -58,6 +58,11 @@ public class ModelPricingController : ControllerBase
     [ProducesResponseType(typeof(ModelPricing), StatusCodes.Status200OK)]
     public async Task<IActionResult> Upsert([FromBody] ModelPricingRequest request, CancellationToken ct)
     {
+        // Frontend manda "YYYY-MM-DD" do <input type="date">; System.Text.Json
+        // parseia como DateTime com Kind=Unspecified. Postgres timestamptz
+        // (EffectiveFrom/EffectiveTo) só aceita Kind=Utc. Normalizamos aqui em
+        // vez de espalhar nos clientes — qualquer formato sem timezone vira UTC
+        // assumindo midnight (semantics esperadas: "a partir do dia X às 00:00 UTC").
         var pricing = new ModelPricing
         {
             Id = request.Id ?? 0,
@@ -66,8 +71,10 @@ public class ModelPricingController : ControllerBase
             PricePerInputToken = request.PricePerInputToken,
             PricePerOutputToken = request.PricePerOutputToken,
             Currency = request.Currency ?? "USD",
-            EffectiveFrom = request.EffectiveFrom,
-            EffectiveTo = request.EffectiveTo
+            EffectiveFrom = NormalizeToUtc(request.EffectiveFrom),
+            EffectiveTo = request.EffectiveTo.HasValue
+                ? NormalizeToUtc(request.EffectiveTo.Value)
+                : null
         };
 
         // Id=0 = create (Postgres gera identity); Id>0 = update.
@@ -105,6 +112,15 @@ public class ModelPricingController : ControllerBase
             payloadBefore: AdminAuditContext.Snapshot(existing)), ct);
         return NoContent();
     }
+
+    private static DateTime NormalizeToUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        // Unspecified: presumir UTC. Cliente já mandou data isenta de timezone
+        // (YYYY-MM-DD) — não há informação pra "ToUniversalTime", apenas marcamos.
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+    };
 
     [HttpPost("refresh-view")]
     [SwaggerOperation(Summary = "Atualiza a materialized view v_llm_cost com dados mais recentes")]

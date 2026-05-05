@@ -8,7 +8,7 @@ export interface AgentToolDef {
   requiresApproval?: boolean
   /**
    * Id-based reference (preferido) para MCP tools — aponta para registro em
-   * /api/admin/mcp-servers. Quando presente, serverLabel/serverUrl/allowedTools/headers
+   * /api/aihub/admin/mcp-servers. Quando presente, serverLabel/serverUrl/allowedTools/headers
    * são resolvidos em runtime pelo backend (mudanças no registry propagam).
    */
   mcpServerId?: string
@@ -108,6 +108,17 @@ export interface CreateAgentRequest {
   allowedProjectIds?: string[] | null
 }
 
+/**
+ * Body do PUT /api/aihub/agents/{id}. Estende CreateAgentRequest exigindo
+ * <c>changeReason</c> (min 10 chars no backend) — toda atualização gera
+ * AdminOverride em agent_approval_history pra trilha de governança.
+ * <c>breakingChange=true</c> exige changeReason (já é required aqui).
+ */
+export interface UpdateAgentRequest extends CreateAgentRequest {
+  changeReason: string
+  breakingChange?: boolean
+}
+
 export interface AgentValidationResult {
   isValid: boolean
   errors: string[]
@@ -121,7 +132,7 @@ export interface AgentVersion {
 }
 
 /**
- * Resposta detalhada de version (POST /api/agents/{id}/versions).
+ * Resposta detalhada de version (POST /api/aihub/agents/{id}/versions).
  * Subset dos campos do AgentVersionResponse backend — apenas os usados pela UI
  * (toast com versionId+revision, badge de breaking). Snapshots completos
  * (Model, Provider, Tools, etc) são consumidos via outros endpoints.
@@ -161,7 +172,7 @@ export const KEYS = {
 export const getAgents = () => get<AgentDef[]>('/agents')
 export const getAgent = (id: string) => get<AgentDef>(`/agents/${id}`)
 export const createAgent = (body: CreateAgentRequest) => post<AgentDef>('/agents', body)
-export const updateAgent = (id: string, body: CreateAgentRequest) => put<AgentDef>(`/agents/${id}`, body)
+export const updateAgent = (id: string, body: UpdateAgentRequest) => put<AgentDef>(`/agents/${id}`, body)
 export const deleteAgent = (id: string) => del(`/agents/${id}`)
 export const validateAgent = (id: string) => post<AgentValidationResult>(`/agents/${id}/validate`)
 export const getAgentVersions = (id: string) => get<AgentVersion[]>(`/agents/${id}/versions`)
@@ -205,7 +216,7 @@ export function useCreateAgent() {
 export function useUpdateAgent() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: CreateAgentRequest }) => updateAgent(id, body),
+    mutationFn: ({ id, body }: { id: string; body: UpdateAgentRequest }) => updateAgent(id, body),
     onSuccess: (_d, { id }) => {
       qc.invalidateQueries({ queryKey: KEYS.all })
       qc.invalidateQueries({ queryKey: KEYS.detail(id) })

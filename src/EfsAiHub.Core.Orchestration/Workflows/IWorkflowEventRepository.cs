@@ -10,4 +10,10 @@ public interface IWorkflowEventRepository
 
     /// <summary>Busca um evento pelo SequenceId (PK). Usado pelo outbox para resolver referências do NOTIFY.</summary>
     Task<WorkflowEventEnvelope?> GetBySequenceIdAsync(long sequenceId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Lê eventos com SequenceId &gt; since, ordenados ASC, até limit. Cursor-based,
+    /// usado pelos endpoints de polling fallback HTTP (alternativa a SSE).
+    /// </summary>
+    Task<IReadOnlyList<WorkflowEventEnvelope>> GetSinceAsync(string executionId, long since, int limit, CancellationToken ct = default);
 }

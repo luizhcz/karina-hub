@@ -5,7 +5,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/analytics")]
+[Route("api/aihub/analytics")]
 [Produces("application/json")]
 public class AnalyticsController : ControllerBase
 {

@@ -145,7 +145,7 @@ export function ChatWindowPage() {
      */
     const openStream = async (isReconnect: boolean): Promise<Response> => {
       if (!isReconnect) {
-        return fetch('/api/chat/ag-ui/stream', {
+        return fetch('/api/aihub/chat/ag-ui/stream', {
           method: 'POST',
           headers: makeHeaders(conversation?.workflowId),
           body: JSON.stringify({
@@ -160,7 +160,7 @@ export function ChatWindowPage() {
       reconnectHeaders['Accept'] = 'text/event-stream'
       reconnectHeaders['x-thread-id'] = id
       if (lastEventIdRef.current) reconnectHeaders['Last-Event-ID'] = lastEventIdRef.current
-      return fetch(`/api/chat/ag-ui/reconnect/${runIdRef.current}`, {
+      return fetch(`/api/aihub/chat/ag-ui/reconnect/${runIdRef.current}`, {
         method: 'GET',
         headers: reconnectHeaders,
       })
@@ -419,7 +419,7 @@ export function ChatWindowPage() {
   const handleCancel = async () => {
     if (!currentRunId) return
     try {
-      await fetch('/api/chat/ag-ui/cancel', {
+      await fetch('/api/aihub/chat/ag-ui/cancel', {
         method: 'POST',
         headers: makeHeaders(),
         body: JSON.stringify({ executionId: currentRunId }),

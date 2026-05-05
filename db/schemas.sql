@@ -177,7 +177,7 @@ CREATE INDEX IF NOT EXISTS "IX_agent_approval_history_DraftId"
     ON aihub.agent_approval_history ("DraftId");
 
 -- Hot path do endpoint de histórico unificado por agent
--- (GET /api/agents/{id}/approval-history). Drafts são deletados após approve,
+-- (GET /api/aihub/agents/{id}/approval-history). Drafts são deletados após approve,
 -- então DraftId não serve pra lookup pós-publish — daí a coluna dedicada
 -- AgentDefinitionId, populada no momento do Submitted/Approved/Rejected/
 -- AutoApproved/AdminOverride.
@@ -407,6 +407,12 @@ CREATE INDEX IF NOT EXISTS "IX_workflow_executions_StartedAt"
 
 CREATE INDEX IF NOT EXISTS "IX_workflow_executions_WorkflowId_Status_StartedAt"
     ON aihub.workflow_executions ("WorkflowId", "Status", "StartedAt" DESC);
+
+-- Dashboard analytics: agregações de execução por projeto+período
+-- (ProjectAnalyticsRepository). INCLUDE evita heap fetch nos campos lidos.
+CREATE INDEX IF NOT EXISTS "IX_workflow_executions_ProjectId_StartedAt"
+    ON aihub.workflow_executions ("ProjectId", "StartedAt")
+    INCLUDE ("Status", "WorkflowId");
 
 -- =============================================================================
 -- 7. NÓS DE EXECUÇÃO (Graph mode)
@@ -669,6 +675,15 @@ CREATE INDEX IF NOT EXISTS ix_llm_token_usage_project_created
 -- Analytics dual: "qual projeto pagou X tokens com agent global de Y".
 CREATE INDEX IF NOT EXISTS "IX_llm_token_usage_caller_origin"
     ON aihub.llm_token_usage ("ProjectId", "OriginAgentProjectId", "CreatedAt" DESC);
+
+-- Dashboard analytics: agregações por projeto+período no
+-- ProjectAnalyticsRepository. INCLUDE cobre os campos lidos sem heap fetch
+-- (TotalTokens/DurationMs/ModelId). Partial em ProjectId IS NOT NULL evita
+-- inflar o índice com rows legadas pré-fix do AsyncLocal de propagação.
+CREATE INDEX IF NOT EXISTS "IX_llm_token_usage_ProjectId_CreatedAt"
+    ON aihub.llm_token_usage ("ProjectId", "CreatedAt")
+    INCLUDE ("ModelId", "TotalTokens", "DurationMs")
+    WHERE "ProjectId" IS NOT NULL;
 
 -- =============================================================================
 -- 15. OBSERVABILIDADE — INVOCAÇÕES DE TOOLS

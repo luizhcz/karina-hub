@@ -9,7 +9,7 @@ public class ResponsesTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Post_SemAgentId_Retorna400()
     {
-        var response = await _client.PostAsJsonAsync("/api/responses", new { input = "hello" });
+        var response = await _client.PostAsJsonAsync("/api/aihub/responses", new { input = "hello" });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -17,7 +17,7 @@ public class ResponsesTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Post_Valido_Retorna202ComJobId()
     {
-        var response = await _client.PostAsJsonAsync("/api/responses", new
+        var response = await _client.PostAsJsonAsync("/api/aihub/responses", new
         {
             agentId = $"agent-resp-{Guid.NewGuid():N}",
             input = "Hello from integration test"
@@ -30,7 +30,7 @@ public class ResponsesTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task GetJob_Criado_Retorna200()
     {
-        var postResp = await _client.PostAsJsonAsync("/api/responses", new
+        var postResp = await _client.PostAsJsonAsync("/api/aihub/responses", new
         {
             agentId = $"agent-resp-{Guid.NewGuid():N}",
             input = "Hello"
@@ -45,7 +45,7 @@ public class ResponsesTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task GetJob_Inexistente_Retorna404()
     {
-        var response = await _client.GetAsync($"/api/responses/{Guid.NewGuid()}");
+        var response = await _client.GetAsync($"/api/aihub/responses/{Guid.NewGuid()}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -53,7 +53,7 @@ public class ResponsesTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Cancel_JobCriado_Retorna204()
     {
-        var postResp = await _client.PostAsJsonAsync("/api/responses", new
+        var postResp = await _client.PostAsJsonAsync("/api/aihub/responses", new
         {
             agentId = $"agent-resp-{Guid.NewGuid():N}",
             input = "Hello"
@@ -61,7 +61,7 @@ public class ResponsesTests(IntegrationWebApplicationFactory factory)
         var location = postResp.Headers.Location!;
         var jobId = location.ToString().Split('/').Last();
 
-        var response = await _client.PostAsync($"/api/responses/{jobId}:cancel", null);
+        var response = await _client.PostAsync($"/api/aihub/responses/{jobId}:cancel", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
@@ -69,7 +69,7 @@ public class ResponsesTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Cancel_JobInexistente_Retorna404()
     {
-        var response = await _client.PostAsync($"/api/responses/{Guid.NewGuid()}:cancel", null);
+        var response = await _client.PostAsync($"/api/aihub/responses/{Guid.NewGuid()}:cancel", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }

@@ -51,7 +51,7 @@ AG-UI (Agent User Interface) é o protocolo de streaming real-time do EfsAiHub. 
 ```
 Frontend (Browser/App)
     │
-    │ POST /api/chat/ag-ui/stream
+    │ POST /api/aihub/chat/ag-ui/stream
     │ ← SSE (text/event-stream)
     │
     ▼
@@ -83,10 +83,10 @@ src/EfsAiHub.Host.Api/Chat/AgUi/AgUiEndpoints.cs
 
 | Método | Path | Content-Type | Descrição |
 |--------|------|-------------|-----------|
-| POST | `/api/chat/ag-ui/stream` | `text/event-stream` | Inicia run + abre stream SSE |
-| POST | `/api/chat/ag-ui/cancel` | `application/json` | Cancela execução em andamento |
-| POST | `/api/chat/ag-ui/resolve-hitl` | `application/json` | Resolve HITL sem novo stream |
-| GET | `/api/chat/ag-ui/reconnect/{executionId}` | `text/event-stream` | Reconexão com replay |
+| POST | `/api/aihub/chat/ag-ui/stream` | `text/event-stream` | Inicia run + abre stream SSE |
+| POST | `/api/aihub/chat/ag-ui/cancel` | `application/json` | Cancela execução em andamento |
+| POST | `/api/aihub/chat/ag-ui/resolve-hitl` | `application/json` | Resolve HITL sem novo stream |
+| GET | `/api/aihub/chat/ag-ui/reconnect/{executionId}` | `text/event-stream` | Reconexão com replay |
 
 ### POST /stream — Request
 
@@ -137,7 +137,7 @@ continuam funcionando.
 3. Frontend chama backend EXTERNO (não EFS AI Hub) com auth próprio.
 4. Backend externo responde { "saldo": 12480.33 }.
 5. Frontend posta no AG-UI:
-     POST /api/chat/ag-ui/stream
+     POST /api/aihub/chat/ag-ui/stream
      {
        "messages": [
          ...histórico...,
@@ -362,7 +362,7 @@ public sealed record AgUiMessage(
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ 1. ENTRADA: POST /api/chat/ag-ui/stream             │
+│ 1. ENTRADA: POST /api/aihub/chat/ag-ui/stream             │
 │    Body: { threadId, messages: [{role:"user",...}] } │
 └───────────────────────┬─────────────────────────────┘
                         ▼
@@ -808,7 +808,7 @@ O payload de args contém:
 O frontend envia a resolução como mensagem `role="tool"`:
 
 ```json
-POST /api/chat/ag-ui/stream
+POST /api/aihub/chat/ag-ui/stream
 {
   "threadId": "thread-xyz",
   "messages": [
@@ -831,7 +831,7 @@ src/EfsAiHub.Host.Api/Chat/AgUi/Approval/AgUiApprovalMiddleware.cs
 #### Forma 2: Endpoint dedicado
 
 ```json
-POST /api/chat/ag-ui/resolve-hitl
+POST /api/aihub/chat/ag-ui/resolve-hitl
 {
   "toolCallId": "hitl-abc",
   "response": "approved"
@@ -914,7 +914,7 @@ O `ChatWindowPage.handleSend` (`frontend/src/features/chat/ChatWindowPage.tsx`) 
 
 **Fluxo:**
 
-1. **Conexão inicial:** `POST /api/chat/ag-ui/stream` com body `{messages, threadId}`. Stream começa.
+1. **Conexão inicial:** `POST /api/aihub/chat/ag-ui/stream` com body `{messages, threadId}`. Stream começa.
 2. **Captura de estado durante parsing:**
    - Cada frame com `id: N` atualiza `lastEventIdRef.current`.
    - Evento `RUN_STARTED` grava `runIdRef.current = evt.runId`.
@@ -922,7 +922,7 @@ O `ChatWindowPage.handleSend` (`frontend/src/features/chat/ChatWindowPage.tsx`) 
 4. **Backoff exponencial + jitter** (paridade com C4 backend — `ResiliencePolicy.JitterRatio`):
    - `computeBackoffDelay(attempt)` — `initialDelayMs * multiplier^attempt`, cap `30_000ms`, jitter ±10%.
    - Defaults em `DEFAULT_RECONNECT_POLICY` (500ms / 2.0 / 30s cap / 0.1 jitter / 5 max attempts).
-5. **Reconexão:** `GET /api/chat/ag-ui/reconnect/{runId}` com headers:
+5. **Reconexão:** `GET /api/aihub/chat/ag-ui/reconnect/{runId}` com headers:
    - `Last-Event-ID: {last captured id}` → backend aplica **replay parcial** via `AgUiReconnectionHandler`.
    - `x-thread-id: {threadId}`.
 6. **UI:** `SseHealthIndicator` exibe `Reconectando (N)` em âmbar durante retry; `Streaming` verde ao reestabelecer.

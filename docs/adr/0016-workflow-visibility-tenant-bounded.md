@@ -28,7 +28,7 @@ Workflows globais ficam **bounded por tenant**, com tooling completo (API, audit
 
 ### API
 
-- `PATCH /api/workflows/{id}/visibility` body `{visibility, reason?}` — endpoint dedicado.
+- `PATCH /api/aihub/workflows/{id}/visibility` body `{visibility, reason?}` — endpoint dedicado.
 - `WorkflowResponse` expõe `visibility`, `originProjectId`, `originTenantId`.
 - `CreateWorkflowRequest` aceita `visibility?` (default "project").
 

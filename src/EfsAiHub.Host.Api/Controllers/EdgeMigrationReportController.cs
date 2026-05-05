@@ -13,7 +13,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// bypass do save) e deve virar issue de incidente. Não modifica nada no banco.
 /// </summary>
 [ApiController]
-[Route("api/admin/workflows/edge-migration-report")]
+[Route("api/aihub/admin/workflows/edge-migration-report")]
 [Produces("application/json")]
 public class EdgeMigrationReportController : ControllerBase
 {

@@ -33,7 +33,7 @@ public class SecretsControllerTests(IntegrationWebApplicationFactory factory)
     {
         var client = factory.CreateClientWithMockedAws(BuildMock());
 
-        var response = await client.PostAsJsonAsync("/api/secrets/validate", new
+        var response = await client.PostAsJsonAsync("/api/aihub/secrets/validate", new
         {
             reference = "secret://aws/efs-existing"
         });
@@ -50,7 +50,7 @@ public class SecretsControllerTests(IntegrationWebApplicationFactory factory)
     {
         var client = factory.CreateClientWithMockedAws(BuildMock());
 
-        var response = await client.PostAsJsonAsync("/api/secrets/validate", new
+        var response = await client.PostAsJsonAsync("/api/aihub/secrets/validate", new
         {
             reference = "secret://aws/efs-missing"
         });
@@ -66,7 +66,7 @@ public class SecretsControllerTests(IntegrationWebApplicationFactory factory)
     {
         var client = factory.CreateClientWithMockedAws(BuildMock());
 
-        var response = await client.PostAsJsonAsync("/api/secrets/validate", new
+        var response = await client.PostAsJsonAsync("/api/aihub/secrets/validate", new
         {
             reference = "sk-some-literal"
         });
@@ -79,7 +79,7 @@ public class SecretsControllerTests(IntegrationWebApplicationFactory factory)
     {
         var client = factory.CreateClientWithMockedAws(BuildMock());
 
-        var response = await client.PostAsJsonAsync("/api/secrets/validate", new { reference = "" });
+        var response = await client.PostAsJsonAsync("/api/aihub/secrets/validate", new { reference = "" });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -89,7 +89,7 @@ public class SecretsControllerTests(IntegrationWebApplicationFactory factory)
     {
         var client = factory.CreateClientWithMockedAws(BuildMock());
 
-        var response = await client.DeleteAsync("/api/secrets/cache?reference=secret%3A%2F%2Faws%2Fefs-existing");
+        var response = await client.DeleteAsync("/api/aihub/secrets/cache?reference=secret%3A%2F%2Faws%2Fefs-existing");
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
@@ -99,7 +99,7 @@ public class SecretsControllerTests(IntegrationWebApplicationFactory factory)
     {
         var client = factory.CreateClientWithMockedAws(BuildMock());
 
-        var response = await client.DeleteAsync("/api/secrets/cache?reference=sk-literal");
+        var response = await client.DeleteAsync("/api/aihub/secrets/cache?reference=sk-literal");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -109,7 +109,7 @@ public class SecretsControllerTests(IntegrationWebApplicationFactory factory)
     {
         var client = factory.CreateClientWithMockedAws(BuildMock(), canaryReference: "secret://aws/efs-existing");
 
-        var response = await client.GetAsync("/api/secrets/health");
+        var response = await client.GetAsync("/api/aihub/secrets/health");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -122,7 +122,7 @@ public class SecretsControllerTests(IntegrationWebApplicationFactory factory)
     {
         var client = factory.CreateClientWithMockedAws(BuildMock());
 
-        var response = await client.GetAsync("/api/secrets/health");
+        var response = await client.GetAsync("/api/aihub/secrets/health");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -135,7 +135,7 @@ public class SecretsControllerTests(IntegrationWebApplicationFactory factory)
     {
         var client = factory.CreateClientWithMockedAws(BuildMock(), canaryReference: "secret://aws/efs-missing");
 
-        var response = await client.GetAsync("/api/secrets/health");
+        var response = await client.GetAsync("/api/aihub/secrets/health");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();

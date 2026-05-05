@@ -182,7 +182,7 @@ O compose monta `.env` como env vars no container. Variables como `POSTGRES_PASS
 ## 6. Health check
 
 ```http
-GET /api/system/health/circuit-breakers
+GET /api/aihub/system/health/circuit-breakers
 ```
 
 Não é healthcheck de secrets diretamente, mas se uma chamada LLM falha por chave inválida, o circuit breaker abre. Pra validar especificamente que o app conseguiu resolver Bootstrap:
@@ -221,7 +221,7 @@ Procure por `Failed to resolve bootstrap secret '<chave>'` — mensagem fail-fas
 4. [ ] `appsettings.{Env}.json` da imagem deployada com `Secrets:Bootstrap` apontando pras references.
 5. [ ] `Secrets:Aws:Region` setado no mesmo `appsettings`.
 6. [ ] Logs de startup confirmam resolução (sem `Failed to resolve bootstrap secret`).
-7. [ ] Health check `/api/system/health/circuit-breakers` retorna 200 e todos os providers em `Closed`.
+7. [ ] Health check `/api/aihub/system/health/circuit-breakers` retorna 200 e todos os providers em `Closed`.
 
 ---
 

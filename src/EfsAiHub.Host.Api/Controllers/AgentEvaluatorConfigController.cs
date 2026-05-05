@@ -14,7 +14,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// append-only). Versions são imutáveis; mudança de bindings = nova revision.
 /// </summary>
 [ApiController]
-[Route("api/agents/{agentId}/evaluator-config")]
+[Route("api/aihub/agents/{agentId}/evaluator-config")]
 [Produces("application/json")]
 public sealed class AgentEvaluatorConfigController : ControllerBase
 {

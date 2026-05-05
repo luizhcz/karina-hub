@@ -45,7 +45,7 @@ public sealed class EvaluationTestSetsController : ControllerBase
         _logger = logger;
     }
 
-    [HttpPost("api/projects/{projectId}/evaluation-test-sets")]
+    [HttpPost("api/aihub/projects/{projectId}/evaluation-test-sets")]
     [SwaggerOperation(Summary = "Cria um TestSet (header)")]
     [ProducesResponseType(typeof(EvaluationTestSetResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -81,7 +81,7 @@ public sealed class EvaluationTestSetsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = testSet.Id }, EvaluationTestSetResponse.FromDomain(testSet));
     }
 
-    [HttpGet("api/evaluation-test-sets/{id}")]
+    [HttpGet("api/aihub/evaluation-test-sets/{id}")]
     [SwaggerOperation(Summary = "Header + versions de um TestSet")]
     [ProducesResponseType(typeof(TestSetWithVersionsResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -96,7 +96,7 @@ public sealed class EvaluationTestSetsController : ControllerBase
             versions.Select(EvaluationTestSetVersionResponse.FromDomain).ToList()));
     }
 
-    [HttpGet("api/projects/{projectId}/evaluation-test-sets")]
+    [HttpGet("api/aihub/projects/{projectId}/evaluation-test-sets")]
     [SwaggerOperation(Summary = "Lista TestSets do projeto (+ globais se includeGlobal=true)")]
     [ProducesResponseType(typeof(IReadOnlyList<EvaluationTestSetResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> ListByProject(
@@ -105,10 +105,25 @@ public sealed class EvaluationTestSetsController : ControllerBase
         CancellationToken ct = default)
     {
         var sets = await _testSetRepo.ListByProjectAsync(projectId, includeGlobal, ct);
-        return Ok(sets.Select(EvaluationTestSetResponse.FromDomain));
+
+        // Hidrata caseCount + currentRevision em batch (1 query agregada por
+        // tabela). Sets sem CurrentVersionId não vão pra query — saem com
+        // CaseCount/CurrentRevision = null no response.
+        var versionIds = sets
+            .Select(s => s.CurrentVersionId)
+            .Where(id => !string.IsNullOrEmpty(id))
+            .Cast<string>()
+            .ToList();
+        var stats = versionIds.Count > 0
+            ? await _testSetRepo.GetStatsForVersionsAsync(versionIds, ct)
+            : new Dictionary<string, TestSetVersionStats>();
+
+        return Ok(sets.Select(s => EvaluationTestSetResponse.FromDomainWithStats(
+            s,
+            !string.IsNullOrEmpty(s.CurrentVersionId) && stats.TryGetValue(s.CurrentVersionId, out var st) ? st : null)));
     }
 
-    [HttpPost("api/evaluation-test-sets/{id}/versions")]
+    [HttpPost("api/aihub/evaluation-test-sets/{id}/versions")]
     [SwaggerOperation(Summary = "Publica nova versão (snapshot append-only) com cases inline")]
     [ProducesResponseType(typeof(EvaluationTestSetVersionResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -166,7 +181,7 @@ public sealed class EvaluationTestSetsController : ControllerBase
             EvaluationTestSetVersionResponse.FromDomain(refreshed));
     }
 
-    [HttpPost("api/evaluation-test-sets/{id}/versions/import")]
+    [HttpPost("api/aihub/evaluation-test-sets/{id}/versions/import")]
     [SwaggerOperation(Summary = "Importa cases de CSV e publica nova versão")]
     [ProducesResponseType(typeof(EvaluationTestSetVersionResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -217,7 +232,7 @@ public sealed class EvaluationTestSetsController : ControllerBase
             EvaluationTestSetVersionResponse.FromDomain(refreshed));
     }
 
-    [HttpGet("api/evaluation-test-sets/versions/{vid}/cases")]
+    [HttpGet("api/aihub/evaluation-test-sets/versions/{vid}/cases")]
     [SwaggerOperation(Summary = "Lista cases de uma version (paginado)")]
     [ProducesResponseType(typeof(IReadOnlyList<EvaluationTestCaseResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> ListVersionCases(
@@ -230,7 +245,7 @@ public sealed class EvaluationTestSetsController : ControllerBase
         return Ok(cases.Select(EvaluationTestCaseResponse.FromDomain));
     }
 
-    [HttpPut("api/evaluation-test-sets/{id}/versions/{vid}/status")]
+    [HttpPut("api/aihub/evaluation-test-sets/{id}/versions/{vid}/status")]
     [SwaggerOperation(Summary = "Altera status de uma version (Draft|Published|Deprecated)")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -260,7 +275,7 @@ public sealed class EvaluationTestSetsController : ControllerBase
         return NoContent();
     }
 
-    [HttpPost("api/evaluation-test-sets/{id}/copy")]
+    [HttpPost("api/aihub/evaluation-test-sets/{id}/copy")]
     [SwaggerOperation(Summary = "Copia testset (header + versions + cases) pra outro projeto")]
     [ProducesResponseType(typeof(EvaluationTestSetResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

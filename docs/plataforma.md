@@ -104,11 +104,11 @@ src/EfsAiHub.Host.Api/Controllers/ProjectsController.cs
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| POST | `/api/projects` | Criar projeto |
-| GET | `/api/projects` | Listar projetos (filtrado por tenant) |
-| GET | `/api/projects/{id}` | Obter projeto |
-| PUT | `/api/projects/{id}` | Atualizar projeto |
-| DELETE | `/api/projects/{id}` | Deletar projeto (bloqueia "default") |
+| POST | `/api/aihub/projects` | Criar projeto |
+| GET | `/api/aihub/projects` | Listar projetos (filtrado por tenant) |
+| GET | `/api/aihub/projects/{id}` | Obter projeto |
+| PUT | `/api/aihub/projects/{id}` | Atualizar projeto |
+| DELETE | `/api/aihub/projects/{id}` | Deletar projeto (bloqueia "default") |
 
 **Segurança na resposta:** A API **nunca** retorna a API key. Retorna apenas `apiKeySet: bool` e `keyVersion` (timestamp).
 
@@ -133,7 +133,7 @@ public class ModelCatalog
 }
 ```
 
-**Controller:** `ModelCatalogController` — CRUD em `/api/admin/model-catalog`
+**Controller:** `ModelCatalogController` — CRUD em `/api/aihub/admin/model-catalog`
 
 ---
 
@@ -208,12 +208,12 @@ src/EfsAiHub.Host.Api/Middleware/AdminGateMiddleware.cs
 Controla acesso a endpoints administrativos:
 
 **Rotas públicas (sem admin):**
-- `/api/chat/ag-ui/*`
-- `POST /api/workflows`, `PUT /api/workflows/{id}`
-- `POST /api/agents`, `PUT /api/agents/{id}`
-- `/api/conversations/*`, `/api/users/*/conversations`
-- `GET /api/projects`, `GET /api/projects/{id}`
-- `GET /api/enums`
+- `/api/aihub/chat/ag-ui/*`
+- `POST /api/aihub/workflows`, `PUT /api/aihub/workflows/{id}`
+- `POST /api/aihub/agents`, `PUT /api/aihub/agents/{id}`
+- `/api/aihub/conversations/*`, `/api/aihub/users/*/conversations`
+- `GET /api/aihub/projects`, `GET /api/aihub/projects/{id}`
+- `GET /api/aihub/enums`
 
 **Tudo mais:** Requer que o userId esteja em `Admin:AccountIds`.
 
@@ -274,7 +274,7 @@ CREATE TABLE aihub.admin_audit_log (
 - **Fire-and-log:** `IAdminAuditLogger.RecordAsync()` engole exceções — falha de write de auditoria **não** quebra o CRUD primário. Log warning no service logger com tag `[AdminAudit]`.
 - **Actor:** `UserIdentityResolver` extrai dos headers `x-efs-account` / `x-efs-user-profile-id`. Actor default `"system:anonymous"` quando headers ausentes.
 - **Retenção:** `AuditRetentionService` faz DELETE batched (1000 rows / batch, sleep 200ms) via `AuditRetentionDays` (default 90).
-- **Consulta:** `GET /api/admin/audit-log` — paginado, ordena `Timestamp DESC`. `TenantId` é sempre aplicado do contexto da request (não do query param — impede cross-tenant scan).
+- **Consulta:** `GET /api/aihub/admin/audit-log` — paginado, ordena `Timestamp DESC`. `TenantId` é sempre aplicado do contexto da request (não do query param — impede cross-tenant scan).
 
 **UI:** `/audit/admin` (sidebar → Admin → "Audit Admin"). Modal de detalhe exibe `PayloadBefore/After` via `JsonViewer` para diff visual. Filtro `Ação` na página whitelista as actions canônicas.
 
@@ -283,25 +283,25 @@ CREATE TABLE aihub.admin_audit_log (
 | Action | Emitida por | Payload |
 |---|---|---|
 | `create` / `update` / `delete` | CRUD genérico (project, agent, workflow, skill, model_pricing) | snapshot before/after do recurso |
-| `agent.visibility_changed` | `PATCH /api/agents/{id}/visibility` | `{ before: { visibility }, after: { visibility } }` |
-| `workflow.visibility_changed` | `PATCH /api/workflows/{id}/visibility` | `{ before: { visibility }, after: { visibility } }` |
+| `agent.visibility_changed` | `PATCH /api/aihub/agents/{id}/visibility` | `{ before: { visibility }, after: { visibility } }` |
+| `workflow.visibility_changed` | `PATCH /api/aihub/workflows/{id}/visibility` | `{ before: { visibility }, after: { visibility } }` |
 | `cross_project_invoke` | `AgentFactory` quando workflow caller invoca agent global de outro project | `{ callerProjectId, ownerProjectId, workflowId, agentId }` (LRU 60s throttle) |
-| `agent.version_published` | `POST /api/agents/{id}/versions` em publish efetivo (idempotente por ContentHash) | `{ revision, breakingChange, changeReason, contentHash }` |
+| `agent.version_published` | `POST /api/aihub/agents/{id}/versions` em publish efetivo (idempotente por ContentHash) | `{ revision, breakingChange, changeReason, contentHash }` |
 | `agent.version_lossless_roundtrip_failed` | declarada — emissão futura via dispatcher | `{ agentVersionId, agentDefinitionId, contentHash }` |
-| `workflow.agent_version_pinned` | `PATCH /api/workflows/{id}/agents/{agentId}/pin` | `{ agentId, previousVersionId, newVersionId, wasBreaking, reason }` |
-| `agent.enabled_changed` | `PATCH /api/agents/{id}/enabled` | `{ before: { enabled }, after: { enabled, reason } }` |
-| `agent.draft_created` | `POST /api/agent-drafts` ou `POST /api/agents/{id}/edit-draft` | `{ draftId, isEditDraft, baseAgentId, baseRevision }` |
-| `agent.draft_updated` | `PUT /api/agent-drafts/{id}` | `{ draftId, updatedAt }` |
-| `agent.draft_deleted` | `DELETE /api/agent-drafts/{id}` | (ResourceId = draftId) |
-| `agent.draft_submitted` | `POST /api/agent-drafts/{id}/submit` | `{ draftId, isEditDraft, baseAgentId, wasResubmit }` |
-| `agent.draft_approved` | `POST /api/agent-approvals/{id}/approve` em approve efetivo | `{ agentId, fromDraftId, wasEditDraft, approverUserId, ageHours }` (correlacionado com `agent.version_published`) |
-| `agent.draft_rejected` | `POST /api/agent-approvals/{id}/reject` | `{ draftId, approverUserId, feedback }` |
-| `generic_tool.created` | `POST /api/generic-tools` | `{ toolId, name, httpMethod, projectId }` |
-| `generic_tool.updated` | `PUT /api/generic-tools/{id}` | `{ toolId, updatedAt }` |
-| `generic_tool.deleted` | `DELETE /api/generic-tools/{id}` | (ResourceId = toolId) |
-| `predefined_model.created` | `POST /api/admin/predefined-models` | `{ id, displayName, provider, deploymentName }` |
-| `predefined_model.updated` | `PUT /api/admin/predefined-models/{id}` | `{ id, updatedAt }` |
-| `predefined_model.deleted` | `DELETE /api/admin/predefined-models/{id}` | (ResourceId = id) |
+| `workflow.agent_version_pinned` | `PATCH /api/aihub/workflows/{id}/agents/{agentId}/pin` | `{ agentId, previousVersionId, newVersionId, wasBreaking, reason }` |
+| `agent.enabled_changed` | `PATCH /api/aihub/agents/{id}/enabled` | `{ before: { enabled }, after: { enabled, reason } }` |
+| `agent.draft_created` | `POST /api/aihub/agent-drafts` ou `POST /api/aihub/agents/{id}/edit-draft` | `{ draftId, isEditDraft, baseAgentId, baseRevision }` |
+| `agent.draft_updated` | `PUT /api/aihub/agent-drafts/{id}` | `{ draftId, updatedAt }` |
+| `agent.draft_deleted` | `DELETE /api/aihub/agent-drafts/{id}` | (ResourceId = draftId) |
+| `agent.draft_submitted` | `POST /api/aihub/agent-drafts/{id}/submit` | `{ draftId, isEditDraft, baseAgentId, wasResubmit }` |
+| `agent.draft_approved` | `POST /api/aihub/agent-approvals/{id}/approve` em approve efetivo | `{ agentId, fromDraftId, wasEditDraft, approverUserId, ageHours }` (correlacionado com `agent.version_published`) |
+| `agent.draft_rejected` | `POST /api/aihub/agent-approvals/{id}/reject` | `{ draftId, approverUserId, feedback }` |
+| `generic_tool.created` | `POST /api/aihub/generic-tools` | `{ toolId, name, httpMethod, projectId }` |
+| `generic_tool.updated` | `PUT /api/aihub/generic-tools/{id}` | `{ toolId, updatedAt }` |
+| `generic_tool.deleted` | `DELETE /api/aihub/generic-tools/{id}` | (ResourceId = toolId) |
+| `predefined_model.created` | `POST /api/aihub/admin/predefined-models` | `{ id, displayName, provider, deploymentName }` |
+| `predefined_model.updated` | `PUT /api/aihub/admin/predefined-models/{id}` | `{ id, updatedAt }` |
+| `predefined_model.deleted` | `DELETE /api/aihub/admin/predefined-models/{id}` | (ResourceId = id) |
 
 ### Generic Tools — endpoints
 
@@ -309,11 +309,11 @@ Tools HTTP genéricas cadastradas por projeto, owner-only. Resolvidas em runtime
 
 | Método | Rota | Descrição | Audit |
 |---|---|---|---|
-| `POST` | `/api/generic-tools` | Cria tool. Validações domain: placeholders ↔ PathParams, headers reservados (`Content-Type`, `Accept` proibidos), FormUrlEncoded plano, GET força `InputContentType=None`, timeout ≤ MaxTimeoutSeconds. | `generic_tool.created` |
-| `GET` | `/api/generic-tools` | Lista do projeto atual (query filter strict). | (sem audit) |
-| `GET` | `/api/generic-tools/{id}` | 200/404. Owner-only. | (sem audit) |
-| `PUT` | `/api/generic-tools/{id}` | Optimistic concurrency via `expectedUpdatedAt`. ProjectId/TenantId/CreatedAt nunca modificáveis pelo client. | `generic_tool.updated` |
-| `DELETE` | `/api/generic-tools/{id}` | Agents que referenciam perdem tool graciosamente em runtime. | `generic_tool.deleted` |
+| `POST` | `/api/aihub/generic-tools` | Cria tool. Validações domain: placeholders ↔ PathParams, headers reservados (`Content-Type`, `Accept` proibidos), FormUrlEncoded plano, GET força `InputContentType=None`, timeout ≤ MaxTimeoutSeconds. | `generic_tool.created` |
+| `GET` | `/api/aihub/generic-tools` | Lista do projeto atual (query filter strict). | (sem audit) |
+| `GET` | `/api/aihub/generic-tools/{id}` | 200/404. Owner-only. | (sem audit) |
+| `PUT` | `/api/aihub/generic-tools/{id}` | Optimistic concurrency via `expectedUpdatedAt`. ProjectId/TenantId/CreatedAt nunca modificáveis pelo client. | `generic_tool.updated` |
+| `DELETE` | `/api/aihub/generic-tools/{id}` | Agents que referenciam perdem tool graciosamente em runtime. | `generic_tool.deleted` |
 
 ### Métricas Generic Tools
 
@@ -328,10 +328,10 @@ Endpoints novos do épico Pinning Federated (Fase 3 — UI flow). Detalhamento d
 
 | Método | Rota | Descrição | Audit |
 |---|---|---|---|
-| `POST` | `/api/agents/{id}/versions` | Publica nova `AgentVersion` snapshot lossless. Body `{ breakingChange, changeReason }`. `breakingChange=true` exige `changeReason` non-blank. Idempotente por ContentHash — sem mudança no conteúdo retorna existing. | `agent.version_published` em publish efetivo |
-| `GET` | `/api/workflows/{id}/agent-version-status` | Retorna `WorkflowAgentVersionStatusResponse[]` por `AgentReference` do workflow: `{ agentId, agentName, pinnedVersionId, pinnedRevision, currentVersionId, currentRevision, isPinnedBlockedByBreaking, hasUpdate, changes[] }`. `changes[]` enumera revisions entre pin e current via `IAgentVersionRepository.ListBetweenRevisionsAsync`. | (sem audit — leitura) |
-| `PATCH` | `/api/workflows/{id}/agents/{agentId}/pin` | Atualiza `WorkflowAgentReference.AgentVersionId`. Body `{ newVersionId, reason? }` (`newVersionId` é required; `reason` opcional pra contexto do audit). Validação confirma `pinned.AgentDefinitionId == agentId`. | `workflow.agent_version_pinned` |
-| `GET` | `/api/notifications/agent-breaking-changes?days={N}` | Lista `AgentBreakingChangeNotification[]` (cap 50) com `BreakingChange=true` publicadas nos últimos N dias (1-90, default 7), ordenadas `CreatedAt DESC`. Visibility respeita `agent_definitions.HasQueryFilter` por tenant + project. `[ResponseCache(Duration=60, Location=Client)]` no controller. Alimenta `NotificationBell` no Header. | (sem audit — leitura) |
+| `POST` | `/api/aihub/agents/{id}/versions` | Publica nova `AgentVersion` snapshot lossless. Body `{ breakingChange, changeReason }`. `breakingChange=true` exige `changeReason` non-blank. Idempotente por ContentHash — sem mudança no conteúdo retorna existing. | `agent.version_published` em publish efetivo |
+| `GET` | `/api/aihub/workflows/{id}/agent-version-status` | Retorna `WorkflowAgentVersionStatusResponse[]` por `AgentReference` do workflow: `{ agentId, agentName, pinnedVersionId, pinnedRevision, currentVersionId, currentRevision, isPinnedBlockedByBreaking, hasUpdate, changes[] }`. `changes[]` enumera revisions entre pin e current via `IAgentVersionRepository.ListBetweenRevisionsAsync`. | (sem audit — leitura) |
+| `PATCH` | `/api/aihub/workflows/{id}/agents/{agentId}/pin` | Atualiza `WorkflowAgentReference.AgentVersionId`. Body `{ newVersionId, reason? }` (`newVersionId` é required; `reason` opcional pra contexto do audit). Validação confirma `pinned.AgentDefinitionId == agentId`. | `workflow.agent_version_pinned` |
+| `GET` | `/api/aihub/notifications/agent-breaking-changes?days={N}` | Lista `AgentBreakingChangeNotification[]` (cap 50) com `BreakingChange=true` publicadas nos últimos N dias (1-90, default 7), ordenadas `CreatedAt DESC`. Visibility respeita `agent_definitions.HasQueryFilter` por tenant + project. `[ResponseCache(Duration=60, Location=Client)]` no controller. Alimenta `NotificationBell` no Header. | (sem audit — leitura) |
 
 **Sharing flags relacionadas (via `IOptionsMonitor<SharingOptions>`):**
 
@@ -370,7 +370,7 @@ CREATE INDEX "IX_mcp_servers_ProjectId_Name" ON aihub.mcp_servers ("ProjectId", 
 2. Para cada tool com `Type=mcp`: se `McpServerId != null`, busca no `IMcpServerRepository`. Se não achar (dangling após delete), log warning e tool é pulada.
 3. Monta `MCPToolDefinition(ServerLabel, ServerUrl)` + `AllowedTools` com os campos do registro — **não do agent**.
 
-**Endpoint CRUD:** `POST/GET/PUT/DELETE /api/admin/mcp-servers` (admin-gated). Cada escrita emite linha em `admin_audit_log` com `resourceType=mcp_server` (ver seção anterior).
+**Endpoint CRUD:** `POST/GET/PUT/DELETE /api/aihub/admin/mcp-servers` (admin-gated). Cada escrita emite linha em `admin_audit_log` com `resourceType=mcp_server` (ver seção anterior).
 
 **Sem validação de rede:** create/update NÃO faz health check do MCP — cadastrar MCPs offline é permitido. A classe `McpHealthChecker` foi **removida** nesta feature. Detalhes completos em [`docs/mcp.md`](./mcp.md).
 
@@ -549,11 +549,11 @@ src/EfsAiHub.Host.Api/Controllers/ModelPricingController.cs
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| GET | `/api/admin/model-pricing` | Listar todos os preços |
-| GET | `/api/admin/model-pricing/{id}` | Obter preço por ID |
-| POST | `/api/admin/model-pricing` | Upsert preço (invalida cache) |
-| DELETE | `/api/admin/model-pricing/{id}` | Deletar preço |
-| POST | `/api/admin/model-pricing/refresh-view` | Refresh manual da matview `v_llm_cost` |
+| GET | `/api/aihub/admin/model-pricing` | Listar todos os preços |
+| GET | `/api/aihub/admin/model-pricing/{id}` | Obter preço por ID |
+| POST | `/api/aihub/admin/model-pricing` | Upsert preço (invalida cache) |
+| DELETE | `/api/aihub/admin/model-pricing/{id}` | Deletar preço |
+| POST | `/api/aihub/admin/model-pricing/refresh-view` | Refresh manual da matview `v_llm_cost` |
 
 ### Cache (Three-Tier)
 
@@ -585,8 +585,8 @@ src/EfsAiHub.Host.Api/Controllers/AnalyticsController.cs
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| GET | `/api/analytics/executions/summary` | Métricas agregadas (success rate, P50/P95 latência) |
-| GET | `/api/analytics/executions/timeseries` | Série temporal por hora/dia |
+| GET | `/api/aihub/analytics/executions/summary` | Métricas agregadas (success rate, P50/P95 latência) |
+| GET | `/api/aihub/analytics/executions/timeseries` | Série temporal por hora/dia |
 
 **Query params:** `from`, `to` (default: últimos 30 dias), `workflowId`, `groupBy` (hour/day).
 
@@ -649,13 +649,13 @@ src/EfsAiHub.Host.Api/Controllers/TokenUsageController.cs
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| GET | `/api/token-usage/summary` | Resumo global por agente |
-| GET | `/api/token-usage/agents/{agentId}/summary` | Resumo por agente |
-| GET | `/api/token-usage/agents/{agentId}/history` | Histórico detalhado (limit 1-200) |
-| GET | `/api/token-usage/executions/{executionId}` | Tokens por execução |
-| GET | `/api/token-usage/throughput` | Throughput horário (últimas 24h) |
-| GET | `/api/token-usage/workflows/summary` | Tokens + custo por workflow |
-| GET | `/api/token-usage/projects/summary` | Tokens + custo por projeto |
+| GET | `/api/aihub/token-usage/summary` | Resumo global por agente |
+| GET | `/api/aihub/token-usage/agents/{agentId}/summary` | Resumo por agente |
+| GET | `/api/aihub/token-usage/agents/{agentId}/history` | Histórico detalhado (limit 1-200) |
+| GET | `/api/aihub/token-usage/executions/{executionId}` | Tokens por execução |
+| GET | `/api/aihub/token-usage/throughput` | Throughput horário (últimas 24h) |
+| GET | `/api/aihub/token-usage/workflows/summary` | Tokens + custo por workflow |
+| GET | `/api/aihub/token-usage/projects/summary` | Tokens + custo por projeto |
 
 ---
 
@@ -705,7 +705,7 @@ src/EfsAiHub.Host.Api/Controllers/SystemController.cs
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| GET | `/api/system/health/circuit-breakers` | Estado dos circuit breakers LLM |
+| GET | `/api/aihub/system/health/circuit-breakers` | Estado dos circuit breakers LLM |
 
 **Circuit Breaker Response:**
 ```json
@@ -910,15 +910,15 @@ src/EfsAiHub.Host.Api/Controllers/ConversationsController.cs
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| POST | `/api/conversations` | Criar conversa |
-| GET | `/api/conversations/{id}` | Obter metadata |
-| GET | `/api/conversations/{id}/messages` | Listar mensagens (paginado) |
-| GET | `/api/conversations/{id}/full` | Full dump: metadata + 1000 msgs + execuções (nós, tools, eventos) |
-| POST | `/api/conversations/{id}/messages` | Enviar mensagens (trigger workflow se última = user) |
-| GET | `/api/conversations/{id}/messages/stream` | SSE stream de eventos |
-| DELETE | `/api/conversations/{id}` | Deletar conversa + mensagens |
-| DELETE | `/api/conversations/{id}/context` | Limpar contexto (reset histórico) |
-| GET | `/api/admin/conversations` | Admin: listar com filtros (userId, workflowId, projectId, datas, paginação) |
+| POST | `/api/aihub/conversations` | Criar conversa |
+| GET | `/api/aihub/conversations/{id}` | Obter metadata |
+| GET | `/api/aihub/conversations/{id}/messages` | Listar mensagens (paginado) |
+| GET | `/api/aihub/conversations/{id}/full` | Full dump: metadata + 1000 msgs + execuções (nós, tools, eventos) |
+| POST | `/api/aihub/conversations/{id}/messages` | Enviar mensagens (trigger workflow se última = user) |
+| GET | `/api/aihub/conversations/{id}/messages/stream` | SSE stream de eventos |
+| DELETE | `/api/aihub/conversations/{id}` | Deletar conversa + mensagens |
+| DELETE | `/api/aihub/conversations/{id}/context` | Limpar contexto (reset histórico) |
+| GET | `/api/aihub/admin/conversations` | Admin: listar com filtros (userId, workflowId, projectId, datas, paginação) |
 
 ### User Conversations
 
@@ -928,7 +928,7 @@ src/EfsAiHub.Host.Api/Controllers/UserConversationsController.cs
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| GET | `/api/users/{userId}/conversations` | Listar conversas do usuário (50 mais recentes) |
+| GET | `/api/aihub/users/{userId}/conversations` | Listar conversas do usuário (50 mais recentes) |
 
 ---
 
@@ -940,10 +940,10 @@ src/EfsAiHub.Host.Api/Controllers/ExecutionsController.cs
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| GET | `/api/executions` | Listar com filtros (workflowId, status, datas, paginação) |
-| GET | `/api/executions/{id}` | Detalhe da execução |
-| GET | `/api/executions/{id}/full` | Full dump: metadata + nós + tools + eventos |
-| DELETE | `/api/executions/{id}` | Solicitar cancelamento (202) |
+| GET | `/api/aihub/executions` | Listar com filtros (workflowId, status, datas, paginação) |
+| GET | `/api/aihub/executions/{id}` | Detalhe da execução |
+| GET | `/api/aihub/executions/{id}/full` | Full dump: metadata + nós + tools + eventos |
+| DELETE | `/api/aihub/executions/{id}` | Solicitar cancelamento (202) |
 
 ---
 
@@ -957,11 +957,11 @@ Chat multi-turno com agente individual (sem workflow):
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| POST | `/api/agents/{agentId}/sessions` | Criar sessão |
-| GET | `/api/agents/{agentId}/sessions` | Listar sessões |
-| GET | `/api/agents/{agentId}/sessions/{sessionId}` | Obter metadata |
-| DELETE | `/api/agents/{agentId}/sessions/{sessionId}` | Deletar sessão |
-| POST | `/api/agents/{agentId}/sessions/{sessionId}/run` | Enviar mensagem e receber resposta |
+| POST | `/api/aihub/agents/{agentId}/sessions` | Criar sessão |
+| GET | `/api/aihub/agents/{agentId}/sessions` | Listar sessões |
+| GET | `/api/aihub/agents/{agentId}/sessions/{sessionId}` | Obter metadata |
+| DELETE | `/api/aihub/agents/{agentId}/sessions/{sessionId}` | Deletar sessão |
+| POST | `/api/aihub/agents/{agentId}/sessions/{sessionId}/run` | Enviar mensagem e receber resposta |
 
 Mantém estado da conversa entre turnos com gerenciamento automático de histórico.
 
@@ -1202,7 +1202,7 @@ Valores em [db/seed_document_intelligence_pricing.sql](../db/seed_document_intel
 
 **Fonte em runtime**: `DocumentIntelligenceFunctions.ResolveCostAsync` consulta `IDocumentIntelligencePricingCache` (→ Redis → PG). Fallback hardcoded com os mesmos valores do seed, pra extração não falhar em ambiente sem seed aplicado.
 
-**Visualização**: `/api/admin/document-intelligence/{usage,jobs,pricing}` e tela `/costs/document-intelligence` (+ `/costs/document-intelligence/pricing` para CRUD admin).
+**Visualização**: `/api/aihub/admin/document-intelligence/{usage,jobs,pricing}` e tela `/costs/document-intelligence` (+ `/costs/document-intelligence/pricing` para CRUD admin).
 
 ---
 
@@ -1257,7 +1257,7 @@ src/EfsAiHub.Infra.Observability/Metrics/MetricsRegistry.cs
 
 **Counters:**
 - `workflows.triggered/completed/failed/cancelled`
-  - `workflows.failed` tem tag `error.category` (Timeout | BudgetExceeded | HitlRejected | CheckpointRecoveryFailed | FrameworkError | AgentError | ToolError | InvalidConfig | DependencyFailure | CircuitOpen | Cancelled | Unknown) — permite quebrar no Grafana/OTel por tipo de falha e priorizar. Espelhada pelo endpoint `GET /api/analytics/executions/failure-breakdown` para consumo no frontend (card "Falhas por Categoria" em `/metrics`).
+  - `workflows.failed` tem tag `error.category` (Timeout | BudgetExceeded | HitlRejected | CheckpointRecoveryFailed | FrameworkError | AgentError | ToolError | InvalidConfig | DependencyFailure | CircuitOpen | Cancelled | Unknown) — permite quebrar no Grafana/OTel por tipo de falha e priorizar. Espelhada pelo endpoint `GET /api/aihub/analytics/executions/failure-breakdown` para consumo no frontend (card "Falhas por Categoria" em `/metrics`).
 - `llm.retries`, `llm.budget.exceeded`
 - `llm.circuit_breaker.opened/rejected/fallbacks`
 - `hitl.requested/resolved/orphaned_recoveries/recoveries`
@@ -1349,7 +1349,7 @@ src/EfsAiHub.Host.Api/Controllers/FunctionsController.cs
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| GET | `/api/functions` | Lista todas as tools, executores, middlewares e providers registrados |
+| GET | `/api/aihub/functions` | Lista todas as tools, executores, middlewares e providers registrados |
 
 Retorna fingerprints SHA-256 de cada tool para detecção de drift.
 
@@ -1361,7 +1361,7 @@ src/EfsAiHub.Host.Api/Controllers/EnumsController.cs
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| GET | `/api/enums` | Retorna todos os enums: OrchestrationMode, EdgeTypes, WorkflowStatus, InteractionType, etc. |
+| GET | `/api/aihub/enums` | Retorna todos os enums: OrchestrationMode, EdgeTypes, WorkflowStatus, InteractionType, etc. |
 
 **Público** (não requer admin).
 
@@ -1369,10 +1369,10 @@ src/EfsAiHub.Host.Api/Controllers/EnumsController.cs
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| GET | `/api/interactions/pending` | Listar HITLs pendentes |
-| GET | `/api/interactions/{id}` | Obter interação |
-| POST | `/api/interactions/{id}/resolve` | Resolver com aprovação/rejeição |
-| GET | `/api/interactions/by-execution/{executionId}` | Listar por execução |
+| GET | `/api/aihub/interactions/pending` | Listar HITLs pendentes |
+| GET | `/api/aihub/interactions/{id}` | Obter interação |
+| POST | `/api/aihub/interactions/{id}/resolve` | Resolver com aprovação/rejeição |
+| GET | `/api/aihub/interactions/by-execution/{executionId}` | Listar por execução |
 
 ---
 

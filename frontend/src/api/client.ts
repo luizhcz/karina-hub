@@ -1,7 +1,7 @@
 import { useUserStore } from '../stores/user'
 import { useProjectStore } from '../stores/project'
 
-const BASE = '/api'
+const BASE = '/api/aihub/aihub'
 
 export function getIdentityHeaders(): Record<string, string> {
   const { userId, userType } = useUserStore.getState()
@@ -32,7 +32,7 @@ export function getIdentityHeaders(): Record<string, string> {
 /**
  * Erros estruturados emitidos pelo backend em violações de invariantes do workflow
  * (envelope `{ errors: [{ errorCode, message, hint?, edgeIndex? }] }` em 400 do
- * POST/PUT /api/workflows). Frontend renderiza inline no edge correspondente.
+ * POST/PUT /api/aihub/workflows). Frontend renderiza inline no edge correspondente.
  */
 export interface WorkflowInvariantApiError {
   errorCode: string

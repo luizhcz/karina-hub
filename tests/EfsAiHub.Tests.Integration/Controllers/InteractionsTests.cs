@@ -14,7 +14,7 @@ public class InteractionsTests(IntegrationWebApplicationFactory factory) : IAsyn
     [Fact]
     public async Task GetPending_Retorna200ComArray()
     {
-        var response = await _client.GetAsync("/api/interactions/pending");
+        var response = await _client.GetAsync("/api/aihub/interactions/pending");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -24,7 +24,7 @@ public class InteractionsTests(IntegrationWebApplicationFactory factory) : IAsyn
     [Fact]
     public async Task GetById_Inexistente_Retorna404()
     {
-        var response = await _client.GetAsync($"/api/interactions/{Guid.NewGuid()}");
+        var response = await _client.GetAsync($"/api/aihub/interactions/{Guid.NewGuid()}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -33,7 +33,7 @@ public class InteractionsTests(IntegrationWebApplicationFactory factory) : IAsyn
     public async Task Resolve_Inexistente_Retorna404()
     {
         var body = new { resolution = "approved", approved = true };
-        var response = await _client.PostAsJsonAsync($"/api/interactions/{Guid.NewGuid()}/resolve", body);
+        var response = await _client.PostAsJsonAsync($"/api/aihub/interactions/{Guid.NewGuid()}/resolve", body);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }

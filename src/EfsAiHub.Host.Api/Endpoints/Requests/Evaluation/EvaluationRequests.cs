@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace EfsAiHub.Host.Api.Models.Requests.Evaluation;
 
-/// <summary>POST /api/agents/{agentId}/evaluations/runs</summary>
+/// <summary>POST /api/aihub/agents/{agentId}/evaluations/runs</summary>
 public sealed class CreateEvaluationRunRequest
 {
     public required string TestSetVersionId { get; init; }
@@ -12,7 +12,7 @@ public sealed class CreateEvaluationRunRequest
     public string? AgentVersionId { get; init; }
 }
 
-/// <summary>POST /api/projects/{projectId}/evaluation-test-sets</summary>
+/// <summary>POST /api/aihub/projects/{projectId}/evaluation-test-sets</summary>
 public sealed class CreateTestSetRequest
 {
     public required string Name { get; init; }
@@ -22,7 +22,7 @@ public sealed class CreateTestSetRequest
     public string Visibility { get; init; } = "project";
 }
 
-/// <summary>POST /api/evaluation-test-sets/{id}/versions</summary>
+/// <summary>POST /api/aihub/evaluation-test-sets/{id}/versions</summary>
 public sealed class PublishTestSetVersionRequest
 {
     public required IReadOnlyList<TestCaseRequest> Cases { get; init; }
@@ -41,7 +41,7 @@ public sealed class TestCaseRequest
 }
 
 /// <summary>
-/// POST /api/evaluation-test-sets/{id}/versions/import (multipart/form-data)
+/// POST /api/aihub/evaluation-test-sets/{id}/versions/import (multipart/form-data)
 /// CSV format: input,expectedOutput,tags,weight (header obrigatório).
 /// </summary>
 public sealed class CsvImportRequest
@@ -50,14 +50,14 @@ public sealed class CsvImportRequest
     public string? ChangeReason { get; init; }
 }
 
-/// <summary>PUT /api/evaluation-test-sets/{id}/versions/{vid}/status</summary>
+/// <summary>PUT /api/aihub/evaluation-test-sets/{id}/versions/{vid}/status</summary>
 public sealed class UpdateTestSetVersionStatusRequest
 {
     /// <summary>"Draft" | "Published" | "Deprecated"</summary>
     public required string Status { get; init; }
 }
 
-/// <summary>PUT /api/agents/{agentId}/evaluator-config</summary>
+/// <summary>PUT /api/aihub/agents/{agentId}/evaluator-config</summary>
 public sealed class UpsertEvaluatorConfigRequest
 {
     public required string Name { get; init; }
@@ -80,9 +80,22 @@ public sealed class EvaluatorBindingRequest
     public int BindingIndex { get; init; } = 0;
 }
 
-/// <summary>PUT /api/agents/{agentId}/regression-config</summary>
+/// <summary>PUT /api/aihub/agents/{agentId}/regression-config</summary>
 public sealed class UpsertRegressionConfigRequest
 {
     public string? RegressionTestSetId { get; init; }
     public string? RegressionEvaluatorConfigVersionId { get; init; }
+}
+
+/// <summary>POST /api/aihub/agents/{agentId}/evaluations/auto-deploy</summary>
+public sealed class AutoDeployEvaluationRequest
+{
+    /// <summary>"basic" (default) | "medium" | "advanced".</summary>
+    public string Preset { get; init; } = "basic";
+
+    /// <summary>Snapshot AgentVersion específico. Null = current Published.</summary>
+    public string? AgentVersionId { get; init; }
+
+    /// <summary>Workflow id correlacionado ao deploy (idem <c>deploy-{agentId}</c>). Vai pro <c>TriggerContext</c>.</summary>
+    public string? DeployedFromWorkflowId { get; init; }
 }

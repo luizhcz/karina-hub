@@ -42,6 +42,18 @@ public interface IEvaluationRunRepository
         CancellationToken ct = default);
 
     /// <summary>
+    /// Última run criada na janela <paramref name="window"/> com mesma (AgentVersionId,
+    /// TriggerContext->>preset). Usado pelo auto-deploy pra dedup: re-deploy do mesmo
+    /// agent + preset em janela curta não dispara run duplicada (poupa custo).
+    /// Retorna a run com status Pending/Running/Completed (Failed/Cancelled libera retry).
+    /// </summary>
+    Task<EvaluationRun?> FindRecentByAgentVersionAndPresetAsync(
+        string agentVersionId,
+        string preset,
+        TimeSpan window,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Próxima run <c>Pending</c> ordenada por (Priority ASC, CreatedAt ASC).
     /// </summary>
     Task<EvaluationRun?> DequeuePendingAsync(CancellationToken ct = default);

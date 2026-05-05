@@ -7,7 +7,7 @@ using EfsAiHub.Host.Api.Models.Responses;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/generic-tools")]
+[Route("api/aihub/generic-tools")]
 [Produces("application/json")]
 public class GenericToolsController : ControllerBase
 {

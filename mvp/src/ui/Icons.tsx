@@ -158,3 +158,12 @@ export function ArrowRightIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+export function ChartIcon({ className }: IconProps) {
+  return (
+    <svg {...baseProps} className={className}>
+      <path d="M3 3v17a1 1 0 0 0 1 1h17" />
+      <path d="M7 16l4-4 4 4 5-5" />
+    </svg>
+  )
+}

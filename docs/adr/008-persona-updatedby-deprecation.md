@@ -66,7 +66,7 @@ audit_log).
   + OnModelCreating)
 - `src/EfsAiHub.Infra.Persistence/Postgres/PgPersonaPromptTemplateRepository.cs`
 - `src/EfsAiHub.Host.Api/Controllers/PersonaPromptTemplatesAdminController.cs`
-- `frontend/src/api/personaTemplates.ts`
+- `frontend/src/api/aihub/personaTemplates.ts`
 
 ### Prepared (apply em release futura)
 - `db/migration_persona_templates_drop_updatedby.sql`

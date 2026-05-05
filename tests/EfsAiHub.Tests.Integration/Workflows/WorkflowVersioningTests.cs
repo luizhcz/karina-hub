@@ -16,7 +16,7 @@ public class WorkflowVersioningTests(IntegrationWebApplicationFactory factory)
             orchestrationMode = "Sequential",
             agents = new[] { new { agentId = "agent-placeholder" } }
         };
-        var response = await _client.PostAsJsonAsync("/api/workflows", payload);
+        var response = await _client.PostAsJsonAsync("/api/aihub/workflows", payload);
         response.EnsureSuccessStatusCode();
         return id;
     }
@@ -30,7 +30,7 @@ public class WorkflowVersioningTests(IntegrationWebApplicationFactory factory)
             orchestrationMode = "Sequential",
             agents = new[] { new { agentId = "agent-placeholder" } }
         };
-        var response = await _client.PutAsJsonAsync($"/api/workflows/{id}", payload);
+        var response = await _client.PutAsJsonAsync($"/api/aihub/workflows/{id}", payload);
         response.EnsureSuccessStatusCode();
     }
 
@@ -41,7 +41,7 @@ public class WorkflowVersioningTests(IntegrationWebApplicationFactory factory)
 
         await UpdateWorkflowAsync(id, "v2");
 
-        var response = await _client.GetAsync($"/api/workflows/{id}/versions");
+        var response = await _client.GetAsync($"/api/aihub/workflows/{id}/versions");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var versions = await response.Content.ReadFromJsonAsync<JsonElement>();
         versions.GetArrayLength().Should().BeGreaterThanOrEqualTo(1);
@@ -54,7 +54,7 @@ public class WorkflowVersioningTests(IntegrationWebApplicationFactory factory)
         await UpdateWorkflowAsync(id, "update-1");
         await UpdateWorkflowAsync(id, "update-2");
 
-        var response = await _client.GetAsync($"/api/workflows/{id}/versions");
+        var response = await _client.GetAsync($"/api/aihub/workflows/{id}/versions");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var versions = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -72,7 +72,7 @@ public class WorkflowVersioningTests(IntegrationWebApplicationFactory factory)
         await UpdateWorkflowAsync(id, "mesma-coisa");
         await UpdateWorkflowAsync(id, "mesma-coisa");
 
-        var response = await _client.GetAsync($"/api/workflows/{id}/versions");
+        var response = await _client.GetAsync($"/api/aihub/workflows/{id}/versions");
         var versions = await response.Content.ReadFromJsonAsync<JsonElement>();
 
         var hashes = versions.EnumerateArray()
@@ -91,7 +91,7 @@ public class WorkflowVersioningTests(IntegrationWebApplicationFactory factory)
         await UpdateWorkflowAsync(id, "alterado");
 
         // Obtém lista de versões
-        var versionsResp = await _client.GetAsync($"/api/workflows/{id}/versions");
+        var versionsResp = await _client.GetAsync($"/api/aihub/workflows/{id}/versions");
         var versions = await versionsResp.Content.ReadFromJsonAsync<JsonElement>();
         var allVersions = versions.EnumerateArray().ToList();
 
@@ -101,7 +101,7 @@ public class WorkflowVersioningTests(IntegrationWebApplicationFactory factory)
 
         // Faz rollback
         var rollbackResp = await _client.PostAsync(
-            $"/api/workflows/{id}/rollback?versionId={versionId}", null);
+            $"/api/aihub/workflows/{id}/rollback?versionId={versionId}", null);
 
         rollbackResp.StatusCode.Should().Be(HttpStatusCode.OK);
     }

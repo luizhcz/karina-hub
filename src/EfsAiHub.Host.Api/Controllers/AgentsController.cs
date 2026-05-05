@@ -11,7 +11,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/agents")]
+[Route("api/aihub/agents")]
 [Produces("application/json")]
 public class AgentsController : ControllerBase
 {
@@ -118,6 +118,10 @@ public class AgentsController : ControllerBase
                 ct: ct);
 
             return Ok(AgentResponse.FromDomain(updated));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
         }
         catch (ArgumentException ex)
         {
@@ -303,19 +307,31 @@ public class AgentsController : ControllerBase
     [HttpDelete("{id}")]
     [SwaggerOperation(Summary = "Remove uma definição de agente")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(string id, CancellationToken ct)
     {
-        var existing = await _agentService.GetAsync(id, ct);
-        var before = existing is null ? null : AdminAuditContext.Snapshot(AgentResponse.FromDomain(existing));
+        try
+        {
+            var existing = await _agentService.GetAsync(id, ct);
+            var before = existing is null ? null : AdminAuditContext.Snapshot(AgentResponse.FromDomain(existing));
 
-        await _agentService.DeleteAsync(id, ct);
-        await _audit.RecordAsync(_auditContext.Build(
-            AdminAuditActions.Delete,
-            AdminAuditResources.Agent,
-            id,
-            payloadBefore: before), ct);
-        return NoContent();
+            await _agentService.DeleteAsync(id, ct);
+            await _audit.RecordAsync(_auditContext.Build(
+                AdminAuditActions.Delete,
+                AdminAuditResources.Agent,
+                id,
+                payloadBefore: before), ct);
+            return NoContent();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
     }
 
     [HttpGet("{id}/versions")]
@@ -475,7 +491,7 @@ public class AgentsController : ControllerBase
             agentId = id,
             mode = ExecutionMode.Sandbox.ToString(),
             message = "Sandbox execution is available via workflow trigger with mode=sandbox. " +
-                      "Create a single-agent workflow referencing this agent and use POST /api/workflows/{id}/sandbox.",
+                      "Create a single-agent workflow referencing this agent and use POST /api/aihub/workflows/{id}/sandbox.",
             input = request.Input
         });
     }
@@ -504,7 +520,7 @@ public class AgentsController : ControllerBase
             versionA = new { versionA.AgentVersionId, versionA.Revision, versionA.ContentHash },
             versionB = new { versionB.AgentVersionId, versionB.Revision, versionB.ContentHash },
             message = "Version comparison requires sandbox execution of both versions. " +
-                      "Use POST /api/workflows/{id}/sandbox with metadata specifying the target version.",
+                      "Use POST /api/aihub/workflows/{id}/sandbox with metadata specifying the target version.",
             input = request.Input
         });
     }

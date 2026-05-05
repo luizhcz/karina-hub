@@ -23,7 +23,11 @@ public sealed class LocalEvaluatorAdapter : IAgentEvaluator
     public Task<IReadOnlyList<EvaluationResult>> EvaluateAsync(EvaluationInvocation invocation, CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
-        var (score, passed, reason) = _binding.Name switch
+        // Outcome=null = NotApplicable: evaluator pula este case sem emitir Result.
+        // Evita falso negativo quando o agente não casa com o tipo de check (ex.:
+        // ToolCalledCheck contra agente sem tools, ContainsExpected contra case
+        // sem ExpectedOutput, KeywordCheck sem params.keywords).
+        (decimal score, bool passed, string reason)? outcome = _binding.Name switch
         {
             "KeywordCheck"     => RunKeywordCheck(invocation),
             "ToolCalledCheck"  => RunToolCalledCheck(invocation),
@@ -32,6 +36,10 @@ public sealed class LocalEvaluatorAdapter : IAgentEvaluator
         };
         sw.Stop();
 
+        if (outcome is null)
+            return Task.FromResult<IReadOnlyList<EvaluationResult>>(Array.Empty<EvaluationResult>());
+
+        var (score, passed, reason) = outcome.Value;
         var result = MeaiResultMapper.MapLocal(
             invocation,
             $"local.{_binding.Name}",
@@ -44,13 +52,13 @@ public sealed class LocalEvaluatorAdapter : IAgentEvaluator
         return Task.FromResult<IReadOnlyList<EvaluationResult>>(new[] { result });
     }
 
-    private (decimal score, bool passed, string reason) RunKeywordCheck(EvaluationInvocation invocation)
+    private (decimal score, bool passed, string reason)? RunKeywordCheck(EvaluationInvocation invocation)
     {
-        var output = invocation.ModelResponse.Text ?? string.Empty;
         var keywords = ExtractStringArray(_binding.Params, "keywords");
-        if (keywords.Count == 0)
-            return (0m, false, "KeywordCheck.params.keywords ausente ou vazio.");
+        // Sem keywords configuradas → não aplicável (skip), não falha.
+        if (keywords.Count == 0) return null;
 
+        var output = invocation.ModelResponse.Text ?? string.Empty;
         var caseSensitive = ExtractBool(_binding.Params, "caseSensitive", defaultValue: false);
         var comparison = caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
         var matchMode = ExtractString(_binding.Params, "matchMode", defaultValue: "any") ?? "any";
@@ -67,13 +75,14 @@ public sealed class LocalEvaluatorAdapter : IAgentEvaluator
         return (score, passed, reason);
     }
 
-    private (decimal score, bool passed, string reason) RunToolCalledCheck(EvaluationInvocation invocation)
+    private (decimal score, bool passed, string reason)? RunToolCalledCheck(EvaluationInvocation invocation)
     {
         // params.expectedToolName tem prioridade; cai pro primeiro nome em case.ExpectedToolCalls.
         var expected = ExtractString(_binding.Params, "expectedToolName")
             ?? ExtractFirstToolName(invocation.TestCase.ExpectedToolCalls);
-        if (string.IsNullOrEmpty(expected))
-            return (0m, false, "ToolCalledCheck: nem params.expectedToolName nem case.ExpectedToolCalls populados.");
+        // Sem expected tool → não aplicável (agente sem tools, ou case que não exige
+        // tool call). Skip evita falso negativo em agentes de chat puro.
+        if (string.IsNullOrEmpty(expected)) return null;
 
         var calledTools = invocation.ModelResponse.Messages
             .SelectMany(m => m.Contents)
@@ -88,11 +97,11 @@ public sealed class LocalEvaluatorAdapter : IAgentEvaluator
         return (present ? 1m : 0m, present, reason);
     }
 
-    private (decimal score, bool passed, string reason) RunContainsExpected(EvaluationInvocation invocation)
+    private (decimal score, bool passed, string reason)? RunContainsExpected(EvaluationInvocation invocation)
     {
         var expected = invocation.TestCase.ExpectedOutput;
-        if (string.IsNullOrEmpty(expected))
-            return (0m, false, "ContainsExpected: case.ExpectedOutput vazio.");
+        // Sem ExpectedOutput → não aplicável (skip). Substring match não tem o que comparar.
+        if (string.IsNullOrEmpty(expected)) return null;
 
         var output = invocation.ModelResponse.Text ?? string.Empty;
         var caseSensitive = ExtractBool(_binding.Params, "caseSensitive", defaultValue: false);

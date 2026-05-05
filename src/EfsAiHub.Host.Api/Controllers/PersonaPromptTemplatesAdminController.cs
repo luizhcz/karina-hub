@@ -17,7 +17,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// — edição altera a mesma linha, audit trail vive em <c>admin_audit_log</c>.
 /// </summary>
 [ApiController]
-[Route("api/admin/persona-templates")]
+[Route("api/aihub/admin/persona-templates")]
 [Produces("application/json")]
 public class PersonaPromptTemplatesAdminController : ControllerBase
 {

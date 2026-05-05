@@ -36,6 +36,42 @@ public sealed class PgEvaluationTestSetRepository : IEvaluationTestSetRepository
         return rows.Select(ToDomain).ToList();
     }
 
+    public async Task<IReadOnlyDictionary<string, TestSetVersionStats>> GetStatsForVersionsAsync(
+        IEnumerable<string> testSetVersionIds,
+        CancellationToken ct = default)
+    {
+        var ids = testSetVersionIds?.Distinct().ToArray() ?? Array.Empty<string>();
+        if (ids.Length == 0) return new Dictionary<string, TestSetVersionStats>();
+
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+
+        // 2 queries simples: revision por version + count de cases por version.
+        // Mais barato que single JOIN agregado (cada uma usa o índice da PK/FK
+        // direto). Merge em memória — IDs in() é small (limit prático: 50-100
+        // test sets por projeto).
+        var revisions = await ctx.EvaluationTestSetVersions
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(v => ids.Contains(v.TestSetVersionId))
+            .Select(v => new { v.TestSetVersionId, v.Revision })
+            .ToListAsync(ct);
+
+        var counts = await ctx.EvaluationTestCases
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(c => ids.Contains(c.TestSetVersionId))
+            .GroupBy(c => c.TestSetVersionId)
+            .Select(g => new { TestSetVersionId = g.Key, Count = g.Count() })
+            .ToListAsync(ct);
+
+        var countMap = counts.ToDictionary(x => x.TestSetVersionId, x => x.Count);
+        return revisions.ToDictionary(
+            r => r.TestSetVersionId,
+            r => new TestSetVersionStats(
+                CaseCount: countMap.TryGetValue(r.TestSetVersionId, out var c) ? c : 0,
+                Revision: r.Revision));
+    }
+
     public async Task<EvaluationTestSet> UpsertAsync(EvaluationTestSet testSet, CancellationToken ct = default)
     {
         await using var ctx = await _factory.CreateDbContextAsync(ct);

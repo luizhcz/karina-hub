@@ -44,7 +44,7 @@ public sealed class AgentDraftService : IAgentDraftService
 
         if (await _agentRepo.ExistsAsync(draftId, ct))
             throw new InvalidOperationException(
-                $"Id '{draftId}' já é usado por agent publicado. Use POST /api/agents/{{id}}/edit-draft pra forkar.");
+                $"Id '{draftId}' já é usado por agent publicado. Use POST /api/aihub/agents/{{id}}/edit-draft pra forkar.");
 
         var draft = new AgentDraft
         {

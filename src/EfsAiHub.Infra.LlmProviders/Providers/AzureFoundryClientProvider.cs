@@ -97,7 +97,7 @@ public class AzureFoundryClientProvider : ILlmClientProvider
     /// <summary>
     /// Constrói um <see cref="IChatClient"/> que fala a Responses API v1 do Foundry
     /// (path <c>{endpoint}/responses</c>). O endpoint do agent precisa apontar até a
-    /// raiz da API v1 — ex.: <c>https://{resource}.services.ai.azure.com/api/projects/
+    /// raiz da API v1 — ex.: <c>https://{resource}.services.ai.azure.com/api/aihub/projects/
     /// {project}/openai/v1</c>. Usamos o SDK OpenAI da Microsoft com endpoint
     /// customizado; auth via Bearer header (Foundry aceita).
     /// </summary>
@@ -119,7 +119,7 @@ public class AzureFoundryClientProvider : ILlmClientProvider
         if (string.IsNullOrWhiteSpace(endpointStr))
             throw new InvalidOperationException(
                 $"Agent '{definition.Id}': Foundry Responses requer Endpoint apontando até a raiz da API v1 " +
-                "(ex.: https://{resource}.services.ai.azure.com/api/projects/{project}/openai/v1).");
+                "(ex.: https://{resource}.services.ai.azure.com/api/aihub/projects/{project}/openai/v1).");
 
         var endpointUri = new Uri(endpointStr.TrimEnd('/'));
         var clientOptions = new OpenAI.OpenAIClientOptions { Endpoint = endpointUri };

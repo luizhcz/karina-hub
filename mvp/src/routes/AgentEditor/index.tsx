@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   createAgentDraft,
@@ -14,14 +14,24 @@ import { listGenericTools, type GenericTool } from '../../api/genericTools'
 import { listMcpServers, type McpServer } from '../../api/mcpServers'
 import { ApiError, friendlyError } from '../../api/client'
 import {
+  AssistantFailureError,
+  AssistantTimeoutError,
+  analisarPerfil,
+  countCriticas,
+  hashInput,
+  type CampoPerfil,
+  type ProfileInput,
+  type RefinamentoPerfilOutput,
+} from '../../api/profileAssistant'
+import {
   ArrowLeftIcon,
   ArrowRightIcon,
   Badge,
   Button,
   Card,
-  CardHeader,
   ErrorMessage,
   Modal,
+  SparklesIcon,
   Spinner,
   cn,
 } from '../../ui'
@@ -32,8 +42,43 @@ import { InputStep } from './InputStep'
 import { OutputStep } from './OutputStep'
 import { ModelStep } from './ModelStep'
 import { ReviewStep } from './ReviewStep'
+import { AssistantDrawer } from './AssistantDrawer'
 import { buildPayload, emptyFormState, fromDraft } from './formCodec'
+import { AGENT_TEMPLATES } from './templates'
 import type { AgentMode, FormState, StepKey } from './types'
+
+const COOLDOWN_MS = 10_000
+const MIN_ROLE_CHARS = 20
+
+function profileInputFrom(form: FormState): ProfileInput {
+  return {
+    name: form.name,
+    role: form.profile.role,
+    goal: form.profile.goal,
+    backstory: form.profile.backstory,
+    rules: form.profile.rules.join('\n'),
+    constraints: form.profile.constraints.join('\n'),
+  }
+}
+
+function fieldValuesFrom(form: FormState): Record<CampoPerfil, string> {
+  return {
+    name: form.name,
+    description: '',
+    role: form.profile.role,
+    goal: form.profile.goal,
+    backstory: form.profile.backstory,
+    rules: form.profile.rules.join('\n'),
+    constraints: form.profile.constraints.join('\n'),
+  }
+}
+
+function splitListField(value: string): string[] {
+  return value
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
 
 interface Props {
   mode: 'create' | 'edit'
@@ -79,13 +124,23 @@ export function AgentEditor({ mode }: Props) {
   // No fluxo de criação, ?mode=advanced (ou ?mode=basic) define o modo inicial
   // — a tela é aberta a partir do modal de "Novo agente" da listagem com esse
   // parâmetro. Em edit, o modo é inferido do conteúdo do draft pelo formCodec.
+  // ?template=<key> hidrata Profile + nome + descrição com um modelo pronto
+  // (ver routes/AgentEditor/templates.ts) — atalho pro time-to-first-agent.
   const initialMode = mode === 'create' && searchParams.get('mode') === 'advanced'
     ? 'advanced'
     : 'basic'
-  const [form, setForm] = useState<FormState>(() => ({
-    ...emptyFormState(),
-    agentMode: initialMode,
-  }))
+  const initialTemplateKey = mode === 'create' ? searchParams.get('template') : null
+  const [form, setForm] = useState<FormState>(() => {
+    const base: FormState = { ...emptyFormState(), agentMode: initialMode }
+    if (!initialTemplateKey) return base
+    const tpl = AGENT_TEMPLATES.find((t) => t.key === initialTemplateKey)
+    if (!tpl) return base
+    return {
+      ...base,
+      name: tpl.defaults.name,
+      profile: { ...tpl.defaults.profile },
+    }
+  })
   const [draft, setDraft] = useState<AgentDraft | null>(null)
   const [loading, setLoading] = useState(mode === 'edit')
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -97,6 +152,29 @@ export function AgentEditor({ mode }: Props) {
   const [models, setModels] = useState<PredefinedModel[]>([])
   const [modelsLoading, setModelsLoading] = useState(true)
   const [modelsError, setModelsError] = useState<string | null>(null)
+
+  // Estado do assistente de refinamento (Onda 1.5).
+  const [assistantOpen, setAssistantOpen] = useState(false)
+  const [assistantLoading, setAssistantLoading] = useState(false)
+  const [assistantResult, setAssistantResult] = useState<RefinamentoPerfilOutput | null>(null)
+  const [assistantError, setAssistantError] = useState<string | null>(null)
+  const [cooldownUntil, setCooldownUntil] = useState<number>(0)
+  const [now, setNow] = useState(() => Date.now())
+  const lastInputRef = useRef<{ hash: string; result: RefinamentoPerfilOutput; ts: number } | null>(null)
+  const analysisHashRef = useRef<string | null>(null)
+  const fieldsTouchedRef = useRef<Set<CampoPerfil>>(new Set())
+  const abortRef = useRef<AbortController | null>(null)
+  const [confirmFrustration, setConfirmFrustration] = useState(false)
+  const frustrationDismissedRef = useRef(false)
+
+  // Tick pra atualizar o countdown do cooldown só enquanto ele está ativo.
+  useEffect(() => {
+    if (cooldownUntil <= now) return
+    const t = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(t)
+  }, [cooldownUntil, now])
+
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   const [tools, setTools] = useState<GenericTool[]>([])
   const [toolsLoading, setToolsLoading] = useState(true)
@@ -195,6 +273,16 @@ export function AgentEditor({ mode }: Props) {
   const isFirst = currentIndex === 0
   const isLast = currentIndex === steps.length - 1
 
+  // Pendências obrigatórias por step. Evita o user descobrir falta de
+  // nome/modelo só na Revisão — agora o Stepper sinaliza desde o início.
+  // Critério: o que `validateForSubmit` cobre, replicado por step de origem.
+  const stepIssues = useMemo<Partial<Record<StepKey, string>>>(() => {
+    const issues: Partial<Record<StepKey, string>> = {}
+    if (!form.name.trim()) issues.profile = 'Informe um nome'
+    if (!form.predefinedModelId.trim()) issues.model = 'Selecione um modelo'
+    return issues
+  }, [form.name, form.predefinedModelId])
+
   const goTo = (key: StepKey) => setForm((prev) => ({ ...prev, currentStep: key }))
   const goNext = () => {
     const next = steps[currentIndex + 1]
@@ -219,6 +307,105 @@ export function AgentEditor({ mode }: Props) {
       }
     })
   }
+
+  // ── Assistente de Refinamento ────────────────────────────────────────
+  const cooldownRemaining = Math.max(0, Math.ceil((cooldownUntil - now) / 1000))
+  const onCooldown = cooldownRemaining > 0
+  const roleReady = form.profile.role.trim().length >= MIN_ROLE_CHARS
+  const assistantDisabled = readonly || !roleReady || onCooldown || assistantLoading
+
+  const onAssistantApply = (campo: CampoPerfil, value: string) => {
+    setForm((prev) => {
+      const next = { ...prev }
+      switch (campo) {
+        case 'name':
+          next.name = value
+          break
+        case 'role':
+          next.profile = { ...prev.profile, role: value }
+          break
+        case 'goal':
+          next.profile = { ...prev.profile, goal: value }
+          break
+        case 'backstory':
+          next.profile = { ...prev.profile, backstory: value }
+          break
+        case 'rules':
+          next.profile = { ...prev.profile, rules: splitListField(value) }
+          break
+        case 'constraints':
+          next.profile = { ...prev.profile, constraints: splitListField(value) }
+          break
+        // 'description' não tem campo no wizard — sugestões para esse campo
+        // são filtradas no AssistantDrawer via groupByCampo (não rendem grupo).
+      }
+      return next
+    })
+    fieldsTouchedRef.current.add(campo)
+  }
+
+  const runAnalysis = async () => {
+    if (assistantDisabled) return
+    const input = profileInputFrom(form)
+    const h = hashInput(input)
+
+    // Cache local: input idêntico nos últimos 60s reusa o resultado sem
+    // bater no backend (anti-abuso + reduz custo).
+    const cached = lastInputRef.current
+    if (cached && cached.hash === h && Date.now() - cached.ts < 60_000) {
+      setAssistantResult(cached.result)
+      setAssistantError(null)
+      setAssistantOpen(true)
+      analysisHashRef.current = h
+      fieldsTouchedRef.current = new Set()
+      return
+    }
+
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    setAssistantOpen(true)
+    setAssistantLoading(true)
+    setAssistantError(null)
+    setAssistantResult(null)
+    try {
+      const result = await analisarPerfil(input, controller.signal)
+      setAssistantResult(result)
+      lastInputRef.current = { hash: h, result, ts: Date.now() }
+      analysisHashRef.current = h
+      fieldsTouchedRef.current = new Set()
+      const until = Date.now() + COOLDOWN_MS
+      setCooldownUntil(until)
+      setNow(Date.now())
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
+      if (err instanceof AssistantTimeoutError) {
+        setAssistantError('O assistente demorou demais — tente novamente em instantes.')
+      } else if (err instanceof AssistantFailureError) {
+        setAssistantError('Indisponível agora. Você pode salvar normalmente e tentar de novo depois.')
+      } else {
+        setAssistantError(friendlyError(err, 'Não foi possível analisar o perfil.'))
+      }
+    } finally {
+      setAssistantLoading(false)
+    }
+  }
+
+  const closeAssistant = () => {
+    abortRef.current?.abort()
+    setAssistantOpen(false)
+    setAssistantLoading(false)
+  }
+
+  const criticasPendentes = useMemo(() => {
+    if (!assistantResult) return 0
+    const currentHash = hashInput(profileInputFrom(form))
+    // Se o usuário já editou desde a análise (hash mudou), zera a contagem.
+    // Mantemos a contagem se ele só clicou em campos sem alterar conteúdo.
+    if (analysisHashRef.current && currentHash !== analysisHashRef.current) return 0
+    return countCriticas(assistantResult.sugestoes)
+  }, [assistantResult, form])
 
   const reloadDraft = async (draftId: string) => {
     try {
@@ -266,8 +453,21 @@ export function AgentEditor({ mode }: Props) {
     return null
   }
 
+  const tryOpenSubmit = () => {
+    const validation = validateForSubmit()
+    if (validation) {
+      setError(validation)
+      return
+    }
+    setError(null)
+    if (criticasPendentes >= 3 && !frustrationDismissedRef.current) {
+      setConfirmFrustration(true)
+      return
+    }
+    setConfirmSubmit(true)
+  }
+
   const onConfirmSubmit = async () => {
-    if (!id) return
     const validation = validateForSubmit()
     if (validation) {
       setError(validation)
@@ -277,19 +477,46 @@ export function AgentEditor({ mode }: Props) {
     setError(null)
     setSubmittingApproval(true)
     try {
-      if (draft) {
+      let draftId = id
+      if (mode === 'create' || !draftId) {
+        // Create mode: cria o draft inline antes de submeter (1 fluxo, sem
+        // viagem extra pra /agentes/{id} no meio).
+        const payload = buildPayload(undefined, form, tools, mcps)
+        const created = await createAgentDraft({ id: generateDraftId(), payload })
+        draftId = created.id
+        setDraft(created)
+      } else if (draft) {
         const payload = buildPayload(draft.payload, form, tools, mcps)
-        const updated = await updateAgentDraft(id, {
+        const updated = await updateAgentDraft(draftId, {
           payload,
           expectedUpdatedAt: draft.updatedAt,
         })
         setDraft(updated)
       }
-      const result = await submitAgentDraft(id)
+      const result = await submitAgentDraft(draftId!)
       setConfirmSubmit(false)
-      navigate(result.autoApproved ? '/agentes?tab=published' : '/agentes', { replace: true })
+      // Flash de confirmação consumido pelo AgentsList via location.state.
+      // Garante feedback explícito de "submeti, e agora?" — sem isso o user
+      // vê só a lista e não sabe se a ação chegou.
+      const flash = result.autoApproved
+        ? {
+            tone: 'success' as const,
+            title: 'Edição cosmética aprovada automaticamente',
+            body: 'A nova versão do agente já está em produção.',
+          }
+        : {
+            tone: 'accent' as const,
+            title: 'Rascunho enviado para aprovação',
+            body: 'O time de governança recebe a fila e responde em até 2 dias úteis. Acompanhe na aba Rascunhos.',
+          }
+      navigate(result.autoApproved ? '/agentes?tab=published' : '/agentes', {
+        replace: true,
+        state: { flash },
+      })
     } catch (err) {
-      if (err instanceof ApiError && err.status === 412) {
+      if (err instanceof ApiError && err.status === 412 && id) {
+        // 412 só é possível em edit mode (update com expectedUpdatedAt).
+        // Create mode não tem versão prévia pra conflitar.
         setError('O rascunho foi alterado em paralelo. Recarregamos os valores — revise antes de submeter de novo.')
         await reloadDraft(id)
       } else {
@@ -335,6 +562,32 @@ export function AgentEditor({ mode }: Props) {
               <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>
             )}
           </div>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <Button
+            size="sm"
+            variant={assistantResult ? 'secondary' : 'primary'}
+            onClick={runAnalysis}
+            disabled={assistantDisabled}
+            loading={assistantLoading}
+            leftIcon={!assistantLoading ? <SparklesIcon className="h-4 w-4" /> : undefined}
+            title={
+              !roleReady
+                ? `Preencha o papel com pelo menos ${MIN_ROLE_CHARS} caracteres pra habilitar.`
+                : onCooldown
+                ? `Aguarde ${cooldownRemaining}s pra rodar de novo.`
+                : 'Analisa o perfil e devolve sugestões granulares.'
+            }
+          >
+            {assistantLoading
+              ? 'Analisando perfil…'
+              : onCooldown
+              ? `Aguarde ${cooldownRemaining}s`
+              : assistantResult
+              ? 'Reanalisar perfil'
+              : 'Refinar com IA'}
+          </Button>
+          <span className="text-[10px] text-fg-dim">~$0.001 por análise</span>
         </div>
       </div>
 
@@ -389,7 +642,22 @@ export function AgentEditor({ mode }: Props) {
           current={form.currentStep}
           onSelect={goTo}
           disabled={readonly}
+          issues={stepIssues}
         />
+        {/* Hint inline pra issue do step ATUAL — substitui o tooltip nativo
+            (title="…") que demora 1.5s pra aparecer e some em touch. Aqui o
+            user vê na hora "este step tem pendência X" sem hover. */}
+        {stepIssues[form.currentStep] && (
+          <p className="mt-2 flex items-center gap-1.5 text-[11px] text-warning">
+            <span
+              className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-warning/20 font-bold"
+              aria-hidden="true"
+            >
+              !
+            </span>
+            {stepIssues[form.currentStep]}
+          </p>
+        )}
       </Card>
 
       <div className="mb-5">
@@ -426,32 +694,7 @@ export function AgentEditor({ mode }: Props) {
           />
         )}
         {form.currentStep === 'review' && (
-          <div className="space-y-5">
-            <ReviewStep form={form} models={models} tools={tools} mcps={mcps} />
-
-            {mode === 'edit' && canSubmit && (
-              <Card className="space-y-3 border-accent/40 bg-accent-subtle/40">
-                <CardHeader
-                  title="Submeter para aprovação"
-                  description="Envie este rascunho pra revisão. Depois de submeter, o agente fica em modo somente leitura até a decisão."
-                />
-                <Button
-                  className="w-full sm:w-auto"
-                  onClick={() => {
-                    const validation = validateForSubmit()
-                    if (validation) {
-                      setError(validation)
-                      return
-                    }
-                    setError(null)
-                    setConfirmSubmit(true)
-                  }}
-                >
-                  {status === 'Rejected' ? 'Submeter novamente' : 'Submeter para aprovação'}
-                </Button>
-              </Card>
-            )}
-          </div>
+          <ReviewStep form={form} models={models} tools={tools} mcps={mcps} />
         )}
       </div>
 
@@ -485,7 +728,7 @@ export function AgentEditor({ mode }: Props) {
             )}
           </div>
 
-          <div className="pointer-events-auto">
+          <div className="pointer-events-auto flex items-center gap-2">
             {!isLast ? (
               <Button
                 onClick={goNext}
@@ -496,9 +739,27 @@ export function AgentEditor({ mode }: Props) {
                 Avançar
               </Button>
             ) : (
-              <Button onClick={onSave} loading={submitting} disabled={readonly} className="shadow-xl">
-                {mode === 'edit' ? 'Salvar' : 'Criar rascunho'}
-              </Button>
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={onSave}
+                  loading={submitting}
+                  disabled={readonly || submittingApproval}
+                  className="shadow-xl"
+                >
+                  {mode === 'edit' ? 'Salvar' : 'Salvar como rascunho'}
+                </Button>
+                {(mode === 'create' || canSubmit) && (
+                  <Button
+                    onClick={tryOpenSubmit}
+                    loading={submittingApproval}
+                    disabled={readonly || submitting}
+                    className="shadow-xl"
+                  >
+                    {status === 'Rejected' ? 'Salvar e submeter novamente' : 'Salvar e submeter para aprovação'}
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -524,6 +785,46 @@ export function AgentEditor({ mode }: Props) {
           Vamos salvar as alterações em aberto e enviar este rascunho para aprovação. Tudo certo?
         </p>
       </Modal>
+
+      <Modal
+        open={confirmFrustration}
+        onClose={() => setConfirmFrustration(false)}
+        title="Itens críticos pendentes"
+        description="O assistente sinalizou pontos importantes que ainda não foram tratados."
+        size="sm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmFrustration(false)}>
+              Voltar e revisar
+            </Button>
+            <Button
+              onClick={() => {
+                frustrationDismissedRef.current = true
+                setConfirmFrustration(false)
+                setConfirmSubmit(true)
+              }}
+            >
+              Submeter mesmo assim
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm text-fg-muted">
+          Há {criticasPendentes} {criticasPendentes === 1 ? 'item crítico não tratado' : 'itens críticos não tratados'} na última análise.
+          Você pode voltar e ajustar ou submeter como está — sua decisão.
+        </p>
+      </Modal>
+
+      <AssistantDrawer
+        open={assistantOpen}
+        onClose={closeAssistant}
+        loading={assistantLoading}
+        result={assistantResult}
+        error={assistantError}
+        onRetry={runAnalysis}
+        onApply={onAssistantApply}
+        fieldValues={fieldValuesFrom(form)}
+      />
     </div>
   )
 }

@@ -85,6 +85,8 @@ else
 
 // ── Infra.Messaging (PgEventBus SSE backbone + PgCrossNodeBus coordination)
 builder.Services.AddMessaging();
+// IEventBuffer (in-memory 1 pod hoje; trocar por AddRedisStreamEventBuffer quando N pods)
+builder.Services.AddEventBuffer(builder.Configuration);
 
 // ── Extension Points ─────────────────────────────────────────────────────────
 builder.Services.AddAgentMiddlewareRegistry();

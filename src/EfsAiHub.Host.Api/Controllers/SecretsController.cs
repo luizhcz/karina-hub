@@ -14,7 +14,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// Gateado por AdminGateMiddleware (não está na lista de rotas públicas).
 /// </summary>
 [ApiController]
-[Route("api/secrets")]
+[Route("api/aihub/secrets")]
 [Produces("application/json")]
 public class SecretsController : ControllerBase
 {

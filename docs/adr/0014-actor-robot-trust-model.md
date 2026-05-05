@@ -12,11 +12,11 @@ Caso de uso canônico (frontend-mediated function calling):
 ```
 1. Humano: "Qual meu saldo?"
 2. Workflow → agente LLM produz objeto estruturado:
-     { "intent": "consultar_saldo", "endpoint": "/api/cliente/saldo" }
+     { "intent": "consultar_saldo", "endpoint": "/api/aihub/cliente/saldo" }
 3. Frontend chama esse endpoint EXTERNO (não EFS AI Hub) com auth próprio.
 4. Backend externo responde { "saldo": 12480.33 }.
 5. Frontend posta no AG-UI:
-     POST /api/chat/ag-ui/stream
+     POST /api/aihub/chat/ag-ui/stream
      { "messages": [..., { "role": "user", "content": "{...}", "actor": "robot" }] }
 6. Backend persiste com Role=user + Actor=Robot, NÃO dispara workflow,
    responde com SSE sintético (RUN_STARTED → CUSTOM(actor.persisted) →
@@ -73,7 +73,7 @@ Robot **bypassa todos os rate limiters** (per-user, per-conversation, project, c
 3. Robot persiste com `Role=user, Actor=Robot` no domínio. `BuildChatMessage` nunca mais mapeia `robot → assistant`.
 4. Robot **não dispara workflow nem consome budget** — short-circuit em `ConversationService.SendMessagesAsync` antes do `TriggerAsync`. Teste de regressão em `AgUiActorRobotTests.Post_ActorRobot_PersistEMantemSemDisparoDeWorkflow`.
 5. Robot durante execução em curso (Running, sem HITL) **registra paralelamente sem cancelar**. Early return no branch `lastIsRobot` preserva `ActiveExecutionId`.
-6. Robot + HITL pendente → 400 explícito; HITL programático deve usar `POST /api/chat/ag-ui/resolve-hitl`, não `/stream` com `actor=robot`.
+6. Robot + HITL pendente → 400 explícito; HITL programático deve usar `POST /api/aihub/chat/ag-ui/resolve-hitl`, não `/stream` com `actor=robot`.
 7. `actor=robot` que **não é** a última mensagem do batch → 400. Robot fecha turno por design.
 8. `actor` com string fora de `{null, "human", "robot"}` (após trim) → 400 explícito. Sem silent default.
 9. `Actor` no domínio interno **jamais vaza para `ChatRole`** — `ChatTurnContextMapper` mapeia robot → `ChatRole.User` quando o histórico vai pro LLM.

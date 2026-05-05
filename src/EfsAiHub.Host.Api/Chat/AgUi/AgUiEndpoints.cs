@@ -11,7 +11,7 @@ public static class AgUiEndpoints
 {
     public static void MapAgUiEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/api/chat/ag-ui")
+        var group = app.MapGroup("/api/aihub/chat/ag-ui")
             .AllowAnonymous();
 
         // Inicia run e stream AG-UI SSE
@@ -177,7 +177,7 @@ public static class AgUiEndpoints
                 context.Response.StatusCode = 400;
                 await context.Response.WriteAsJsonAsync(new
                 {
-                    error = "actor=robot não pode resolver HITL pendente — use POST /api/chat/ag-ui/resolve-hitl."
+                    error = "actor=robot não pode resolver HITL pendente — use POST /api/aihub/chat/ag-ui/resolve-hitl."
                 }, ct);
                 return;
             }

@@ -72,6 +72,28 @@ public class PgWorkflowEventRepository(IDbContextFactory<AgentFwDbContext> facto
                 g => (IReadOnlyList<WorkflowEventEnvelope>)g.ToList());
     }
 
+    public async Task<IReadOnlyList<WorkflowEventEnvelope>> GetSinceAsync(string executionId, long since, int limit, CancellationToken ct = default)
+    {
+        if (limit <= 0) limit = 100;
+        if (since < 0) since = 0;
+
+        await using var ctx = await factory.CreateDbContextAsync(ct);
+        return await ctx.WorkflowEventAudits
+            .AsNoTracking()
+            .Where(r => r.ExecutionId == executionId && r.Id > since)
+            .OrderBy(r => r.Id)
+            .Take(limit)
+            .Select(r => new WorkflowEventEnvelope
+            {
+                ExecutionId = r.ExecutionId,
+                EventType = r.EventType,
+                Payload = r.Payload,
+                Timestamp = r.Timestamp,
+                SequenceId = r.Id
+            })
+            .ToListAsync(ct);
+    }
+
     public async Task<WorkflowEventEnvelope?> GetBySequenceIdAsync(long sequenceId, CancellationToken ct = default)
     {
         await using var ctx = await factory.CreateDbContextAsync(ct);

@@ -39,14 +39,14 @@ A plataforma expõe uma API REST + streaming SSE (protocolo AG-UI) para gerencia
 │                                                                       │
 │  ┌─────────────────────┐  ┌────────────────────────────────────────┐ │
 │  │   AG-UI SSE Stream   │  │          REST API (Swagger)            │ │
-│  │  /api/chat/ag-ui/*   │  │  /api/agents · /api/workflows         │ │
-│  │  Token streaming     │  │  /api/conversations · /api/executions  │ │
-│  │  Tool calls          │  │  /api/skills · /api/projects           │ │
-│  │  HITL inline         │  │  /api/interactions · /api/analytics    │ │
-│  │  Reconnect           │  │  /api/model-catalog · /api/functions   │ │
-│  └─────────────────────┘  │  /api/admin/model-pricing              │ │
-│                            │  /api/admin/conversations              │ │
-│                            │  /api/admin/token-usage                │ │
+│  │  /api/aihub/chat/ag-ui/*   │  │  /api/aihub/agents · /api/aihub/workflows         │ │
+│  │  Token streaming     │  │  /api/aihub/conversations · /api/aihub/executions  │ │
+│  │  Tool calls          │  │  /api/aihub/skills · /api/aihub/projects           │ │
+│  │  HITL inline         │  │  /api/aihub/interactions · /api/aihub/analytics    │ │
+│  │  Reconnect           │  │  /api/aihub/model-catalog · /api/aihub/functions   │ │
+│  └─────────────────────┘  │  /api/aihub/admin/model-pricing              │ │
+│                            │  /api/aihub/admin/conversations              │ │
+│                            │  /api/aihub/admin/token-usage                │ │
 │                            └────────────────────────────────────────┘ │
 │                                                                       │
 │  ┌─── Middleware Pipeline ──────────────────────────────────────────┐ │
@@ -139,7 +139,7 @@ A plataforma expõe uma API REST + streaming SSE (protocolo AG-UI) para gerencia
 
 O chat funciona com streaming SSE usando o protocolo AG-UI:
 
-1. **Frontend** envia apenas a mensagem atual (`POST /api/chat/ag-ui/stream`)
+1. **Frontend** envia apenas a mensagem atual (`POST /api/aihub/chat/ag-ui/stream`)
 2. **Backend** carrega o histórico do banco (últimas N mensagens, configurável por workflow via `MaxHistoryMessages`, default 20)
 3. **Backend** monta o `ChatTurnContext` (mensagem atual + histórico + metadata) e dispara o workflow
 4. **ChatTurnContextMapper** converte o contexto em mensagens para o LLM conforme o modo de orquestração

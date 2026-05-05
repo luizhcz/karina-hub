@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { listAgentDrafts, type AgentDraft, type AgentDraftStatus } from '../api/agentDrafts'
 import {
   listAgents,
@@ -11,6 +11,14 @@ import {
   type ApprovalHistoryEntry,
 } from '../api/agents'
 import { ApiError, friendlyError } from '../api/client'
+import { getIdentity } from '../stores/identity'
+import { isInCurrentProject } from '../stores/projectScope'
+import {
+  deployedAgentId,
+  isAgentDeployment,
+  listWorkflows,
+  type Workflow,
+} from '../api/workflows'
 import { NewAgentModeModal } from '../components/NewAgentModeModal'
 import {
   AgentIcon,
@@ -18,6 +26,8 @@ import {
   BoltIcon,
   Button,
   Card,
+  CheckIcon,
+  CloseIcon,
   ErrorMessage,
   Input,
   Modal,
@@ -27,6 +37,12 @@ import {
   Textarea,
   cn,
 } from '../ui'
+
+interface FlashMessage {
+  tone: 'success' | 'accent'
+  title: string
+  body?: string
+}
 
 type Tab = 'drafts' | 'published'
 
@@ -57,6 +73,17 @@ export function AgentsList() {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const [search, setSearch] = useState('')
   const [modeModalOpen, setModeModalOpen] = useState(false)
+  const [onlyMine, setOnlyMine] = useState(false)
+
+  // Flash de confirmação pós-submit. Vem via location.state quando o
+  // AgentEditor navega de volta. Persiste até o user fechar — feedback
+  // explícito de "submeti, e agora?". Identidade do user atual é usada pra
+  // dar o filtro 'Meus rascunhos' já existir mesmo após F5.
+  const location = useLocation()
+  const initialFlash = (location.state as { flash?: FlashMessage } | null)?.flash ?? null
+  const [flash, setFlash] = useState<FlashMessage | null>(initialFlash)
+  const identity = useMemo(() => getIdentity(), [])
+  const myAccount = identity?.account ?? null
 
   // Drafts state
   const [drafts, setDrafts] = useState<AgentDraft[]>([])
@@ -112,29 +139,43 @@ export function AgentsList() {
     }
   }, [])
 
+  // Mesmo backend devolvendo agentes globais cross-project (HasQueryFilter inclui
+  // Visibility=global), no MVP o usuário só vê recursos do próprio projeto. A
+  // visibilidade continua válida no runtime — é separação puramente visual.
+  const ownDrafts = useMemo(() => drafts.filter(isInCurrentProject), [drafts])
+  const ownAgents = useMemo(() => agents.filter(isInCurrentProject), [agents])
+
   const filteredDrafts = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return drafts
-    return drafts.filter((d) => {
+    return ownDrafts.filter((d) => {
+      if (onlyMine && myAccount && d.createdBy !== myAccount) return false
+      if (!q) return true
       const name = (d.name || d.payload?.name || '').toLowerCase()
       const desc = (d.payload?.description ?? '').toLowerCase()
       return name.includes(q) || desc.includes(q)
     })
-  }, [drafts, search])
+  }, [ownDrafts, search, onlyMine, myAccount])
+
+  const myDraftsCount = useMemo(
+    () => (myAccount ? ownDrafts.filter((d) => d.createdBy === myAccount).length : 0),
+    [ownDrafts, myAccount],
+  )
 
   const filteredAgents = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return agents
-    return agents.filter((a) => {
+    if (!q) return ownAgents
+    return ownAgents.filter((a) => {
       const name = (a.name ?? '').toLowerCase()
       const desc = (a.description ?? '').toLowerCase()
       return name.includes(q) || desc.includes(q)
     })
-  }, [agents, search])
+  }, [ownAgents, search])
 
-  const handleSelectMode = (mode: 'basic' | 'advanced') => {
+  const handleSelectMode = (mode: 'basic' | 'advanced', template?: string) => {
     setModeModalOpen(false)
-    navigate(`/agentes/novo?mode=${mode}`)
+    const qs = new URLSearchParams({ mode })
+    if (template) qs.set('template', template)
+    navigate(`/agentes/novo?${qs.toString()}`)
   }
 
   const handleEdit = async (agentId: string) => {
@@ -231,7 +272,7 @@ export function AgentsList() {
         <TabButton
           active={activeTab === 'drafts'}
           label="Rascunhos"
-          count={draftsLoading ? null : drafts.length}
+          count={draftsLoading ? null : ownDrafts.length}
           onClick={() => {
             setActiveTab('drafts')
             setSearchParams({}, { replace: true })
@@ -240,7 +281,7 @@ export function AgentsList() {
         <TabButton
           active={activeTab === 'published'}
           label="Publicados"
-          count={agentsLoading ? null : agents.length}
+          count={agentsLoading ? null : ownAgents.length}
           onClick={() => {
             setActiveTab('published')
             setSearchParams({ tab: 'published' }, { replace: true })
@@ -248,18 +289,68 @@ export function AgentsList() {
         />
       </div>
 
-      <div className="mb-6 max-w-md">
-        <Input
-          placeholder={
-            activeTab === 'drafts'
-              ? 'Buscar rascunho por nome ou descrição…'
-              : 'Buscar agente publicado por nome ou descrição…'
-          }
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          leftAddon={<SearchIcon className="h-4 w-4" />}
-        />
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <div className="max-w-md flex-1">
+          <Input
+            placeholder={
+              activeTab === 'drafts'
+                ? 'Buscar rascunho por nome ou descrição…'
+                : 'Buscar agente publicado por nome ou descrição…'
+            }
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            leftAddon={<SearchIcon className="h-4 w-4" />}
+          />
+        </div>
+        {activeTab === 'drafts' && myAccount && (
+          <button
+            type="button"
+            onClick={() => setOnlyMine((v) => !v)}
+            className={cn(
+              'inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30',
+              onlyMine
+                ? 'border-accent bg-accent-subtle text-accent'
+                : 'border-border bg-surface text-fg-muted hover:text-fg',
+            )}
+            aria-pressed={onlyMine}
+          >
+            {onlyMine && <CheckIcon className="h-3.5 w-3.5" />}
+            Meus rascunhos
+            <span
+              className={cn(
+                'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                onlyMine ? 'bg-accent text-accent-contrast' : 'bg-bg-soft text-fg-muted',
+              )}
+            >
+              {myDraftsCount}
+            </span>
+          </button>
+        )}
       </div>
+
+      {flash && (
+        <div
+          className={cn(
+            'mb-4 flex items-start justify-between gap-3 rounded-xl border px-4 py-3',
+            flash.tone === 'success'
+              ? 'border-success/40 bg-success/10 text-success'
+              : 'border-accent/40 bg-accent-subtle text-accent',
+          )}
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">{flash.title}</p>
+            {flash.body && <p className="mt-0.5 text-xs opacity-90">{flash.body}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={() => setFlash(null)}
+            className="shrink-0 rounded-md p-1 transition hover:bg-fg/10"
+            aria-label="Fechar aviso"
+          >
+            <CloseIcon className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {forkError && <ErrorMessage message={forkError} className="mb-4" />}
 
@@ -268,7 +359,7 @@ export function AgentsList() {
           loading={draftsLoading}
           error={draftsError}
           items={filteredDrafts}
-          totalItems={drafts.length}
+          totalItems={ownDrafts.length}
           showCreateCard={showCreateCard}
           searchActive={search.trim().length > 0}
           onCreateClick={() => setModeModalOpen(true)}
@@ -506,6 +597,8 @@ interface DraftCardProps {
 function DraftCard({ draft, onClick }: DraftCardProps) {
   const display = draft.name || draft.payload?.name || 'Rascunho sem nome'
   const description = draft.payload?.description ?? ''
+  const slaInfo =
+    draft.status === 'PendingApproval' && draft.submittedAt ? buildSlaInfo(draft.submittedAt) : null
 
   return (
     <Card
@@ -542,6 +635,20 @@ function DraftCard({ draft, onClick }: DraftCardProps) {
         {description || <span className="italic text-fg-dim">sem descrição</span>}
       </p>
 
+      {slaInfo && (
+        <div
+          className={cn(
+            'flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px]',
+            slaInfo.overdue
+              ? 'bg-warning/10 text-warning'
+              : 'bg-accent-subtle text-accent',
+          )}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+          {slaInfo.label}
+        </div>
+      )}
+
       <div className="mt-auto flex items-center justify-between text-[11px] text-fg-dim">
         <div className="flex items-center gap-2">
           {draft.isEditDraft && <Badge>edição</Badge>}
@@ -551,6 +658,40 @@ function DraftCard({ draft, onClick }: DraftCardProps) {
       </div>
     </Card>
   )
+}
+
+// SLA pós-submit. Backend não expõe filas/posição; usamos a heurística
+// "2 dias úteis a partir do submittedAt" pra setar expectativa do PO.
+// Quando passa do prazo, vira tom warning ("aguardando há X dias úteis").
+function buildSlaInfo(submittedAtIso: string): { label: string; overdue: boolean } {
+  const submitted = new Date(submittedAtIso)
+  if (Number.isNaN(submitted.getTime())) return { label: 'Aguardando aprovação', overdue: false }
+  const businessDays = countBusinessDays(submitted, new Date())
+  if (businessDays <= 0) return { label: 'Submetido agora · SLA 2 dias úteis', overdue: false }
+  if (businessDays <= 2)
+    return {
+      label: `Aguardando há ${businessDays} dia${businessDays === 1 ? '' : 's'} útil${businessDays === 1 ? '' : 'eis'} · SLA 2 dias úteis`,
+      overdue: false,
+    }
+  return {
+    label: `Aguardando há ${businessDays} dias úteis · acima do SLA esperado`,
+    overdue: true,
+  }
+}
+
+function countBusinessDays(from: Date, to: Date): number {
+  if (to <= from) return 0
+  let count = 0
+  const cursor = new Date(from)
+  cursor.setHours(0, 0, 0, 0)
+  const end = new Date(to)
+  end.setHours(0, 0, 0, 0)
+  while (cursor < end) {
+    cursor.setDate(cursor.getDate() + 1)
+    const day = cursor.getDay()
+    if (day !== 0 && day !== 6) count++
+  }
+  return count
 }
 
 interface PublishedAgentCardProps {
@@ -771,6 +912,56 @@ function ToggleEnabledModal({
   const willDisable = enabled
   const title = willDisable ? 'Desabilitar agente' : 'Habilitar agente'
 
+  // Blast radius: workflows-implantação que referenciam o agente. Carregado
+  // só quando o modal abre — evita request supérfluo no mount da lista.
+  // Falha NÃO é silenciosa: setamos `workflowsError` e bloqueamos o confirm
+  // — em incidente P1, silêncio é pior que ruído. Operador precisa ver que
+  // a verificação de impacto não rodou antes de desabilitar/habilitar.
+  const [workflows, setWorkflows] = useState<Workflow[]>([])
+  const [loadingWorkflows, setLoadingWorkflows] = useState(false)
+  const [workflowsError, setWorkflowsError] = useState<string | null>(null)
+  const [allowToggleAnyway, setAllowToggleAnyway] = useState(false)
+
+  useEffect(() => {
+    if (!agent) {
+      // Reset entre aberturas — modal reaproveita estado se o user reabrir.
+      setWorkflows([])
+      setWorkflowsError(null)
+      setAllowToggleAnyway(false)
+      return
+    }
+    let cancelled = false
+    setLoadingWorkflows(true)
+    setWorkflowsError(null)
+    setAllowToggleAnyway(false)
+    listWorkflows()
+      .then((all) => {
+        if (cancelled) return
+        const affected = all
+          .filter(isAgentDeployment)
+          .filter((w) => deployedAgentId(w) === agent.id)
+        setWorkflows(affected)
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setWorkflows([])
+        setWorkflowsError(
+          friendlyError(err, 'Não foi possível verificar quais implantações usam este agente.'),
+        )
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingWorkflows(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [agent])
+
+  // Confirm bloqueado quando temos erro na verificação E o user ainda não
+  // marcou explicitamente "desabilitar mesmo assim". Em sucesso (mesmo com 0
+  // workflows), confirm continua liberado.
+  const confirmDisabled = loading || (!!workflowsError && !allowToggleAnyway)
+
   return (
     <Modal
       open={agent !== null}
@@ -786,6 +977,7 @@ function ToggleEnabledModal({
             variant={willDisable ? 'danger' : 'primary'}
             onClick={onConfirm}
             loading={loading}
+            disabled={confirmDisabled}
           >
             {willDisable ? 'Desabilitar' : 'Habilitar'}
           </Button>
@@ -798,6 +990,67 @@ function ToggleEnabledModal({
             ? 'Quando desabilitado, o agente é pulado em runtime — workflows que o referenciam continuam saváveis, mas execuções não disparam o agente. Você pode reabilitar a qualquer momento.'
             : 'Ao habilitar, o agente volta a ser invocado em runtime nos workflows que o referenciam.'}
         </p>
+
+        {/* Blast radius: lista as implantações afetadas pra evitar incidente
+            P1 onde PO desabilita "seu" agente sem saber que outros squads
+            consomem ele. Visível tanto pra desabilitar quanto pra habilitar.
+            Em falha de carga, bloqueia o confirm até user marcar override. */}
+        {loadingWorkflows ? (
+          <div className="flex items-center gap-2 rounded-md bg-bg-soft px-3 py-2 text-xs text-fg-muted">
+            <Spinner className="h-3.5 w-3.5" />
+            Verificando implantações que referenciam este agente…
+          </div>
+        ) : workflowsError ? (
+          <div className="space-y-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+            <p className="font-semibold">Não foi possível verificar o impacto</p>
+            <p>{workflowsError}</p>
+            <label className="flex items-start gap-2 pt-1 text-fg-muted">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-3.5 w-3.5 accent-warning"
+                checked={allowToggleAnyway}
+                onChange={(e) => setAllowToggleAnyway(e.target.checked)}
+                disabled={loading}
+              />
+              <span>
+                Continuar mesmo assim — assumo o risco de afetar implantações sem
+                conferência prévia.
+              </span>
+            </label>
+          </div>
+        ) : workflows.length === 0 ? (
+          <div className="rounded-md bg-bg-soft px-3 py-2 text-xs text-fg-muted">
+            Nenhuma implantação ativa referencia este agente.
+          </div>
+        ) : (
+          <div
+            className={cn(
+              'rounded-md border px-3 py-2 text-xs',
+              willDisable
+                ? 'border-warning/40 bg-warning/10 text-warning'
+                : 'border-accent/40 bg-accent-subtle text-accent',
+            )}
+          >
+            <p className="font-semibold">
+              {willDisable
+                ? `${workflows.length} implantação${workflows.length === 1 ? '' : 'ões'} ${
+                    workflows.length === 1 ? 'será afetada' : 'serão afetadas'
+                  }:`
+                : `${workflows.length} implantação${workflows.length === 1 ? '' : 'ões'} ${
+                    workflows.length === 1 ? 'voltará' : 'voltarão'
+                  } a executar:`}
+            </p>
+            <ul className="mt-1 space-y-0.5">
+              {workflows.map((w) => (
+                <li key={w.id} className="font-mono">
+                  · {w.name}{' '}
+                  <span className="opacity-70">({w.id})</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div>
           <label className="block text-xs font-medium text-fg-muted">
             Motivo (opcional)

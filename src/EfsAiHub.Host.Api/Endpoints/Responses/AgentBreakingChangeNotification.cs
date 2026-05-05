@@ -1,7 +1,7 @@
 namespace EfsAiHub.Host.Api.Models.Responses;
 
 /// <summary>
-/// Item da lista retornada por <c>GET /api/notifications/agent-breaking-changes</c>.
+/// Item da lista retornada por <c>GET /api/aihub/notifications/agent-breaking-changes</c>.
 /// Cada entry representa uma <c>AgentVersion</c> com <c>BreakingChange=true</c>
 /// publicada recentemente — sinaliza pra UI mostrar bell + dropdown com workflows
 /// que precisam de revisão de pin.

@@ -169,7 +169,7 @@ public static class MetricsRegistry
             description: "Mudanças de Enabled em AgentDefinition. Tags: from, to, tenant.");
 
     /// <summary>
-    /// Drafts de agent criados via POST /api/agent-drafts. Tags: tenant, is_edit_draft.
+    /// Drafts de agent criados via POST /api/aihub/agent-drafts. Tags: tenant, is_edit_draft.
     /// </summary>
     public static readonly Counter<long> AgentDraftsCreated =
         _meter.CreateCounter<long>("agents.drafts_created_total",
@@ -177,14 +177,14 @@ public static class MetricsRegistry
 
     /// <summary>
     /// Drafts promovidos a agent canônico via aprovação no painel
-    /// (POST /api/agent-approvals/{id}/approve). Tags: tenant, was_edit_draft.
+    /// (POST /api/aihub/agent-approvals/{id}/approve). Tags: tenant, was_edit_draft.
     /// </summary>
     public static readonly Counter<long> AgentDraftsPublished =
         _meter.CreateCounter<long>("agents.drafts_published_total",
             description: "Drafts promovidos via approval. Tags: tenant, was_edit_draft.");
 
     /// <summary>
-    /// Drafts descartados explicitamente via DELETE /api/agent-drafts/{id}. Tags: tenant.
+    /// Drafts descartados explicitamente via DELETE /api/aihub/agent-drafts/{id}. Tags: tenant.
     /// </summary>
     public static readonly Counter<long> AgentDraftsAbandoned =
         _meter.CreateCounter<long>("agents.drafts_abandoned_total",

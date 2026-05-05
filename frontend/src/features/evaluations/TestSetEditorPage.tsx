@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import {
   useTestSet,
   useTestSetVersionCases,
+  useCreateTestSet,
   usePublishTestSetVersion,
   useImportTestSetCsv,
   useUpdateTestSetVersionStatus,
 } from '../../api/evaluations'
 import type { TestSetVersion } from '../../api/evaluations'
+import { useProjectStore } from '../../stores/project'
 import { Button } from '../../shared/ui/Button'
 import { Card } from '../../shared/ui/Card'
 import { Badge } from '../../shared/ui/Badge'
@@ -15,6 +17,9 @@ import { Input } from '../../shared/ui/Input'
 import { Tabs } from '../../shared/ui/Tabs'
 import { PageLoader } from '../../shared/ui/LoadingSpinner'
 import { ErrorCard } from '../../shared/ui/ErrorCard'
+import { TestSetHeaderForm, type TestSetHeaderValues } from './components/TestSetHeaderForm'
+import { GenerateCasesModal } from './components/GenerateCasesModal'
+import type { GeneratedCase } from '../../api/testCaseGenerator'
 
 interface CaseDraft {
   input: string
@@ -27,7 +32,16 @@ const EMPTY_CASE: CaseDraft = { input: '', expectedOutput: '', tags: '', weight:
 
 export function TestSetEditorPage() {
   const { id } = useParams<{ id: string }>()
-  const { data, isLoading, error, refetch } = useTestSet(id!, !!id)
+  const navigate = useNavigate()
+  const projectId = useProjectStore((s) => s.projectId) ?? 'default'
+  // Modo CREATE quando rota é /evaluations/test-sets/new — esse path bate na
+  // rota literal sem param `:id`, então useParams().id é undefined. Tratamos
+  // tanto undefined quanto "new" (caso o React Router resolva a literal pra
+  // /:id="new" em outra config) pra cobrir os dois cenários.
+  const isCreateMode = !id || id === 'new'
+
+  const { data, isLoading, error, refetch } = useTestSet(id!, !isCreateMode && !!id)
+  const createMutation = useCreateTestSet()
   const publishMutation = usePublishTestSetVersion()
   const importMutation = useImportTestSetCsv()
   const updateStatusMutation = useUpdateTestSetVersionStatus()
@@ -38,41 +52,123 @@ export function TestSetEditorPage() {
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [versionToView, setVersionToView] = useState<string | null>(null)
+  const [headerValues, setHeaderValues] = useState<TestSetHeaderValues>({
+    name: '',
+    description: '',
+    visibility: 'project',
+  })
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [generatorOpen, setGeneratorOpen] = useState(false)
+
+  const hasFilledCases = drafts.some((d) => d.input.trim())
+
+  const handleGeneratedCases = (cases: GeneratedCase[], replace: boolean) => {
+    const newDrafts: CaseDraft[] = cases.map((c) => ({
+      input: c.input,
+      expectedOutput: c.expectedOutput ?? '',
+      tags: (c.tags ?? []).join(', '),
+      weight: String(c.weight ?? 1.0),
+    }))
+    if (newDrafts.length === 0) return
+    if (replace || !hasFilledCases) {
+      setDrafts(newDrafts)
+    } else {
+      // Mantém os que já tinham input + adiciona os gerados.
+      const existing = drafts.filter((d) => d.input.trim())
+      setDrafts([...existing, ...newDrafts])
+    }
+  }
 
   useEffect(() => {
+    if (isCreateMode) return
     if (!versionToView && data?.versions?.[0]) {
       setVersionToView(data.versions[0].testSetVersionId)
     }
-  }, [data, versionToView])
+  }, [data, versionToView, isCreateMode])
 
-  const versionCasesQuery = useTestSetVersionCases(versionToView ?? '', !!versionToView)
+  const versionCasesQuery = useTestSetVersionCases(
+    versionToView ?? '',
+    !isCreateMode && !!versionToView,
+  )
 
-  if (isLoading) return <PageLoader />
-  if (error || !data) return <ErrorCard message="Erro ao carregar test set." onRetry={refetch} />
+  if (!isCreateMode && isLoading) return <PageLoader />
+  if (!isCreateMode && (error || !data)) {
+    return <ErrorCard message="Erro ao carregar test set." onRetry={refetch} />
+  }
 
-  const { testSet, versions } = data
+  const testSet = isCreateMode ? null : data!.testSet
+  const versions = isCreateMode ? [] : data!.versions
 
   const showTrivialWarning = drafts.length > 0 && drafts.length < 10
   const showNoExpectedWarning =
     drafts.length >= 5 &&
     drafts.filter((d) => !d.expectedOutput.trim()).length / drafts.length > 0.5
 
+  const buildCases = () => drafts
+    .filter((d) => d.input.trim())
+    .map((d) => ({
+      input: d.input.trim(),
+      expectedOutput: d.expectedOutput.trim() || undefined,
+      tags: d.tags.split(',').map((t) => t.trim()).filter(Boolean),
+      weight: Number(d.weight) || 1.0,
+    }))
+
   const handlePublishInline = async () => {
-    const cases = drafts
-      .filter((d) => d.input.trim())
-      .map((d) => ({
-        input: d.input.trim(),
-        expectedOutput: d.expectedOutput.trim() || undefined,
-        tags: d.tags.split(',').map((t) => t.trim()).filter(Boolean),
-        weight: Number(d.weight) || 1.0,
-      }))
+    const cases = buildCases()
     if (cases.length === 0) return
     await publishMutation.mutateAsync({
-      id: testSet.id,
+      id: testSet!.id,
       body: { cases, changeReason: changeReason.trim() || undefined },
     })
     setDrafts([{ ...EMPTY_CASE }])
     setChangeReason('')
+  }
+
+  // Handler unificado do modo CREATE: cria TestSet + publica primeira version
+  // em sequência. Se publish falhar mid-flow, TestSet fica órfão sem versions —
+  // user pode retry o publish reabrindo a página de detalhe (já navegada).
+  const handleCreateUnified = async () => {
+    setCreateError(null)
+    if (!headerValues.name.trim()) {
+      setCreateError('Nome é obrigatório.')
+      return
+    }
+    const cases = buildCases()
+    if (cases.length === 0) {
+      setCreateError('Adicione pelo menos um case antes de salvar.')
+      return
+    }
+    try {
+      const created = await createMutation.mutateAsync({
+        projectId,
+        body: {
+          name: headerValues.name.trim(),
+          description: headerValues.description.trim() || undefined,
+          visibility: headerValues.visibility,
+        },
+      })
+      try {
+        await publishMutation.mutateAsync({
+          id: created.id,
+          body: { cases, changeReason: changeReason.trim() || undefined },
+        })
+      } catch (publishErr) {
+        // TestSet criado mas publish falhou — navega pro detalhe pra user retry
+        // (cases ficam no state local do detalhe). Mostra toast leve.
+        navigate(`/evaluations/test-sets/${created.id}`, { replace: true })
+        setCreateError(
+          publishErr instanceof Error
+            ? `Test set criado, mas falhou ao salvar cases: ${publishErr.message}. Tente salvar de novo.`
+            : 'Test set criado, mas falhou ao salvar cases. Tente salvar de novo.',
+        )
+        return
+      }
+      navigate(`/evaluations/test-sets/${created.id}`, { replace: true })
+    } catch (err) {
+      setCreateError(
+        err instanceof Error ? err.message : 'Erro ao criar test set. Tente novamente.',
+      )
+    }
   }
 
   const CSV_MAX_BYTES = 5 * 1024 * 1024 // 5MB hard limit
@@ -81,7 +177,7 @@ export function TestSetEditorPage() {
   const handlePublishCsv = async () => {
     if (!csvFile || csvTooLarge) return
     await importMutation.mutateAsync({
-      id: testSet.id,
+      id: testSet!.id,
       file: csvFile,
       changeReason: changeReason.trim() || undefined,
     })
@@ -90,11 +186,15 @@ export function TestSetEditorPage() {
     setChangeReason('')
   }
 
-  const tabItems = [
-    { key: 'inline', label: 'Editor inline' },
-    { key: 'csv', label: 'Import CSV' },
-    { key: 'versions', label: 'Versões', badge: versions.length },
-  ]
+  // No modo CREATE só faz sentido a tab Cases — Importar e Histórico exigem
+  // TestSet já persistido e versão. Esconde delas até o save.
+  const tabItems = isCreateMode
+    ? [{ key: 'inline', label: 'Cases' }]
+    : [
+        { key: 'inline', label: 'Cases' },
+        { key: 'csv', label: 'Importar' },
+        { key: 'versions', label: 'Histórico', badge: versions.length },
+      ]
 
   return (
     <div className="flex flex-col gap-4">
@@ -102,11 +202,19 @@ export function TestSetEditorPage() {
         <Link to="/evaluations/test-sets">
           <Button variant="ghost" size="sm">&larr; Test Sets</Button>
         </Link>
-        <h1 className="text-2xl font-bold text-text-primary truncate flex-1">{testSet.name}</h1>
-        <Badge variant={testSet.visibility === 'global' ? 'purple' : 'gray'}>{testSet.visibility}</Badge>
+        <h1 className="text-2xl font-bold text-text-primary truncate flex-1">
+          {isCreateMode ? 'Novo Test Set' : testSet!.name}
+        </h1>
+        {!isCreateMode && (
+          <Badge variant={testSet!.visibility === 'global' ? 'purple' : 'gray'}>{testSet!.visibility}</Badge>
+        )}
       </div>
-      {testSet.description && (
-        <div className="text-sm text-text-muted">{testSet.description}</div>
+      {!isCreateMode && testSet!.description && (
+        <div className="text-sm text-text-muted">{testSet!.description}</div>
+      )}
+
+      {isCreateMode && (
+        <TestSetHeaderForm values={headerValues} onChange={setHeaderValues} />
       )}
 
       <Tabs items={tabItems} active={activeTab} onChange={setActiveTab} />
@@ -157,7 +265,7 @@ export function TestSetEditorPage() {
                     next[idx] = { ...d, expectedOutput: e.target.value }
                     setDrafts(next)
                   }}
-                  placeholder="Expected output (opcional — usado por ContainsExpected, Equivalence)"
+                  placeholder="Resposta esperada (opcional — usado por ContainsExpected e Equivalence; deixe em branco para Local skip)"
                   rows={2}
                   className="w-full px-3 py-2 text-sm rounded-md bg-bg-secondary border border-border-secondary text-text-primary"
                 />
@@ -173,7 +281,8 @@ export function TestSetEditorPage() {
                     placeholder="weather,easy"
                   />
                   <Input
-                    label="Weight"
+                    label="Peso"
+                    title="Peso do caso na média (1.0 padrão; >1 = caso mais importante)"
                     type="number"
                     step="0.1"
                     value={d.weight}
@@ -186,9 +295,14 @@ export function TestSetEditorPage() {
                 </div>
               </div>
             ))}
-            <Button variant="secondary" onClick={() => setDrafts([...drafts, { ...EMPTY_CASE }])}>
-              + Adicionar caso
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => setDrafts([...drafts, { ...EMPTY_CASE }])}>
+                + Adicionar caso
+              </Button>
+              <Button variant="secondary" onClick={() => setGeneratorOpen(true)}>
+                ✨ Gerar com IA
+              </Button>
+            </div>
           </div>
 
           <div className="mt-4 space-y-2">
@@ -200,13 +314,18 @@ export function TestSetEditorPage() {
             />
             <Button
               variant="primary"
-              onClick={handlePublishInline}
-              loading={publishMutation.isPending}
+              onClick={isCreateMode ? handleCreateUnified : handlePublishInline}
+              loading={isCreateMode
+                ? createMutation.isPending || publishMutation.isPending
+                : publishMutation.isPending}
               disabled={drafts.every((d) => !d.input.trim())}
             >
-              Publicar versão
+              {isCreateMode ? 'Salvar test set' : 'Salvar cases'}
             </Button>
-            {publishMutation.error && (
+            {createError && (
+              <div className="text-sm text-red-400">{createError}</div>
+            )}
+            {!isCreateMode && publishMutation.error && (
               <div className="text-sm text-red-400">{(publishMutation.error as Error).message}</div>
             )}
           </div>
@@ -281,13 +400,23 @@ export function TestSetEditorPage() {
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-sm font-semibold">v{v.revision}</span>
-                      <Badge
-                        variant={
-                          v.status === 'Published' ? 'green' : v.status === 'Deprecated' ? 'red' : 'gray'
+                      <span
+                        title={
+                          v.status === 'Published' ? 'Versão em uso por runs novas' :
+                          v.status === 'Deprecated' ? 'Não usar mais — runs antigas mantidas' :
+                          'Rascunho — ainda não publicado'
                         }
                       >
-                        {v.status}
-                      </Badge>
+                        <Badge
+                          variant={
+                            v.status === 'Published' ? 'green' : v.status === 'Deprecated' ? 'red' : 'gray'
+                          }
+                        >
+                          {v.status === 'Published' ? 'Em uso' :
+                           v.status === 'Deprecated' ? 'Não usar mais' :
+                           'Rascunho'}
+                        </Badge>
+                      </span>
                       <span className="text-xs font-mono text-text-muted">
                         {v.contentHash.slice(0, 8)}…
                       </span>
@@ -298,6 +427,7 @@ export function TestSetEditorPage() {
                         variant="secondary"
                         onClick={(e) => {
                           e.stopPropagation()
+                          if (!testSet) return
                           updateStatusMutation.mutate({
                             id: testSet.id,
                             vid: v.testSetVersionId,
@@ -368,6 +498,13 @@ export function TestSetEditorPage() {
           )}
         </Card>
       )}
+
+      <GenerateCasesModal
+        open={generatorOpen}
+        onClose={() => setGeneratorOpen(false)}
+        onGenerated={handleGeneratedCases}
+        hasExistingCases={hasFilledCases}
+      />
     </div>
   )
 }

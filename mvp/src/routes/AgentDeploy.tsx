@@ -14,6 +14,12 @@ import {
   type WorkflowEnabledStatus,
   type WorkflowVersion,
 } from '../api/workflows'
+import {
+  type AutoDeployPreset,
+  type AutoDeployResponse,
+  listEvalRunsByAgent,
+  runAutoDeploy,
+} from '../api/profileEvaluation'
 import { ApiError, friendlyError } from '../api/client'
 import { getSystemInfo } from '../api/system'
 import { getIdentity } from '../stores/identity'
@@ -30,6 +36,9 @@ import {
   Spinner,
   cn,
 } from '../ui'
+import { PresetSelector } from './AgentDeploy/PresetSelector'
+import { EvalStatusCard } from './AgentDeploy/EvalStatusCard'
+import { RerunEvalCard } from './AgentDeploy/RerunEvalCard'
 
 export function AgentDeploy() {
   const { id } = useParams<{ id: string }>()
@@ -43,6 +52,12 @@ export function AgentDeploy() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [deploying, setDeploying] = useState(false)
   const [deployError, setDeployError] = useState<string | null>(null)
+
+  // Eval auto-deploy state.
+  const [preset, setPreset] = useState<AutoDeployPreset>('basic')
+  const [confirmAdvanced, setConfirmAdvanced] = useState(false)
+  const [autoDeploy, setAutoDeploy] = useState<AutoDeployResponse | null>(null)
+  const [autoDeployRunning, setAutoDeployRunning] = useState(false)
 
   const refreshEnabledStatus = async (workflowId: string) => {
     try {
@@ -81,6 +96,30 @@ export function AgentDeploy() {
             setLoadError(friendlyError(err, 'Falha ao consultar implantação existente.'))
           }
         }
+
+        // Hidrata último run de auto-deploy (após F5 mostra status atual).
+        try {
+          const runs = await listEvalRunsByAgent(id, 1)
+          if (!cancelled && runs.length > 0) {
+            const last = runs[0]
+            const lastPreset = (last.triggerContext?.preset ?? 'basic') as AutoDeployPreset
+            setPreset(lastPreset)
+            setAutoDeploy({
+              runId: last.runId,
+              testSetVersionId: last.testSetVersionId,
+              evaluatorConfigVersionId: last.evaluatorConfigVersionId,
+              preset: lastPreset,
+              caseCount: last.casesTotal,
+              estimatedCostUsd: 0,
+              estimatedDurationSeconds: 0,
+              status: last.status,
+              deduplicatedFromExisting: false,
+              generatorFailed: false,
+            })
+          }
+        } catch {
+          // ignore — sem runs ainda é o caso comum
+        }
       } catch (err) {
         if (!cancelled) setLoadError(friendlyError(err, 'Não foi possível carregar o agente.'))
       } finally {
@@ -94,8 +133,45 @@ export function AgentDeploy() {
     }
   }, [id])
 
+  // Trigger separado do auto-deploy de avaliação. Falha aqui não derruba o
+  // workflow já deployado — soft gate. Frontend mostra "Avaliação não disponível"
+  // se o gerador falhar. Aceita preset opcional pra rerun com preset diferente
+  // do estado inicial (chamado pelo RerunEvalCard).
+  const triggerEvalAutoDeploy = async (workflowId: string, presetOverride?: AutoDeployPreset) => {
+    if (!id) return
+    const usePreset = presetOverride ?? preset
+    setAutoDeployRunning(true)
+    try {
+      const result = await runAutoDeploy(id, usePreset, workflowId)
+      setAutoDeploy(result)
+    } catch (err) {
+      // Falha do auto-deploy é informativa, não bloqueia. EvalStatusCard mostra estado.
+      setAutoDeploy({
+        runId: null,
+        testSetVersionId: null,
+        evaluatorConfigVersionId: null,
+        preset: usePreset,
+        caseCount: 0,
+        estimatedCostUsd: 0,
+        estimatedDurationSeconds: 0,
+        status: null,
+        deduplicatedFromExisting: false,
+        generatorFailed: true,
+      })
+      // friendlyError pode logar pra debugging futuro
+      console.warn('[AgentDeploy] Falha no auto-deploy de avaliação:', friendlyError(err))
+    } finally {
+      setAutoDeployRunning(false)
+    }
+  }
+
   const handleDeploy = async () => {
     if (!agent || !id) return
+    if (preset === 'advanced' && !confirmAdvanced) {
+      setConfirmAdvanced(true)
+      return
+    }
+    setConfirmAdvanced(false)
     setDeploying(true)
     setDeployError(null)
     try {
@@ -121,6 +197,8 @@ export function AgentDeploy() {
       })
       setWorkflow(wf)
       void refreshEnabledStatus(wf.id)
+      // Dispara avaliação async — não bloqueia retorno do deploy.
+      void triggerEvalAutoDeploy(wf.id)
     } catch (err) {
       setDeployError(friendlyError(err, 'Não foi possível concluir a implantação.'))
     } finally {
@@ -171,6 +249,9 @@ export function AgentDeploy() {
       setWorkflow(wf)
       void refreshEnabledStatus(wf.id)
       setRedeployFlash(`Workflow atualizado para a versão atual do agente (r${current.revision}).`)
+      // Nova AgentVersion → fura o dedup `(agentVersionId, preset)` no backend
+      // automaticamente, então a avaliação roda fresh sem precisar de cooldown.
+      void triggerEvalAutoDeploy(wf.id)
     } catch (err) {
       setRedeployError(friendlyError(err, 'Não foi possível atualizar o agente do workflow.'))
     } finally {
@@ -222,6 +303,10 @@ export function AgentDeploy() {
           redeploying={redeploying}
           redeployError={redeployError}
           redeployFlash={redeployFlash}
+          autoDeploy={autoDeploy}
+          autoDeployRunning={autoDeployRunning}
+          onRetryAutoDeploy={() => triggerEvalAutoDeploy(workflow.id)}
+          onRerunEval={(p) => triggerEvalAutoDeploy(workflow.id, p)}
         />
       ) : (
         <PendingView
@@ -229,8 +314,32 @@ export function AgentDeploy() {
           deploying={deploying}
           deployError={deployError}
           onDeploy={handleDeploy}
+          preset={preset}
+          onPresetChange={setPreset}
         />
       )}
+
+      <Modal
+        open={confirmAdvanced}
+        onClose={() => setConfirmAdvanced(false)}
+        title="Confirmar avaliação avançada"
+        description="Preset Avançada gera 15 cases × 8 métricas MEAI."
+        size="sm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmAdvanced(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleDeploy}>
+              Confirmar e implantar
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm text-fg-muted">
+          Esta avaliação pode custar até <span className="font-semibold text-fg">~$0.50 USD</span> por implantação. Confirma?
+        </p>
+      </Modal>
 
       <VersionsModal
         open={versionsOpen}
@@ -250,33 +359,52 @@ interface PendingViewProps {
   deploying: boolean
   deployError: string | null
   onDeploy: () => void
+  preset: AutoDeployPreset
+  onPresetChange: (preset: AutoDeployPreset) => void
 }
 
-function PendingView({ agent, deploying, deployError, onDeploy }: PendingViewProps) {
+function PendingView({
+  agent,
+  deploying,
+  deployError,
+  onDeploy,
+  preset,
+  onPresetChange,
+}: PendingViewProps) {
   return (
-    <Card className="space-y-5">
-      <CardHeader
-        title="Configuração do workflow"
-        description="Esses parâmetros são fixos para a implantação MVP. Você pode evoluir o workflow depois pela API."
-      />
-      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="Nome" value={agent.name} />
-        <Field label="Modo" value="Graph" />
-        <Field label="Versão" value="1.0.0" />
-        <Field label="Agente referenciado" value={agent.id} mono />
-        <Field label="Max rounds" value="1" />
-        <Field label="Timeout" value="5 min" />
-        <Field label="Checkpoint" value="InMemory" />
-        <Field label="Input mode" value="Standalone" />
-        <Field label="Trigger" value="OnDemand" />
-      </dl>
-      {deployError && <ErrorMessage message={deployError} />}
-      <div className="flex items-center justify-end">
-        <Button onClick={onDeploy} loading={deploying} leftIcon={<BoltIcon className="h-4 w-4" />}>
-          {deploying ? 'Provisionando workflow…' : 'Implantar em produção'}
-        </Button>
-      </div>
-    </Card>
+    <div className="space-y-5">
+      <Card className="space-y-3">
+        <CardHeader
+          title="Avaliação automática"
+          description="Toda implantação dispara uma avaliação sintética em background pra dar trilha auditável de qualidade."
+        />
+        <PresetSelector value={preset} onChange={onPresetChange} disabled={deploying} />
+      </Card>
+
+      <Card className="space-y-5">
+        <CardHeader
+          title="Configuração do workflow"
+          description="Esses parâmetros são fixos para a implantação MVP. Você pode evoluir o workflow depois pela API."
+        />
+        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Nome" value={agent.name} />
+          <Field label="Modo" value="Graph" />
+          <Field label="Versão" value="1.0.0" />
+          <Field label="Agente referenciado" value={agent.id} mono />
+          <Field label="Max rounds" value="1" />
+          <Field label="Timeout" value="5 min" />
+          <Field label="Checkpoint" value="InMemory" />
+          <Field label="Input mode" value="Standalone" />
+          <Field label="Trigger" value="OnDemand" />
+        </dl>
+        {deployError && <ErrorMessage message={deployError} />}
+        <div className="flex items-center justify-end">
+          <Button onClick={onDeploy} loading={deploying} leftIcon={<BoltIcon className="h-4 w-4" />}>
+            {deploying ? 'Provisionando workflow…' : 'Implantar em produção'}
+          </Button>
+        </div>
+      </Card>
+    </div>
   )
 }
 
@@ -290,6 +418,10 @@ interface DeployedViewProps {
   redeploying: boolean
   redeployError: string | null
   redeployFlash: string | null
+  autoDeploy: AutoDeployResponse | null
+  autoDeployRunning: boolean
+  onRetryAutoDeploy: () => void
+  onRerunEval: (preset: AutoDeployPreset) => void
 }
 
 function DeployedView({
@@ -302,12 +434,16 @@ function DeployedView({
   redeploying,
   redeployError,
   redeployFlash,
+  autoDeploy,
+  autoDeployRunning,
+  onRetryAutoDeploy,
+  onRerunEval,
 }: DeployedViewProps) {
   const identity = useMemo(() => getIdentity(), [])
   const projectId = identity?.projectId ?? '<seu-project-id>'
   const account = identity?.account ?? '<seu-account>'
   const baseUrl = publicBaseUrl ?? '<base-url-do-backend>'
-  const triggerUrl = `${baseUrl}/api/workflows/${workflow.id}/trigger`
+  const triggerUrl = `${baseUrl}/api/aihub/workflows/${workflow.id}/trigger`
 
   const headers: Array<{ key: string; value: string }> = [
     { key: 'Content-Type', value: 'application/json' },
@@ -320,13 +456,13 @@ function DeployedView({
   const triggerResponseExample = JSON.stringify(
     {
       executionId: '04bf1f50-763c-47ed-94e3-34ab3f47ea85',
-      statusUrl: `${baseUrl}/api/executions/04bf1f50-763c-47ed-94e3-34ab3f47ea85`,
+      statusUrl: `${baseUrl}/api/aihub/executions/04bf1f50-763c-47ed-94e3-34ab3f47ea85`,
     },
     null,
     2,
   )
 
-  const executionUrl = `${baseUrl}/api/executions/{executionId}`
+  const executionUrl = `${baseUrl}/api/aihub/executions/{executionId}`
 
   const executionResponseExample = JSON.stringify(
     {
@@ -346,7 +482,28 @@ function DeployedView({
 
 
   return (
-    <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+    <div className="space-y-5">
+      {/* Card de status da avaliação — full width acima do grid de 2 colunas. */}
+      {(autoDeploy || autoDeployRunning) && (
+        <EvalStatusCard
+          runId={autoDeploy?.runId ?? null}
+          preset={autoDeploy?.preset ?? 'basic'}
+          generatorFailed={autoDeploy?.generatorFailed ?? false}
+          estimatedCostUsd={autoDeploy?.estimatedCostUsd ?? 0}
+          caseCount={autoDeploy?.caseCount ?? 0}
+          onRetry={onRetryAutoDeploy}
+        />
+      )}
+
+      <RerunEvalCard
+        defaultPreset={autoDeploy?.preset ?? 'basic'}
+        running={autoDeployRunning}
+        onRerun={onRerunEval}
+        deduplicatedHint={autoDeploy?.deduplicatedFromExisting ?? false}
+      />
+
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
       <Card className="space-y-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-success/15 text-success">
@@ -470,6 +627,7 @@ function DeployedView({
 
         </div>
       </Card>
+      </div>
     </div>
   )
 }

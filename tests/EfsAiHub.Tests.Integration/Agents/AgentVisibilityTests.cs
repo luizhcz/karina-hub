@@ -1,7 +1,7 @@
 namespace EfsAiHub.Tests.Integration.Agents;
 
 /// <summary>
-/// Cobre PATCH /api/agents/{id}/visibility +
+/// Cobre PATCH /api/aihub/agents/{id}/visibility +
 /// critérios de aceitação: owner gate (403, sem vazar ProjectId), preservação no
 /// PUT, hidratação no GET, audit/metric.
 /// </summary>
@@ -31,10 +31,10 @@ public class AgentVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Patch_VisibilityValida_Retorna200_AtualizaCampo()
     {
         var id = $"agent-vis-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/agents", BuildPayload(id));
+        await _client.PostAsJsonAsync("/api/aihub/agents", BuildPayload(id));
 
         var resp = await _client.PatchAsJsonAsync(
-            $"/api/agents/{id}/visibility",
+            $"/api/aihub/agents/{id}/visibility",
             new { visibility = "global", reason = "test promote" });
 
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -48,10 +48,10 @@ public class AgentVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Patch_VisibilityInvalida_Retorna400()
     {
         var id = $"agent-vis-bad-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/agents", BuildPayload(id));
+        await _client.PostAsJsonAsync("/api/aihub/agents", BuildPayload(id));
 
         var resp = await _client.PatchAsJsonAsync(
-            $"/api/agents/{id}/visibility",
+            $"/api/aihub/agents/{id}/visibility",
             new { visibility = "shared" });
 
         resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -61,7 +61,7 @@ public class AgentVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Patch_AgentInexistente_Retorna404()
     {
         var resp = await _client.PatchAsJsonAsync(
-            "/api/agents/agent-inexistente-xyz/visibility",
+            "/api/aihub/agents/agent-inexistente-xyz/visibility",
             new { visibility = "global" });
 
         resp.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -72,11 +72,11 @@ public class AgentVisibilityTests(IntegrationWebApplicationFactory factory)
     {
         // Setup: cria agent global no projeto default. Outro projeto tenta mudar visibility.
         var id = $"agent-owner-gate-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/agents", BuildPayload(id, "global"));
+        await _client.PostAsJsonAsync("/api/aihub/agents", BuildPayload(id, "global"));
 
         var otherClient = _factory.CreateClient().WithProject("other-project-fake");
         var resp = await otherClient.PatchAsJsonAsync(
-            $"/api/agents/{id}/visibility",
+            $"/api/aihub/agents/{id}/visibility",
             new { visibility = "project" });
 
         resp.StatusCode.Should().Be(HttpStatusCode.Forbidden);
@@ -89,10 +89,10 @@ public class AgentVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Patch_VisibilityIgualAoExistente_RetornaOK_NoOp()
     {
         var id = $"agent-vis-noop-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/agents", BuildPayload(id));
+        await _client.PostAsJsonAsync("/api/aihub/agents", BuildPayload(id));
 
         var resp = await _client.PatchAsJsonAsync(
-            $"/api/agents/{id}/visibility",
+            $"/api/aihub/agents/{id}/visibility",
             new { visibility = "project" });
 
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -104,9 +104,9 @@ public class AgentVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Get_AgentResponse_ExpoeVisibility_E_Origin()
     {
         var id = $"agent-vis-resp-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/agents", BuildPayload(id, "global"));
+        await _client.PostAsJsonAsync("/api/aihub/agents", BuildPayload(id, "global"));
 
-        var resp = await _client.GetAsync($"/api/agents/{id}");
+        var resp = await _client.GetAsync($"/api/aihub/agents/{id}");
 
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
@@ -119,11 +119,11 @@ public class AgentVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Put_Agent_PreservaVisibility_GlobalNaoVoltaParaProject()
     {
         var id = $"agent-put-preserve-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/agents", BuildPayload(id));
+        await _client.PostAsJsonAsync("/api/aihub/agents", BuildPayload(id));
 
         // Marca como global via PATCH.
         var promote = await _client.PatchAsJsonAsync(
-            $"/api/agents/{id}/visibility",
+            $"/api/aihub/agents/{id}/visibility",
             new { visibility = "global" });
         promote.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -134,10 +134,10 @@ public class AgentVisibilityTests(IntegrationWebApplicationFactory factory)
             name = "Agent Atualizado",
             model = new { deploymentName = "gpt-5.4-mini" }
         };
-        var put = await _client.PutAsJsonAsync($"/api/agents/{id}", updateBody);
+        var put = await _client.PutAsJsonAsync($"/api/aihub/agents/{id}", updateBody);
         put.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var get = await _client.GetAsync($"/api/agents/{id}");
+        var get = await _client.GetAsync($"/api/aihub/agents/{id}");
         var body = await get.Content.ReadFromJsonAsync<JsonElement>();
         body.GetProperty("visibility").GetString()
             .Should().Be("global", because: "PUT não pode resetar visibility quando request omite o campo");

@@ -52,7 +52,7 @@ export interface EvaluatorConfigVersion {
 }
 
 /**
- * Resposta de GET /api/agents/{id}/evaluator-config — agente sem config configurado
+ * Resposta de GET /api/aihub/agents/{id}/evaluator-config — agente sem config configurado
  * retorna ambos campos null/undefined (200 OK), pra UI renderizar form vazio sem 404 noise.
  */
 export interface EvaluatorConfigWithVersion {
@@ -74,6 +74,10 @@ export interface TestSet {
   description?: string
   visibility: Visibility
   currentVersionId?: string
+  /** Quantidade de cases na current version. Null quando sem version publicada. */
+  caseCount?: number | null
+  /** Revision da current version (1, 2, …). Null quando sem version. */
+  currentRevision?: number | null
   createdAt: string
   updatedAt: string
   createdBy?: string

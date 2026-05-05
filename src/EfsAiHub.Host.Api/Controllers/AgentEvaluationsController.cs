@@ -3,6 +3,7 @@ using System.Text;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Agents.Evaluation;
+using EfsAiHub.Host.Api.Endpoints.Polling;
 using EfsAiHub.Host.Api.Models.Requests.Evaluation;
 using EfsAiHub.Host.Api.Models.Responses.Evaluation;
 using EfsAiHub.Host.Api.Services;
@@ -23,6 +24,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 public sealed class AgentEvaluationsController : ControllerBase
 {
     private readonly IEvaluationService _evaluationService;
+    private readonly EvaluationAutoDeployService _autoDeployService;
     private readonly IEvaluationRunRepository _runRepo;
     private readonly IEvaluationResultRepository _resultRepo;
     private readonly IProjectContextAccessor _projectAccessor;
@@ -32,6 +34,7 @@ public sealed class AgentEvaluationsController : ControllerBase
 
     public AgentEvaluationsController(
         IEvaluationService evaluationService,
+        EvaluationAutoDeployService autoDeployService,
         IEvaluationRunRepository runRepo,
         IEvaluationResultRepository resultRepo,
         IProjectContextAccessor projectAccessor,
@@ -40,6 +43,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         ILogger<AgentEvaluationsController> logger)
     {
         _evaluationService = evaluationService;
+        _autoDeployService = autoDeployService;
         _runRepo = runRepo;
         _resultRepo = resultRepo;
         _projectAccessor = projectAccessor;
@@ -48,7 +52,63 @@ public sealed class AgentEvaluationsController : ControllerBase
         _logger = logger;
     }
 
-    [HttpPost("api/agents/{agentId}/evaluations/runs")]
+    [HttpPost("api/aihub/agents/{agentId}/evaluations/auto-deploy")]
+    [SwaggerOperation(Summary = "Auto-deploy: gera test cases sintéticos via wf-gerador-testcases, " +
+        "cria TestSet+EvaluatorConfig do preset e enfileira EvaluationRun. PM/PO chama isto após " +
+        "deploy do agente. Idempotente por (AgentVersionId, preset) em janela 30min.")]
+    [ProducesResponseType(typeof(AutoDeployEvaluationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(AutoDeployEvaluationResponse), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> AutoDeploy(
+        string agentId,
+        [FromBody] AutoDeployEvaluationRequest request,
+        CancellationToken ct)
+    {
+        if (!PresetCatalog.TryParse(request.Preset, out var preset))
+            return BadRequest(new { error = $"Preset inválido: '{request.Preset}'. Use basic|medium|advanced." });
+
+        try
+        {
+            var result = await _autoDeployService.RunAsync(new AutoDeployServiceRequest(
+                ProjectId: _projectAccessor.Current.ProjectId,
+                AgentDefinitionId: agentId,
+                Preset: preset,
+                AgentVersionId: request.AgentVersionId,
+                DeployedFromWorkflowId: request.DeployedFromWorkflowId,
+                TriggeredBy: ResolveActorUserId()), ct);
+
+            await _audit.RecordAsync(_auditContext.Build(
+                "AutoDeploy",
+                "EvaluationRun",
+                result.RunId ?? "(none)",
+                payloadAfter: AdminAuditContext.Snapshot(result)), ct);
+
+            var response = new AutoDeployEvaluationResponse(
+                RunId: result.RunId,
+                TestSetVersionId: result.TestSetVersionId,
+                EvaluatorConfigVersionId: result.EvaluatorConfigVersionId,
+                Preset: result.Preset.ToString().ToLowerInvariant(),
+                CaseCount: result.CaseCount,
+                EstimatedCostUsd: result.EstimatedCostUsd,
+                EstimatedDurationSeconds: result.EstimatedDurationSeconds,
+                Status: result.Status?.ToString(),
+                DeduplicatedFromExisting: result.DeduplicatedFromExisting,
+                GeneratorFailed: result.GeneratorFailed);
+
+            // Soft gate: gerador falhou → 422 mas com payload válido. Frontend
+            // mostra "avaliação não disponível" sem barrar deploy.
+            if (result.GeneratorFailed)
+                return UnprocessableEntity(response);
+
+            return AcceptedAtAction(nameof(GetRun), new { runId = result.RunId }, response);
+        }
+        catch (EvaluationValidationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("api/aihub/agents/{agentId}/evaluations/runs")]
     [SwaggerOperation(Summary = "Enfileira uma eval run manual contra a config indicada")]
     [ProducesResponseType(typeof(EnqueueEvaluationRunResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -86,7 +146,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         }
     }
 
-    [HttpGet("api/agents/{agentId}/evaluations/runs")]
+    [HttpGet("api/aihub/agents/{agentId}/evaluations/runs")]
     [SwaggerOperation(Summary = "Lista eval runs do agente (paginado, filtro por trigger_source)")]
     [ProducesResponseType(typeof(IReadOnlyList<EvaluationRunResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> ListRunsByAgent(
@@ -112,7 +172,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         return Ok(responses);
     }
 
-    [HttpGet("api/evaluations/runs/{runId}", Name = "GetEvaluationRun")]
+    [HttpGet("api/aihub/evaluations/runs/{runId}", Name = "GetEvaluationRun")]
     [SwaggerOperation(Summary = "Detalhe de uma eval run + summary do progress")]
     [ProducesResponseType(typeof(EvaluationRunResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -126,7 +186,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         return Ok(EvaluationRunResponse.FromDomain(run, progress, usage));
     }
 
-    [HttpGet("api/evaluations/runs/{runId}/results")]
+    [HttpGet("api/aihub/evaluations/runs/{runId}/results")]
     [SwaggerOperation(Summary = "Lista resultados de uma run (filter passed=, evaluator=)")]
     [ProducesResponseType(typeof(IReadOnlyList<EvaluationResultResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -145,7 +205,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         return Ok(results.Select(EvaluationResultResponse.FromDomain));
     }
 
-    [HttpPost("api/evaluations/runs/{runId}/cancel")]
+    [HttpPost("api/aihub/evaluations/runs/{runId}/cancel")]
     [SwaggerOperation(Summary = "Cancel idempotente. NOTIFY runner ativo (≤1s) + CAS Pending|Running → Cancelled.")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -169,7 +229,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         return NoContent();
     }
 
-    [HttpGet("api/evaluations/runs/{runId}/stream")]
+    [HttpGet("api/aihub/evaluations/runs/{runId}/stream")]
     [SwaggerOperation(Summary = "SSE de progresso da run — emite deltas de progress até run virar terminal")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -237,6 +297,113 @@ public sealed class AgentEvaluationsController : ControllerBase
         }
     }
 
+    [HttpGet("api/aihub/evaluations/runs/{runId}/events")]
+    [SwaggerOperation(Summary = "Polling fallback HTTP — alternativa ao /stream pra clientes sem SSE")]
+    [ProducesResponseType(typeof(EventPollingResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> EventsRun(
+        string runId,
+        [FromQuery] long? since,
+        [FromQuery] int? limit,
+        [FromQuery] int? waitMs,
+        [FromQuery] string? projectId,
+        CancellationToken ct = default)
+    {
+        var (s, l, w, err) = EventPollingValidation.Parse(since, limit, waitMs);
+        if (err is not null) return BadRequest(new { error = err });
+
+        // Mesmo fallback do /stream pra projeto via query string (parity com clientes
+        // que não passam x-efs-project-id no header).
+        if (!string.IsNullOrEmpty(projectId) && !_projectAccessor.Current.IsExplicit)
+        {
+            _projectAccessor.Current = new ProjectContext(projectId);
+        }
+
+        var run = await _runRepo.GetByIdAsync(runId, ct);
+        if (run is null) return NotFound();
+
+        var response = await DbPollingHelper.PollAsync(
+            readSince: async (cursor, max, innerCt) =>
+            {
+                var results = await _resultRepo.GetSinceAsync(runId, cursor, max, innerCt);
+                var current = await _runRepo.GetByIdAsync(runId, innerCt);
+                var progress = await _resultRepo.GetProgressAsync(runId, innerCt);
+                var items = new List<EventPollingItem>(results.Count + 1);
+
+                if (results.Count > 0)
+                {
+                    var snapshot = SerializeProgressPayload(current ?? run, progress);
+                    var firstTicks = ExtractTicks(results[0].CreatedAt);
+                    items.Add(new EventPollingItem(
+                        Seq: firstTicks,
+                        Type: "progress",
+                        Payload: DbPollingHelper.ToJsonElement(snapshot),
+                        OccurredAt: DateTimeOffset.UtcNow));
+
+                    foreach (var r in results)
+                    {
+                        items.Add(new EventPollingItem(
+                            Seq: ExtractTicks(r.CreatedAt),
+                            Type: "result",
+                            Payload: DbPollingHelper.ToJsonElement(EvaluationResultResponse.FromDomain(r)),
+                            OccurredAt: new DateTimeOffset(DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc), TimeSpan.Zero)));
+                    }
+                }
+
+                if (current is not null && IsRunTerminal(current.Status))
+                {
+                    var snapshot = SerializeProgressPayload(current, progress);
+                    items.Add(new EventPollingItem(
+                        Seq: long.MaxValue,
+                        Type: "done",
+                        Payload: DbPollingHelper.ToJsonElement(snapshot),
+                        OccurredAt: DateTimeOffset.UtcNow));
+                }
+
+                return items;
+            },
+            isTerminalAsync: async (_) =>
+            {
+                var current = await _runRepo.GetByIdAsync(runId, ct);
+                return current is null || IsRunTerminal(current.Status);
+            },
+            since: s,
+            limit: l,
+            waitFor: w,
+            ct: ct);
+
+        // Sanitiza nextSince — long.MaxValue (placeholder do "done") seria devolvido
+        // como cursor e quebraria a leitura na próxima chamada. Volta pro último
+        // ticks de result real, ou mantém since se nada novo.
+        if (response.Events.Count > 0)
+        {
+            var lastReal = response.Events
+                .Where(e => e.Seq != long.MaxValue)
+                .Select(e => (long?)e.Seq)
+                .LastOrDefault();
+            if (lastReal.HasValue && lastReal.Value != response.NextSince)
+            {
+                response = new EventPollingResponse(response.Events, lastReal.Value, response.Terminal);
+            }
+        }
+
+        return Ok(response);
+    }
+
+    private static long ExtractTicks(DateTime createdAt)
+    {
+        var utc = createdAt.Kind == DateTimeKind.Utc
+            ? createdAt
+            : DateTime.SpecifyKind(createdAt, DateTimeKind.Utc);
+        return utc.Ticks;
+    }
+
+    private static bool IsRunTerminal(EvaluationRunStatus status) =>
+        status is EvaluationRunStatus.Completed
+              or EvaluationRunStatus.Failed
+              or EvaluationRunStatus.Cancelled;
+
     private static string SerializeProgressPayload(EvaluationRun run, EvaluationRunProgress? p)
     {
         return System.Text.Json.JsonSerializer.Serialize(new
@@ -261,7 +428,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         await Response.Body.FlushAsync(ct);
     }
 
-    [HttpGet("api/evaluations/runs/{runId}/export")]
+    [HttpGet("api/aihub/evaluations/runs/{runId}/export")]
     [SwaggerOperation(Summary = "Export de results em CSV ou JSON")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -305,7 +472,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         return File(Encoding.UTF8.GetBytes(sb.ToString()), "text/csv", $"evaluation-run-{runId}.csv");
     }
 
-    [HttpGet("api/evaluations/runs/compare")]
+    [HttpGet("api/aihub/evaluations/runs/compare")]
     [SwaggerOperation(Summary = "Compara 2 runs (cross-version) — retorna diff lado-a-lado e flag de regressão")]
     [ProducesResponseType(typeof(EvaluationRunCompareResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

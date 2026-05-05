@@ -4,7 +4,7 @@ using EfsAiHub.Core.Agents.PredefinedModels;
 namespace EfsAiHub.Host.Api.Models.Requests;
 
 /// <summary>
-/// Body do POST /api/admin/predefined-models. Validação semântica
+/// Body do POST /api/aihub/admin/predefined-models. Validação semântica
 /// (Temperature em [0,2], MaxTokens > 0) roda no domain
 /// <see cref="PredefinedModel.EnsureInvariants"/> e devolve 400.
 /// </summary>

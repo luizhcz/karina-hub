@@ -16,7 +16,7 @@ public class AgentVersioningTests(IntegrationWebApplicationFactory factory)
             model = new { deploymentName = "gpt-4o" },
             instructions = instructions ?? "Instrução inicial."
         };
-        var response = await _client.PostAsJsonAsync("/api/agents", payload);
+        var response = await _client.PostAsJsonAsync("/api/aihub/agents", payload);
         response.EnsureSuccessStatusCode();
         return id;
     }
@@ -30,7 +30,7 @@ public class AgentVersioningTests(IntegrationWebApplicationFactory factory)
             model = new { deploymentName = "gpt-4o" },
             instructions = newInstructions
         };
-        var response = await _client.PutAsJsonAsync($"/api/agents/{id}", payload);
+        var response = await _client.PutAsJsonAsync($"/api/aihub/agents/{id}", payload);
         response.EnsureSuccessStatusCode();
     }
 
@@ -41,7 +41,7 @@ public class AgentVersioningTests(IntegrationWebApplicationFactory factory)
 
         await UpdateAgentAsync(id, "instrução v2");
 
-        var response = await _client.GetAsync($"/api/agents/{id}/versions");
+        var response = await _client.GetAsync($"/api/aihub/agents/{id}/versions");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var versions = await response.Content.ReadFromJsonAsync<JsonElement>();
         versions.GetArrayLength().Should().BeGreaterThanOrEqualTo(1);
@@ -54,7 +54,7 @@ public class AgentVersioningTests(IntegrationWebApplicationFactory factory)
         await UpdateAgentAsync(id, "instrução update-1");
         await UpdateAgentAsync(id, "instrução update-2");
 
-        var response = await _client.GetAsync($"/api/agents/{id}/versions");
+        var response = await _client.GetAsync($"/api/aihub/agents/{id}/versions");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var versions = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -71,12 +71,12 @@ public class AgentVersioningTests(IntegrationWebApplicationFactory factory)
         var id = await CreateAgentAsync("instrução snapshot");
         await UpdateAgentAsync(id, "instrução snapshot v2");
 
-        var listResp = await _client.GetAsync($"/api/agents/{id}/versions");
+        var listResp = await _client.GetAsync($"/api/aihub/agents/{id}/versions");
         var versions = await listResp.Content.ReadFromJsonAsync<JsonElement>();
         var firstVersion = versions.EnumerateArray().First();
         var versionId = firstVersion.GetProperty("agentVersionId").GetString()!;
 
-        var response = await _client.GetAsync($"/api/agents/{id}/versions/{versionId}");
+        var response = await _client.GetAsync($"/api/aihub/agents/{id}/versions/{versionId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var snapshot = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -91,7 +91,7 @@ public class AgentVersioningTests(IntegrationWebApplicationFactory factory)
         await UpdateAgentAsync(id, "mesma instrução");
         await UpdateAgentAsync(id, "mesma instrução");
 
-        var response = await _client.GetAsync($"/api/agents/{id}/versions");
+        var response = await _client.GetAsync($"/api/aihub/agents/{id}/versions");
         var versions = await response.Content.ReadFromJsonAsync<JsonElement>();
 
         var hashes = versions.EnumerateArray()
@@ -108,13 +108,13 @@ public class AgentVersioningTests(IntegrationWebApplicationFactory factory)
         var id = await CreateAgentAsync("original");
         await UpdateAgentAsync(id, "alterado");
 
-        var versionsResp = await _client.GetAsync($"/api/agents/{id}/versions");
+        var versionsResp = await _client.GetAsync($"/api/aihub/agents/{id}/versions");
         var versions = await versionsResp.Content.ReadFromJsonAsync<JsonElement>();
         var oldest = versions.EnumerateArray().Last();
         var versionId = oldest.GetProperty("agentVersionId").GetString()!;
 
         var rollbackResp = await _client.PostAsync(
-            $"/api/agents/{id}/rollback?versionId={versionId}", null);
+            $"/api/aihub/agents/{id}/rollback?versionId={versionId}", null);
 
         rollbackResp.StatusCode.Should().Be(HttpStatusCode.OK);
     }

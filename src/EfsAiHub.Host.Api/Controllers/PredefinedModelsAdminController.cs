@@ -6,7 +6,7 @@ using EfsAiHub.Host.Api.Models.Responses;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/admin/predefined-models")]
+[Route("api/aihub/admin/predefined-models")]
 [Produces("application/json")]
 public class PredefinedModelsAdminController : ControllerBase
 {

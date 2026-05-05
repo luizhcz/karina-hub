@@ -5,7 +5,7 @@ namespace EfsAiHub.Platform.Runtime.Interfaces;
 /// <summary>
 /// Aplicação acima de <see cref="EfsAiHub.Core.Agents.IPredefinedModelRepository"/>:
 /// valida invariantes, normaliza Description, gerencia timestamps. Sem owner gate
-/// — catálogo é global e gerenciado por admin via /api/admin/predefined-models.
+/// — catálogo é global e gerenciado por admin via /api/aihub/admin/predefined-models.
 /// </summary>
 public interface IPredefinedModelService
 {

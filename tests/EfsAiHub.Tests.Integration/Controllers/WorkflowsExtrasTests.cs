@@ -9,7 +9,7 @@ public class WorkflowsExtrasTests(IntegrationWebApplicationFactory factory)
     private async Task<string> CreateAgentAsync()
     {
         var id = $"agent-wfx-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/agents", new { id, name = "WF Extra Agent", model = new { deploymentName = "gpt-4o" } });
+        await _client.PostAsJsonAsync("/api/aihub/agents", new { id, name = "WF Extra Agent", model = new { deploymentName = "gpt-4o" } });
         return id;
     }
 
@@ -25,7 +25,7 @@ public class WorkflowsExtrasTests(IntegrationWebApplicationFactory factory)
     {
         var agentId = await CreateAgentAsync();
         var id = $"wf-extra-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/workflows", BuildWorkflow(id, agentId));
+        await _client.PostAsJsonAsync("/api/aihub/workflows", BuildWorkflow(id, agentId));
         return id;
     }
 
@@ -34,7 +34,7 @@ public class WorkflowsExtrasTests(IntegrationWebApplicationFactory factory)
     {
         var id = await CreateWorkflowAsync();
 
-        var response = await _client.PostAsJsonAsync($"/api/workflows/{id}/clone", new { });
+        var response = await _client.PostAsJsonAsync($"/api/aihub/workflows/{id}/clone", new { });
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -44,7 +44,7 @@ public class WorkflowsExtrasTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Clone_WorkflowInexistente_Retorna404()
     {
-        var response = await _client.PostAsJsonAsync("/api/workflows/wf-nao-existe-xyz/clone", new { });
+        var response = await _client.PostAsJsonAsync("/api/aihub/workflows/wf-nao-existe-xyz/clone", new { });
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -54,7 +54,7 @@ public class WorkflowsExtrasTests(IntegrationWebApplicationFactory factory)
     {
         var id = await CreateWorkflowAsync();
 
-        var response = await _client.PostAsync($"/api/workflows/{id}/validate", null);
+        var response = await _client.PostAsync($"/api/aihub/workflows/{id}/validate", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -62,7 +62,7 @@ public class WorkflowsExtrasTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Validate_WorkflowInexistente_Retorna404()
     {
-        var response = await _client.PostAsync("/api/workflows/wf-nao-existe-xyz/validate", null);
+        var response = await _client.PostAsync("/api/aihub/workflows/wf-nao-existe-xyz/validate", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -70,7 +70,7 @@ public class WorkflowsExtrasTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task GetVisible_Retorna200ComArray()
     {
-        var response = await _client.GetAsync("/api/workflows/visible");
+        var response = await _client.GetAsync("/api/aihub/workflows/visible");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -82,7 +82,7 @@ public class WorkflowsExtrasTests(IntegrationWebApplicationFactory factory)
     {
         var id = await CreateWorkflowAsync();
 
-        var response = await _client.GetAsync($"/api/workflows/{id}/executions");
+        var response = await _client.GetAsync($"/api/aihub/workflows/{id}/executions");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -90,7 +90,7 @@ public class WorkflowsExtrasTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task GetExecutions_WorkflowInexistente_Retorna200VazioOu404()
     {
-        var response = await _client.GetAsync("/api/workflows/wf-nao-existe-xyz/executions");
+        var response = await _client.GetAsync("/api/aihub/workflows/wf-nao-existe-xyz/executions");
 
         new[] { HttpStatusCode.OK, HttpStatusCode.NotFound }
             .Should().Contain(response.StatusCode);
@@ -101,7 +101,7 @@ public class WorkflowsExtrasTests(IntegrationWebApplicationFactory factory)
     {
         var id = await CreateWorkflowAsync();
 
-        var response = await _client.GetAsync($"/api/workflows/{id}/versions");
+        var response = await _client.GetAsync($"/api/aihub/workflows/{id}/versions");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();

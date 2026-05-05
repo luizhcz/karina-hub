@@ -122,5 +122,5 @@ variação. Monitoramos via a métrica de cached_tokens decidida na Decisão 1.
 - `src/EfsAiHub.Platform.Runtime/Factories/TokenTrackingChatClient.cs:131-133` — ponto onde cached_tokens será lido.
 - `~/.nuget/packages/microsoft.extensions.ai.abstractions/10.5.0/lib/net9.0/Microsoft.Extensions.AI.Abstractions.xml:7624` — doc oficial da propriedade.
 - `~/.nuget/packages/microsoft.extensions.ai.openai/10.4.0/lib/net9.0/Microsoft.Extensions.AI.OpenAI.dll` — evidência binária de `set_CachedInputTokenCount`.
-- [Microsoft.Extensions.AI.UsageDetails](https://learn.microsoft.com/dotnet/api/microsoft.extensions.ai.usagedetails)
+- [Microsoft.Extensions.AI.UsageDetails](https://learn.microsoft.com/dotnet/api/aihub/microsoft.extensions.ai.usagedetails)
 - [openai-dotnet#641 — prompt_cache_key support](https://github.com/openai/openai-dotnet/issues/641)

@@ -1,6 +1,6 @@
 import { getIdentity } from '../stores/identity'
 
-const BASE = '/api'
+const BASE = '/api/aihub'
 
 export class ApiError extends Error {
   status: number

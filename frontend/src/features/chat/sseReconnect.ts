@@ -1,9 +1,9 @@
 /**
  * Utilitários de reconexão SSE para o chat AG-UI.
  *
- * Contexto: o endpoint /api/chat/ag-ui/stream é POST+SSE (streaming de resposta HTTP,
+ * Contexto: o endpoint /api/aihub/chat/ag-ui/stream é POST+SSE (streaming de resposta HTTP,
  * não EventSource nativo). Quando a conexão cai durante streaming (rede oscila,
- * backend reinicia), o backend expõe /api/chat/ag-ui/reconnect/{executionId}
+ * backend reinicia), o backend expõe /api/aihub/chat/ag-ui/reconnect/{executionId}
  * que aceita header Last-Event-ID e retoma a partir do último evento entregue.
  *
  * Este módulo centraliza:

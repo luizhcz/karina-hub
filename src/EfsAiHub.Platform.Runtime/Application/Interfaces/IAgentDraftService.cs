@@ -67,7 +67,7 @@ public interface IAgentDraftService
 
     /// <summary>
     /// Registra uma entry de AdminOverride no history quando admin atualiza
-    /// agent direto via PUT /api/agents/{id}. Mantém audit unificado.
+    /// agent direto via PUT /api/aihub/agents/{id}. Mantém audit unificado.
     /// </summary>
     Task AppendAdminOverrideAsync(
         string agentDefinitionId,

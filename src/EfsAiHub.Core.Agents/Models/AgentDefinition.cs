@@ -80,7 +80,7 @@ public class AgentDefinition
     /// Agent ligado/desligado. Default true. Quando false, workflows que referenciam o
     /// agent continuam saváveis (warning UI), mas o agent é pulado em runtime — pipeline
     /// continua sem invocar o agent. Permite manutenção sem migrar todos os workflows callers.
-    /// Mutável via PATCH /api/agents/{id}/enabled.
+    /// Mutável via PATCH /api/aihub/agents/{id}/enabled.
     /// </summary>
     public bool Enabled { get; set; } = true;
 
@@ -240,7 +240,13 @@ public class AgentProviderConfig
 
 public class AgentModelConfig
 {
-    public required string DeploymentName { get; set; }
+    /// <summary>
+    /// Nome do deployment do modelo no provider. Default vazio quando o agent
+    /// usa <see cref="PredefinedModelId"/> (binder hidrata em runtime). A
+    /// invariante <c>EnsureInvariants</c> exige preenchimento aqui OU em
+    /// <see cref="PredefinedModelId"/> — não pode haver os dois vazios.
+    /// </summary>
+    public string DeploymentName { get; set; } = string.Empty;
     public float? Temperature { get; init; }
     public int? MaxTokens { get; init; }
 

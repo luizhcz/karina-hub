@@ -26,8 +26,26 @@ export interface FoundryEvaluationSettings {
   projectEndpoint?: string | null
 }
 
+/**
+ * Override do modelo usado como judge LLM em evaluators kind=meai. Quando
+ * Enabled=false ou ausente, runner reusa o modelo do agente (legacy).
+ * Banking/regulado deve setar pra um judge isolado, pra eliminar bias de
+ * self-evaluation.
+ */
+export interface MeaiEvaluationSettings {
+  enabled?: boolean
+  /** "OpenAI" | "AzureOpenAI" | "AzureFoundry" */
+  provider?: string | null
+  deploymentName?: string | null
+  /** Necessário pra Azure providers; ignorado em OpenAI nativo. */
+  endpoint?: string | null
+  /** secret://aws/... ou literal (legacy). */
+  apiKeyRef?: string | null
+}
+
 export interface EvaluationProjectSettings {
   foundry?: FoundryEvaluationSettings | null
+  meai?: MeaiEvaluationSettings | null
 }
 
 export interface ProjectSettings {

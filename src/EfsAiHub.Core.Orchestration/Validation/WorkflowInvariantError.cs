@@ -40,7 +40,7 @@ public static class WorkflowErrorCodes
     /// <c>Path</c> resolve campo inexistente no schema atual do produtor.
     /// <b>Reservado para PR 3</b> — neste PR só validamos sintaxe do JSONPath; cross-check
     /// contra o schema atual do agente/executor produtor depende dos schemas estarem
-    /// disponíveis via API (PR 3 expõe <c>OutputSchema</c> em <c>GET /api/functions</c>).
+    /// disponíveis via API (PR 3 expõe <c>OutputSchema</c> em <c>GET /api/aihub/functions</c>).
     /// </summary>
     public const string PathNotFoundInSchema = "PathNotFoundInSchema";
 }

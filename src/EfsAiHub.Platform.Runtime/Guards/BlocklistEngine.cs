@@ -127,7 +127,7 @@ public class BlocklistEngine : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Invalida o L1 de um projeto específico. Chamado localmente após PUT /api/projects/{id}/blocklist
+    /// Invalida o L1 de um projeto específico. Chamado localmente após PUT /api/aihub/projects/{id}/blocklist
     /// (impacto imediato no pod corrente) e via subscribe do <see cref="ICacheInvalidationBus"/>
     /// (impacto cross-pod). Próxima request rebuilda o matcher com a nova config.
     /// <para>

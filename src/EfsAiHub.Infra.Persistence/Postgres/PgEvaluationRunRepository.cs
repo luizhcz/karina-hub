@@ -149,6 +149,45 @@ UPDATE aihub.evaluation_runs
         return row is null ? null : ToDomain(row);
     }
 
+    public async Task<EvaluationRun?> FindRecentByAgentVersionAndPresetAsync(
+        string agentVersionId,
+        string preset,
+        TimeSpan window,
+        CancellationToken ct = default)
+    {
+        // Filtragem em SQL bruto: TriggerContext é jsonb, EF Core 10 não compõe
+        // ->>'preset' direto no LINQ sem extension. Janela = "criada nos últimos
+        // <window>" — só conta runs ainda relevantes (Failed/Cancelled liberam retry).
+        var since = DateTime.UtcNow - window;
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        var conn = ctx.Database.GetDbConnection();
+        await ctx.Database.OpenConnectionAsync(ct);
+        try
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT *
+  FROM aihub.evaluation_runs
+ WHERE ""AgentVersionId"" = @aid
+   AND ""TriggerContext""::jsonb->>'preset' = @preset
+   AND ""Status"" IN ('Pending','Running','Completed')
+   AND ""CreatedAt"" >= @since
+ ORDER BY ""CreatedAt"" DESC
+ LIMIT 1";
+            var p1 = cmd.CreateParameter(); p1.ParameterName = "aid"; p1.Value = agentVersionId; cmd.Parameters.Add(p1);
+            var p2 = cmd.CreateParameter(); p2.ParameterName = "preset"; p2.Value = preset; cmd.Parameters.Add(p2);
+            var p3 = cmd.CreateParameter(); p3.ParameterName = "since"; p3.Value = since; cmd.Parameters.Add(p3);
+
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct)) return null;
+            return ReadEvaluationRun(reader);
+        }
+        finally
+        {
+            await ctx.Database.CloseConnectionAsync();
+        }
+    }
+
     public async Task<EvaluationRun?> DequeuePendingAsync(CancellationToken ct = default)
     {
         await using var ctx = await _factory.CreateDbContextAsync(ct);

@@ -8,11 +8,12 @@ import { Tabs } from '../../shared/ui/Tabs'
 import { PageLoader } from '../../shared/ui/LoadingSpinner'
 import { ErrorCard } from '../../shared/ui/ErrorCard'
 import { useAgent, useUpdateAgent, useUpdateAgentVisibility, useUpdateAgentEnabled } from '../../api/agents'
-import type { AgentVisibility } from '../../api/agents'
+import type { AgentVisibility, CreateAgentRequest } from '../../api/agents'
 import { ApiError } from '../../api/client'
 import { usePromptVersions } from '../../api/prompts'
 import { useActivePrompt } from '../../api/prompts'
 import { AgentForm } from './components/AgentForm'
+import { UpdateAgentReasonModal } from './components/UpdateAgentReasonModal'
 import { PromptsPanel } from './components/PromptsPanel'
 import { VersionsPanel } from './components/VersionsPanel'
 import { SandboxPanel } from './components/SandboxPanel'
@@ -41,6 +42,8 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
   const [activeTab, setActiveTab] = useState<string>(initialTab)
   const [pendingVisibility, setPendingVisibility] = useState<AgentVisibility | null>(null)
   const [pendingDisable, setPendingDisable] = useState(false)
+  // Backend exige changeReason no PUT /agents/{id} — coletamos via modal.
+  const [pendingUpdate, setPendingUpdate] = useState<CreateAgentRequest | null>(null)
 
   if (isLoading) return <PageLoader />
   if (error || !agent) return <ErrorCard message="Erro ao carregar agente." onRetry={refetch} />
@@ -108,10 +111,18 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
       toast.error(result.error)
       return
     }
+    setPendingUpdate(result.body)
+  }
+
+  const handleConfirmUpdate = (changeReason: string, breakingChange: boolean) => {
+    if (!pendingUpdate) return
     updateMutation.mutate(
-      { id: id!, body: result.body },
+      { id: id!, body: { ...pendingUpdate, changeReason, breakingChange } },
       {
-        onSuccess: () => navigate('/agents'),
+        onSuccess: () => {
+          setPendingUpdate(null)
+          navigate('/agents')
+        },
         onError: (err) => {
           const msg = err instanceof ApiError ? err.message : 'Erro ao salvar agente.'
           toast.error(msg)
@@ -265,6 +276,13 @@ export function AgentDetailPage({ initialTab = 'config' }: AgentDetailPageProps)
         message="Workflows que referenciam este agent continuam saváveis, mas runtime vai pulá-lo na execução (Sequential continua pipeline com step ausente; Graph ignora edges órfãs; Handoff já existente fica em erro até reabilitar). Você pode reverter a qualquer momento."
         confirmLabel="Desabilitar"
         loading={enabledMutation.isPending}
+      />
+
+      <UpdateAgentReasonModal
+        open={pendingUpdate !== null}
+        loading={updateMutation.isPending}
+        onClose={() => setPendingUpdate(null)}
+        onConfirm={handleConfirmUpdate}
       />
     </div>
   )

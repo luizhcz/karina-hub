@@ -3,7 +3,7 @@ using EfsAiHub.Core.Abstractions.Blocklist;
 namespace EfsAiHub.Host.Api.Endpoints.Requests;
 
 /// <summary>
-/// Body do PUT /api/projects/{id}/blocklist. Substitui inteiramente
+/// Body do PUT /api/aihub/projects/{id}/blocklist. Substitui inteiramente
 /// <c>ProjectSettings.Blocklist</c> — caller envia o estado completo desejado.
 /// </summary>
 public sealed record UpdateBlocklistRequest(

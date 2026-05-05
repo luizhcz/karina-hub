@@ -27,7 +27,7 @@ Comportamento anterior:
 
 ### API
 
-- `PATCH /api/agents/{id}/visibility` body `{visibility, reason?}` — endpoint dedicado com audit `agent.visibility_changed`.
+- `PATCH /api/aihub/agents/{id}/visibility` body `{visibility, reason?}` — endpoint dedicado com audit `agent.visibility_changed`.
 - `CreateAgentRequest.Visibility?` opcional (default "project" em Create; preserved em Update).
 - `AgentResponse` expõe `visibility`, `originProjectId`, `originTenantId`.
 - `AgentService.UpdateAsync` preserva `existing.Visibility/ProjectId/TenantId` (PUT sem campo não reseta).

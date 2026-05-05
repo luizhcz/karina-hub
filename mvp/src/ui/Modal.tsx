@@ -51,13 +51,16 @@ export function Modal({ open, onClose, title, description, children, footer, siz
       <div
         className={cn(
           // Quick-win: rounded-2xl + shadow-xl + ring sutil pra finish bancário.
-          'w-full overflow-hidden rounded-2xl border border-border bg-surface shadow-xl ring-1 ring-border/50',
+          // max-h limita a altura total; header e footer ficam fixos enquanto o
+          // body rola — sem isso conteúdo grande (ex.: tela de aprovação) empurra
+          // os botões pra fora da viewport.
+          'flex max-h-[calc(100vh-3rem)] w-full flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl ring-1 ring-border/50',
           sizeClasses[size],
         )}
         onClick={(e) => e.stopPropagation()}
       >
         {(title || description) && (
-          <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-5 py-4">
             <div className="min-w-0">
               {title && <h2 className="text-base font-semibold text-fg">{title}</h2>}
               {description && <p className="mt-0.5 text-xs text-fg-muted">{description}</p>}
@@ -67,8 +70,8 @@ export function Modal({ open, onClose, title, description, children, footer, siz
             </IconButton>
           </div>
         )}
-        <div className="px-5 py-4">{children}</div>
-        {footer && <div className="border-t border-border bg-bg-soft px-5 py-3">{footer}</div>}
+        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        {footer && <div className="shrink-0 border-t border-border bg-bg-soft px-5 py-3">{footer}</div>}
       </div>
     </div>
   )

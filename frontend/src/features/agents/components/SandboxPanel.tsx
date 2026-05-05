@@ -72,7 +72,7 @@ export function SandboxPanel({ agentId, agentName }: SandboxPanelProps) {
 
   const ensureSession = async (): Promise<string | null> => {
     if (sessionId) return sessionId
-    const res = await fetch(`/api/agents/${agentId}/sessions`, {
+    const res = await fetch(`/api/aihub/agents/${agentId}/sessions`, {
       method: 'POST',
       headers: getIdentityHeaders(),
     })
@@ -100,7 +100,7 @@ export function SandboxPanel({ agentId, agentName }: SandboxPanelProps) {
       const assistantId = `a-${Date.now()}`
       setMsgs(prev => [...prev, { kind: 'assistant', id: assistantId, content: '', streaming: true }])
 
-      const response = await fetch(`/api/agents/${agentId}/sessions/${sid}/stream`, {
+      const response = await fetch(`/api/aihub/agents/${agentId}/sessions/${sid}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getIdentityHeaders() },
         body: JSON.stringify({ message: text }),

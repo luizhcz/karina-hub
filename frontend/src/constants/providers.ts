@@ -1,4 +1,4 @@
-// Temporary frontend constants until GET /api/functions exposes providers (A1)
+// Temporary frontend constants until GET /api/aihub/functions exposes providers (A1)
 
 export const PROVIDER_TYPES = ['OPENAI', 'AZUREOPENAI', 'AZUREFOUNDRY'] as const
 

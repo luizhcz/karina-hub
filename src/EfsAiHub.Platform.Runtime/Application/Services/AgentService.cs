@@ -87,6 +87,15 @@ public class AgentService : IAgentService
         var existing = await _repository.GetByIdAsync(definition.Id, ct)
             ?? throw new KeyNotFoundException($"Agente '{definition.Id}' não encontrado.");
 
+        // Owner gate: HasQueryFilter expõe agentes Visibility=global cross-project pra
+        // leitura, então o existing pode ser visível pra um projeto que NÃO é dono. Sem
+        // este check, qualquer projeto do tenant editaria o agente global. Mensagem
+        // genérica pra não vazar o ProjectId do owner.
+        var currentProjectId = _projectAccessor.Current.ProjectId;
+        if (!string.Equals(existing.ProjectId, currentProjectId, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException(
+                $"Agente '{definition.Id}' não pertence ao projeto atual; apenas o projeto dono pode editar.");
+
         // Preserva Visibility/ProjectId/TenantId do existing.
         // Request DTO não carrega esses campos por design; sem isso o PUT silenciosamente
         // resetaria Visibility="project". PATCH /agents/{id}/visibility é o único caminho.
@@ -139,7 +148,7 @@ public class AgentService : IAgentService
     /// Garante que todo agente tenha pelo menos uma versão de prompt ativa ("v1").
     /// Usa Instructions como conteúdo inicial — se vazio/null, grava "" (sem system message).
     /// Idempotente: se já existe alguma versão, não faz nada.
-    /// Por que: GET /api/agents/{id}/prompts/active retorna 404 quando não há versão; com
+    /// Por que: GET /api/aihub/agents/{id}/prompts/active retorna 404 quando não há versão; com
     /// este seed garantido, o frontend e qualquer caller subsequente enxerga o estado
     /// "agente recém-criado sem prompt customizado" como uma versão vazia (200 OK), não
     /// como recurso ausente.
@@ -307,6 +316,14 @@ public class AgentService : IAgentService
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)
     {
+        var existing = await _repository.GetByIdAsync(id, ct)
+            ?? throw new KeyNotFoundException($"Agente '{id}' não encontrado.");
+
+        var currentProjectId = _projectAccessor.Current.ProjectId;
+        if (!string.Equals(existing.ProjectId, currentProjectId, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException(
+                $"Agente '{id}' não pertence ao projeto atual; apenas o projeto dono pode remover.");
+
         var deleted = await _repository.DeleteAsync(id, ct);
         if (!deleted)
             throw new KeyNotFoundException($"Agente '{id}' não encontrado.");
@@ -323,8 +340,16 @@ public class AgentService : IAgentService
         ValidationContext.RequireString(errors, definition.Name, "name", maxLength: 200);
 
         // ── Model ────────────────────────────────────────────────────────────
-        if (string.IsNullOrWhiteSpace(definition.Model?.DeploymentName))
-            errors.Add("Campo 'model.deploymentName' é obrigatório.");
+        // Quando o agent referencia um PredefinedModelId, o PredefinedModelBinder
+        // hidrata DeploymentName/Provider.Type/Provider.ClientType em runtime
+        // (ver PredefinedModelBinder.BindAsync). A validação aqui roda antes
+        // do binder, então pulamos esses checks pra não exigir o que vai ser
+        // resolvido depois — caso contrário, agent que só passa preset falha
+        // com "model.deploymentName obrigatório".
+        var hasPredefined = !string.IsNullOrWhiteSpace(definition.Model?.PredefinedModelId);
+
+        if (!hasPredefined && string.IsNullOrWhiteSpace(definition.Model?.DeploymentName))
+            errors.Add("Campo 'model.deploymentName' é obrigatório (ou informe 'model.predefinedModelId').");
 
         if (definition.Model?.Temperature is { } temp && (temp < 0f || temp > 2f))
             errors.Add($"Campo 'model.temperature' deve estar entre 0.0 e 2.0 (recebido: {temp}).");
@@ -333,10 +358,11 @@ public class AgentService : IAgentService
             errors.Add($"Campo 'model.maxTokens' deve ser maior que zero (recebido: {maxTokens}).");
 
         // ── Provider ─────────────────────────────────────────────────────────
-        if (!ValidProviderTypes.Contains(definition.Provider.Type))
+        // Mesmo motivo do bloco Model acima: preset hidrata em runtime.
+        if (!hasPredefined && !ValidProviderTypes.Contains(definition.Provider.Type))
             errors.Add($"Campo 'provider.type' inválido: '{definition.Provider.Type}'. Valores aceitos: {string.Join(", ", ValidProviderTypes)}.");
 
-        if (!ValidClientTypes.Contains(definition.Provider.ClientType))
+        if (!hasPredefined && !ValidClientTypes.Contains(definition.Provider.ClientType))
             errors.Add($"Campo 'provider.clientType' inválido: '{definition.Provider.ClientType}'. Valores aceitos: {string.Join(", ", ValidClientTypes)}.");
 
         if (!string.IsNullOrWhiteSpace(definition.Provider.Endpoint))

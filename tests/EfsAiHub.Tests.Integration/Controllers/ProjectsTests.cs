@@ -9,7 +9,7 @@ public class ProjectsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Post_SemName_Retorna400()
     {
-        var response = await _client.PostAsJsonAsync("/api/projects", new { name = "" });
+        var response = await _client.PostAsJsonAsync("/api/aihub/projects", new { name = "" });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -17,7 +17,7 @@ public class ProjectsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Post_Valido_Retorna201ComId()
     {
-        var response = await _client.PostAsJsonAsync("/api/projects", new { name = $"Projeto {Guid.NewGuid():N}" });
+        var response = await _client.PostAsJsonAsync("/api/aihub/projects", new { name = $"Projeto {Guid.NewGuid():N}" });
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -28,7 +28,7 @@ public class ProjectsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task GetAll_Retorna200()
     {
-        var response = await _client.GetAsync("/api/projects");
+        var response = await _client.GetAsync("/api/aihub/projects");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -38,11 +38,11 @@ public class ProjectsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Get_ProjetoExistente_Retorna200()
     {
-        var postResp = await _client.PostAsJsonAsync("/api/projects", new { name = $"Projeto {Guid.NewGuid():N}" });
+        var postResp = await _client.PostAsJsonAsync("/api/aihub/projects", new { name = $"Projeto {Guid.NewGuid():N}" });
         var created = await postResp.Content.ReadFromJsonAsync<JsonElement>();
         var id = created.GetProperty("id").GetString()!;
 
-        var response = await _client.GetAsync($"/api/projects/{id}");
+        var response = await _client.GetAsync($"/api/aihub/projects/{id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -52,7 +52,7 @@ public class ProjectsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Get_ProjetoInexistente_Retorna404()
     {
-        var response = await _client.GetAsync($"/api/projects/{Guid.NewGuid():N}");
+        var response = await _client.GetAsync($"/api/aihub/projects/{Guid.NewGuid():N}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -60,11 +60,11 @@ public class ProjectsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Put_AtualizaNome_Retorna200()
     {
-        var postResp = await _client.PostAsJsonAsync("/api/projects", new { name = $"Projeto {Guid.NewGuid():N}" });
+        var postResp = await _client.PostAsJsonAsync("/api/aihub/projects", new { name = $"Projeto {Guid.NewGuid():N}" });
         var created = await postResp.Content.ReadFromJsonAsync<JsonElement>();
         var id = created.GetProperty("id").GetString()!;
 
-        var response = await _client.PutAsJsonAsync($"/api/projects/{id}", new { name = "Projeto Atualizado" });
+        var response = await _client.PutAsJsonAsync($"/api/aihub/projects/{id}", new { name = "Projeto Atualizado" });
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -74,7 +74,7 @@ public class ProjectsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Delete_ProjetoDefault_Retorna400()
     {
-        var response = await _client.DeleteAsync("/api/projects/default");
+        var response = await _client.DeleteAsync("/api/aihub/projects/default");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -82,11 +82,11 @@ public class ProjectsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Delete_ProjetoExistente_Retorna204()
     {
-        var postResp = await _client.PostAsJsonAsync("/api/projects", new { name = $"Projeto {Guid.NewGuid():N}" });
+        var postResp = await _client.PostAsJsonAsync("/api/aihub/projects", new { name = $"Projeto {Guid.NewGuid():N}" });
         var created = await postResp.Content.ReadFromJsonAsync<JsonElement>();
         var id = created.GetProperty("id").GetString()!;
 
-        var response = await _client.DeleteAsync($"/api/projects/{id}");
+        var response = await _client.DeleteAsync($"/api/aihub/projects/{id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
@@ -94,7 +94,7 @@ public class ProjectsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Delete_ProjetoInexistente_Retorna404()
     {
-        var response = await _client.DeleteAsync($"/api/projects/{Guid.NewGuid():N}");
+        var response = await _client.DeleteAsync($"/api/aihub/projects/{Guid.NewGuid():N}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -107,7 +107,7 @@ public class ProjectsTests(IntegrationWebApplicationFactory factory)
         // Gate ativo com admin configurado; cliente sem x-efs-project-id → ProjectId = "default"
         var client = factory.CreateClientWithAdminGate("admin-proj-test");
 
-        var response = await client.GetAsync("/api/agents");
+        var response = await client.GetAsync("/api/aihub/agents");
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
@@ -118,7 +118,7 @@ public class ProjectsTests(IntegrationWebApplicationFactory factory)
         var client = factory.CreateClientWithAdminGate("admin-proj-test")
             .WithAdminAccount("admin-proj-test");
 
-        var response = await client.GetAsync("/api/agents");
+        var response = await client.GetAsync("/api/aihub/agents");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -130,7 +130,7 @@ public class ProjectsTests(IntegrationWebApplicationFactory factory)
         var client = factory.CreateClientWithAdminGate("admin-proj-test")
             .WithProject($"projeto-livre-{Guid.NewGuid():N}");
 
-        var response = await client.GetAsync("/api/agents");
+        var response = await client.GetAsync("/api/aihub/agents");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }

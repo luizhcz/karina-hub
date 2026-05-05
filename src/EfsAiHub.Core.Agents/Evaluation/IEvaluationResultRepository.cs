@@ -25,6 +25,16 @@ public interface IEvaluationResultRepository
     Task<EvaluationRunProgress?> GetProgressAsync(string runId, CancellationToken ct = default);
 
     /// <summary>
+    /// Cursor-based read: results com CreatedAt &gt; sinceTicks (UtcTicks como seq
+    /// monotônico), ordenados ASC por CreatedAt. Usado pelo polling fallback HTTP.
+    /// </summary>
+    Task<IReadOnlyList<EvaluationResult>> GetSinceAsync(
+        string runId,
+        long sinceTicks,
+        int limit,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Agrega tokens e custo a partir de llm_token_usage (single source of truth).
     /// Cobre chamadas do agente sob teste e dos judges MEAI/Foundry sem duplicação.
     /// JOIN com model_pricing usando o pricing vigente em llm_token_usage.CreatedAt.

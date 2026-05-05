@@ -103,9 +103,9 @@ Gravado por `IAdminAuditLogger` (fire-and-log — falhas não quebram request).
 
 | Endpoint                                      | Action | ResourceId |
 |-----------------------------------------------|--------|------------|
-| `GET /api/admin/personas/{userId}?userType=X` | read   | `{userType}:{userId}` |
-| `GET /api/admin/persona-templates`            | read   | `*`        |
-| `GET /api/admin/persona-templates/{id}`       | read   | `{id}`     |
+| `GET /api/aihub/admin/personas/{userId}?userType=X` | read   | `{userType}:{userId}` |
+| `GET /api/aihub/admin/persona-templates`            | read   | `*`        |
+| `GET /api/aihub/admin/persona-templates/{id}`       | read   | `{id}`     |
 
 Outros controllers admin (pricing, agents, workflows) **não** estão
 instrumentados com read audit — decisão custo/benefício. Estender caso

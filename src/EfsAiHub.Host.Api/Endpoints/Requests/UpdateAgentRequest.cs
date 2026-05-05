@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace EfsAiHub.Host.Api.Models.Requests;
 
 /// <summary>
-/// Body do PUT /api/agents/{id}. Idêntico ao <see cref="CreateAgentRequest"/>
+/// Body do PUT /api/aihub/agents/{id}. Idêntico ao <see cref="CreateAgentRequest"/>
 /// mas com <c>ChangeReason</c> OBRIGATÓRIO — toda atualização de agent já
 /// publicado precisa de justificativa (vai pro audit em
 /// <c>agent_approval_history</c> como <c>AdminOverride</c> + Feedback). Manter

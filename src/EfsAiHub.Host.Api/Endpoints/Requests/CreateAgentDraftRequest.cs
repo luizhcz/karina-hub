@@ -3,7 +3,7 @@ using EfsAiHub.Core.Agents;
 namespace EfsAiHub.Host.Api.Models.Requests;
 
 /// <summary>
-/// Body do POST /api/agent-drafts. Aceita Id explícito (slug user-friendly que
+/// Body do POST /api/aihub/agent-drafts. Aceita Id explícito (slug user-friendly que
 /// vai persistir no agent canônico após publish) ou null (gera GUID provisório).
 /// Payload aceita campos parciais — invariantes só rodam no publish.
 /// </summary>

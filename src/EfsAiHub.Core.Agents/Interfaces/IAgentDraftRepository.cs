@@ -105,7 +105,7 @@ public interface IAgentDraftRepository
 
     /// <summary>
     /// Append-only de uma entry de AdminOverride: usado quando admin atualiza
-    /// agent direto via PUT /api/agents/{id} (sem passar por draft → approve).
+    /// agent direto via PUT /api/aihub/agents/{id} (sem passar por draft → approve).
     /// Mantém audit unificado em agent_approval_history.
     /// </summary>
     Task AppendAdminOverrideAsync(
@@ -162,7 +162,7 @@ public enum AgentDraftStatus
 /// agent — incluindo PUT direto via API (action=AdminOverride) e auto-aprovação
 /// de mudança cosmética (action=AutoApproved). <see cref="AgentDefinitionId"/>
 /// liga a entry ao agent publicado mesmo após o draft ter sido removido —
-/// permite query unificada por agent (GET /api/agents/{id}/approval-history).
+/// permite query unificada por agent (GET /api/aihub/agents/{id}/approval-history).
 /// </summary>
 public sealed record AgentApprovalHistoryEntry(
     string Id,
@@ -188,7 +188,7 @@ public enum AgentApprovalAction
     /// </summary>
     AutoApproved,
     /// <summary>
-    /// Mudança aplicada por admin via PUT direto em /api/agents/{id} sem passar
+    /// Mudança aplicada por admin via PUT direto em /api/aihub/agents/{id} sem passar
     /// pelo flow de draft → approve. Mantida como caminho de break-glass — toda
     /// chamada gera entry obrigatória com ChangeReason no Feedback pra audit.
     /// </summary>

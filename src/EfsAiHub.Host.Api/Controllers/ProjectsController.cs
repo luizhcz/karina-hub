@@ -15,7 +15,7 @@ using ProviderCredentials = EfsAiHub.Core.Abstractions.Projects.ProviderCredenti
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/projects")]
+[Route("api/aihub/projects")]
 [Produces("application/json")]
 public class ProjectsController : ControllerBase
 {

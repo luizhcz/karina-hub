@@ -138,9 +138,9 @@ Esta ADR **é** a entrega de F7. Nada mais.
 ## Referências
 
 - [Microsoft.Extensions.AI 10.5.0 NuGet](https://www.nuget.org/packages/Microsoft.Extensions.AI.OpenAI)
-- [MicrosoftExtensionsAIResponsesExtensions — Microsoft Learn](https://learn.microsoft.com/en-us/dotnet/api/openai.responses.microsoftextensionsairesponsesextensions?view=net-10.0-pp)
+- [MicrosoftExtensionsAIResponsesExtensions — Microsoft Learn](https://learn.microsoft.com/en-us/dotnet/api/aihub/openai.responses.microsoftextensionsairesponsesextensions?view=net-10.0-pp)
 - [Migrate to the Responses API — OpenAI Docs](https://platform.openai.com/docs/guides/migrate-to-responses)
-- [Conversation State — OpenAI API](https://developers.openai.com/api/docs/guides/conversation-state)
+- [Conversation State — OpenAI API](https://developers.openai.com/api/aihub/docs/guides/conversation-state)
 - [Issue #7060 — dotnet/extensions](https://github.com/dotnet/extensions/issues/7060)
 - [Issue #6753 — dotnet/extensions](https://github.com/dotnet/extensions/issues/6753)
 - [openai/openai-dotnet CHANGELOG](https://github.com/openai/openai-dotnet/blob/main/CHANGELOG.md)

@@ -1,4 +1,4 @@
-import { Badge, Card, CardHeader, cn } from '../../ui'
+import { Badge, Card, CardHeader } from '../../ui'
 import type { GenericTool } from '../../api/genericTools'
 import type { McpServer } from '../../api/mcpServers'
 import { CatalogPicker } from './CatalogPicker'
@@ -33,34 +33,6 @@ export function ToolsKnowledgeStep({
 
   return (
     <div className="space-y-5">
-      <Card className="space-y-3">
-        <CardHeader
-          title="Conhecimento"
-          description="Bases de conhecimento que o agente pode consultar (RAG). Em desenvolvimento."
-          actions={<Badge tone="warning">Em breve</Badge>}
-        />
-        <label
-          className={cn(
-            'flex items-center gap-3 rounded-lg border border-dashed border-border bg-bg-soft px-4 py-3',
-            'cursor-not-allowed opacity-60',
-          )}
-        >
-          <input
-            type="checkbox"
-            className="h-4 w-4 accent-accent"
-            checked={false}
-            disabled
-            readOnly
-          />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-fg">Habilitar conhecimento</p>
-            <p className="text-xs text-fg-muted">
-              Em breve você poderá conectar bases de conhecimento ao agente.
-            </p>
-          </div>
-        </label>
-      </Card>
-
       <Card className="space-y-3">
         <CardHeader
           title="Ferramentas"

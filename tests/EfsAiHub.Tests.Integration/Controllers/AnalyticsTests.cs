@@ -9,7 +9,7 @@ public class AnalyticsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task GetSummary_SemParams_Retorna200()
     {
-        var response = await _client.GetAsync("/api/analytics/executions/summary");
+        var response = await _client.GetAsync("/api/aihub/analytics/executions/summary");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -20,7 +20,7 @@ public class AnalyticsTests(IntegrationWebApplicationFactory factory)
         var from = DateTime.UtcNow.AddDays(-7).ToString("o");
         var to = DateTime.UtcNow.ToString("o");
 
-        var response = await _client.GetAsync($"/api/analytics/executions/summary?from={from}&to={to}");
+        var response = await _client.GetAsync($"/api/aihub/analytics/executions/summary?from={from}&to={to}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -28,7 +28,7 @@ public class AnalyticsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task GetTimeseries_SemParams_Retorna200()
     {
-        var response = await _client.GetAsync("/api/analytics/executions/timeseries");
+        var response = await _client.GetAsync("/api/aihub/analytics/executions/timeseries");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -39,7 +39,7 @@ public class AnalyticsTests(IntegrationWebApplicationFactory factory)
         var from = DateTime.UtcNow.AddDays(-7).ToString("o");
         var to = DateTime.UtcNow.ToString("o");
 
-        var response = await _client.GetAsync($"/api/analytics/executions/timeseries?from={from}&to={to}&groupBy=day");
+        var response = await _client.GetAsync($"/api/aihub/analytics/executions/timeseries?from={from}&to={to}&groupBy=day");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }

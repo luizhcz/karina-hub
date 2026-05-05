@@ -668,9 +668,9 @@ A tabela `human_interactions` tem coluna `ResolvedBy VARCHAR(128) NULL` (migrati
 
 | Caller | Origem do userId | Valor gravado |
 |---|---|---|
-| `POST /api/interactions/{id}/resolve` | header `x-efs-account` ou `x-efs-user-profile-id` | userId do header |
-| `POST /api/chat/ag-ui/stream` com message `role=tool` | mesmo header resolvido antes do `ProcessApprovalsAsync` | userId do header |
-| `POST /api/chat/ag-ui/resolve-hitl` | idem | userId do header |
+| `POST /api/aihub/interactions/{id}/resolve` | header `x-efs-account` ou `x-efs-user-profile-id` | userId do header |
+| `POST /api/aihub/chat/ag-ui/stream` com message `role=tool` | mesmo header resolvido antes do `ProcessApprovalsAsync` | userId do header |
+| `POST /api/aihub/chat/ag-ui/resolve-hitl` | idem | userId do header |
 | `ConversationService` (chat reply resolve HITL pendente) | `conversation.UserId` | userId da conversa |
 | Timeout interno do service (`request.TimeoutSeconds` expirou) | constante `HitlActors.SystemTimeout` | `"system:timeout"` |
 | Cross-pod NOTIFY replay | payload da origem | userId do pod origem ou `"unknown"` em payloads pré-migration |
@@ -727,7 +727,7 @@ Resolução HITL propagada via PostgreSQL LISTEN/NOTIFY (`ICrossNodeBus.PublishH
 
 `HumanInteractionService.ResolveAsync` é **idempotente por CAS a nível de banco**. Três callers podem tentar resolver a mesma interação em paralelo:
 
-1. **API local** (`POST /api/interactions/{id}/resolve` ou `POST /api/chat/ag-ui/resolve-hitl`)
+1. **API local** (`POST /api/aihub/interactions/{id}/resolve` ou `POST /api/aihub/chat/ag-ui/resolve-hitl`)
 2. **Cross-pod NOTIFY** (outro pod já resolveu e está propagando)
 3. **Timeout HITL** (`request.TimeoutSeconds` expirou)
 
@@ -830,7 +830,7 @@ public enum WorkflowVersionStatus
 1. **Append-only:** Cada update cria nova versão com `Revision` incrementado
 2. **Idempotência:** `ContentHash` (SHA-256) garante que definição idêntica não cria nova revisão
 3. **Snapshot completo:** `DefinitionSnapshot` armazena JSON completo do `WorkflowDefinition`
-4. **Rollback:** `POST /api/workflows/{id}/rollback` restaura de qualquer versão anterior
+4. **Rollback:** `POST /api/aihub/workflows/{id}/rollback` restaura de qualquer versão anterior
 
 ### Repository
 
@@ -875,7 +875,7 @@ public enum ExecutionMode
 ### API
 
 ```
-POST /api/workflows/{id}/sandbox
+POST /api/aihub/workflows/{id}/sandbox
 ```
 
 Chama `TriggerAsync()` com `mode: ExecutionMode.Sandbox`.
@@ -1114,10 +1114,10 @@ src/EfsAiHub.Host.Api/Chat/AgUi/
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| POST | `/api/chat/ag-ui/stream` | Inicia stream SSE |
-| POST | `/api/chat/ag-ui/cancel` | Cancela execução |
-| POST | `/api/chat/ag-ui/resolve-hitl` | Resolve HITL inline |
-| GET | `/api/chat/ag-ui/reconnect/{executionId}` | Reconexão com resync |
+| POST | `/api/aihub/chat/ag-ui/stream` | Inicia stream SSE |
+| POST | `/api/aihub/chat/ag-ui/cancel` | Cancela execução |
+| POST | `/api/aihub/chat/ag-ui/resolve-hitl` | Resolve HITL inline |
+| GET | `/api/aihub/chat/ag-ui/reconnect/{executionId}` | Reconexão com resync |
 
 ### Fluxo SSE
 
@@ -1324,36 +1324,36 @@ src/EfsAiHub.Host.Api/Controllers/WorkflowsController.cs
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| POST | `/api/workflows` | Criar workflow |
-| GET | `/api/workflows` | Listar workflows |
-| GET | `/api/workflows/{id}` | Obter workflow por ID |
-| PUT | `/api/workflows/{id}` | Atualizar workflow |
-| DELETE | `/api/workflows/{id}` | Remover workflow |
+| POST | `/api/aihub/workflows` | Criar workflow |
+| GET | `/api/aihub/workflows` | Listar workflows |
+| GET | `/api/aihub/workflows/{id}` | Obter workflow por ID |
+| PUT | `/api/aihub/workflows/{id}` | Atualizar workflow |
+| DELETE | `/api/aihub/workflows/{id}` | Remover workflow |
 
 ### Execução
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| POST | `/api/workflows/{id}/trigger` | Disparar execução (202 + executionId) |
-| POST | `/api/workflows/{id}/sandbox` | Executar em sandbox |
-| GET | `/api/workflows/{id}/executions` | Listar execuções (paginado, filtrável por status) |
+| POST | `/api/aihub/workflows/{id}/trigger` | Disparar execução (202 + executionId) |
+| POST | `/api/aihub/workflows/{id}/sandbox` | Executar em sandbox |
+| GET | `/api/aihub/workflows/{id}/executions` | Listar execuções (paginado, filtrável por status) |
 
 ### Versionamento
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| GET | `/api/workflows/{id}/versions` | Listar versões (mais recente primeiro) |
-| GET | `/api/workflows/{id}/versions/{versionId}` | Obter versão específica |
-| POST | `/api/workflows/{id}/rollback` | Rollback para versão anterior |
+| GET | `/api/aihub/workflows/{id}/versions` | Listar versões (mais recente primeiro) |
+| GET | `/api/aihub/workflows/{id}/versions/{versionId}` | Obter versão específica |
+| POST | `/api/aihub/workflows/{id}/rollback` | Rollback para versão anterior |
 
 ### Catálogo e Utilitários
 
 | Método | Path | Descrição |
 |--------|------|-----------|
-| GET | `/api/workflows/visible` | Listar workflows visíveis (projeto + global) |
-| POST | `/api/workflows/{id}/clone` | Clonar workflow para projeto atual |
-| POST | `/api/workflows/{id}/validate` | Validar sem persistir |
-| GET | `/api/workflows/{id}/diagram` | Gerar diagrama PNG (Graphviz/mermaid) |
+| GET | `/api/aihub/workflows/visible` | Listar workflows visíveis (projeto + global) |
+| POST | `/api/aihub/workflows/{id}/clone` | Clonar workflow para projeto atual |
+| POST | `/api/aihub/workflows/{id}/validate` | Validar sem persistir |
+| GET | `/api/aihub/workflows/{id}/diagram` | Gerar diagrama PNG (Graphviz/mermaid) |
 
 ### DTOs
 
@@ -1421,7 +1421,7 @@ Cada agente referenciado precisa existir no catálogo. Veja [docs/agentes.md](ag
 **Exemplo — Sequential simples:**
 
 ```json
-POST /api/workflows
+POST /api/aihub/workflows
 {
   "id": "analise-risco-pipeline",
   "name": "Pipeline de Análise de Risco",
@@ -1441,7 +1441,7 @@ POST /api/workflows
 **Exemplo — Graph com FanOut/FanIn e HITL:**
 
 ```json
-POST /api/workflows
+POST /api/aihub/workflows
 {
   "id": "analise-completa",
   "name": "Análise Completa com Aprovação",
@@ -1485,7 +1485,7 @@ POST /api/workflows
 ### Passo 4: Validar
 
 ```
-POST /api/workflows/analise-completa/validate
+POST /api/aihub/workflows/analise-completa/validate
 ```
 
 Retorna erros de validação sem persistir.
@@ -1493,7 +1493,7 @@ Retorna erros de validação sem persistir.
 ### Passo 5: Disparar
 
 ```json
-POST /api/workflows/analise-completa/trigger
+POST /api/aihub/workflows/analise-completa/trigger
 {
   "input": "Analisar carteira do cliente 12345",
   "metadata": { "source": "backoffice" }
@@ -1505,7 +1505,7 @@ Resposta: `202 Accepted` com `{ "executionId": "exec-abc123" }`
 ### Passo 6: Acompanhar via SSE
 
 ```
-POST /api/chat/ag-ui/stream
+POST /api/aihub/chat/ag-ui/stream
 { "executionId": "exec-abc123" }
 ```
 
@@ -1561,7 +1561,7 @@ Eventos SSE em tempo real: `workflow_started → node_started → token → ... 
 **OutputNodes:** `[classificador-fato-relevante]`
 
 ```json
-POST /api/workflows
+POST /api/aihub/workflows
 {
   "id": "classificacao-fato-relevante",
   "name": "Classificação de Fato Relevante",
@@ -1633,10 +1633,10 @@ POST /api/workflows
 
 ### API
 
-- `PATCH /api/workflows/{id}/visibility` — body `{ visibility: "project" \| "global", reason?: string }`. Endpoint dedicado pra que o audit log emita `Action="workflow.visibility_changed"` com payloadBefore/After mínimos (só `{visibility}`, não polui índices).
+- `PATCH /api/aihub/workflows/{id}/visibility` — body `{ visibility: "project" \| "global", reason?: string }`. Endpoint dedicado pra que o audit log emita `Action="workflow.visibility_changed"` com payloadBefore/After mínimos (só `{visibility}`, não polui índices).
 - Owner gate: somente o `ProjectId` dono pode alterar visibility. Caller de outro projeto recebe `403`.
 - Idempotência: re-marcar pra mesmo valor é no-op (não emite audit/metric).
-- `GET /api/workflows` continua filtrado por projeto + globais do tenant via `HasQueryFilter` no `AgentFwDbContext` (que injeta `ITenantContextAccessor` desde Phase 1).
+- `GET /api/aihub/workflows` continua filtrado por projeto + globais do tenant via `HasQueryFilter` no `AgentFwDbContext` (que injeta `ITenantContextAccessor` desde Phase 1).
 
 ### Persistence
 

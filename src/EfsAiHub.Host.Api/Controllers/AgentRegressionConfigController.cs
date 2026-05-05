@@ -14,7 +14,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// Sem qualquer campo populado, autotrigger é no-op.
 /// </summary>
 [ApiController]
-[Route("api/agents/{agentId}/regression-config")]
+[Route("api/aihub/agents/{agentId}/regression-config")]
 [Produces("application/json")]
 public sealed class AgentRegressionConfigController : ControllerBase
 {

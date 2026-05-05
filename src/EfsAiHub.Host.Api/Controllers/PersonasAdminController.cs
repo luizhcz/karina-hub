@@ -13,7 +13,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// (mudanças voltam via invalidação do cache).
 /// </summary>
 [ApiController]
-[Route("api/admin/personas")]
+[Route("api/aihub/admin/personas")]
 [Produces("application/json")]
 public class PersonasAdminController : ControllerBase
 {

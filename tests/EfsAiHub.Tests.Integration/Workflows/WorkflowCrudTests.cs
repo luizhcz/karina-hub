@@ -19,7 +19,7 @@ public class WorkflowCrudTests(IntegrationWebApplicationFactory factory)
     {
         var payload = BuildPayload($"wf-create-{Guid.NewGuid():N}");
 
-        var response = await _client.PostAsJsonAsync("/api/workflows", payload);
+        var response = await _client.PostAsJsonAsync("/api/aihub/workflows", payload);
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -30,9 +30,9 @@ public class WorkflowCrudTests(IntegrationWebApplicationFactory factory)
     public async Task Get_WorkflowExistente_Retorna200()
     {
         var id = $"wf-get-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/workflows", BuildPayload(id));
+        await _client.PostAsJsonAsync("/api/aihub/workflows", BuildPayload(id));
 
-        var response = await _client.GetAsync($"/api/workflows/{id}");
+        var response = await _client.GetAsync($"/api/aihub/workflows/{id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -42,7 +42,7 @@ public class WorkflowCrudTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Get_WorkflowInexistente_Retorna404()
     {
-        var response = await _client.GetAsync("/api/workflows/wf-nao-existe-xyz-999");
+        var response = await _client.GetAsync("/api/aihub/workflows/wf-nao-existe-xyz-999");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -51,7 +51,7 @@ public class WorkflowCrudTests(IntegrationWebApplicationFactory factory)
     public async Task Put_AtualizaWorkflow_PreservaId()
     {
         var id = $"wf-put-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/workflows", BuildPayload(id));
+        await _client.PostAsJsonAsync("/api/aihub/workflows", BuildPayload(id));
 
         var updated = new
         {
@@ -61,7 +61,7 @@ public class WorkflowCrudTests(IntegrationWebApplicationFactory factory)
             agents = new[] { new { agentId = "agent-placeholder" } }
         };
 
-        var response = await _client.PutAsJsonAsync($"/api/workflows/{id}", updated);
+        var response = await _client.PutAsJsonAsync($"/api/aihub/workflows/{id}", updated);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -73,9 +73,9 @@ public class WorkflowCrudTests(IntegrationWebApplicationFactory factory)
     public async Task Delete_WorkflowExistente_Retorna204()
     {
         var id = $"wf-del-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/workflows", BuildPayload(id));
+        await _client.PostAsJsonAsync("/api/aihub/workflows", BuildPayload(id));
 
-        var response = await _client.DeleteAsync($"/api/workflows/{id}");
+        var response = await _client.DeleteAsync($"/api/aihub/workflows/{id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
