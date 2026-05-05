@@ -1,6 +1,8 @@
 using EfsAiHub.Core.Abstractions.Events;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Core.Orchestration.Coordination;
+using EfsAiHub.Infra.Messaging.InMemory;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -25,5 +27,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICrossNodeBus, PgCrossNodeBus>();
         services.AddSingleton<ICacheInvalidationBus, PgCacheInvalidationBus>();
         return services;
+    }
+
+    /// <summary>
+    /// Registra o <see cref="IEventBuffer"/> in-memory (1 pod) + cleaner background.
+    /// Migração pra N pods: trocar esta chamada por AddRedisStreamEventBuffer(...)
+    /// — mantém o mesmo IEventBuffer pros consumers (controllers/services).
+    /// </summary>
+    public static IServiceCollection AddEventBuffer(this IServiceCollection services, IConfiguration configuration)
+    {
+        return services.AddInMemoryEventBuffer(configuration);
     }
 }
