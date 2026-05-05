@@ -857,35 +857,193 @@ es.addEventListener('done', (ev) => {
     </table>
 
     <h3>Endpoints disponíveis</h3>
-    <table class="event-table">
-      <thead>
-        <tr><th>Endpoint</th><th>Trigger correspondente</th><th>Tipos de evento</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><code>GET /api/executions/{id}/events</code></td>
-          <td><code>POST /api/workflows/{id}/trigger</code></td>
-          <td><code>step_started</code>, <code>step_completed</code>, <code>tool_call</code>, <code>workflow_completed</code>, <code>error</code></td>
-        </tr>
-        <tr>
-          <td><code>GET /api/conversations/{id}/messages/events</code></td>
-          <td><code>POST /api/conversations/{id}/messages</code></td>
-          <td><code>waiting_for_input</code>, <code>message_complete</code>, <code>error</code> (mesmo mapeamento do <code>/messages/stream</code>)</td>
-        </tr>
-        <tr>
-          <td><code>GET /api/agents/{id}/sessions/{sid}/events</code></td>
-          <td><code>POST /api/agents/{id}/sessions/{sid}/run-async</code></td>
-          <td><code>token</code>, <code>done</code>, <code>error</code></td>
-        </tr>
-        <tr>
-          <td><code>GET /api/evaluations/runs/{runId}/events</code></td>
-          <td><code>POST /api/agents/{id}/evaluations/auto-deploy</code></td>
-          <td><code>progress</code>, <code>result</code>, <code>done</code></td>
-        </tr>
-      </tbody>
-    </table>
 
-    <h3>Exemplo curl</h3>
+    <!-- Pattern A — Executions -->
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="endpoint-method method-get">GET</span>
+        <span class="endpoint-path">/api/executions/{executionId}/events</span>
+        <span class="endpoint-desc">Pattern A — polling fallback do /stream de execução de workflow</span>
+      </div>
+      <div class="endpoint-body">
+        <p>
+          Lê <code>workflow_event_audit</code> com cursor monotônico (<code>SequenceId</code> do banco).
+          Trigger correspondente: <code>POST /api/workflows/{id}/trigger</code> retorna o
+          <code>executionId</code>; cliente polla esse endpoint até <code>terminal=true</code>.
+        </p>
+        <h3>Query params</h3>
+        <table class="event-table">
+          <tbody>
+            <tr><td><code>since</code></td><td>cursor (<code>nextSince</code> da resposta anterior). Default 0.</td></tr>
+            <tr><td><code>limit</code></td><td>1..500, default 100.</td></tr>
+            <tr><td><code>waitMs</code></td><td>long-poll opcional 0..25000, default 0.</td></tr>
+          </tbody>
+        </table>
+        <h3>Tipos de evento</h3>
+        <p><code>agent_started</code>, <code>step_completed</code>, <code>tool_invocation</code>, <code>hitl_required</code>, <code>workflow_completed</code> <span class="badge badge-red">terminal</span>, <code>error</code> <span class="badge badge-red">terminal</span></p>
+        <h3>Exemplo</h3>
+        <pre class="language-bash"><code class="language-bash">EXEC=$(curl -s -X POST .../api/workflows/wf-x/trigger \
+  -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo' \
+  -d '{"input":"hello"}' | jq -r .executionId)
+
+curl ".../api/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
+  -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo'
+# → { "events": [...], "nextSince": 42, "terminal": false }</code></pre>
+        <h3>Códigos HTTP</h3>
+        <table class="event-table">
+          <tbody>
+            <tr><td><span class="badge badge-green">200</span></td><td>Resposta válida (mesmo se <code>events: []</code>)</td></tr>
+            <tr><td><span class="badge badge-yellow">400</span></td><td>Query param fora do range (<code>since &lt; 0</code>, <code>limit &gt; 500</code>, etc.)</td></tr>
+            <tr><td><span class="badge badge-red">404</span></td><td>ExecutionId não encontrado no scope do projeto</td></tr>
+          </tbody>
+        </table>
+        <h3>Auth</h3>
+        <p>Headers padrão: <code>x-efs-account</code>, <code>x-efs-project-id</code>. Project scope via <code>HasQueryFilter</code> em <code>WorkflowExecution</code>.</p>
+      </div>
+    </div>
+
+    <!-- Pattern A — Conversations -->
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="endpoint-method method-get">GET</span>
+        <span class="endpoint-path">/api/conversations/{id}/messages/events</span>
+        <span class="endpoint-desc">Pattern A — polling fallback do /messages/stream da conversa ativa</span>
+      </div>
+      <div class="endpoint-body">
+        <p>
+          Resolve <code>session.ActiveExecutionId</code> e lê o mesmo <code>workflow_event_audit</code>
+          do endpoint anterior, aplicando o renaming de eventos (<code>hitl_required</code> →
+          <code>waiting_for_input</code>; <code>workflow_completed</code> → <code>message_complete</code>).
+          Trigger correspondente: <code>POST /api/conversations/{id}/messages</code>.
+        </p>
+        <h3>Query params</h3>
+        <p>Mesmos do anterior (<code>since</code>, <code>limit</code>, <code>waitMs</code>).</p>
+        <h3>Tipos de evento</h3>
+        <p><code>waiting_for_input</code>, <code>message_complete</code> <span class="badge badge-red">terminal</span>, <code>error</code> <span class="badge badge-red">terminal</span>, mais eventos crus do bus repassados sem renaming.</p>
+        <h3>Códigos HTTP</h3>
+        <table class="event-table">
+          <tbody>
+            <tr><td><span class="badge badge-green">200</span></td><td>Resposta válida. Sem execução ativa retorna <code>events: []</code>, <code>terminal: false</code>.</td></tr>
+            <tr><td><span class="badge badge-yellow">400</span></td><td>Query param fora do range</td></tr>
+            <tr><td><span class="badge badge-red">404</span></td><td>Conversa não encontrada</td></tr>
+          </tbody>
+        </table>
+        <h3>Quando usar</h3>
+        <p>Cliente já chamou <code>POST /messages</code> e quer acompanhar a execução do turn sem manter SSE aberto. Stop quando <code>terminal=true</code>; próximo turn vai abrir nova execução.</p>
+      </div>
+    </div>
+
+    <!-- Pattern B — Agent sessions -->
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="endpoint-method method-post">POST</span>
+        <span class="endpoint-path">/api/agents/{agentId}/sessions/{sessionId}/run-async</span>
+        <span class="endpoint-desc">Pattern B — dispara turn em background (alternativa ao /stream sem long-lived connection)</span>
+      </div>
+      <div class="endpoint-body">
+        <p>
+          Retorna <strong>202 imediatamente</strong>. O turn roda em scope isolado em background;
+          tokens/eventos são publicados no <code>IEventBuffer</code> (in-memory hoje, Redis Streams
+          futuro). Cliente lê via <code>GET /events</code> abaixo.
+        </p>
+        <h3>Body</h3>
+        <pre class="language-json"><code class="language-json">{ "message": "Olá, como você pode me ajudar?" }</code></pre>
+        <h3>Resposta 202</h3>
+        <pre class="language-json"><code class="language-json">{
+  "sessionId": "ses_abc123",
+  "streamKey": "agent-session:agt-x:ses_abc123"
+}</code></pre>
+        <h3>Códigos HTTP</h3>
+        <table class="event-table">
+          <tbody>
+            <tr><td><span class="badge badge-green">202</span></td><td>Turn enfileirado em background</td></tr>
+            <tr><td><span class="badge badge-red">404</span></td><td>SessionId não pertence ao agentId</td></tr>
+          </tbody>
+        </table>
+        <h3>Quando usar</h3>
+        <p>Integração server-to-server simples ou cliente sem SSE. O <code>POST /stream</code> legado continua disponível pra UI com EventSource — ambos escrevem no mesmo buffer (não combine os dois no mesmo turn pra evitar tokens duplicados).</p>
+      </div>
+    </div>
+
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="endpoint-method method-get">GET</span>
+        <span class="endpoint-path">/api/agents/{agentId}/sessions/{sessionId}/events</span>
+        <span class="endpoint-desc">Pattern B — polling de tokens da sessão (lê do IEventBuffer)</span>
+      </div>
+      <div class="endpoint-body">
+        <p>
+          Lê do buffer in-memory (cap 5000 eventos por sessão, drop-oldest; retenção 30min após
+          <code>done</code>/<code>error</code>). Long-poll nativo via <code>TaskCompletionSource</code>
+          — wakeup em &lt;1s quando o tee de <code>/stream</code> ou o <code>run-async</code> publicarem.
+        </p>
+        <h3>Query params</h3>
+        <p>Mesmos dos anteriores.</p>
+        <h3>Tipos de evento</h3>
+        <p><code>token</code> (payload <code>{ "value": "<texto>" }</code>), <code>done</code> <span class="badge badge-red">terminal</span>, <code>error</code> <span class="badge badge-red">terminal</span>.</p>
+        <h3>Limitações in-memory (1 pod)</h3>
+        <ul>
+          <li>Buffer por pod — em N pods sem sticky session, polling pode bater em pod errado e devolver vazio. <strong>Migração pra Redis Streams remove a limitação</strong> (troca de DI binding em <code>Program.cs</code>, sem mexer em controller).</li>
+          <li>Cap 5000 eventos: tokens mais antigos ficam fora do alcance de <code>since=0</code>. Aceitável pra chat real (&lt;500 tokens/turno).</li>
+          <li>Após 30min do <code>done</code>, stream é colhido pelo cleaner; polling retorna vazio + <code>terminal=true</code> ou nada (se entry sumiu).</li>
+        </ul>
+        <h3>Códigos HTTP</h3>
+        <table class="event-table">
+          <tbody>
+            <tr><td><span class="badge badge-green">200</span></td><td>Resposta válida (mesmo se <code>events: []</code>)</td></tr>
+            <tr><td><span class="badge badge-yellow">400</span></td><td>Query param fora do range</td></tr>
+            <tr><td><span class="badge badge-red">404</span></td><td>SessionId não pertence ao agentId</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Pattern C — Evaluation runs -->
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="endpoint-method method-get">GET</span>
+        <span class="endpoint-path">/api/evaluations/runs/{runId}/events</span>
+        <span class="endpoint-desc">Pattern C — polling fallback do /stream de progresso de avaliação</span>
+      </div>
+      <div class="endpoint-body">
+        <p>
+          Lê <code>evaluation_results</code> com cursor = <code>UtcTicks</code> do <code>CreatedAt</code>.
+          Cada chamada emite 1 evento <code>progress</code> (snapshot atual de status/scores) +
+          N eventos <code>result</code> (1 por novo result desde <code>since</code>) +
+          1 evento <code>done</code> quando a run vira terminal. Trigger correspondente:
+          <code>POST /api/agents/{id}/evaluations/auto-deploy</code> (ou
+          <code>POST /api/evaluations/runs</code> admin).
+        </p>
+        <h3>Query params</h3>
+        <table class="event-table">
+          <tbody>
+            <tr><td><code>since</code></td><td>cursor em <code>UtcTicks</code> (long). Default 0.</td></tr>
+            <tr><td><code>limit</code></td><td>1..500, default 100.</td></tr>
+            <tr><td><code>waitMs</code></td><td>long-poll opcional 0..25000, default 0.</td></tr>
+            <tr><td><code>projectId</code></td><td><strong>Fallback opcional</strong> — substitui <code>x-efs-project-id</code> quando o cliente não conseguir setar headers (parity com o <code>/stream</code>).</td></tr>
+          </tbody>
+        </table>
+        <h3>Tipos de evento</h3>
+        <table class="event-table">
+          <thead><tr><th>Type</th><th>Payload</th><th>Quando</th></tr></thead>
+          <tbody>
+            <tr><td><code>progress</code></td><td><code>{ status, casesTotal, casesCompleted, casesPassed, casesFailed, avgScore, totalCostUsd, totalTokens, ... }</code></td><td>Snapshot atual; emitido junto da primeira batch de results novos</td></tr>
+            <tr><td><code>result</code></td><td><code>EvaluationResultResponse</code> (caso × evaluator × binding × repetition)</td><td>1 por linha nova de <code>evaluation_results</code></td></tr>
+            <tr><td><code>done</code> <span class="badge badge-red">terminal</span></td><td>Snapshot final (mesmo shape de <code>progress</code>)</td><td>Run virou Completed/Failed/Cancelled</td></tr>
+          </tbody>
+        </table>
+        <h3>Códigos HTTP</h3>
+        <table class="event-table">
+          <tbody>
+            <tr><td><span class="badge badge-green">200</span></td><td>Resposta válida</td></tr>
+            <tr><td><span class="badge badge-yellow">400</span></td><td>Query param fora do range</td></tr>
+            <tr><td><span class="badge badge-red">404</span></td><td>RunId não encontrado no scope do projeto</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <h3>Exemplo curl genérico</h3>
     <pre class="language-bash"><code class="language-bash"># 1. dispara
 EXEC=$(curl -s -X POST http://localhost:5189/api/workflows/wf-x/trigger \
   -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo' \
