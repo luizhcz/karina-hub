@@ -17,6 +17,12 @@
 --   - BYTEA para dados binários (checkpoints)
 -- =============================================================================
 
+-- Silencia NOTICEs ruidosos das cláusulas IF EXISTS / IF NOT EXISTS — em DB
+-- limpo elas reportam "does not exist, skipping" e em DB já populado reportam
+-- "already exists, skipping". Mantém WARNING e ERROR visíveis pra capturar
+-- problemas reais. Aplicado antes do primeiro CREATE pra cobrir todo o script.
+SET client_min_messages = WARNING;
+
 CREATE SCHEMA IF NOT EXISTS aihub;
 
 SET search_path TO aihub;
