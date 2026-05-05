@@ -29,7 +29,6 @@ import {
   Badge,
   Button,
   Card,
-  CardHeader,
   ErrorMessage,
   Modal,
   SparklesIcon,
@@ -469,7 +468,6 @@ export function AgentEditor({ mode }: Props) {
   }
 
   const onConfirmSubmit = async () => {
-    if (!id) return
     const validation = validateForSubmit()
     if (validation) {
       setError(validation)
@@ -479,15 +477,23 @@ export function AgentEditor({ mode }: Props) {
     setError(null)
     setSubmittingApproval(true)
     try {
-      if (draft) {
+      let draftId = id
+      if (mode === 'create' || !draftId) {
+        // Create mode: cria o draft inline antes de submeter (1 fluxo, sem
+        // viagem extra pra /agentes/{id} no meio).
+        const payload = buildPayload(undefined, form, tools, mcps)
+        const created = await createAgentDraft({ id: generateDraftId(), payload })
+        draftId = created.id
+        setDraft(created)
+      } else if (draft) {
         const payload = buildPayload(draft.payload, form, tools, mcps)
-        const updated = await updateAgentDraft(id, {
+        const updated = await updateAgentDraft(draftId, {
           payload,
           expectedUpdatedAt: draft.updatedAt,
         })
         setDraft(updated)
       }
-      const result = await submitAgentDraft(id)
+      const result = await submitAgentDraft(draftId!)
       setConfirmSubmit(false)
       // Flash de confirmação consumido pelo AgentsList via location.state.
       // Garante feedback explícito de "submeti, e agora?" — sem isso o user
@@ -508,7 +514,9 @@ export function AgentEditor({ mode }: Props) {
         state: { flash },
       })
     } catch (err) {
-      if (err instanceof ApiError && err.status === 412) {
+      if (err instanceof ApiError && err.status === 412 && id) {
+        // 412 só é possível em edit mode (update com expectedUpdatedAt).
+        // Create mode não tem versão prévia pra conflitar.
         setError('O rascunho foi alterado em paralelo. Recarregamos os valores — revise antes de submeter de novo.')
         await reloadDraft(id)
       } else {
@@ -686,24 +694,7 @@ export function AgentEditor({ mode }: Props) {
           />
         )}
         {form.currentStep === 'review' && (
-          <div className="space-y-5">
-            <ReviewStep form={form} models={models} tools={tools} mcps={mcps} />
-
-            {mode === 'edit' && canSubmit && (
-              <Card className="space-y-3 border-accent/40 bg-accent-subtle/40">
-                <CardHeader
-                  title="Submeter para aprovação"
-                  description="Envie este rascunho pra revisão. Depois de submeter, o agente fica em modo somente leitura até a decisão."
-                />
-                <Button
-                  className="w-full sm:w-auto"
-                  onClick={tryOpenSubmit}
-                >
-                  {status === 'Rejected' ? 'Submeter novamente' : 'Submeter para aprovação'}
-                </Button>
-              </Card>
-            )}
-          </div>
+          <ReviewStep form={form} models={models} tools={tools} mcps={mcps} />
         )}
       </div>
 
@@ -737,7 +728,7 @@ export function AgentEditor({ mode }: Props) {
             )}
           </div>
 
-          <div className="pointer-events-auto">
+          <div className="pointer-events-auto flex items-center gap-2">
             {!isLast ? (
               <Button
                 onClick={goNext}
@@ -748,9 +739,27 @@ export function AgentEditor({ mode }: Props) {
                 Avançar
               </Button>
             ) : (
-              <Button onClick={onSave} loading={submitting} disabled={readonly} className="shadow-xl">
-                {mode === 'edit' ? 'Salvar' : 'Criar rascunho'}
-              </Button>
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={onSave}
+                  loading={submitting}
+                  disabled={readonly || submittingApproval}
+                  className="shadow-xl"
+                >
+                  {mode === 'edit' ? 'Salvar' : 'Salvar como rascunho'}
+                </Button>
+                {(mode === 'create' || canSubmit) && (
+                  <Button
+                    onClick={tryOpenSubmit}
+                    loading={submittingApproval}
+                    disabled={readonly || submitting}
+                    className="shadow-xl"
+                  >
+                    {status === 'Rejected' ? 'Salvar e submeter novamente' : 'Salvar e submeter para aprovação'}
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </div>
