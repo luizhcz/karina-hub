@@ -35,7 +35,7 @@ public class PinningEndpointsTests(IntegrationWebApplicationFactory factory)
         return (agentId, workflow.Id);
     }
 
-    // ── POST /api/agents/{id}/versions (HTTP) ───────────────────────────────
+    // ── POST /api/aihub/agents/{id}/versions (HTTP) ───────────────────────────────
     // AgentsController DI chain não toca AWS Secrets Manager — endpoints HTTP testáveis.
 
     [Fact]
@@ -44,7 +44,7 @@ public class PinningEndpointsTests(IntegrationWebApplicationFactory factory)
         var (agentId, _) = await SetupAgentAndWorkflowAsync();
 
         var resp = await _client.PostAsJsonAsync(
-            $"/api/agents/{agentId}/versions",
+            $"/api/aihub/agents/{agentId}/versions",
             new { breakingChange = true, changeReason = "schema mudou" });
 
         resp.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -59,7 +59,7 @@ public class PinningEndpointsTests(IntegrationWebApplicationFactory factory)
         var (agentId, _) = await SetupAgentAndWorkflowAsync();
 
         var resp = await _client.PostAsJsonAsync(
-            $"/api/agents/{agentId}/versions",
+            $"/api/aihub/agents/{agentId}/versions",
             new { breakingChange = true });
 
         resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -69,7 +69,7 @@ public class PinningEndpointsTests(IntegrationWebApplicationFactory factory)
     public async Task PublishVersion_AgentInexistente_Retorna404()
     {
         var resp = await _client.PostAsJsonAsync(
-            $"/api/agents/agent-fantasma-{Guid.NewGuid():N}/versions",
+            $"/api/aihub/agents/agent-fantasma-{Guid.NewGuid():N}/versions",
             new { breakingChange = false });
 
         resp.StatusCode.Should().Be(HttpStatusCode.NotFound);

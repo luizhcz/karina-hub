@@ -201,12 +201,12 @@ public class WorkflowValidator
             }
 
             // Pin obrigatório global: ref sem AgentVersionId é rejeitada com mensagem clara
-            // direcionando o caller pra obter um pin via GET /api/agents/{id}/versions.
+            // direcionando o caller pra obter um pin via GET /api/aihub/agents/{id}/versions.
             if (string.IsNullOrEmpty(agentRef.AgentVersionId))
             {
                 errors.Add(
                     $"Agent '{agentRef.AgentId}' precisa de pin de versão. " +
-                    $"Use GET /api/agents/{agentRef.AgentId}/versions e informe AgentVersionId.");
+                    $"Use GET /api/aihub/agents/{agentRef.AgentId}/versions e informe AgentVersionId.");
                 continue;
             }
 

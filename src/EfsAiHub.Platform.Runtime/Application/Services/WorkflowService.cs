@@ -57,7 +57,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
     /// <summary>
     /// Para cada <see cref="WorkflowAgentReference"/> sem <c>AgentVersionId</c>, resolve current
     /// Published do agent e popula. UX: caller que não envia pin recebe pin "current" automático;
-    /// migração manual via PATCH /api/workflows/{id}/agents/{agentId}/pin permanece disponível.
+    /// migração manual via PATCH /api/aihub/workflows/{id}/agents/{agentId}/pin permanece disponível.
     /// </summary>
     private async Task ResolveDefaultPinsAsync(WorkflowDefinition definition, CancellationToken ct)
     {

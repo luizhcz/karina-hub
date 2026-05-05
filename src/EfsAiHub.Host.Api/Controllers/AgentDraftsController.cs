@@ -5,7 +5,7 @@ using EfsAiHub.Host.Api.Models.Responses;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/agent-drafts")]
+[Route("api/aihub/agent-drafts")]
 [Produces("application/json")]
 public class AgentDraftsController : ControllerBase
 {
@@ -147,7 +147,7 @@ public class AgentDraftsController : ControllerBase
     }
 
     [HttpPost("{id}/submit")]
-    [SwaggerOperation(Summary = "Submete o rascunho ao painel de aprovação. Aceita Draft|Rejected → PendingApproval. Aprovação humana promove a agent canônico via /api/agent-approvals/{id}/approve.")]
+    [SwaggerOperation(Summary = "Submete o rascunho ao painel de aprovação. Aceita Draft|Rejected → PendingApproval. Aprovação humana promove a agent canônico via /api/aihub/agent-approvals/{id}/approve.")]
     [ProducesResponseType(typeof(AgentDraftResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

@@ -9,7 +9,7 @@ public class AgentsExtrasTests(IntegrationWebApplicationFactory factory)
     private async Task<string> CreateAgentAsync()
     {
         var id = $"agent-extra-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/agents", new { id, name = "Extra Test Agent", model = new { deploymentName = "gpt-4o" } });
+        await _client.PostAsJsonAsync("/api/aihub/agents", new { id, name = "Extra Test Agent", model = new { deploymentName = "gpt-4o" } });
         return id;
     }
 
@@ -18,7 +18,7 @@ public class AgentsExtrasTests(IntegrationWebApplicationFactory factory)
     {
         var id = await CreateAgentAsync();
 
-        var response = await _client.PostAsync($"/api/agents/{id}/validate", null);
+        var response = await _client.PostAsync($"/api/aihub/agents/{id}/validate", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -26,7 +26,7 @@ public class AgentsExtrasTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Validate_AgenteInexistente_Retorna404()
     {
-        var response = await _client.PostAsync("/api/agents/agent-nao-existe-xyz/validate", null);
+        var response = await _client.PostAsync("/api/aihub/agents/agent-nao-existe-xyz/validate", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -37,7 +37,7 @@ public class AgentsExtrasTests(IntegrationWebApplicationFactory factory)
         var id = await CreateAgentAsync();
         var body = new { input = "test" };
 
-        var response = await _client.PostAsJsonAsync($"/api/agents/{id}/sandbox", body);
+        var response = await _client.PostAsJsonAsync($"/api/aihub/agents/{id}/sandbox", body);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -45,7 +45,7 @@ public class AgentsExtrasTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Sandbox_AgenteInexistente_Retorna404()
     {
-        var response = await _client.PostAsJsonAsync("/api/agents/agent-nao-existe-xyz/sandbox", new { input = "test" });
+        var response = await _client.PostAsJsonAsync("/api/aihub/agents/agent-nao-existe-xyz/sandbox", new { input = "test" });
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -54,7 +54,7 @@ public class AgentsExtrasTests(IntegrationWebApplicationFactory factory)
     public async Task Compare_AgenteInexistente_Retorna404()
     {
         var body = new { versionIdA = Guid.NewGuid().ToString(), versionIdB = Guid.NewGuid().ToString() };
-        var response = await _client.PostAsJsonAsync("/api/agents/agent-nao-existe-xyz/compare", body);
+        var response = await _client.PostAsJsonAsync("/api/aihub/agents/agent-nao-existe-xyz/compare", body);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -64,7 +64,7 @@ public class AgentsExtrasTests(IntegrationWebApplicationFactory factory)
     {
         var id = await CreateAgentAsync();
 
-        var response = await _client.GetAsync($"/api/agents/{id}/versions");
+        var response = await _client.GetAsync($"/api/aihub/agents/{id}/versions");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();

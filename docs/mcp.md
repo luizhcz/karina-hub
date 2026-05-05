@@ -43,7 +43,7 @@ Exemplo de JSON:
 
 ## CRUD via API
 
-Endpoints em `/api/admin/mcp-servers` (admin-gated):
+Endpoints em `/api/aihub/admin/mcp-servers` (admin-gated):
 
 | Método | Path | Resposta | Notas |
 |---|---|---|---|
@@ -64,7 +64,7 @@ Via UI (`/agents/:id` → aba **Configuração** → seção **MCP Tools**):
 Via API:
 
 ```json
-PUT /api/agents/my-agent
+PUT /api/aihub/agents/my-agent
 {
   "id": "my-agent",
   ...,

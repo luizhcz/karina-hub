@@ -121,7 +121,7 @@ ResolveEffectiveAsync(agentDefId, pinnedVersionId):
 
 ### Auto-snapshot via `UpsertAsync` continua
 
-`PgAgentDefinitionRepository.UpsertAsync` ainda cria snapshot automático em todo PUT `/api/agents/{id}` — agora com `SchemaVersion=2`, mas `BreakingChange=null` (intent não declarado). Caller que quer declarar breaking usa `PublishVersionAsync` explicitamente. Endpoint dedicado `POST /api/agents/{id}/versions` vem em Phase 3.A do épico.
+`PgAgentDefinitionRepository.UpsertAsync` ainda cria snapshot automático em todo PUT `/api/aihub/agents/{id}` — agora com `SchemaVersion=2`, mas `BreakingChange=null` (intent não declarado). Caller que quer declarar breaking usa `PublishVersionAsync` explicitamente. Endpoint dedicado `POST /api/aihub/agents/{id}/versions` vem em Phase 3.A do épico.
 
 ### Observabilidade
 
@@ -158,7 +158,7 @@ ResolveEffectiveAsync(agentDefId, pinnedVersionId):
 
 - `Sharing:MandatoryPin=true` + tenant-staged rollout.
 - Auto-pin lazy de workflows legados no first AgentFactory call.
-- `AgentService.PublishVersionAsync` integrado ao endpoint `POST /api/agents/{id}/versions`.
+- `AgentService.PublishVersionAsync` integrado ao endpoint `POST /api/aihub/agents/{id}/versions`.
 - `WorkflowValidator` rejeita save de workflow sem pin quando flag está on.
 
 ## Phase 3 (futuras)

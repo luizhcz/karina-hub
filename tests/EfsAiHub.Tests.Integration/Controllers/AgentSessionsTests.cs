@@ -16,7 +16,7 @@ public class AgentSessionsTests(IntegrationWebApplicationFactory factory)
     {
         var agentId = $"agent-sess-{Guid.NewGuid():N}";
 
-        var response = await _client.GetAsync($"/api/agents/{agentId}/sessions");
+        var response = await _client.GetAsync($"/api/aihub/agents/{agentId}/sessions");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -29,7 +29,7 @@ public class AgentSessionsTests(IntegrationWebApplicationFactory factory)
         var agentId = $"agent-sess-{Guid.NewGuid():N}";
         var sessionId = Guid.NewGuid().ToString();
 
-        var response = await _client.GetAsync($"/api/agents/{agentId}/sessions/{sessionId}");
+        var response = await _client.GetAsync($"/api/aihub/agents/{agentId}/sessions/{sessionId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -40,7 +40,7 @@ public class AgentSessionsTests(IntegrationWebApplicationFactory factory)
         var agentId = $"agent-sess-{Guid.NewGuid():N}";
         var sessionId = Guid.NewGuid().ToString();
 
-        var response = await _client.DeleteAsync($"/api/agents/{agentId}/sessions/{sessionId}");
+        var response = await _client.DeleteAsync($"/api/aihub/agents/{agentId}/sessions/{sessionId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }

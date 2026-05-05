@@ -8,7 +8,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/admin/model-pricing")]
+[Route("api/aihub/admin/model-pricing")]
 [Produces("application/json")]
 public class ModelPricingController : ControllerBase
 {

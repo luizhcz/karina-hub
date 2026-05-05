@@ -148,12 +148,12 @@ public class DefaultProjectGuardTests
     // ── Rotas globais (isentas do guard) ────────────────────────────────────
 
     [Theory]
-    [InlineData("/api/agents")]
-    [InlineData("/api/agents/my-agent")]
-    [InlineData("/api/agents/my-agent/prompts/active")]
-    [InlineData("/api/workflows")]
-    [InlineData("/api/workflows/wf-1")]
-    [InlineData("/api/chat/ag-ui/stream")]
+    [InlineData("/api/aihub/agents")]
+    [InlineData("/api/aihub/agents/my-agent")]
+    [InlineData("/api/aihub/agents/my-agent/prompts/active")]
+    [InlineData("/api/aihub/workflows")]
+    [InlineData("/api/aihub/workflows/wf-1")]
+    [InlineData("/api/aihub/chat/ag-ui/stream")]
     [InlineData("/dev")]
     public async Task RotaGlobal_ProjetoDefault_SemAdmin_Passa(string path)
     {
@@ -169,7 +169,7 @@ public class DefaultProjectGuardTests
     public async Task RotaNaoGlobal_ProjetoDefault_SemAdmin_Retorna403()
     {
         var mw = Build("admin-123");
-        var (ctx, accessor) = CreateContext("default", path: "/api/projects");
+        var (ctx, accessor) = CreateContext("default", path: "/api/aihub/projects");
 
         await mw.InvokeAsync(ctx, accessor);
 

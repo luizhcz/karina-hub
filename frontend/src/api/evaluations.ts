@@ -52,7 +52,7 @@ export interface EvaluatorConfigVersion {
 }
 
 /**
- * Resposta de GET /api/agents/{id}/evaluator-config — agente sem config configurado
+ * Resposta de GET /api/aihub/agents/{id}/evaluator-config — agente sem config configurado
  * retorna ambos campos null/undefined (200 OK), pra UI renderizar form vazio sem 404 noise.
  */
 export interface EvaluatorConfigWithVersion {

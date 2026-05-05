@@ -75,7 +75,7 @@ public class AgUiActorRobotTests : IAsyncLifetime
         };
 
         // Act — workflowId não é executado (short-circuit roda antes do trigger).
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat/ag-ui/stream")
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/aihub/chat/ag-ui/stream")
         {
             Content = JsonContent.Create(payload)
         };
@@ -115,7 +115,7 @@ public class AgUiActorRobotTests : IAsyncLifetime
             }
         };
 
-        var response = await _client.PostAsJsonAsync("/api/chat/ag-ui/stream", payload);
+        var response = await _client.PostAsJsonAsync("/api/aihub/chat/ag-ui/stream", payload);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.Content.ReadAsStringAsync();
@@ -135,7 +135,7 @@ public class AgUiActorRobotTests : IAsyncLifetime
             }
         };
 
-        var response = await _client.PostAsJsonAsync("/api/chat/ag-ui/stream", payload);
+        var response = await _client.PostAsJsonAsync("/api/aihub/chat/ag-ui/stream", payload);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.Content.ReadAsStringAsync();
@@ -177,7 +177,7 @@ public class AgUiActorRobotTests : IAsyncLifetime
             }
         };
 
-        var response = await _client.PostAsJsonAsync("/api/chat/ag-ui/stream", payload);
+        var response = await _client.PostAsJsonAsync("/api/aihub/chat/ag-ui/stream", payload);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.Content.ReadAsStringAsync();
@@ -193,7 +193,7 @@ public class AgUiActorRobotTests : IAsyncLifetime
     {
         // Arrange — actor=human explícito é spec-compat. Não dispara short-circuit;
         // entra no caminho normal de workflow trigger. Verificação: response não é 400.
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat/ag-ui/stream");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/aihub/chat/ag-ui/stream");
         request.Headers.Add("x-efs-workflow-id", TestWorkflowId);
         request.Content = JsonContent.Create(new
         {

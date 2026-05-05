@@ -5,7 +5,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/agents/{agentId}/prompts")]
+[Route("api/aihub/agents/{agentId}/prompts")]
 [Produces("application/json")]
 public class AgentPromptsController : ControllerBase
 {

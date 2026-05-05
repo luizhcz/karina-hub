@@ -20,7 +20,7 @@ public class BlocklistEnumRoundTripTests(IntegrationWebApplicationFactory factor
     private readonly HttpClient _client = factory.CreateClient().WithAdminAccount("123456789");
 
     /// <summary>
-    /// Cria projeto via SQL direto (bypass do AdminGate de POST /api/projects).
+    /// Cria projeto via SQL direto (bypass do AdminGate de POST /api/aihub/projects).
     /// Isola o teste de issues pre-existentes no setup de auth dos testes integration.
     /// </summary>
     private async Task<string> CreateProjectAsync()
@@ -60,7 +60,7 @@ public class BlocklistEnumRoundTripTests(IntegrationWebApplicationFactory factor
             }
         };
 
-        var resp = await _client.PutAsJsonAsync($"/api/projects/{id}/blocklist", body);
+        var resp = await _client.PutAsJsonAsync($"/api/aihub/projects/{id}/blocklist", body);
 
         resp.StatusCode.Should().Be(HttpStatusCode.OK,
             $"casing '{casing}' deve ser aceito pelo JsonStringEnumConverter case-insensitive");
@@ -72,7 +72,7 @@ public class BlocklistEnumRoundTripTests(IntegrationWebApplicationFactory factor
         // Round-trip: write lowercase → ler de volta → resposta normaliza pra PascalCase
         // (output do JsonStringEnumConverter sem naming policy preserva o nome do enum).
         var id = await CreateProjectAsync();
-        await _client.PutAsJsonAsync($"/api/projects/{id}/blocklist", new
+        await _client.PutAsJsonAsync($"/api/aihub/projects/{id}/blocklist", new
         {
             enabled = true,
             scanInput = true,
@@ -85,7 +85,7 @@ public class BlocklistEnumRoundTripTests(IntegrationWebApplicationFactory factor
             }
         });
 
-        var getResp = await _client.GetAsync($"/api/projects/{id}/blocklist");
+        var getResp = await _client.GetAsync($"/api/aihub/projects/{id}/blocklist");
         getResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await getResp.Content.ReadFromJsonAsync<JsonElement>();
 
@@ -128,7 +128,7 @@ public class BlocklistEnumRoundTripTests(IntegrationWebApplicationFactory factor
             }
         };
 
-        var resp = await _client.PutAsJsonAsync($"/api/projects/{id}/blocklist", body);
+        var resp = await _client.PutAsJsonAsync($"/api/aihub/projects/{id}/blocklist", body);
 
         resp.StatusCode.Should().Be(HttpStatusCode.OK,
             $"BlocklistPatternType deve aceitar casing '{typeCasing}'");
@@ -140,7 +140,7 @@ public class BlocklistEnumRoundTripTests(IntegrationWebApplicationFactory factor
         // Write em casing variado → ler de volta → cada campo enum normalizado.
         var id = await CreateProjectAsync();
         var pattId = $"custom.{Guid.NewGuid():N}";
-        await _client.PutAsJsonAsync($"/api/projects/{id}/blocklist", new
+        await _client.PutAsJsonAsync($"/api/aihub/projects/{id}/blocklist", new
         {
             enabled = true,
             scanInput = true,
@@ -161,7 +161,7 @@ public class BlocklistEnumRoundTripTests(IntegrationWebApplicationFactory factor
             }
         });
 
-        var getResp = await _client.GetAsync($"/api/projects/{id}/blocklist");
+        var getResp = await _client.GetAsync($"/api/aihub/projects/{id}/blocklist");
         var body = await getResp.Content.ReadFromJsonAsync<JsonElement>();
 
         var customs = body.GetProperty("settings").GetProperty("customPatterns");
@@ -178,7 +178,7 @@ public class BlocklistEnumRoundTripTests(IntegrationWebApplicationFactory factor
         // Catálogo curado é seedado em lowercase no banco (literal, regex, builtin, mod11, luhn,
         // block). PgBlocklistCatalogRepository usa Enum.Parse(ignoreCase: true) → API serializa
         // como PascalCase via JsonStringEnumConverter.
-        var resp = await _client.GetAsync("/api/admin/blocklist/catalog");
+        var resp = await _client.GetAsync("/api/aihub/admin/blocklist/catalog");
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();

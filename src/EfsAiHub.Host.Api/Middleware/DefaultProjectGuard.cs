@@ -11,10 +11,10 @@ namespace EfsAiHub.Host.Api.Middleware;
 /// A identidade é resolvida via <see cref="UserIdentityResolver"/> (suporta ambos os headers).
 ///
 /// Rotas globais (não escopadas por projeto) são isentas:
-///   - /api/agents/*        (definições de agente e prompts)
-///   - /api/workflows/*     (definições de workflow)
-///   - /api/chat/ag-ui/*    (integração de chat)
-///   - /api/notifications/* (bell de notificações — visibility via HasQueryFilter)
+///   - /api/aihub/agents/*        (definições de agente e prompts)
+///   - /api/aihub/workflows/*     (definições de workflow)
+///   - /api/aihub/chat/ag-ui/*    (integração de chat)
+///   - /api/aihub/notifications/* (bell de notificações — visibility via HasQueryFilter)
 ///   - /dev                 (developer portal)
 ///
 /// Deve ser registrado APÓS ProjectMiddleware (que resolve o ProjectId) e ANTES de
@@ -80,22 +80,22 @@ public sealed class DefaultProjectGuard
     {
         var path = ctx.Request.Path.Value ?? string.Empty;
 
-        if (path.StartsWith("/api/agents", StringComparison.OrdinalIgnoreCase))
+        if (path.StartsWith("/api/aihub/agents", StringComparison.OrdinalIgnoreCase))
             return true;
-        if (path.StartsWith("/api/workflows", StringComparison.OrdinalIgnoreCase))
+        if (path.StartsWith("/api/aihub/workflows", StringComparison.OrdinalIgnoreCase))
             return true;
-        if (path.StartsWith("/api/chat/ag-ui", StringComparison.OrdinalIgnoreCase))
+        if (path.StartsWith("/api/aihub/chat/ag-ui", StringComparison.OrdinalIgnoreCase))
             return true;
-        if (path.StartsWith("/api/notifications", StringComparison.OrdinalIgnoreCase))
+        if (path.StartsWith("/api/aihub/notifications", StringComparison.OrdinalIgnoreCase))
             return true;
         // Catálogo público de presets — recurso global cross-tenant.
-        if (path.StartsWith("/api/predefined-models", StringComparison.OrdinalIgnoreCase))
+        if (path.StartsWith("/api/aihub/predefined-models", StringComparison.OrdinalIgnoreCase))
             return true;
         // Listagem/lookup de projetos é global (tenant-scoped). Controller filtra
         // o projeto 'default' pra non-admins (ver ProjectsController.List/GetById),
         // então liberar aqui não vaza nada — só permite o onboarding inicial
         // pegar a lista antes do user escolher um projectId.
-        if (path.StartsWith("/api/projects", StringComparison.OrdinalIgnoreCase))
+        if (path.StartsWith("/api/aihub/projects", StringComparison.OrdinalIgnoreCase))
             return true;
         if (path.Equals("/dev", StringComparison.OrdinalIgnoreCase))
             return true;

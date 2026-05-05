@@ -6,7 +6,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/executions")]
+[Route("api/aihub/executions")]
 [Produces("application/json")]
 public class ExecutionsController : ControllerBase
 {

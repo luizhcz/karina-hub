@@ -25,7 +25,7 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
         var body = new { name = "MyTestSet", description = "Cobertura básica", visibility = "project" };
 
         var client = ClientFor(projectId);
-        var response = await client.PostAsJsonAsync($"/api/projects/{projectId}/evaluation-test-sets", body);
+        var response = await client.PostAsJsonAsync($"/api/aihub/projects/{projectId}/evaluation-test-sets", body);
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var dto = await response.Content.ReadFromJsonAsync<TestSetDto>();
@@ -41,7 +41,7 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
         var body = new { name = "Global", visibility = "global" };
 
         var client = ClientFor(projectId);
-        var response = await client.PostAsJsonAsync($"/api/projects/{projectId}/evaluation-test-sets", body);
+        var response = await client.PostAsJsonAsync($"/api/aihub/projects/{projectId}/evaluation-test-sets", body);
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
@@ -53,7 +53,7 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
         var (client, ts) = await CreateTestSetWithClientAsync(projectId);
 
         var response = await client.PostAsJsonAsync(
-            $"/api/evaluation-test-sets/{ts.Id}/versions",
+            $"/api/aihub/evaluation-test-sets/{ts.Id}/versions",
             new { cases = Array.Empty<object>() });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -74,12 +74,12 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
             }
         };
 
-        var first = await client.PostAsJsonAsync($"/api/evaluation-test-sets/{ts.Id}/versions", body);
+        var first = await client.PostAsJsonAsync($"/api/aihub/evaluation-test-sets/{ts.Id}/versions", body);
         first.StatusCode.Should().Be(HttpStatusCode.Created);
         var v1 = await first.Content.ReadFromJsonAsync<TestSetVersionDto>();
 
         // Publish do mesmo conteúdo: ContentHash bate, repo retorna a mesma version (no-op).
-        var second = await client.PostAsJsonAsync($"/api/evaluation-test-sets/{ts.Id}/versions", body);
+        var second = await client.PostAsJsonAsync($"/api/aihub/evaluation-test-sets/{ts.Id}/versions", body);
         second.StatusCode.Should().Be(HttpStatusCode.Created);
         var v2 = await second.Content.ReadFromJsonAsync<TestSetVersionDto>();
 
@@ -102,7 +102,7 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
         content.Add(fileContent, "file", "test.csv");
         content.Add(new StringContent("Initial import"), "changeReason");
 
-        var response = await client.PostAsync($"/api/evaluation-test-sets/{ts.Id}/versions/import", content);
+        var response = await client.PostAsync($"/api/aihub/evaluation-test-sets/{ts.Id}/versions/import", content);
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var version = await response.Content.ReadFromJsonAsync<TestSetVersionDto>();
@@ -110,7 +110,7 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
 
         // Lista cases via endpoint dedicado.
         var cases = await client.GetFromJsonAsync<List<TestCaseDto>>(
-            $"/api/evaluation-test-sets/versions/{version!.TestSetVersionId}/cases");
+            $"/api/aihub/evaluation-test-sets/versions/{version!.TestSetVersionId}/cases");
         cases.Should().HaveCount(2);
         cases![0].Input.Should().Be("What's the weather?");
     }
@@ -126,7 +126,7 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
         fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
         content.Add(fileContent, "file", "empty.csv");
 
-        var response = await client.PostAsync($"/api/evaluation-test-sets/{ts.Id}/versions/import", content);
+        var response = await client.PostAsync($"/api/aihub/evaluation-test-sets/{ts.Id}/versions/import", content);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -137,11 +137,11 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
         var projectId = await EnsureProjectAsync("test-eval-7");
         var (client, ts) = await CreateTestSetWithClientAsync(projectId);
 
-        var publish = await client.PostAsJsonAsync($"/api/evaluation-test-sets/{ts.Id}/versions",
+        var publish = await client.PostAsJsonAsync($"/api/aihub/evaluation-test-sets/{ts.Id}/versions",
             new { cases = new[] { new { input = "Q", expectedOutput = "A", weight = 1.0 } } });
         publish.StatusCode.Should().Be(HttpStatusCode.Created);
 
-        var response = await client.GetAsync($"/api/evaluation-test-sets/{ts.Id}");
+        var response = await client.GetAsync($"/api/aihub/evaluation-test-sets/{ts.Id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var detail = await response.Content.ReadFromJsonAsync<TestSetWithVersionsDto>();
@@ -155,19 +155,19 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
         var projectId = await EnsureProjectAsync("test-eval-8");
         var (client, ts) = await CreateTestSetWithClientAsync(projectId);
 
-        var publish = await client.PostAsJsonAsync($"/api/evaluation-test-sets/{ts.Id}/versions",
+        var publish = await client.PostAsJsonAsync($"/api/aihub/evaluation-test-sets/{ts.Id}/versions",
             new { cases = new[] { new { input = "Q", expectedOutput = "A", weight = 1.0 } } });
         publish.StatusCode.Should().Be(HttpStatusCode.Created);
         var v = await publish.Content.ReadFromJsonAsync<TestSetVersionDto>();
 
         var response = await client.PutAsJsonAsync(
-            $"/api/evaluation-test-sets/{ts.Id}/versions/{v!.TestSetVersionId}/status",
+            $"/api/aihub/evaluation-test-sets/{ts.Id}/versions/{v!.TestSetVersionId}/status",
             new { status = "Deprecated" });
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         // Verifica via GET.
-        var detail = await client.GetFromJsonAsync<TestSetWithVersionsDto>($"/api/evaluation-test-sets/{ts.Id}");
+        var detail = await client.GetFromJsonAsync<TestSetWithVersionsDto>($"/api/aihub/evaluation-test-sets/{ts.Id}");
         detail!.Versions.Single(x => x.TestSetVersionId == v.TestSetVersionId).Status.Should().Be("Deprecated");
     }
 
@@ -182,7 +182,7 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
         // contra enumeration; não distingue "não existe" de "existe noutro tenant").
         var projectB = await EnsureProjectAsync("test-eval-tenant-b");
         var clientB = ClientFor(projectB);
-        var response = await clientB.GetAsync($"/api/evaluation-test-sets/{ts.Id}");
+        var response = await clientB.GetAsync($"/api/aihub/evaluation-test-sets/{ts.Id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -196,7 +196,7 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
         var projectB = await EnsureProjectAsync("test-eval-tenant-b-pub");
         var clientB = ClientFor(projectB);
         var response = await clientB.PostAsJsonAsync(
-            $"/api/evaluation-test-sets/{ts.Id}/versions",
+            $"/api/aihub/evaluation-test-sets/{ts.Id}/versions",
             new { cases = new[] { new { input = "Q", expectedOutput = "A", weight = 1.0 } } });
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -208,12 +208,12 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
         var sourceProject = await EnsureProjectAsync("test-eval-src");
         var targetProject = await EnsureProjectAsync("test-eval-tgt");
         var (client, ts) = await CreateTestSetWithClientAsync(sourceProject);
-        var publish = await client.PostAsJsonAsync($"/api/evaluation-test-sets/{ts.Id}/versions",
+        var publish = await client.PostAsJsonAsync($"/api/aihub/evaluation-test-sets/{ts.Id}/versions",
             new { cases = new[] { new { input = "Q", expectedOutput = "A", weight = 1.0 } } });
         publish.StatusCode.Should().Be(HttpStatusCode.Created);
 
         var response = await client.PostAsync(
-            $"/api/evaluation-test-sets/{ts.Id}/copy?targetProject={targetProject}", null);
+            $"/api/aihub/evaluation-test-sets/{ts.Id}/copy?targetProject={targetProject}", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var clone = await response.Content.ReadFromJsonAsync<TestSetDto>();
@@ -225,7 +225,7 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
     {
         var client = ClientFor(projectId);
         var response = await client.PostAsJsonAsync(
-            $"/api/projects/{projectId}/evaluation-test-sets",
+            $"/api/aihub/projects/{projectId}/evaluation-test-sets",
             new { name = name ?? $"TS-{Guid.NewGuid():N}", visibility = "project" });
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var dto = (await response.Content.ReadFromJsonAsync<TestSetDto>())!;
@@ -235,11 +235,11 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
     private async Task<string> EnsureProjectAsync(string projectId)
     {
         // Cria o projeto idempotentemente — endpoint do ProjectsController.
-        var existing = await _client.GetAsync($"/api/projects/{projectId}");
+        var existing = await _client.GetAsync($"/api/aihub/projects/{projectId}");
         if (existing.StatusCode == HttpStatusCode.OK) return projectId;
 
         var body = new { id = projectId, name = projectId, tenantId = "test-tenant" };
-        var response = await _client.PostAsJsonAsync("/api/projects", body);
+        var response = await _client.PostAsJsonAsync("/api/aihub/projects", body);
         // 201 Created ou 409 Conflict (race entre testes paralelos) ambos OK.
         if (response.StatusCode != HttpStatusCode.Created && response.StatusCode != HttpStatusCode.Conflict)
             response.EnsureSuccessStatusCode();

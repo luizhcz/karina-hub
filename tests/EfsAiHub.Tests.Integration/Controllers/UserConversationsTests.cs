@@ -11,7 +11,7 @@ public class UserConversationsTests(IntegrationWebApplicationFactory factory)
     {
         var userId = $"user-{Guid.NewGuid():N}";
 
-        var response = await _client.GetAsync($"/api/users/{userId}/conversations");
+        var response = await _client.GetAsync($"/api/aihub/users/{userId}/conversations");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -23,7 +23,7 @@ public class UserConversationsTests(IntegrationWebApplicationFactory factory)
     {
         var userId = $"user-{Guid.NewGuid():N}";
 
-        var response = await _client.GetAsync($"/api/users/{userId}/conversations?limit=10");
+        var response = await _client.GetAsync($"/api/aihub/users/{userId}/conversations?limit=10");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }

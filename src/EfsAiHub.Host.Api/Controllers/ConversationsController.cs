@@ -8,7 +8,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/conversations")]
+[Route("api/aihub/conversations")]
 [Produces("application/json")]
 public class ConversationsController : ControllerBase
 {
@@ -293,7 +293,7 @@ public class ConversationsController : ControllerBase
             : MapError(result.Status, result.ErrorMessage);
     }
 
-    [HttpGet("/api/admin/conversations")]
+    [HttpGet("/api/aihub/admin/conversations")]
     [SwaggerOperation(Summary = "Admin: lista todas as conversas com filtros opcionais")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAllAdmin(

@@ -16,7 +16,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// Ver <see cref="PersonaPromptTemplatesAdminController"/> pro padrão canonical.
 /// </summary>
 [ApiController]
-[Route("api/admin/persona-experiments")]
+[Route("api/aihub/admin/persona-experiments")]
 [Produces("application/json")]
 public class PersonaExperimentsAdminController : ControllerBase
 {

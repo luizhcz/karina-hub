@@ -10,7 +10,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// monitoramento do frontend consome este endpoint.
 /// </summary>
 [ApiController]
-[Route("api/admin/background-services")]
+[Route("api/aihub/admin/background-services")]
 [Produces("application/json")]
 public class BackgroundServicesController : ControllerBase
 {

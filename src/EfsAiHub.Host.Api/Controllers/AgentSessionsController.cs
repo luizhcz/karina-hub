@@ -12,13 +12,13 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// Gerencia sessões de conversa multi-turn com agentes.
 ///
 /// Fluxo típico:
-///   1. POST /api/agents/{agentId}/sessions          → cria sessão
-///   2. POST /api/agents/{agentId}/sessions/{id}/run → envia mensagem, recebe resposta
+///   1. POST /api/aihub/agents/{agentId}/sessions          → cria sessão
+///   2. POST /api/aihub/agents/{agentId}/sessions/{id}/run → envia mensagem, recebe resposta
 ///   3. (Repetir step 2 para múltiplos turns)
-///   4. DELETE /api/agents/{agentId}/sessions/{id}   → encerra sessão
+///   4. DELETE /api/aihub/agents/{agentId}/sessions/{id}   → encerra sessão
 /// </summary>
 [ApiController]
-[Route("api/agents/{agentId}/sessions")]
+[Route("api/aihub/agents/{agentId}/sessions")]
 [Produces("application/json")]
 public class AgentSessionsController : ControllerBase
 {

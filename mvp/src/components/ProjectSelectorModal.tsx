@@ -17,7 +17,7 @@ interface Props {
   onClose: () => void
 }
 
-// Modal de configurações: troca de projeto (lista vinda de /api/projects, já
+// Modal de configurações: troca de projeto (lista vinda de /api/aihub/projects, já
 // filtrada pelo backend pra esconder projetos admin) + opção de "trocar
 // identidade" pra voltar ao onboarding.
 export function ProjectSelectorModal({ open, onClose }: Props) {

@@ -177,7 +177,7 @@ CREATE INDEX IF NOT EXISTS "IX_agent_approval_history_DraftId"
     ON aihub.agent_approval_history ("DraftId");
 
 -- Hot path do endpoint de histórico unificado por agent
--- (GET /api/agents/{id}/approval-history). Drafts são deletados após approve,
+-- (GET /api/aihub/agents/{id}/approval-history). Drafts são deletados após approve,
 -- então DraftId não serve pra lookup pós-publish — daí a coluna dedicada
 -- AgentDefinitionId, populada no momento do Submitted/Approved/Rejected/
 -- AutoApproved/AdminOverride.

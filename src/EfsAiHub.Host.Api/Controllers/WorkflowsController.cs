@@ -13,7 +13,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/workflows")]
+[Route("api/aihub/workflows")]
 [Produces("application/json")]
 public class WorkflowsController : ControllerBase
 {

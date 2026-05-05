@@ -32,7 +32,7 @@ public class AdminGateMiddlewareTests
     public async Task GateDesabilitado_ListaVazia_PassaTudo()
     {
         var mw = Build(); // empty list → disabled
-        var ctx = CreateContext("GET", "/api/admin/secret");
+        var ctx = CreateContext("GET", "/api/aihub/admin/secret");
 
         await mw.InvokeAsync(ctx);
 
@@ -43,7 +43,7 @@ public class AdminGateMiddlewareTests
     public async Task RotaPublica_AgUi_PassaSemVerificarAccount()
     {
         var mw = Build("admin-123");
-        var ctx = CreateContext("POST", "/api/chat/ag-ui/stream");
+        var ctx = CreateContext("POST", "/api/aihub/chat/ag-ui/stream");
 
         await mw.InvokeAsync(ctx);
 
@@ -54,7 +54,7 @@ public class AdminGateMiddlewareTests
     public async Task RotaPublica_PostWorkflows_PassaSemAccount()
     {
         var mw = Build("admin-123");
-        var ctx = CreateContext("POST", "/api/workflows");
+        var ctx = CreateContext("POST", "/api/aihub/workflows");
 
         await mw.InvokeAsync(ctx);
 
@@ -65,7 +65,7 @@ public class AdminGateMiddlewareTests
     public async Task RotaPublica_PutWorkflow_PassaSemAccount()
     {
         var mw = Build("admin-123");
-        var ctx = CreateContext("PUT", "/api/workflows/wf-abc");
+        var ctx = CreateContext("PUT", "/api/aihub/workflows/wf-abc");
 
         await mw.InvokeAsync(ctx);
 
@@ -76,7 +76,7 @@ public class AdminGateMiddlewareTests
     public async Task RotaProtegida_SemHeader_Retorna403()
     {
         var mw = Build("admin-123");
-        var ctx = CreateContext("GET", "/api/agents");
+        var ctx = CreateContext("GET", "/api/aihub/agents");
 
         await mw.InvokeAsync(ctx);
 
@@ -87,7 +87,7 @@ public class AdminGateMiddlewareTests
     public async Task RotaProtegida_HeaderCorreto_Passa()
     {
         var mw = Build("admin-123");
-        var ctx = CreateContext("GET", "/api/agents", accountHeader: "admin-123");
+        var ctx = CreateContext("GET", "/api/aihub/agents", accountHeader: "admin-123");
 
         await mw.InvokeAsync(ctx);
 
@@ -98,7 +98,7 @@ public class AdminGateMiddlewareTests
     public async Task RotaProtegida_HeaderErrado_Retorna403()
     {
         var mw = Build("admin-123");
-        var ctx = CreateContext("DELETE", "/api/agents/agent-1", accountHeader: "outro-account");
+        var ctx = CreateContext("DELETE", "/api/aihub/agents/agent-1", accountHeader: "outro-account");
 
         await mw.InvokeAsync(ctx);
 
@@ -109,7 +109,7 @@ public class AdminGateMiddlewareTests
     public async Task RotaPublica_Conversations_PassaSemAccount()
     {
         var mw = Build("admin-123");
-        var ctx = CreateContext("GET", "/api/conversations/conv-1");
+        var ctx = CreateContext("GET", "/api/aihub/conversations/conv-1");
 
         await mw.InvokeAsync(ctx);
 
@@ -120,7 +120,7 @@ public class AdminGateMiddlewareTests
     public async Task RotaPublica_Projects_Get_PassaSemAccount()
     {
         var mw = Build("admin-123");
-        var ctx = CreateContext("GET", "/api/projects");
+        var ctx = CreateContext("GET", "/api/aihub/projects");
 
         await mw.InvokeAsync(ctx);
 
@@ -130,9 +130,9 @@ public class AdminGateMiddlewareTests
     [Fact]
     public async Task PutWorkflowComSubpath_NaoEPublico()
     {
-        // PUT /api/workflows/{id}/rollback tem mais segmentos → não é rota pública de edição
+        // PUT /api/aihub/workflows/{id}/rollback tem mais segmentos → não é rota pública de edição
         var mw = Build("admin-123");
-        var ctx = CreateContext("PUT", "/api/workflows/wf-1/rollback");
+        var ctx = CreateContext("PUT", "/api/aihub/workflows/wf-1/rollback");
 
         await mw.InvokeAsync(ctx);
 
@@ -145,7 +145,7 @@ public class AdminGateMiddlewareTests
     public async Task MultiplosAdmins_QualquerDeles_Passa()
     {
         var mw = Build("admin-a", "admin-b", "admin-c");
-        var ctx = CreateContext("GET", "/api/agents", accountHeader: "admin-b");
+        var ctx = CreateContext("GET", "/api/aihub/agents", accountHeader: "admin-b");
 
         await mw.InvokeAsync(ctx);
 
@@ -156,7 +156,7 @@ public class AdminGateMiddlewareTests
     public async Task MultiplosAdmins_AccountForaDaLista_Retorna403()
     {
         var mw = Build("admin-a", "admin-b");
-        var ctx = CreateContext("GET", "/api/agents", accountHeader: "admin-c");
+        var ctx = CreateContext("GET", "/api/aihub/agents", accountHeader: "admin-c");
 
         await mw.InvokeAsync(ctx);
 
@@ -167,7 +167,7 @@ public class AdminGateMiddlewareTests
     public async Task UmAdmin_OutroAccount_Retorna403()
     {
         var mw = Build("admin-only");
-        var ctx = CreateContext("DELETE", "/api/workflows/wf-1", accountHeader: "not-admin");
+        var ctx = CreateContext("DELETE", "/api/aihub/workflows/wf-1", accountHeader: "not-admin");
 
         await mw.InvokeAsync(ctx);
 

@@ -12,7 +12,7 @@ interface UpdateAgentReasonModalProps {
 }
 
 /**
- * Modal de confirmação obrigatório no PUT /api/agents/{id} — backend exige
+ * Modal de confirmação obrigatório no PUT /api/aihub/agents/{id} — backend exige
  * <c>changeReason</c> (min 10 chars). Toda atualização vira AdminOverride no
  * audit. Captura também <c>breakingChange</c> opcional (default false).
  */

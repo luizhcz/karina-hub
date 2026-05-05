@@ -11,7 +11,7 @@ public class AgUiStreamTests(IntegrationWebApplicationFactory factory)
     {
         var payload = new { messages = (object[]?)null };
 
-        var response = await _client.PostAsJsonAsync("/api/chat/ag-ui/stream", payload);
+        var response = await _client.PostAsJsonAsync("/api/aihub/chat/ag-ui/stream", payload);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -24,7 +24,7 @@ public class AgUiStreamTests(IntegrationWebApplicationFactory factory)
             messages = new[] { new { role = "user", content = "   " } }
         };
 
-        var response = await _client.PostAsJsonAsync("/api/chat/ag-ui/stream", payload);
+        var response = await _client.PostAsJsonAsync("/api/aihub/chat/ag-ui/stream", payload);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -34,7 +34,7 @@ public class AgUiStreamTests(IntegrationWebApplicationFactory factory)
     {
         // This test just verifies the endpoint accepts x-efs-workflow-id header
         // without returning 400 (full execution would require a real LLM)
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat/ag-ui/stream");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/aihub/chat/ag-ui/stream");
         request.Headers.Add("x-efs-workflow-id", "wf-test");
         request.Content = JsonContent.Create(new
         {

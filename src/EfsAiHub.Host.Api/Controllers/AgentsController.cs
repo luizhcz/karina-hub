@@ -11,7 +11,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/agents")]
+[Route("api/aihub/agents")]
 [Produces("application/json")]
 public class AgentsController : ControllerBase
 {
@@ -491,7 +491,7 @@ public class AgentsController : ControllerBase
             agentId = id,
             mode = ExecutionMode.Sandbox.ToString(),
             message = "Sandbox execution is available via workflow trigger with mode=sandbox. " +
-                      "Create a single-agent workflow referencing this agent and use POST /api/workflows/{id}/sandbox.",
+                      "Create a single-agent workflow referencing this agent and use POST /api/aihub/workflows/{id}/sandbox.",
             input = request.Input
         });
     }
@@ -520,7 +520,7 @@ public class AgentsController : ControllerBase
             versionA = new { versionA.AgentVersionId, versionA.Revision, versionA.ContentHash },
             versionB = new { versionB.AgentVersionId, versionB.Revision, versionB.ContentHash },
             message = "Version comparison requires sandbox execution of both versions. " +
-                      "Use POST /api/workflows/{id}/sandbox with metadata specifying the target version.",
+                      "Use POST /api/aihub/workflows/{id}/sandbox with metadata specifying the target version.",
             input = request.Input
         });
     }

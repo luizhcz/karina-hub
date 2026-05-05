@@ -21,7 +21,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// parametrizado como defesa em profundidade.
 /// </summary>
 [ApiController]
-[Route("api/analytics/projects")]
+[Route("api/aihub/analytics/projects")]
 [Produces("application/json")]
 public sealed class ProjectAnalyticsController : ControllerBase
 {

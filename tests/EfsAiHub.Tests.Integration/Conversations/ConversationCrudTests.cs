@@ -14,7 +14,7 @@ public class ConversationCrudTests(IntegrationWebApplicationFactory factory)
     {
         var request = new { userId = UserId, workflowId = (string?)null };
 
-        var response = await _client.PostAsJsonAsync("/api/conversations", request);
+        var response = await _client.PostAsJsonAsync("/api/aihub/conversations", request);
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -25,12 +25,12 @@ public class ConversationCrudTests(IntegrationWebApplicationFactory factory)
     public async Task Get_ConversaExistente_Retorna200()
     {
         // Arrange: criar conversa
-        var created = await _client.PostAsJsonAsync("/api/conversations", new { userId = UserId });
+        var created = await _client.PostAsJsonAsync("/api/aihub/conversations", new { userId = UserId });
         var body = await created.Content.ReadFromJsonAsync<JsonElement>();
         var id = body.GetProperty("conversationId").GetString()!;
 
         // Act
-        var response = await _client.GetAsync($"/api/conversations/{id}");
+        var response = await _client.GetAsync($"/api/aihub/conversations/{id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var result = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -40,7 +40,7 @@ public class ConversationCrudTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Get_ConversaInexistente_Retorna404()
     {
-        var response = await _client.GetAsync("/api/conversations/conv-nao-existe-xyz");
+        var response = await _client.GetAsync("/api/aihub/conversations/conv-nao-existe-xyz");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -48,11 +48,11 @@ public class ConversationCrudTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Delete_ConversaExistente_Retorna204()
     {
-        var created = await _client.PostAsJsonAsync("/api/conversations", new { userId = UserId });
+        var created = await _client.PostAsJsonAsync("/api/aihub/conversations", new { userId = UserId });
         var body = await created.Content.ReadFromJsonAsync<JsonElement>();
         var id = body.GetProperty("conversationId").GetString()!;
 
-        var response = await _client.DeleteAsync($"/api/conversations/{id}");
+        var response = await _client.DeleteAsync($"/api/aihub/conversations/{id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
@@ -61,10 +61,10 @@ public class ConversationCrudTests(IntegrationWebApplicationFactory factory)
     public async Task Post_ListarPorUserId_RetornaConversasDoUsuario()
     {
         var uid = $"user-list-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/conversations", new { userId = uid });
-        await _client.PostAsJsonAsync("/api/conversations", new { userId = uid });
+        await _client.PostAsJsonAsync("/api/aihub/conversations", new { userId = uid });
+        await _client.PostAsJsonAsync("/api/aihub/conversations", new { userId = uid });
 
-        var response = await _client.GetAsync($"/api/conversations?userId={uid}");
+        var response = await _client.GetAsync($"/api/aihub/conversations?userId={uid}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var list = await response.Content.ReadFromJsonAsync<JsonElement>();

@@ -10,7 +10,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// CRUD de Skills. Upsert dual-escreve snapshot imutável em skill_versions.
 /// </summary>
 [ApiController]
-[Route("api/skills")]
+[Route("api/aihub/skills")]
 [Produces("application/json")]
 public class SkillsController : ControllerBase
 {

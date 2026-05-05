@@ -9,7 +9,7 @@ public class TokenUsageTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task GetSummary_Retorna200()
     {
-        var response = await _client.GetAsync("/api/token-usage/summary");
+        var response = await _client.GetAsync("/api/aihub/token-usage/summary");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -20,7 +20,7 @@ public class TokenUsageTests(IntegrationWebApplicationFactory factory)
         var from = DateTime.UtcNow.AddDays(-7).ToString("o");
         var to = DateTime.UtcNow.ToString("o");
 
-        var response = await _client.GetAsync($"/api/token-usage/summary?from={from}&to={to}");
+        var response = await _client.GetAsync($"/api/aihub/token-usage/summary?from={from}&to={to}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -28,7 +28,7 @@ public class TokenUsageTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task GetAgentSummary_AgenteSemDados_Retorna200()
     {
-        var response = await _client.GetAsync("/api/token-usage/agents/agent-sem-dados/summary");
+        var response = await _client.GetAsync("/api/aihub/token-usage/agents/agent-sem-dados/summary");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -36,7 +36,7 @@ public class TokenUsageTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task GetAgentHistory_LimitePadrao_Retorna200()
     {
-        var response = await _client.GetAsync("/api/token-usage/agents/agent-sem-dados/history");
+        var response = await _client.GetAsync("/api/aihub/token-usage/agents/agent-sem-dados/history");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -44,7 +44,7 @@ public class TokenUsageTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task GetThroughput_Retorna200()
     {
-        var response = await _client.GetAsync("/api/token-usage/throughput");
+        var response = await _client.GetAsync("/api/aihub/token-usage/throughput");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }

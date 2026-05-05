@@ -139,7 +139,7 @@ public class GenericToolServiceTests
             TenantId = "y",
             Name = "broken",
             HttpMethod = HttpMethodType.GET,
-            UrlTemplate = "https://api/{id}",
+            UrlTemplate = "https://api/aihub/{id}",
             OutputContentType = OutputContentType.Json,
             OutputSchema = "{\"type\":\"object\",\"properties\":{}}",
         };

@@ -1,7 +1,7 @@
 namespace EfsAiHub.Host.Api.Models.Responses;
 
 /// <summary>
-/// Resposta do endpoint <c>GET /api/workflows/{id}/agent-version-status</c>.
+/// Resposta do endpoint <c>GET /api/aihub/workflows/{id}/agent-version-status</c>.
 /// Resume estado de pin de cada agent ref pra UI tomar decisões de migration:
 /// botão "atualizar pra vN" + diff modal com changeReasons acumuladas.
 /// </summary>

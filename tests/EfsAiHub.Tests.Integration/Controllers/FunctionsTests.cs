@@ -9,7 +9,7 @@ public class FunctionsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Get_Functions_Retorna200()
     {
-        var response = await _client.GetAsync("/api/functions");
+        var response = await _client.GetAsync("/api/aihub/functions");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -17,7 +17,7 @@ public class FunctionsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Get_Functions_ContemCamposObrigatorios()
     {
-        var response = await _client.GetAsync("/api/functions");
+        var response = await _client.GetAsync("/api/aihub/functions");
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
 
         body.TryGetProperty("functionTools", out _).Should().BeTrue();
@@ -28,7 +28,7 @@ public class FunctionsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Get_Functions_FunctionToolsEhArray()
     {
-        var response = await _client.GetAsync("/api/functions");
+        var response = await _client.GetAsync("/api/aihub/functions");
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
 
         body.GetProperty("functionTools").ValueKind.Should().Be(JsonValueKind.Array);

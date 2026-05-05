@@ -4,7 +4,7 @@ using EfsAiHub.Core.Agents.PredefinedModels;
 namespace EfsAiHub.Host.Api.Models.Requests;
 
 /// <summary>
-/// Body do PUT /api/admin/predefined-models/{id}. <see cref="ExpectedUpdatedAt"/>
+/// Body do PUT /api/aihub/admin/predefined-models/{id}. <see cref="ExpectedUpdatedAt"/>
 /// vem do GET anterior — divergência → 412. Id da rota prevalece.
 /// </summary>
 public sealed class UpdatePredefinedModelRequest

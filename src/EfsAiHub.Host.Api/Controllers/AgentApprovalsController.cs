@@ -5,7 +5,7 @@ using EfsAiHub.Host.Api.Models.Responses;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/agent-approvals")]
+[Route("api/aihub/agent-approvals")]
 [Produces("application/json")]
 public class AgentApprovalsController : ControllerBase
 {

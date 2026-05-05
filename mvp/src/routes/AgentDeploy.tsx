@@ -443,7 +443,7 @@ function DeployedView({
   const projectId = identity?.projectId ?? '<seu-project-id>'
   const account = identity?.account ?? '<seu-account>'
   const baseUrl = publicBaseUrl ?? '<base-url-do-backend>'
-  const triggerUrl = `${baseUrl}/api/workflows/${workflow.id}/trigger`
+  const triggerUrl = `${baseUrl}/api/aihub/workflows/${workflow.id}/trigger`
 
   const headers: Array<{ key: string; value: string }> = [
     { key: 'Content-Type', value: 'application/json' },
@@ -456,13 +456,13 @@ function DeployedView({
   const triggerResponseExample = JSON.stringify(
     {
       executionId: '04bf1f50-763c-47ed-94e3-34ab3f47ea85',
-      statusUrl: `${baseUrl}/api/executions/04bf1f50-763c-47ed-94e3-34ab3f47ea85`,
+      statusUrl: `${baseUrl}/api/aihub/executions/04bf1f50-763c-47ed-94e3-34ab3f47ea85`,
     },
     null,
     2,
   )
 
-  const executionUrl = `${baseUrl}/api/executions/{executionId}`
+  const executionUrl = `${baseUrl}/api/aihub/executions/{executionId}`
 
   const executionResponseExample = JSON.stringify(
     {

@@ -1,7 +1,7 @@
 namespace EfsAiHub.Host.Api.Models.Requests;
 
 /// <summary>
-/// Body do endpoint <c>POST /api/agents/{id}/versions</c>. Caller declara intent
+/// Body do endpoint <c>POST /api/aihub/agents/{id}/versions</c>. Caller declara intent
 /// de breaking explicitamente. <c>BreakingChange=true</c> exige <c>ChangeReason</c>
 /// não-vazio (validado em <c>AgentVersion.EnsureInvariants</c>).
 /// </summary>

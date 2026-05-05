@@ -16,7 +16,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// Mudanças emitem linha em <c>aihub.admin_audit_log</c>.
 /// </summary>
 [ApiController]
-[Route("api/admin/mcp-servers")]
+[Route("api/aihub/admin/mcp-servers")]
 [Produces("application/json")]
 public class McpServersController : ControllerBase
 {

@@ -163,7 +163,7 @@ public sealed class IntegrationWebApplicationFactory : WebApplicationFactory<Pro
     /// <summary>
     /// Creates a client where IAmazonSecretsManager is replaced by the given mock.
     /// Use in tests that exercise SecretsController without touching real AWS.
-    /// Optional canary override permite testar /api/secrets/health.
+    /// Optional canary override permite testar /api/aihub/secrets/health.
     /// </summary>
     public HttpClient CreateClientWithMockedAws(
         Amazon.SecretsManager.IAmazonSecretsManager mock,

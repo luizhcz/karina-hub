@@ -17,7 +17,7 @@ export interface HumanInteraction {
 }
 
 /**
- * Shape do payload para `POST /api/interactions/{id}/resolve`.
+ * Shape do payload para `POST /api/aihub/interactions/{id}/resolve`.
  * Alinhado com `EfsAiHub.Host.Api.Models.Requests.ResolveInteractionRequest` no backend
  * (props `Resolution` / `Approved` — convertidas para camelCase pelo System.Text.Json).
  */

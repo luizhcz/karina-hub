@@ -19,7 +19,7 @@ public class AgUiHitlTests(IntegrationWebApplicationFactory factory)
             }
         };
 
-        var response = await _client.PostAsJsonAsync("/api/chat/ag-ui/stream", payload);
+        var response = await _client.PostAsJsonAsync("/api/aihub/chat/ag-ui/stream", payload);
 
         // HITL puro sem mensagem user → retorna hitlResolved: true (200)
         response.StatusCode.Should().Be(HttpStatusCode.OK);

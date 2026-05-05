@@ -97,7 +97,7 @@ internal sealed class ConditionalEdgeHandler : IEdgeHandler
             throw new InvalidOperationException(
                 $"Workflow '{ctx.WorkflowId}': Conditional edge {edge.From}→{edge.To} sem Predicate. " +
                 "Workflow corrompido — bypass de EnsureInvariants ou falha de migração. Investigar via " +
-                "GET /api/admin/workflows/edge-migration-report.");
+                "GET /api/aihub/admin/workflows/edge-migration-report.");
         }
 
         var predicate = edge.Predicate;
@@ -154,7 +154,7 @@ internal sealed class SwitchEdgeHandler : IEdgeHandler
                     // workflow corrompido bypassou EnsureInvariants. Falha alta.
                     throw new InvalidOperationException(
                         $"Workflow '{ctx.WorkflowId}': Switch case não-default sem Predicate (from={edge.From}). " +
-                        "Workflow corrompido — investigar via GET /api/admin/workflows/edge-migration-report.");
+                        "Workflow corrompido — investigar via GET /api/aihub/admin/workflows/edge-migration-report.");
                 }
                 else
                 {

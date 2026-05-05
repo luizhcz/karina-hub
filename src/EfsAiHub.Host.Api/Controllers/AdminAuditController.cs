@@ -12,7 +12,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// o filtro de query nunca escapa do tenant atual.
 /// </summary>
 [ApiController]
-[Route("api/admin/audit-log")]
+[Route("api/aihub/admin/audit-log")]
 [Produces("application/json")]
 public class AdminAuditController : ControllerBase
 {

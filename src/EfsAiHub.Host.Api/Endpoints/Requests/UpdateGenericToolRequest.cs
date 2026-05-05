@@ -4,7 +4,7 @@ using EfsAiHub.Core.Agents.GenericTools;
 namespace EfsAiHub.Host.Api.Models.Requests;
 
 /// <summary>
-/// Body do PUT /api/generic-tools/{id}. <see cref="ExpectedUpdatedAt"/> vem do
+/// Body do PUT /api/aihub/generic-tools/{id}. <see cref="ExpectedUpdatedAt"/> vem do
 /// GET anterior — divergência → 412. Id da rota prevalece sobre qualquer Id no
 /// body.
 /// </summary>

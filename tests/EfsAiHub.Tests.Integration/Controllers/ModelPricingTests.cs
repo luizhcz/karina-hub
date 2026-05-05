@@ -24,7 +24,7 @@ public class ModelPricingTests(IntegrationWebApplicationFactory factory) : IAsyn
     [Fact]
     public async Task GetAll_Retorna200()
     {
-        var response = await _client.GetAsync("/api/admin/model-pricing");
+        var response = await _client.GetAsync("/api/aihub/admin/model-pricing");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -35,7 +35,7 @@ public class ModelPricingTests(IntegrationWebApplicationFactory factory) : IAsyn
     public async Task Post_CriaPricing_Retorna200()
     {
         var modelId = $"gpt-test-{Guid.NewGuid():N}";
-        var response = await _client.PostAsJsonAsync("/api/admin/model-pricing", BuildPricing(modelId));
+        var response = await _client.PostAsJsonAsync("/api/aihub/admin/model-pricing", BuildPricing(modelId));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -46,11 +46,11 @@ public class ModelPricingTests(IntegrationWebApplicationFactory factory) : IAsyn
     public async Task GetById_PricingExistente_Retorna200()
     {
         var modelId = $"gpt-test-{Guid.NewGuid():N}";
-        var postResp = await _client.PostAsJsonAsync("/api/admin/model-pricing", BuildPricing(modelId));
+        var postResp = await _client.PostAsJsonAsync("/api/aihub/admin/model-pricing", BuildPricing(modelId));
         var created = await postResp.Content.ReadFromJsonAsync<JsonElement>();
         var id = created.GetProperty("id").GetInt32();
 
-        var response = await _client.GetAsync($"/api/admin/model-pricing/{id}");
+        var response = await _client.GetAsync($"/api/aihub/admin/model-pricing/{id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -60,7 +60,7 @@ public class ModelPricingTests(IntegrationWebApplicationFactory factory) : IAsyn
     [Fact]
     public async Task GetById_Inexistente_Retorna404()
     {
-        var response = await _client.GetAsync("/api/admin/model-pricing/999999");
+        var response = await _client.GetAsync("/api/aihub/admin/model-pricing/999999");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -69,11 +69,11 @@ public class ModelPricingTests(IntegrationWebApplicationFactory factory) : IAsyn
     public async Task Delete_PricingExistente_Retorna204()
     {
         var modelId = $"gpt-test-{Guid.NewGuid():N}";
-        var postResp = await _client.PostAsJsonAsync("/api/admin/model-pricing", BuildPricing(modelId));
+        var postResp = await _client.PostAsJsonAsync("/api/aihub/admin/model-pricing", BuildPricing(modelId));
         var created = await postResp.Content.ReadFromJsonAsync<JsonElement>();
         var id = created.GetProperty("id").GetInt32();
 
-        var response = await _client.DeleteAsync($"/api/admin/model-pricing/{id}");
+        var response = await _client.DeleteAsync($"/api/aihub/admin/model-pricing/{id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
@@ -81,7 +81,7 @@ public class ModelPricingTests(IntegrationWebApplicationFactory factory) : IAsyn
     [Fact]
     public async Task Delete_PricingInexistente_Retorna404()
     {
-        var response = await _client.DeleteAsync("/api/admin/model-pricing/999999");
+        var response = await _client.DeleteAsync("/api/aihub/admin/model-pricing/999999");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -89,7 +89,7 @@ public class ModelPricingTests(IntegrationWebApplicationFactory factory) : IAsyn
     [Fact]
     public async Task RefreshView_Retorna200()
     {
-        var response = await _client.PostAsync("/api/admin/model-pricing/refresh-view", content: null);
+        var response = await _client.PostAsync("/api/aihub/admin/model-pricing/refresh-view", content: null);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();

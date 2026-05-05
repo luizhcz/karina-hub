@@ -52,7 +52,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         _logger = logger;
     }
 
-    [HttpPost("api/agents/{agentId}/evaluations/auto-deploy")]
+    [HttpPost("api/aihub/agents/{agentId}/evaluations/auto-deploy")]
     [SwaggerOperation(Summary = "Auto-deploy: gera test cases sintéticos via wf-gerador-testcases, " +
         "cria TestSet+EvaluatorConfig do preset e enfileira EvaluationRun. PM/PO chama isto após " +
         "deploy do agente. Idempotente por (AgentVersionId, preset) em janela 30min.")]
@@ -108,7 +108,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         }
     }
 
-    [HttpPost("api/agents/{agentId}/evaluations/runs")]
+    [HttpPost("api/aihub/agents/{agentId}/evaluations/runs")]
     [SwaggerOperation(Summary = "Enfileira uma eval run manual contra a config indicada")]
     [ProducesResponseType(typeof(EnqueueEvaluationRunResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -146,7 +146,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         }
     }
 
-    [HttpGet("api/agents/{agentId}/evaluations/runs")]
+    [HttpGet("api/aihub/agents/{agentId}/evaluations/runs")]
     [SwaggerOperation(Summary = "Lista eval runs do agente (paginado, filtro por trigger_source)")]
     [ProducesResponseType(typeof(IReadOnlyList<EvaluationRunResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> ListRunsByAgent(
@@ -172,7 +172,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         return Ok(responses);
     }
 
-    [HttpGet("api/evaluations/runs/{runId}", Name = "GetEvaluationRun")]
+    [HttpGet("api/aihub/evaluations/runs/{runId}", Name = "GetEvaluationRun")]
     [SwaggerOperation(Summary = "Detalhe de uma eval run + summary do progress")]
     [ProducesResponseType(typeof(EvaluationRunResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -186,7 +186,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         return Ok(EvaluationRunResponse.FromDomain(run, progress, usage));
     }
 
-    [HttpGet("api/evaluations/runs/{runId}/results")]
+    [HttpGet("api/aihub/evaluations/runs/{runId}/results")]
     [SwaggerOperation(Summary = "Lista resultados de uma run (filter passed=, evaluator=)")]
     [ProducesResponseType(typeof(IReadOnlyList<EvaluationResultResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -205,7 +205,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         return Ok(results.Select(EvaluationResultResponse.FromDomain));
     }
 
-    [HttpPost("api/evaluations/runs/{runId}/cancel")]
+    [HttpPost("api/aihub/evaluations/runs/{runId}/cancel")]
     [SwaggerOperation(Summary = "Cancel idempotente. NOTIFY runner ativo (≤1s) + CAS Pending|Running → Cancelled.")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -229,7 +229,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         return NoContent();
     }
 
-    [HttpGet("api/evaluations/runs/{runId}/stream")]
+    [HttpGet("api/aihub/evaluations/runs/{runId}/stream")]
     [SwaggerOperation(Summary = "SSE de progresso da run — emite deltas de progress até run virar terminal")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -297,7 +297,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         }
     }
 
-    [HttpGet("api/evaluations/runs/{runId}/events")]
+    [HttpGet("api/aihub/evaluations/runs/{runId}/events")]
     [SwaggerOperation(Summary = "Polling fallback HTTP — alternativa ao /stream pra clientes sem SSE")]
     [ProducesResponseType(typeof(EventPollingResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -428,7 +428,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         await Response.Body.FlushAsync(ct);
     }
 
-    [HttpGet("api/evaluations/runs/{runId}/export")]
+    [HttpGet("api/aihub/evaluations/runs/{runId}/export")]
     [SwaggerOperation(Summary = "Export de results em CSV ou JSON")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -472,7 +472,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         return File(Encoding.UTF8.GetBytes(sb.ToString()), "text/csv", $"evaluation-run-{runId}.csv");
     }
 
-    [HttpGet("api/evaluations/runs/compare")]
+    [HttpGet("api/aihub/evaluations/runs/compare")]
     [SwaggerOperation(Summary = "Compara 2 runs (cross-version) — retorna diff lado-a-lado e flag de regressão")]
     [ProducesResponseType(typeof(EvaluationRunCompareResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

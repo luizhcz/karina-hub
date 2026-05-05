@@ -22,7 +22,7 @@ public class SkillsTests(IntegrationWebApplicationFactory factory) : IAsyncLifet
     public async Task Put_NovaSkill_Retorna200()
     {
         var id = $"skill-create-{Guid.NewGuid():N}";
-        var response = await _client.PutAsJsonAsync($"/api/skills/{id}", BuildSkill(id));
+        var response = await _client.PutAsJsonAsync($"/api/aihub/skills/{id}", BuildSkill(id));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -35,7 +35,7 @@ public class SkillsTests(IntegrationWebApplicationFactory factory) : IAsyncLifet
         var pathId = $"skill-path-{Guid.NewGuid():N}";
         var bodyId = $"skill-body-{Guid.NewGuid():N}";
 
-        var response = await _client.PutAsJsonAsync($"/api/skills/{pathId}", BuildSkill(bodyId));
+        var response = await _client.PutAsJsonAsync($"/api/aihub/skills/{pathId}", BuildSkill(bodyId));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -44,9 +44,9 @@ public class SkillsTests(IntegrationWebApplicationFactory factory) : IAsyncLifet
     public async Task Get_SkillExistente_Retorna200()
     {
         var id = $"skill-get-{Guid.NewGuid():N}";
-        await _client.PutAsJsonAsync($"/api/skills/{id}", BuildSkill(id));
+        await _client.PutAsJsonAsync($"/api/aihub/skills/{id}", BuildSkill(id));
 
-        var response = await _client.GetAsync($"/api/skills/{id}");
+        var response = await _client.GetAsync($"/api/aihub/skills/{id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -56,7 +56,7 @@ public class SkillsTests(IntegrationWebApplicationFactory factory) : IAsyncLifet
     [Fact]
     public async Task Get_SkillInexistente_Retorna404()
     {
-        var response = await _client.GetAsync("/api/skills/skill-nao-existe-xyz-999");
+        var response = await _client.GetAsync("/api/aihub/skills/skill-nao-existe-xyz-999");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -64,7 +64,7 @@ public class SkillsTests(IntegrationWebApplicationFactory factory) : IAsyncLifet
     [Fact]
     public async Task GetAll_Retorna200()
     {
-        var response = await _client.GetAsync("/api/skills");
+        var response = await _client.GetAsync("/api/aihub/skills");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -73,9 +73,9 @@ public class SkillsTests(IntegrationWebApplicationFactory factory) : IAsyncLifet
     public async Task Delete_SkillExistente_Retorna204()
     {
         var id = $"skill-del-{Guid.NewGuid():N}";
-        await _client.PutAsJsonAsync($"/api/skills/{id}", BuildSkill(id));
+        await _client.PutAsJsonAsync($"/api/aihub/skills/{id}", BuildSkill(id));
 
-        var response = await _client.DeleteAsync($"/api/skills/{id}");
+        var response = await _client.DeleteAsync($"/api/aihub/skills/{id}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
@@ -83,7 +83,7 @@ public class SkillsTests(IntegrationWebApplicationFactory factory) : IAsyncLifet
     [Fact]
     public async Task Delete_SkillInexistente_Retorna404()
     {
-        var response = await _client.DeleteAsync("/api/skills/skill-nao-existe-xyz-999");
+        var response = await _client.DeleteAsync("/api/aihub/skills/skill-nao-existe-xyz-999");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -92,9 +92,9 @@ public class SkillsTests(IntegrationWebApplicationFactory factory) : IAsyncLifet
     public async Task GetVersions_SkillUpsertada_RetornaLista()
     {
         var id = $"skill-ver-{Guid.NewGuid():N}";
-        await _client.PutAsJsonAsync($"/api/skills/{id}", BuildSkill(id));
+        await _client.PutAsJsonAsync($"/api/aihub/skills/{id}", BuildSkill(id));
 
-        var response = await _client.GetAsync($"/api/skills/{id}/versions");
+        var response = await _client.GetAsync($"/api/aihub/skills/{id}/versions");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();

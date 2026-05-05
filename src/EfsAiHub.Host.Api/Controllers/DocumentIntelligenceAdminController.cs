@@ -13,7 +13,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// por página (não por token).
 /// </summary>
 [ApiController]
-[Route("api/admin/document-intelligence")]
+[Route("api/aihub/admin/document-intelligence")]
 [Produces("application/json")]
 public class DocumentIntelligenceAdminController : ControllerBase
 {

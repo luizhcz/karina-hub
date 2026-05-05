@@ -8,7 +8,7 @@ export interface AgentToolDef {
   requiresApproval?: boolean
   /**
    * Id-based reference (preferido) para MCP tools — aponta para registro em
-   * /api/admin/mcp-servers. Quando presente, serverLabel/serverUrl/allowedTools/headers
+   * /api/aihub/admin/mcp-servers. Quando presente, serverLabel/serverUrl/allowedTools/headers
    * são resolvidos em runtime pelo backend (mudanças no registry propagam).
    */
   mcpServerId?: string
@@ -109,7 +109,7 @@ export interface CreateAgentRequest {
 }
 
 /**
- * Body do PUT /api/agents/{id}. Estende CreateAgentRequest exigindo
+ * Body do PUT /api/aihub/agents/{id}. Estende CreateAgentRequest exigindo
  * <c>changeReason</c> (min 10 chars no backend) — toda atualização gera
  * AdminOverride em agent_approval_history pra trilha de governança.
  * <c>breakingChange=true</c> exige changeReason (já é required aqui).
@@ -132,7 +132,7 @@ export interface AgentVersion {
 }
 
 /**
- * Resposta detalhada de version (POST /api/agents/{id}/versions).
+ * Resposta detalhada de version (POST /api/aihub/agents/{id}/versions).
  * Subset dos campos do AgentVersionResponse backend — apenas os usados pela UI
  * (toast com versionId+revision, badge de breaking). Snapshots completos
  * (Model, Provider, Tools, etc) são consumidos via outros endpoints.

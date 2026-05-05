@@ -11,7 +11,7 @@ public sealed class RegressionConfigTests(IntegrationWebApplicationFactory facto
     {
         var agentId = await CreateAgentAsync();
 
-        var response = await _client.GetAsync($"/api/agents/{agentId}/regression-config");
+        var response = await _client.GetAsync($"/api/aihub/agents/{agentId}/regression-config");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var dto = await response.Content.ReadFromJsonAsync<RegressionConfigDto>();
@@ -31,7 +31,7 @@ public sealed class RegressionConfigTests(IntegrationWebApplicationFactory facto
             regressionEvaluatorConfigVersionId = "ec-fake"
         };
 
-        var response = await _client.PutAsJsonAsync($"/api/agents/{agentId}/regression-config", body);
+        var response = await _client.PutAsJsonAsync($"/api/aihub/agents/{agentId}/regression-config", body);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var dto = await response.Content.ReadFromJsonAsync<RegressionConfigDto>();
@@ -43,7 +43,7 @@ public sealed class RegressionConfigTests(IntegrationWebApplicationFactory facto
     public async Task Put_Agent_Inexistente_Retorna_404()
     {
         var response = await _client.PutAsJsonAsync(
-            "/api/agents/agent-nao-existe-xyz/regression-config",
+            "/api/aihub/agents/agent-nao-existe-xyz/regression-config",
             new { regressionTestSetId = "ts-1" });
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -52,7 +52,7 @@ public sealed class RegressionConfigTests(IntegrationWebApplicationFactory facto
     private async Task<string> CreateAgentAsync()
     {
         var id = $"agent-reg-{Guid.NewGuid():N}";
-        var response = await _client.PostAsJsonAsync("/api/agents", new
+        var response = await _client.PostAsJsonAsync("/api/aihub/agents", new
         {
             id,
             name = "Reg Test Agent",

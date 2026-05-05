@@ -4,7 +4,7 @@ using EfsAiHub.Core.Agents.GenericTools;
 namespace EfsAiHub.Host.Api.Models.Requests;
 
 /// <summary>
-/// Body do POST /api/generic-tools. Id opcional — quando ausente o service
+/// Body do POST /api/aihub/generic-tools. Id opcional — quando ausente o service
 /// gera um GUID e devolve no response. Validação semântica (placeholders ↔
 /// path params, schema FormUrl plano, headers reservados) roda no domain
 /// <see cref="GenericTool.EnsureInvariants"/> e devolve 400.

@@ -44,7 +44,7 @@ public sealed class AdminAuditEntry
     public DateTime Timestamp { get; init; }
 }
 
-/// <summary>Filtros para paginação em /api/admin/audit-log.</summary>
+/// <summary>Filtros para paginação em /api/aihub/admin/audit-log.</summary>
 public sealed class AdminAuditQuery
 {
     public string? TenantId { get; init; }
@@ -85,50 +85,50 @@ public static class AdminAuditActions
     /// <summary>
     /// Mudança de visibilidade ('project' → 'global' ou vice-versa) em
     /// WorkflowDefinition. PayloadBefore/After mínimos — apenas {visibility}.
-    /// Emitido pelo PATCH /api/workflows/{id}/visibility.
+    /// Emitido pelo PATCH /api/aihub/workflows/{id}/visibility.
     /// </summary>
     public const string WorkflowVisibilityChanged = "workflow.visibility_changed";
 
     /// <summary>
     /// Mudança de visibilidade em AgentDefinition (project ↔ global).
-    /// Emitido pelo PATCH /api/agents/{id}/visibility.
+    /// Emitido pelo PATCH /api/aihub/agents/{id}/visibility.
     /// </summary>
     public const string AgentVisibilityChanged = "agent.visibility_changed";
 
     /// <summary>
     /// Liga/desliga o agent (Enabled true ↔ false). Emitido pelo PATCH
-    /// /api/agents/{id}/enabled. Quando Enabled=false, AgentFactory pula o agent
+    /// /api/aihub/agents/{id}/enabled. Quando Enabled=false, AgentFactory pula o agent
     /// em runtime (workflows continuam mas sem invocá-lo).
     /// </summary>
     public const string AgentEnabledChanged = "agent.enabled_changed";
 
     /// <summary>
-    /// Criação de rascunho de agent. Emitido pelo POST /api/agent-drafts.
+    /// Criação de rascunho de agent. Emitido pelo POST /api/aihub/agent-drafts.
     /// PayloadAfter inclui draftId, isEditDraft, baseAgentId.
     /// </summary>
     public const string AgentDraftCreated = "agent.draft_created";
 
     /// <summary>
-    /// Atualização de rascunho. Emitido pelo PUT /api/agent-drafts/{id}.
+    /// Atualização de rascunho. Emitido pelo PUT /api/aihub/agent-drafts/{id}.
     /// PayloadAfter inclui draftId, updatedAt.
     /// </summary>
     public const string AgentDraftUpdated = "agent.draft_updated";
 
     /// <summary>
-    /// Descarte explícito de rascunho. Emitido pelo DELETE /api/agent-drafts/{id}.
+    /// Descarte explícito de rascunho. Emitido pelo DELETE /api/aihub/agent-drafts/{id}.
     /// </summary>
     public const string AgentDraftDeleted = "agent.draft_deleted";
 
     /// <summary>
     /// Submissão de rascunho ao painel de aprovação. Emitido pelo POST
-    /// /api/agent-drafts/{id}/submit (transição Draft|Rejected → PendingApproval).
+    /// /api/aihub/agent-drafts/{id}/submit (transição Draft|Rejected → PendingApproval).
     /// PayloadAfter inclui draftId, isEditDraft, baseAgentId, wasResubmit.
     /// </summary>
     public const string AgentDraftSubmitted = "agent.draft_submitted";
 
     /// <summary>
     /// Aprovação de rascunho pelo painel. Emitido pelo POST
-    /// /api/agent-approvals/{id}/approve após promoção atômica (agent_definitions
+    /// /api/aihub/agent-approvals/{id}/approve após promoção atômica (agent_definitions
     /// + agent_versions + delete do draft + history entry). PayloadAfter inclui
     /// agentId, fromDraftId, wasEditDraft, approverUserId, ageHours.
     /// </summary>
@@ -136,7 +136,7 @@ public static class AdminAuditActions
 
     /// <summary>
     /// Rejeição de rascunho pelo painel. Emitido pelo POST
-    /// /api/agent-approvals/{id}/reject. PayloadAfter inclui draftId,
+    /// /api/aihub/agent-approvals/{id}/reject. PayloadAfter inclui draftId,
     /// approverUserId, feedback, ageHours.
     /// </summary>
     public const string AgentDraftRejected = "agent.draft_rejected";
@@ -171,7 +171,7 @@ public static class AdminAuditActions
 
     /// <summary>
     /// Atualização manual de pin de agent ref em workflow via UI/API
-    /// (PATCH /api/workflows/{id}/agents/{agentId}/pin). Emitido em toda
+    /// (PATCH /api/aihub/workflows/{id}/agents/{agentId}/pin). Emitido em toda
     /// transição de pin manual (incluindo casos onde caller atualiza pra
     /// version mais nova após receber notification de breaking).
     /// PayloadAfter inclui agentId, previousVersionId, newVersionId, wasBreaking, reason.
@@ -180,38 +180,38 @@ public static class AdminAuditActions
 
     /// <summary>
     /// Criação de Predefined Model (preset global). Emitido pelo
-    /// POST /api/admin/predefined-models. PayloadAfter inclui id, displayName,
+    /// POST /api/aihub/admin/predefined-models. PayloadAfter inclui id, displayName,
     /// provider, deploymentName.
     /// </summary>
     public const string PredefinedModelCreated = "predefined_model.created";
 
     /// <summary>
     /// Atualização de Predefined Model. Emitido pelo
-    /// PUT /api/admin/predefined-models/{id}. PayloadAfter inclui id, updatedAt.
+    /// PUT /api/aihub/admin/predefined-models/{id}. PayloadAfter inclui id, updatedAt.
     /// </summary>
     public const string PredefinedModelUpdated = "predefined_model.updated";
 
     /// <summary>
     /// Remoção de Predefined Model. Emitido pelo
-    /// DELETE /api/admin/predefined-models/{id}. Agents que referenciam o preset
+    /// DELETE /api/aihub/admin/predefined-models/{id}. Agents que referenciam o preset
     /// não conseguirão invocar até serem reapontados ou re-seedados.
     /// </summary>
     public const string PredefinedModelDeleted = "predefined_model.deleted";
 
     /// <summary>
-    /// Criação de Generic Tool (HTTP genérica). Emitido pelo POST /api/generic-tools.
+    /// Criação de Generic Tool (HTTP genérica). Emitido pelo POST /api/aihub/generic-tools.
     /// PayloadAfter inclui toolId, name, httpMethod, projectId.
     /// </summary>
     public const string GenericToolCreated = "generic_tool.created";
 
     /// <summary>
-    /// Atualização de Generic Tool. Emitido pelo PUT /api/generic-tools/{id}.
+    /// Atualização de Generic Tool. Emitido pelo PUT /api/aihub/generic-tools/{id}.
     /// PayloadAfter inclui toolId, updatedAt.
     /// </summary>
     public const string GenericToolUpdated = "generic_tool.updated";
 
     /// <summary>
-    /// Descarte explícito de Generic Tool. Emitido pelo DELETE /api/generic-tools/{id}.
+    /// Descarte explícito de Generic Tool. Emitido pelo DELETE /api/aihub/generic-tools/{id}.
     /// </summary>
     public const string GenericToolDeleted = "generic_tool.deleted";
 }

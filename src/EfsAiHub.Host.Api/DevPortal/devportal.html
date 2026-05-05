@@ -243,12 +243,12 @@
   <a href="#safety-flow">Fluxo SAFETY_VIOLATION</a>
   <a href="#error-codes">Códigos de erro</a>
   <div class="nav-section">Agentes</div>
-  <a href="#agents-list">GET /api/agents</a>
-  <a href="#agents-get">GET /api/agents/{id}</a>
+  <a href="#agents-list">GET /api/aihub/agents</a>
+  <a href="#agents-get">GET /api/aihub/agents/{id}</a>
   <a href="#agents-response">Schema da Resposta</a>
   <div class="nav-section">Workflows</div>
-  <a href="#workflows-list">GET /api/workflows</a>
-  <a href="#workflows-get">GET /api/workflows/{id}</a>
+  <a href="#workflows-list">GET /api/aihub/workflows</a>
+  <a href="#workflows-get">GET /api/aihub/workflows/{id}</a>
   <a href="#workflows-response">Schema da Resposta</a>
   <div class="nav-section">Links</div>
   <a href="/swagger" target="_blank">Swagger UI ↗</a>
@@ -378,7 +378,7 @@
     <h3>O que NÃO é AG-UI</h3>
     <ul>
       <li>Não é um SDK proprietário do EFS — é uma <a href="https://docs.ag-ui.com" target="_blank">spec aberta</a> implementada por vários frameworks (CopilotKit, Microsoft Agent Framework, Mastra, Pydantic AI, LangGraph bridge).</li>
-      <li>Não é REST — é um stream contínuo. Uma única request <code>POST /api/chat/ag-ui/stream</code> recebe N eventos até o turn terminar.</li>
+      <li>Não é REST — é um stream contínuo. Uma única request <code>POST /api/aihub/chat/ag-ui/stream</code> recebe N eventos até o turn terminar.</li>
       <li>Não é WebSocket — é SSE (HTTP unidirecional servidor→cliente). Para enviar mensagens novas o cliente faz POST normal.</li>
       <li>Não substitui o Swagger — endpoints CRUD de agentes/workflows continuam REST tradicional.</li>
     </ul>
@@ -428,7 +428,7 @@ x-efs-user-profile-id: P-00123</code></pre>
         <div class="step-body">
           <div class="step-title">Envie a primeira mensagem</div>
           <div class="step-desc">Use <code>threadId: null</code> para criar uma nova conversa. O servidor retorna o <code>threadId</code> no evento <code>RUN_STARTED</code>.</div>
-          <pre class="language-bash" style="margin-top:10px"><code class="language-bash">curl -X POST http://localhost:5189/api/chat/ag-ui/stream \
+          <pre class="language-bash" style="margin-top:10px"><code class="language-bash">curl -X POST http://localhost:5189/api/aihub/chat/ag-ui/stream \
   -H "Content-Type: application/json" \
   -H "x-efs-account: 123456789" \
   -d '{"messages":[{"role":"user","content":"Olá, qual é o saldo da minha conta?"}],"threadId":null}' \
@@ -488,13 +488,13 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
   <!-- Endpoints -->
   <section id="endpoints">
     <h2>Endpoints AG-UI</h2>
-    <p>Todos os endpoints estão sob o prefixo <code>/api/chat/ag-ui/</code>.</p>
+    <p>Todos os endpoints estão sob o prefixo <code>/api/aihub/chat/ag-ui/</code>.</p>
 
     <!-- POST /stream -->
     <div class="endpoint-card">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="badge badge-post">POST</span>
-        <span class="endpoint-path">/api/chat/ag-ui/stream</span>
+        <span class="endpoint-path">/api/aihub/chat/ag-ui/stream</span>
         <span class="endpoint-desc">Envia mensagem e abre o stream SSE</span>
         <span class="chevron">▾</span>
       </div>
@@ -547,7 +547,7 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
     <div class="endpoint-card">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="badge badge-post">POST</span>
-        <span class="endpoint-path">/api/chat/ag-ui/cancel</span>
+        <span class="endpoint-path">/api/aihub/chat/ag-ui/cancel</span>
         <span class="endpoint-desc">Cancela uma execução em andamento</span>
         <span class="chevron">▾</span>
       </div>
@@ -562,7 +562,7 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
     <div class="endpoint-card">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="badge badge-post">POST</span>
-        <span class="endpoint-path">/api/chat/ag-ui/resolve-hitl</span>
+        <span class="endpoint-path">/api/aihub/chat/ag-ui/resolve-hitl</span>
         <span class="endpoint-desc">Responde a uma aprovação humana (HITL)</span>
         <span class="chevron">▾</span>
       </div>
@@ -586,7 +586,7 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
     <div class="endpoint-card">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="badge badge-get">GET</span>
-        <span class="endpoint-path">/api/chat/ag-ui/reconnect/{executionId}</span>
+        <span class="endpoint-path">/api/aihub/chat/ag-ui/reconnect/{executionId}</span>
         <span class="endpoint-desc">Reconecta após perda de conexão</span>
         <span class="chevron">▾</span>
       </div>
@@ -606,7 +606,7 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
 let lastEventId = null
 
 // Ao reconectar:
-const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
+const res = await fetch(`/api/aihub/chat/ag-ui/reconnect/${executionId}`, {
   headers: {
     'Last-Event-ID': lastEventId,
     'x-thread-id': threadId,
@@ -631,7 +631,7 @@ const res = await fetch(`/api/chat/ag-ui/reconnect/${executionId}`, {
     <div class="endpoint-card">
       <div class="endpoint-header">
         <span class="endpoint-method method-post">POST</span>
-        <span class="endpoint-path">/api/agents/{agentId}/sessions/{sessionId}/stream</span>
+        <span class="endpoint-path">/api/aihub/agents/{agentId}/sessions/{sessionId}/stream</span>
         <span class="endpoint-desc">Sandbox de chat com agente individual (token-by-token)</span>
       </div>
       <div class="endpoint-body">
@@ -663,7 +663,7 @@ data: [DONE]
     <div class="endpoint-card">
       <div class="endpoint-header">
         <span class="endpoint-method method-get">GET</span>
-        <span class="endpoint-path">/api/conversations/{id}/messages/stream</span>
+        <span class="endpoint-path">/api/aihub/conversations/{id}/messages/stream</span>
         <span class="endpoint-desc">Stream de eventos novos chegando numa conversa ativa</span>
       </div>
       <div class="endpoint-body">
@@ -697,7 +697,7 @@ data: [DONE]
     <div class="endpoint-card">
       <div class="endpoint-header">
         <span class="endpoint-method method-get">GET</span>
-        <span class="endpoint-path">/api/executions/{executionId}/stream</span>
+        <span class="endpoint-path">/api/aihub/executions/{executionId}/stream</span>
         <span class="endpoint-desc">Stream cru de eventos do bus de execução de workflow</span>
       </div>
       <div class="endpoint-body">
@@ -706,7 +706,7 @@ data: [DONE]
           <code>IWorkflowEventBus</code>) mas exposto sem renaming nem filtro — útil pra debug e
           observabilidade. Encerra em <code>workflow_completed</code> ou <code>error</code>.
           <strong>Admin-only</strong> (sub-rotas <code>/full</code> e <code>/stream</code> seguem
-          gated; <code>GET /api/executions/{id}</code> é liberado pra non-admin).
+          gated; <code>GET /api/aihub/executions/{id}</code> é liberado pra non-admin).
         </p>
         <h3>Frames</h3>
         <pre class="language-text"><code class="language-text">event: agent_started
@@ -730,7 +730,7 @@ data: {"executionId":"exec-xyz","status":"Completed"}
     <div class="endpoint-card">
       <div class="endpoint-header">
         <span class="endpoint-method method-get">GET</span>
-        <span class="endpoint-path">/api/evaluations/runs/{runId}/stream</span>
+        <span class="endpoint-path">/api/aihub/evaluations/runs/{runId}/stream</span>
         <span class="endpoint-desc">Progresso de uma evaluation run em tempo real</span>
       </div>
       <div class="endpoint-body">
@@ -775,7 +775,7 @@ data: {"executionId":"exec-xyz","status":"Completed"}
           frames de comentário não disparam handlers de evento.
         </p>
         <h3>Exemplo (EventSource)</h3>
-        <pre class="language-javascript"><code class="language-javascript">const url = `/api/evaluations/runs/${runId}/stream?projectId=${projectId}`
+        <pre class="language-javascript"><code class="language-javascript">const url = `/api/aihub/evaluations/runs/${runId}/stream?projectId=${projectId}`
 const es = new EventSource(url)
 
 es.addEventListener('progress', (ev) => {
@@ -832,7 +832,7 @@ es.addEventListener('done', (ev) => {
       Cada endpoint SSE tem um par <strong>POST/GET</strong> alternativo pra clientes que não conseguem
       consumir <code>text/event-stream</code> — proxies corporativos que derrubam long-lived connections,
       mobile WebView restrita, integrações server-to-server simples. O modelo é o mesmo do
-      <code>POST /api/workflows/{id}/trigger</code> + <code>GET /api/executions/{id}</code> de hoje:
+      <code>POST /api/aihub/workflows/{id}/trigger</code> + <code>GET /api/aihub/executions/{id}</code> de hoje:
       <strong>POST dispara a operação</strong> (já existia), <strong>GET pulla eventos com cursor</strong>.
     </p>
 
@@ -862,13 +862,13 @@ es.addEventListener('done', (ev) => {
     <div class="endpoint-card">
       <div class="endpoint-header">
         <span class="endpoint-method method-get">GET</span>
-        <span class="endpoint-path">/api/executions/{executionId}/events</span>
+        <span class="endpoint-path">/api/aihub/executions/{executionId}/events</span>
         <span class="endpoint-desc">Pattern A — polling fallback do /stream de execução de workflow</span>
       </div>
       <div class="endpoint-body">
         <p>
           Lê <code>workflow_event_audit</code> com cursor monotônico (<code>SequenceId</code> do banco).
-          Trigger correspondente: <code>POST /api/workflows/{id}/trigger</code> retorna o
+          Trigger correspondente: <code>POST /api/aihub/workflows/{id}/trigger</code> retorna o
           <code>executionId</code>; cliente polla esse endpoint até <code>terminal=true</code>.
         </p>
         <h3>Query params</h3>
@@ -882,11 +882,11 @@ es.addEventListener('done', (ev) => {
         <h3>Tipos de evento</h3>
         <p><code>agent_started</code>, <code>step_completed</code>, <code>tool_invocation</code>, <code>hitl_required</code>, <code>workflow_completed</code> <span class="badge badge-red">terminal</span>, <code>error</code> <span class="badge badge-red">terminal</span></p>
         <h3>Exemplo</h3>
-        <pre class="language-bash"><code class="language-bash">EXEC=$(curl -s -X POST .../api/workflows/wf-x/trigger \
+        <pre class="language-bash"><code class="language-bash">EXEC=$(curl -s -X POST .../api/aihub/workflows/wf-x/trigger \
   -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo' \
   -d '{"input":"hello"}' | jq -r .executionId)
 
-curl ".../api/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
+curl ".../api/aihub/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
   -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo'
 # → { "events": [...], "nextSince": 42, "terminal": false }</code></pre>
         <h3>Códigos HTTP</h3>
@@ -906,7 +906,7 @@ curl ".../api/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
     <div class="endpoint-card">
       <div class="endpoint-header">
         <span class="endpoint-method method-get">GET</span>
-        <span class="endpoint-path">/api/conversations/{id}/messages/events</span>
+        <span class="endpoint-path">/api/aihub/conversations/{id}/messages/events</span>
         <span class="endpoint-desc">Pattern A — polling fallback do /messages/stream da conversa ativa</span>
       </div>
       <div class="endpoint-body">
@@ -914,7 +914,7 @@ curl ".../api/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
           Resolve <code>session.ActiveExecutionId</code> e lê o mesmo <code>workflow_event_audit</code>
           do endpoint anterior, aplicando o renaming de eventos (<code>hitl_required</code> →
           <code>waiting_for_input</code>; <code>workflow_completed</code> → <code>message_complete</code>).
-          Trigger correspondente: <code>POST /api/conversations/{id}/messages</code>.
+          Trigger correspondente: <code>POST /api/aihub/conversations/{id}/messages</code>.
         </p>
         <h3>Query params</h3>
         <p>Mesmos do anterior (<code>since</code>, <code>limit</code>, <code>waitMs</code>).</p>
@@ -937,7 +937,7 @@ curl ".../api/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
     <div class="endpoint-card">
       <div class="endpoint-header">
         <span class="endpoint-method method-post">POST</span>
-        <span class="endpoint-path">/api/agents/{agentId}/sessions/{sessionId}/run-async</span>
+        <span class="endpoint-path">/api/aihub/agents/{agentId}/sessions/{sessionId}/run-async</span>
         <span class="endpoint-desc">Pattern B — dispara turn em background (alternativa ao /stream sem long-lived connection)</span>
       </div>
       <div class="endpoint-body">
@@ -968,7 +968,7 @@ curl ".../api/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
     <div class="endpoint-card">
       <div class="endpoint-header">
         <span class="endpoint-method method-get">GET</span>
-        <span class="endpoint-path">/api/agents/{agentId}/sessions/{sessionId}/events</span>
+        <span class="endpoint-path">/api/aihub/agents/{agentId}/sessions/{sessionId}/events</span>
         <span class="endpoint-desc">Pattern B — polling de tokens da sessão (lê do IEventBuffer)</span>
       </div>
       <div class="endpoint-body">
@@ -1002,7 +1002,7 @@ curl ".../api/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
     <div class="endpoint-card">
       <div class="endpoint-header">
         <span class="endpoint-method method-get">GET</span>
-        <span class="endpoint-path">/api/evaluations/runs/{runId}/events</span>
+        <span class="endpoint-path">/api/aihub/evaluations/runs/{runId}/events</span>
         <span class="endpoint-desc">Pattern C — polling fallback do /stream de progresso de avaliação</span>
       </div>
       <div class="endpoint-body">
@@ -1011,8 +1011,8 @@ curl ".../api/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
           Cada chamada emite 1 evento <code>progress</code> (snapshot atual de status/scores) +
           N eventos <code>result</code> (1 por novo result desde <code>since</code>) +
           1 evento <code>done</code> quando a run vira terminal. Trigger correspondente:
-          <code>POST /api/agents/{id}/evaluations/auto-deploy</code> (ou
-          <code>POST /api/evaluations/runs</code> admin).
+          <code>POST /api/aihub/agents/{id}/evaluations/auto-deploy</code> (ou
+          <code>POST /api/aihub/evaluations/runs</code> admin).
         </p>
         <h3>Query params</h3>
         <table class="event-table">
@@ -1045,18 +1045,18 @@ curl ".../api/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
 
     <h3>Exemplo curl genérico</h3>
     <pre class="language-bash"><code class="language-bash"># 1. dispara
-EXEC=$(curl -s -X POST http://localhost:5189/api/workflows/wf-x/trigger \
+EXEC=$(curl -s -X POST http://localhost:5189/api/aihub/workflows/wf-x/trigger \
   -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo' \
   -H 'Content-Type: application/json' \
   -d '{"input":"hello"}' | jq -r .executionId)
 
 # 2. polla com long-poll 10s
-curl "http://localhost:5189/api/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
+curl "http://localhost:5189/api/aihub/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
   -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo'
 # → { "events": [...], "nextSince": 42, "terminal": false }
 
 # 3. próxima chamada usa nextSince (idempotente — sem perder evento)
-curl "http://localhost:5189/api/executions/$EXEC/events?since=42&waitMs=10000"</code></pre>
+curl "http://localhost:5189/api/aihub/executions/$EXEC/events?since=42&waitMs=10000"</code></pre>
 
     <h3>Recomendações</h3>
     <ul>
@@ -1078,7 +1078,7 @@ curl "http://localhost:5189/api/executions/$EXEC/events?since=42&waitMs=10000"</
       Identidade vai por <strong>headers padrão</strong> (<code>x-efs-account</code>, <code>x-efs-project-id</code>) — diferente do
       <code>/stream</code> que aceita query param porque <code>EventSource</code> não envia headers customizados.
       Clients de polling usam <code>fetch</code> que suporta headers nativamente.
-      Exceção: <code>GET /api/evaluations/runs/{id}/events</code> ainda aceita <code>?projectId=</code> como fallback (parity com o <code>/stream</code>).
+      Exceção: <code>GET /api/aihub/evaluations/runs/{id}/events</code> ainda aceita <code>?projectId=</code> como fallback (parity com o <code>/stream</code>).
     </p>
   </section>
 
@@ -1228,7 +1228,7 @@ curl "http://localhost:5189/api/executions/$EXEC/events?since=42&waitMs=10000"</
 
     <h3>1. Happy path — agente respondendo só com texto</h3>
     <pre><code><span class="comment">// Cliente envia: "Qual é o saldo da minha conta?"</span>
-<span class="comment">// POST /api/chat/ag-ui/stream → 200 text/event-stream</span>
+<span class="comment">// POST /api/aihub/chat/ag-ui/stream → 200 text/event-stream</span>
 
 <span class="arrow">stream ←</span> <span class="event">RUN_STARTED</span>          { runId: <span class="resolve">"run-abc"</span>, threadId: <span class="resolve">"thr-001"</span> }
 <span class="arrow">stream ←</span> <span class="event">STATE_SNAPSHOT</span>       { snapshot: { ... } }            <span class="comment">// estado inicial do thread</span>
@@ -1319,7 +1319,7 @@ const messages = []  <span class="comment">// histórico local</span>
 async function sendTurn(userText) {
   messages.push({ id: crypto.randomUUID(), role: 'user', content: userText })
 
-  const res = await fetch('/api/chat/ag-ui/stream', {
+  const res = await fetch('/api/aihub/chat/ag-ui/stream', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1439,7 +1439,7 @@ async function sendTurn(userText) {
       Quando o stream cai (rede, refresh, timeout), guarde o último <code>id:</code> recebido
       (<code>lastEventId</code> no exemplo) e chame:
     </p>
-    <pre class="language-javascript"><code class="language-javascript">const res = await fetch(`/api/chat/ag-ui/reconnect/${runId}`, {
+    <pre class="language-javascript"><code class="language-javascript">const res = await fetch(`/api/aihub/chat/ag-ui/reconnect/${runId}`, {
   headers: {
     'Last-Event-ID': lastEventId,
     'x-thread-id': threadId,
@@ -1464,7 +1464,7 @@ async function sendTurn(userText) {
 <span class="wait">  [ Frontend acumula delta e exibe botões de aprovação — stream permanece aberto ]</span>
 
 <span class="comment">// 2. Usuário clica em "Aprovar"</span>
-<span class="resolve">cliente →</span> POST /api/chat/ag-ui/resolve-hitl { toolCallId: <span class="resolve">"tc-1"</span>, response: <span class="resolve">"Aprovar"</span> }
+<span class="resolve">cliente →</span> POST /api/aihub/chat/ag-ui/resolve-hitl { toolCallId: <span class="resolve">"tc-1"</span>, response: <span class="resolve">"Aprovar"</span> }
 
 <span class="comment">// 3. Workflow continua</span>
 <span class="arrow">stream ←</span> <span class="event">TOOL_CALL_RESULT</span>  { toolCallId: <span class="resolve">"tc-1"</span>, result: <span class="resolve">"Aprovar"</span> }
@@ -1589,7 +1589,7 @@ async function sendTurn(userText) {
     <h3>Sequência SSE no turn robot</h3>
 
     <pre><code><span class="comment">// Cliente envia:</span>
-<span class="resolve">cliente →</span> POST /api/chat/ag-ui/stream
+<span class="resolve">cliente →</span> POST /api/aihub/chat/ag-ui/stream
               {
                 "messages": [
                   ...histórico...,
@@ -1608,7 +1608,7 @@ async function sendTurn(userText) {
     <ul>
       <li><code>actor</code> com valor fora de <code>{null, "human", "robot"}</code> (após trim) — mensagem de erro identifica a posição.</li>
       <li><code>actor="robot"</code> em mensagem que <strong>não é</strong> a última do batch — robot fecha turno por design.</li>
-      <li><code>actor="robot"</code> quando há HITL pendente na execução ativa — HITL programático deve usar <code>POST /api/chat/ag-ui/resolve-hitl</code>.</li>
+      <li><code>actor="robot"</code> quando há HITL pendente na execução ativa — HITL programático deve usar <code>POST /api/aihub/chat/ag-ui/resolve-hitl</code>.</li>
     </ul>
 
     <h3>Trust model — <strong>sem auth no backend</strong></h3>
@@ -1749,7 +1749,7 @@ case 'RUN_STARTED':
   break
 
 <span class="comment">// próxima request:</span>
-fetch('/api/chat/ag-ui/stream', {
+fetch('/api/aihub/chat/ag-ui/stream', {
   method: 'POST',
   body: JSON.stringify({ messages: [...], threadId, runId: ... }),
 })</code></pre>
@@ -1799,7 +1799,7 @@ while (true) {
 
     <div class="hitl-flow">
 <span class="comment">// Caminho input: bloqueio antes mesmo de chamar o LLM (zero token gasto)</span>
-<span class="resolve">cliente →</span> POST /api/chat/ag-ui/stream { messages: [{ role: <span class="resolve">"user"</span>, content: <span class="resolve">"meu CPF é 123.456.789-00"</span> }] }
+<span class="resolve">cliente →</span> POST /api/aihub/chat/ag-ui/stream { messages: [{ role: <span class="resolve">"user"</span>, content: <span class="resolve">"meu CPF é 123.456.789-00"</span> }] }
 <span class="arrow">stream ←</span> <span class="event">RUN_STARTED</span>
 <span class="arrow">stream ←</span> <span class="event">SAFETY_VIOLATION</span>  { errorCode: <span class="resolve">"PII"</span>, error: <span class="resolve">"Conteúdo bloqueado: PII detectada"</span>, customValue: { violationId: <span class="resolve">"v-abc"</span>, phase: <span class="resolve">"input"</span>, retryable: false } }
 
@@ -1888,18 +1888,18 @@ while (true) {
 
     <h3>Endpoints de leitura</h3>
 
-    <!-- GET /api/agents -->
+    <!-- GET /api/aihub/agents -->
     <div class="endpoint-card" id="agents-list">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="badge badge-get">GET</span>
-        <span class="endpoint-path">/api/agents</span>
+        <span class="endpoint-path">/api/aihub/agents</span>
         <span class="endpoint-desc">Listar todos os agentes do projeto</span>
         <span class="chevron">▾</span>
       </div>
       <div class="endpoint-body open">
         <p>Retorna todos os agentes do projeto ativo (definido pelo header <code>x-efs-project-id</code>).
         Resposta é um array de <a href="#agents-response"><code>AgentResponse</code></a>.</p>
-        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/agents \
+        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/aihub/agents \
   -H "x-efs-account: 123456789"</code></pre>
         <div class="callout callout-blue">
           Para buscar agentes de um projeto específico: <code>-H "x-efs-project-id: meu-projeto"</code>
@@ -1913,17 +1913,17 @@ while (true) {
       </div>
     </div>
 
-    <!-- GET /api/agents/{id} -->
+    <!-- GET /api/aihub/agents/{id} -->
     <div class="endpoint-card" id="agents-get">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="badge badge-get">GET</span>
-        <span class="endpoint-path">/api/agents/{id}</span>
+        <span class="endpoint-path">/api/aihub/agents/{id}</span>
         <span class="endpoint-desc">Buscar agente por ID</span>
         <span class="chevron">▾</span>
       </div>
       <div class="endpoint-body">
         <p>Retorna o agente completo no schema <a href="#agents-response"><code>AgentResponse</code></a>.</p>
-        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/agents/atendimento-agent-assessor \
+        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/aihub/agents/atendimento-agent-assessor \
   -H "x-efs-account: 123456789"</code></pre>
         <table>
           <thead><tr><th>Código</th><th>Situação</th></tr></thead>
@@ -1939,7 +1939,7 @@ while (true) {
   <!-- Schema da Resposta — Agente -->
   <section id="agents-response">
     <h2>Schema da Resposta — AgentResponse</h2>
-    <p>Formato retornado por <code>GET /api/agents</code> (array) e <code>GET /api/agents/{id}</code> (objeto único).</p>
+    <p>Formato retornado por <code>GET /api/aihub/agents</code> (array) e <code>GET /api/aihub/agents/{id}</code> (objeto único).</p>
 
     <table>
       <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>
@@ -2019,23 +2019,23 @@ while (true) {
     <div class="callout callout-blue">
       <strong>Isolamento por projeto</strong> — Workflows pertencem a um <code>projectId</code>
       (header <code>x-efs-project-id</code>). Workflows com <code>visibility: "global"</code> aparecem em todos
-      os projetos via <code>GET /api/workflows/visible</code>.
+      os projetos via <code>GET /api/aihub/workflows/visible</code>.
     </div>
 
     <h3>Endpoints de leitura</h3>
 
-    <!-- GET /api/workflows -->
+    <!-- GET /api/aihub/workflows -->
     <div class="endpoint-card" id="workflows-list">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="badge badge-get">GET</span>
-        <span class="endpoint-path">/api/workflows</span>
+        <span class="endpoint-path">/api/aihub/workflows</span>
         <span class="endpoint-desc">Listar todos os workflows do projeto</span>
         <span class="chevron">▾</span>
       </div>
       <div class="endpoint-body open">
         <p>Retorna todos os workflows do projeto ativo. Resposta é um array de
         <a href="#workflows-response"><code>WorkflowResponse</code></a>.</p>
-        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/workflows \
+        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/aihub/workflows \
   -H "x-efs-account: 123456789"</code></pre>
         <table>
           <thead><tr><th>Código</th><th>Situação</th></tr></thead>
@@ -2046,17 +2046,17 @@ while (true) {
       </div>
     </div>
 
-    <!-- GET /api/workflows/{id} -->
+    <!-- GET /api/aihub/workflows/{id} -->
     <div class="endpoint-card" id="workflows-get">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="badge badge-get">GET</span>
-        <span class="endpoint-path">/api/workflows/{id}</span>
+        <span class="endpoint-path">/api/aihub/workflows/{id}</span>
         <span class="endpoint-desc">Buscar workflow por ID</span>
         <span class="chevron">▾</span>
       </div>
       <div class="endpoint-body">
         <p>Retorna o workflow completo no schema <a href="#workflows-response"><code>WorkflowResponse</code></a>.</p>
-        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/workflows/assessoria-completa \
+        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/aihub/workflows/assessoria-completa \
   -H "x-efs-account: 123456789"</code></pre>
         <table>
           <thead><tr><th>Código</th><th>Situação</th></tr></thead>
@@ -2068,18 +2068,18 @@ while (true) {
       </div>
     </div>
 
-    <!-- GET /api/workflows/visible -->
+    <!-- GET /api/aihub/workflows/visible -->
     <div class="endpoint-card">
       <div class="endpoint-header" onclick="toggleEndpoint(this)">
         <span class="badge badge-get">GET</span>
-        <span class="endpoint-path">/api/workflows/visible</span>
+        <span class="endpoint-path">/api/aihub/workflows/visible</span>
         <span class="endpoint-desc">Listar workflows visíveis (projeto + global)</span>
         <span class="chevron">▾</span>
       </div>
       <div class="endpoint-body">
         <p>Retorna workflows do projeto atual <strong>e</strong> workflows com <code>visibility: "global"</code>
         de outros projetos. Use para descoberta de catálogos compartilhados.</p>
-        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/workflows/visible \
+        <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/aihub/workflows/visible \
   -H "x-efs-account: 123456789"</code></pre>
       </div>
     </div>
@@ -2088,7 +2088,7 @@ while (true) {
   <!-- Schema da Resposta — Workflow -->
   <section id="workflows-response">
     <h2>Schema da Resposta — WorkflowResponse</h2>
-    <p>Formato retornado por <code>GET /api/workflows</code> (array) e <code>GET /api/workflows/{id}</code> (objeto único).</p>
+    <p>Formato retornado por <code>GET /api/aihub/workflows</code> (array) e <code>GET /api/aihub/workflows/{id}</code> (objeto único).</p>
 
     <table>
       <thead><tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr></thead>

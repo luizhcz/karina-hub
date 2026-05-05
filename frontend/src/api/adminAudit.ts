@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 
 
 /**
- * Entrada da trilha /api/admin/audit-log — espelha AdminAuditEntry do backend.
+ * Entrada da trilha /api/aihub/admin/audit-log — espelha AdminAuditEntry do backend.
  * `payloadBefore` e `payloadAfter` são JsonElement opacos (já que dependem do
  * resourceType); o consumidor inspeciona via JsonViewer no detalhe da linha.
  */

@@ -16,7 +16,7 @@ public class ExecutionsTests(IntegrationWebApplicationFactory factory) : IAsyncL
     [Fact]
     public async Task GetAll_Retorna200ComArray()
     {
-        var response = await _client.GetAsync("/api/executions");
+        var response = await _client.GetAsync("/api/aihub/executions");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -24,7 +24,7 @@ public class ExecutionsTests(IntegrationWebApplicationFactory factory) : IAsyncL
     [Fact]
     public async Task GetAll_ComFiltros_Retorna200()
     {
-        var response = await _client.GetAsync("/api/executions?pageSize=10&page=1");
+        var response = await _client.GetAsync("/api/aihub/executions?pageSize=10&page=1");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -32,7 +32,7 @@ public class ExecutionsTests(IntegrationWebApplicationFactory factory) : IAsyncL
     [Fact]
     public async Task GetById_Inexistente_Retorna404()
     {
-        var response = await _client.GetAsync($"/api/executions/{Guid.NewGuid()}");
+        var response = await _client.GetAsync($"/api/aihub/executions/{Guid.NewGuid()}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -40,7 +40,7 @@ public class ExecutionsTests(IntegrationWebApplicationFactory factory) : IAsyncL
     [Fact]
     public async Task GetNodes_ExecucaoInexistente_Retorna200VazioOuNotFound()
     {
-        var response = await _client.GetAsync($"/api/executions/{Guid.NewGuid()}/nodes");
+        var response = await _client.GetAsync($"/api/aihub/executions/{Guid.NewGuid()}/nodes");
 
         // 200 empty or 404 are both acceptable — depends on implementation
         new[] { HttpStatusCode.OK, HttpStatusCode.NotFound }
@@ -50,7 +50,7 @@ public class ExecutionsTests(IntegrationWebApplicationFactory factory) : IAsyncL
     [Fact]
     public async Task GetTools_ExecucaoInexistente_Retorna200OuNotFound()
     {
-        var response = await _client.GetAsync($"/api/executions/{Guid.NewGuid()}/tools");
+        var response = await _client.GetAsync($"/api/aihub/executions/{Guid.NewGuid()}/tools");
 
         new[] { HttpStatusCode.OK, HttpStatusCode.NotFound }
             .Should().Contain(response.StatusCode);
@@ -59,7 +59,7 @@ public class ExecutionsTests(IntegrationWebApplicationFactory factory) : IAsyncL
     [Fact]
     public async Task GetEvents_ExecucaoInexistente_Retorna200OuNotFound()
     {
-        var response = await _client.GetAsync($"/api/executions/{Guid.NewGuid()}/events");
+        var response = await _client.GetAsync($"/api/aihub/executions/{Guid.NewGuid()}/events");
 
         new[] { HttpStatusCode.OK, HttpStatusCode.NotFound }
             .Should().Contain(response.StatusCode);
@@ -73,7 +73,7 @@ public class ExecutionsTests(IntegrationWebApplicationFactory factory) : IAsyncL
         HttpResponseMessage? response = null;
         try
         {
-            response = await _client.DeleteAsync($"/api/executions/{Guid.NewGuid()}");
+            response = await _client.DeleteAsync($"/api/aihub/executions/{Guid.NewGuid()}");
         }
         catch (Exception ex) when (ex is KeyNotFoundException || ex.InnerException is KeyNotFoundException)
         {

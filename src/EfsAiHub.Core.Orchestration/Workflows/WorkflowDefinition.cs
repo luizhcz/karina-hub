@@ -166,7 +166,7 @@ public class WorkflowAgentReference
     /// Pin de versão de agent. Obrigatório no save (validado em <c>WorkflowValidator</c>);
     /// AgentFactory resolve via <c>IAgentVersionRepository.ResolveEffectiveAsync</c> aplicando
     /// patch propagation. Mutável pra permitir migration de pin via
-    /// <c>PATCH /api/workflows/{id}/agents/{agentId}/pin</c> sem rebuild do agregado.
+    /// <c>PATCH /api/aihub/workflows/{id}/agents/{agentId}/pin</c> sem rebuild do agregado.
     /// </summary>
     public string? AgentVersionId { get; set; }
 }

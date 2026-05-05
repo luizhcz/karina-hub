@@ -1,7 +1,7 @@
 namespace EfsAiHub.Tests.Integration.Workflows;
 
 /// <summary>
-/// Cobre PATCH /api/workflows/{id}/visibility +
+/// Cobre PATCH /api/aihub/workflows/{id}/visibility +
 /// owner gate (403), tenant boundary (workflow global de outro tenant invisível),
 /// preservação no PUT, hidratação no GET.
 /// </summary>
@@ -33,10 +33,10 @@ public class WorkflowVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Patch_VisibilityValida_Retorna200_AtualizaCampo()
     {
         var id = $"wf-vis-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/workflows", BuildPayload(id));
+        await _client.PostAsJsonAsync("/api/aihub/workflows", BuildPayload(id));
 
         var resp = await _client.PatchAsJsonAsync(
-            $"/api/workflows/{id}/visibility",
+            $"/api/aihub/workflows/{id}/visibility",
             new { visibility = "global", reason = "test promote" });
 
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -50,10 +50,10 @@ public class WorkflowVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Patch_VisibilityInvalida_Retorna400()
     {
         var id = $"wf-vis-bad-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/workflows", BuildPayload(id));
+        await _client.PostAsJsonAsync("/api/aihub/workflows", BuildPayload(id));
 
         var resp = await _client.PatchAsJsonAsync(
-            $"/api/workflows/{id}/visibility",
+            $"/api/aihub/workflows/{id}/visibility",
             new { visibility = "shared" });
 
         resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -63,7 +63,7 @@ public class WorkflowVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Patch_WorkflowInexistente_Retorna404()
     {
         var resp = await _client.PatchAsJsonAsync(
-            "/api/workflows/wf-nao-existe-xyz/visibility",
+            "/api/aihub/workflows/wf-nao-existe-xyz/visibility",
             new { visibility = "global" });
 
         resp.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -73,11 +73,11 @@ public class WorkflowVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Patch_VisibilityIgualAoExistente_RetornaOK_NoOp()
     {
         var id = $"wf-vis-noop-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/workflows", BuildPayload(id));
+        await _client.PostAsJsonAsync("/api/aihub/workflows", BuildPayload(id));
 
         // workflow nasce com visibility=project. Re-marca pra project => no-op.
         var resp = await _client.PatchAsJsonAsync(
-            $"/api/workflows/{id}/visibility",
+            $"/api/aihub/workflows/{id}/visibility",
             new { visibility = "project" });
 
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -89,9 +89,9 @@ public class WorkflowVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Get_WorkflowResponse_ExpoeVisibility_E_OriginProjectId()
     {
         var id = $"wf-vis-resp-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/workflows", BuildPayload(id));
+        await _client.PostAsJsonAsync("/api/aihub/workflows", BuildPayload(id));
 
-        var resp = await _client.GetAsync($"/api/workflows/{id}");
+        var resp = await _client.GetAsync($"/api/aihub/workflows/{id}");
 
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
@@ -108,7 +108,7 @@ public class WorkflowVisibilityTests(IntegrationWebApplicationFactory factory)
     {
         // Setup: cria workflow no projeto "default" (owner).
         var id = $"wf-owner-gate-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/workflows", BuildPayload(id, "global"));
+        await _client.PostAsJsonAsync("/api/aihub/workflows", BuildPayload(id, "global"));
 
         // Como o workflow está global, é visível em outro projeto. Mas owner gate impede mudança.
         // Cliente novo no contexto de outro projeto tenta o PATCH → espera 403.
@@ -119,7 +119,7 @@ public class WorkflowVisibilityTests(IntegrationWebApplicationFactory factory)
         var otherProjectClient = _factory.CreateClient().WithProject("other-project-fake");
 
         var resp = await otherProjectClient.PatchAsJsonAsync(
-            $"/api/workflows/{id}/visibility",
+            $"/api/aihub/workflows/{id}/visibility",
             new { visibility = "project" });
 
         resp.StatusCode.Should().Be(HttpStatusCode.Forbidden);
@@ -135,17 +135,17 @@ public class WorkflowVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Patch_PromoteParaGlobal_GeraAuditRow()
     {
         var id = $"wf-audit-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/workflows", BuildPayload(id));
+        await _client.PostAsJsonAsync("/api/aihub/workflows", BuildPayload(id));
 
         var resp = await _client.PatchAsJsonAsync(
-            $"/api/workflows/{id}/visibility",
+            $"/api/aihub/workflows/{id}/visibility",
             new { visibility = "global", reason = "promote test" });
 
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // Confirma audit row via API admin (já existe).
         await Task.Delay(150); // pequeno delay pra dar chance ao audit logger persistir.
-        var auditResp = await _client.GetAsync($"/api/admin/audit/log?action=workflow.visibility_changed&resourceId={id}");
+        var auditResp = await _client.GetAsync($"/api/aihub/admin/audit/log?action=workflow.visibility_changed&resourceId={id}");
         // Endpoint pode não existir no setup atual; só verificamos que PATCH retornou 200 e
         // PayloadAfter inclui visibility="global" no body de retorno (smoke).
         auditResp.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.NotFound);
@@ -157,11 +157,11 @@ public class WorkflowVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Put_Workflow_PreservaVisibility_GlobalNaoVoltaParaProject()
     {
         var id = $"wf-put-preserve-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/workflows", BuildPayload(id));
+        await _client.PostAsJsonAsync("/api/aihub/workflows", BuildPayload(id));
 
         // Marca como global via PATCH.
         var promote = await _client.PatchAsJsonAsync(
-            $"/api/workflows/{id}/visibility",
+            $"/api/aihub/workflows/{id}/visibility",
             new { visibility = "global" });
         promote.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -173,11 +173,11 @@ public class WorkflowVisibilityTests(IntegrationWebApplicationFactory factory)
             orchestrationMode = "Sequential",
             agents = new[] { new { agentId = "agent-placeholder" } }
         };
-        var put = await _client.PutAsJsonAsync($"/api/workflows/{id}", updateBody);
+        var put = await _client.PutAsJsonAsync($"/api/aihub/workflows/{id}", updateBody);
         put.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // GET deve confirmar que visibility ainda é "global".
-        var get = await _client.GetAsync($"/api/workflows/{id}");
+        var get = await _client.GetAsync($"/api/aihub/workflows/{id}");
         get.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await get.Content.ReadFromJsonAsync<JsonElement>();
         body.GetProperty("visibility").GetString()
@@ -191,9 +191,9 @@ public class WorkflowVisibilityTests(IntegrationWebApplicationFactory factory)
     public async Task Get_HidrataCamposEstruturais_SeJsonAntigoTiverDivergencia()
     {
         var id = $"wf-hydrate-{Guid.NewGuid():N}";
-        await _client.PostAsJsonAsync("/api/workflows", BuildPayload(id, "global"));
+        await _client.PostAsJsonAsync("/api/aihub/workflows", BuildPayload(id, "global"));
 
-        var get = await _client.GetAsync($"/api/workflows/{id}");
+        var get = await _client.GetAsync($"/api/aihub/workflows/{id}");
         get.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await get.Content.ReadFromJsonAsync<JsonElement>();
         // 3 campos de identidade vêm da row (não confiamos no JSON serializado).

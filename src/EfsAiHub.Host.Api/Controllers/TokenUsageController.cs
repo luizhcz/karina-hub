@@ -4,7 +4,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/token-usage")]
+[Route("api/aihub/token-usage")]
 [Produces("application/json")]
 public class TokenUsageController : ControllerBase
 {

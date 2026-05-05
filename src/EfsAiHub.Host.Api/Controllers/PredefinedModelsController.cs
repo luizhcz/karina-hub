@@ -5,10 +5,10 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// <summary>
 /// Endpoint público read-only do catálogo de presets — usado pelo AgentForm
 /// pra popular o dropdown "Modelo". Filtra <c>Enabled=true</c> por default
-/// (PMs não veem inativos). Admin CRUD vive em /api/admin/predefined-models.
+/// (PMs não veem inativos). Admin CRUD vive em /api/aihub/admin/predefined-models.
 /// </summary>
 [ApiController]
-[Route("api/predefined-models")]
+[Route("api/aihub/predefined-models")]
 [Produces("application/json")]
 public class PredefinedModelsController : ControllerBase
 {

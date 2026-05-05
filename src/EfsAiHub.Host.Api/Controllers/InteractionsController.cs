@@ -6,7 +6,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace EfsAiHub.Host.Api.Controllers;
 
 [ApiController]
-[Route("api/interactions")]
+[Route("api/aihub/interactions")]
 [Produces("application/json")]
 public class InteractionsController : ControllerBase
 {

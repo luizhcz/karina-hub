@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { get } from './client'
 
-/** Item da lista retornada por GET /api/notifications/agent-breaking-changes. */
+/** Item da lista retornada por GET /api/aihub/notifications/agent-breaking-changes. */
 export interface AgentBreakingChangeNotification {
   agentId: string
   agentName?: string | null

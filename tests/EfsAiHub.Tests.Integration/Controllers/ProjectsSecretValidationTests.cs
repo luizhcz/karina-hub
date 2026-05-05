@@ -9,7 +9,7 @@ public class ProjectsSecretValidationTests(IntegrationWebApplicationFactory fact
     [Fact]
     public async Task Post_LiteralLlmApiKey_Retorna400()
     {
-        var response = await _client.PostAsJsonAsync("/api/projects", new
+        var response = await _client.PostAsJsonAsync("/api/aihub/projects", new
         {
             name = $"proj-{Guid.NewGuid():N}",
             llmConfig = new
@@ -30,7 +30,7 @@ public class ProjectsSecretValidationTests(IntegrationWebApplicationFactory fact
     [Fact]
     public async Task Post_AwsRefLlmApiKey_Retorna201()
     {
-        var response = await _client.PostAsJsonAsync("/api/projects", new
+        var response = await _client.PostAsJsonAsync("/api/aihub/projects", new
         {
             name = $"proj-{Guid.NewGuid():N}",
             llmConfig = new
@@ -48,7 +48,7 @@ public class ProjectsSecretValidationTests(IntegrationWebApplicationFactory fact
     [Fact]
     public async Task Post_LiteralFoundryApiKeyRef_Retorna400()
     {
-        var response = await _client.PostAsJsonAsync("/api/projects", new
+        var response = await _client.PostAsJsonAsync("/api/aihub/projects", new
         {
             name = $"proj-{Guid.NewGuid():N}",
             settings = new
@@ -69,11 +69,11 @@ public class ProjectsSecretValidationTests(IntegrationWebApplicationFactory fact
     [Fact]
     public async Task Put_LiteralLlmApiKey_Retorna400()
     {
-        var post = await _client.PostAsJsonAsync("/api/projects", new { name = $"proj-{Guid.NewGuid():N}" });
+        var post = await _client.PostAsJsonAsync("/api/aihub/projects", new { name = $"proj-{Guid.NewGuid():N}" });
         var created = await post.Content.ReadFromJsonAsync<JsonElement>();
         var id = created.GetProperty("id").GetString()!;
 
-        var response = await _client.PutAsJsonAsync($"/api/projects/{id}", new
+        var response = await _client.PutAsJsonAsync($"/api/aihub/projects/{id}", new
         {
             llmConfig = new
             {
@@ -90,7 +90,7 @@ public class ProjectsSecretValidationTests(IntegrationWebApplicationFactory fact
     [Fact]
     public async Task Put_MaskedApiKey_Retorna400()
     {
-        var post = await _client.PostAsJsonAsync("/api/projects", new
+        var post = await _client.PostAsJsonAsync("/api/aihub/projects", new
         {
             name = $"proj-{Guid.NewGuid():N}",
             llmConfig = new
@@ -106,7 +106,7 @@ public class ProjectsSecretValidationTests(IntegrationWebApplicationFactory fact
 
         // UI nunca deve fazer round-trip do valor mascarado — esperamos rejeição
         // explícita pra forçar reenvio da referência completa.
-        var response = await _client.PutAsJsonAsync($"/api/projects/{id}", new
+        var response = await _client.PutAsJsonAsync($"/api/aihub/projects/{id}", new
         {
             name = "renamed",
             llmConfig = new

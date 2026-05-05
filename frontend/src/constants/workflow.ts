@@ -1,5 +1,5 @@
 
-/** UI labels for orchestration modes (values come from GET /api/enums) */
+/** UI labels for orchestration modes (values come from GET /api/aihub/enums) */
 export const ORCHESTRATION_MODE_LABELS: Record<string, string> = {
   Sequential: 'Sequential — pipeline em ordem',
   Concurrent: 'Concurrent — todos em paralelo',
@@ -8,7 +8,7 @@ export const ORCHESTRATION_MODE_LABELS: Record<string, string> = {
   Graph: 'Graph — grafo dirigido com edges explícitas',
 }
 
-/** UI labels for edge types (values come from GET /api/enums) */
+/** UI labels for edge types (values come from GET /api/aihub/enums) */
 export const EDGE_TYPE_LABELS: Record<string, string> = {
   Direct: 'Direct — simple A → B',
   Conditional: 'Conditional — boolean condition',
@@ -17,7 +17,7 @@ export const EDGE_TYPE_LABELS: Record<string, string> = {
   FanIn: 'Fan In — many → one',
 }
 
-/** UI labels for trigger types (values come from GET /api/enums) */
+/** UI labels for trigger types (values come from GET /api/aihub/enums) */
 export const TRIGGER_TYPE_LABELS: Record<string, string> = {
   OnDemand: 'On Demand',
   Scheduled: 'Scheduled',

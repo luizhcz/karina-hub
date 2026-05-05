@@ -10,7 +10,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// evitar colisão quando MEAI e Foundry expõem evaluators com mesmo nome.
 /// </summary>
 [ApiController]
-[Route("api/evaluator-config")]
+[Route("api/aihub/evaluator-config")]
 [Produces("application/json")]
 public sealed class EvaluatorCatalogController : ControllerBase
 {

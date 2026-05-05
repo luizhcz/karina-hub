@@ -73,7 +73,7 @@ export function AgentSandboxPage() {
 
   const ensureSession = async (): Promise<string | null> => {
     if (sessionId) return sessionId
-    const res = await fetch(`/api/agents/${id}/sessions`, {
+    const res = await fetch(`/api/aihub/agents/${id}/sessions`, {
       method: 'POST',
       headers: getIdentityHeaders(),
     })
@@ -102,7 +102,7 @@ export function AgentSandboxPage() {
       const assistantId = `a-${Date.now()}`
       setMsgs(prev => [...prev, { kind: 'assistant', id: assistantId, content: '', streaming: true }])
 
-      const response = await fetch(`/api/agents/${id}/sessions/${sid}/stream`, {
+      const response = await fetch(`/api/aihub/agents/${id}/sessions/${sid}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getIdentityHeaders() },
         body: JSON.stringify({ message: text }),

@@ -127,8 +127,8 @@ export function streamEvalRun(
 ): () => void {
   const id = getIdentity()
   const url = id?.projectId
-    ? `/api/evaluations/runs/${encodeURIComponent(runId)}/stream?projectId=${encodeURIComponent(id.projectId)}`
-    : `/api/evaluations/runs/${encodeURIComponent(runId)}/stream`
+    ? `/api/aihub/evaluations/runs/${encodeURIComponent(runId)}/stream?projectId=${encodeURIComponent(id.projectId)}`
+    : `/api/aihub/evaluations/runs/${encodeURIComponent(runId)}/stream`
 
   const es = new EventSource(url)
   const close = () => es.close()

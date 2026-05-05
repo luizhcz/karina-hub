@@ -30,7 +30,7 @@ Quando uma violação de política bate, o middleware retorna **HTTP 422 com env
    ```
 3. **Se a query retornar 0 rows** dentro de ~5s da violação, há 2 possibilidades:
    - Audit log gravou mas com payload diferente (improvável — schema do payload é fixo no `BlocklistChatClient.EmitMetricAndAuditAsync`).
-   - `ProjectSettings.Blocklist.AuditBlocks=false` no projeto (admin desabilitou o audit). Confirmar via `GET /api/projects/{id}/blocklist`.
+   - `ProjectSettings.Blocklist.AuditBlocks=false` no projeto (admin desabilitou o audit). Confirmar via `GET /api/aihub/projects/{id}/blocklist`.
 4. Se categoria + `pattern_id` fazem sentido pro projeto, é **funcionamento correto**. Se não, é falso positivo — abrir issue de catálogo (`#efs-compliance`).
 
 ## 500 com `error: "Internal server error"` em rota com blocklist ativo

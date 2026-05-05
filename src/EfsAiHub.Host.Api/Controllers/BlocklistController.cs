@@ -43,7 +43,7 @@ public sealed class BlocklistController : ControllerBase
         _engine = engine;
     }
 
-    [HttpGet("/api/admin/blocklist/catalog")]
+    [HttpGet("/api/aihub/admin/blocklist/catalog")]
     [SwaggerOperation(
         Summary = "Inspeciona o catálogo curado de blocklist (read-only)",
         Description = "Retorna grupos e patterns ativos. Atualizações via db/seeds.sql + apply.sh pelo DBA.")]
@@ -54,7 +54,7 @@ public sealed class BlocklistController : ControllerBase
         return Ok(BlocklistCatalogResponse.From(snapshot));
     }
 
-    [HttpGet("/api/projects/{id}/blocklist")]
+    [HttpGet("/api/aihub/projects/{id}/blocklist")]
     [SwaggerOperation(
         Summary = "Retorna a config de blocklist do projeto (override sobre o catálogo)",
         Description = "Default = blocklist desabilitada. Use PUT pra atualizar.")]
@@ -69,7 +69,7 @@ public sealed class BlocklistController : ControllerBase
         return Ok(new ProjectBlocklistResponse(id, settings));
     }
 
-    [HttpPut("/api/projects/{id}/blocklist")]
+    [HttpPut("/api/aihub/projects/{id}/blocklist")]
     [SwaggerOperation(
         Summary = "Atualiza config de blocklist do projeto",
         Description = "Substitui inteiramente ProjectSettings.Blocklist. " +
@@ -108,7 +108,7 @@ public sealed class BlocklistController : ControllerBase
         return Ok(new ProjectBlocklistResponse(id, newBlocklist));
     }
 
-    [HttpGet("/api/projects/{id}/blocklist/violations")]
+    [HttpGet("/api/aihub/projects/{id}/blocklist/violations")]
     [SwaggerOperation(
         Summary = "Lista violações de blocklist do projeto",
         Description = "Query no admin_audit_log filtrado por Action='blocklist_violation'. " +

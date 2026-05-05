@@ -1,7 +1,7 @@
 namespace EfsAiHub.Host.Api.Models.Requests;
 
 /// <summary>
-/// Body do PATCH /api/workflows/{id}/visibility — solicita mudança de visibilidade.
+/// Body do PATCH /api/aihub/workflows/{id}/visibility — solicita mudança de visibilidade.
 /// Reason é opcional; quando enviado vai pro audit log junto com payloadBefore/After.
 /// </summary>
 public sealed class UpdateWorkflowVisibilityRequest

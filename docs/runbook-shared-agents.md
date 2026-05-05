@@ -231,7 +231,7 @@ Pin é **mandatório global** pós-cleanup pré-prod. Não há flag de opt-out:
 - Workflow save sem `AgentVersionId` em algum ref → `WorkflowService.ResolveDefaultPinsAsync`
   resolve `current` Published do agent e popula automaticamente. Caller que não declara
   intent recebe pin "current".
-- Migration manual via `PATCH /api/workflows/{id}/agents/{agentId}/pin` (audit
+- Migration manual via `PATCH /api/aihub/workflows/{id}/agents/{agentId}/pin` (audit
   `workflow.agent_version_pinned`).
 - Snapshots são **lossless** (não há mais SchemaVersion discriminator). `BreakingChange`
   é `bool` non-nullable (default `false` = patch).

@@ -80,7 +80,7 @@ public class AgentDefinition
     /// Agent ligado/desligado. Default true. Quando false, workflows que referenciam o
     /// agent continuam saváveis (warning UI), mas o agent é pulado em runtime — pipeline
     /// continua sem invocar o agent. Permite manutenção sem migrar todos os workflows callers.
-    /// Mutável via PATCH /api/agents/{id}/enabled.
+    /// Mutável via PATCH /api/aihub/agents/{id}/enabled.
     /// </summary>
     public bool Enabled { get; set; } = true;
 

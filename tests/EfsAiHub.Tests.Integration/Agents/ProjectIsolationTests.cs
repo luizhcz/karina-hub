@@ -20,7 +20,7 @@ public class ProjectIsolationTests(IntegrationWebApplicationFactory factory)
         var clientA = factory.CreateClient().WithProject(projetoA);
         var clientB = factory.CreateClient().WithProject(projetoB);
 
-        var post = await clientA.PostAsJsonAsync("/api/agents", new
+        var post = await clientA.PostAsJsonAsync("/api/aihub/agents", new
         {
             id = agentId,
             name = "Isolation Test Agent",
@@ -28,7 +28,7 @@ public class ProjectIsolationTests(IntegrationWebApplicationFactory factory)
         });
         post.StatusCode.Should().Be(HttpStatusCode.Created);
 
-        var getFromB = await clientB.GetAsync($"/api/agents/{agentId}");
+        var getFromB = await clientB.GetAsync($"/api/aihub/agents/{agentId}");
 
         getFromB.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -41,14 +41,14 @@ public class ProjectIsolationTests(IntegrationWebApplicationFactory factory)
 
         var clientA = factory.CreateClient().WithProject(projetoA);
 
-        await clientA.PostAsJsonAsync("/api/agents", new
+        await clientA.PostAsJsonAsync("/api/aihub/agents", new
         {
             id = agentId,
             name = "Visible Agent",
             model = new { deploymentName = "gpt-4o" }
         });
 
-        var getFromA = await clientA.GetAsync($"/api/agents/{agentId}");
+        var getFromA = await clientA.GetAsync($"/api/aihub/agents/{agentId}");
 
         getFromA.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -63,14 +63,14 @@ public class ProjectIsolationTests(IntegrationWebApplicationFactory factory)
         var clientA = factory.CreateClient().WithProject(projetoA);
         var clientB = factory.CreateClient().WithProject(projetoB);
 
-        await clientA.PostAsJsonAsync("/api/agents", new
+        await clientA.PostAsJsonAsync("/api/aihub/agents", new
         {
             id = agentIdA,
             name = "List Isolation Agent",
             model = new { deploymentName = "gpt-4o" }
         });
 
-        var listFromB = await clientB.GetAsync("/api/agents");
+        var listFromB = await clientB.GetAsync("/api/aihub/agents");
         var body = await listFromB.Content.ReadFromJsonAsync<JsonElement>();
 
         listFromB.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -96,14 +96,14 @@ public class ProjectIsolationTests(IntegrationWebApplicationFactory factory)
 
         // Criar agente no projeto A (workflows exigem ao menos um agente)
         var agentId = $"agent-wf-{Guid.NewGuid():N}";
-        await clientA.PostAsJsonAsync("/api/agents", new
+        await clientA.PostAsJsonAsync("/api/aihub/agents", new
         {
             id = agentId,
             name = "WF Isolation Agent",
             model = new { deploymentName = "gpt-4o" }
         });
 
-        var post = await clientA.PostAsJsonAsync("/api/workflows", new
+        var post = await clientA.PostAsJsonAsync("/api/aihub/workflows", new
         {
             id = workflowId,
             name = "Isolation Test Workflow",
@@ -112,7 +112,7 @@ public class ProjectIsolationTests(IntegrationWebApplicationFactory factory)
         });
         post.StatusCode.Should().Be(HttpStatusCode.Created);
 
-        var getFromB = await clientB.GetAsync($"/api/workflows/{workflowId}");
+        var getFromB = await clientB.GetAsync($"/api/aihub/workflows/{workflowId}");
 
         getFromB.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -129,7 +129,7 @@ public class ProjectIsolationTests(IntegrationWebApplicationFactory factory)
         var clientA = factory.CreateClient().WithProject(projetoA);
         var clientB = factory.CreateClient().WithProject(projetoB);
 
-        var put = await clientA.PutAsJsonAsync($"/api/skills/{skillId}", new
+        var put = await clientA.PutAsJsonAsync($"/api/aihub/skills/{skillId}", new
         {
             id = skillId,
             name = "Isolation Test Skill",
@@ -137,7 +137,7 @@ public class ProjectIsolationTests(IntegrationWebApplicationFactory factory)
         });
         put.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var getFromB = await clientB.GetAsync($"/api/skills/{skillId}");
+        var getFromB = await clientB.GetAsync($"/api/aihub/skills/{skillId}");
 
         getFromB.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -150,14 +150,14 @@ public class ProjectIsolationTests(IntegrationWebApplicationFactory factory)
 
         var clientA = factory.CreateClient().WithProject(projetoA);
 
-        await clientA.PutAsJsonAsync($"/api/skills/{skillId}", new
+        await clientA.PutAsJsonAsync($"/api/aihub/skills/{skillId}", new
         {
             id = skillId,
             name = "Visible Skill",
             description = "Same-project visibility test"
         });
 
-        var getFromA = await clientA.GetAsync($"/api/skills/{skillId}");
+        var getFromA = await clientA.GetAsync($"/api/aihub/skills/{skillId}");
 
         getFromA.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -170,7 +170,7 @@ public class ProjectIsolationTests(IntegrationWebApplicationFactory factory)
         var client = factory.CreateClientWithAdminGate("test-admin-999");
         // Sem x-efs-project-id → ProjectId resolve para "default" → 403 para não-admin
 
-        var response = await client.GetAsync("/api/agents");
+        var response = await client.GetAsync("/api/aihub/agents");
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
@@ -181,7 +181,7 @@ public class ProjectIsolationTests(IntegrationWebApplicationFactory factory)
         var client = factory.CreateClientWithAdminGate("test-admin-999")
             .WithAdminAccount("test-admin-999");
 
-        var response = await client.GetAsync("/api/agents");
+        var response = await client.GetAsync("/api/aihub/agents");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
