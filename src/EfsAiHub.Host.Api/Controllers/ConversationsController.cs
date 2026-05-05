@@ -1,5 +1,6 @@
 using System.Text;
 using EfsAiHub.Core.Abstractions.Conversations;
+using EfsAiHub.Host.Api.Endpoints.Polling;
 using EfsAiHub.Host.Api.Models.Requests;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
@@ -13,6 +14,8 @@ public class ConversationsController : ControllerBase
 {
     private readonly IConversationFacade _facade;
     private readonly IWorkflowEventBus _eventBus;
+    private readonly IWorkflowEventRepository _eventRepo;
+    private readonly IWorkflowService _workflowService;
     private readonly IExecutionDetailReader _detailReader;
     private readonly UserIdentityResolver _identityResolver;
     private readonly ILogger<ConversationsController> _logger;
@@ -20,12 +23,16 @@ public class ConversationsController : ControllerBase
     public ConversationsController(
         IConversationFacade facade,
         IWorkflowEventBus eventBus,
+        IWorkflowEventRepository eventRepo,
+        IWorkflowService workflowService,
         IExecutionDetailReader detailReader,
         UserIdentityResolver identityResolver,
         ILogger<ConversationsController> logger)
     {
         _facade = facade;
         _eventBus = eventBus;
+        _eventRepo = eventRepo;
+        _workflowService = workflowService;
         _detailReader = detailReader;
         _identityResolver = identityResolver;
         _logger = logger;
@@ -178,6 +185,62 @@ public class ConversationsController : ControllerBase
             messageIds = sendResult.PersistedMessages?.Select(m => m.MessageId)
         });
     }
+
+    [HttpGet("{id}/messages/events")]
+    [SwaggerOperation(Summary = "Polling fallback HTTP — alternativa ao /messages/stream pra clientes sem SSE")]
+    [ProducesResponseType(typeof(EventPollingResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> EventsMessages(
+        string id,
+        [FromQuery] long? since,
+        [FromQuery] int? limit,
+        [FromQuery] int? waitMs,
+        CancellationToken ct = default)
+    {
+        var (s, l, w, err) = EventPollingValidation.Parse(since, limit, waitMs);
+        if (err is not null) return BadRequest(new { error = err });
+
+        var session = await _facade.GetAsync(id, ct);
+        if (session is null) return NotFound();
+
+        // Sem execução ativa = não há eventos ainda. Responde shape válido pra cliente
+        // continuar pollando (terminal=false) até a próxima mensagem disparar workflow.
+        if (string.IsNullOrEmpty(session.ActiveExecutionId))
+        {
+            return Ok(new EventPollingResponse(Array.Empty<EventPollingItem>(), s, false));
+        }
+
+        var executionId = session.ActiveExecutionId;
+        var response = await DbPollingHelper.PollAsync(
+            readSince: async (cursor, max, innerCt) =>
+            {
+                var events = await _eventRepo.GetSinceAsync(executionId, cursor, max, innerCt);
+                return events.Select(e => new EventPollingItem(
+                    Seq: e.SequenceId,
+                    Type: MapConversationEventType(e.EventType),
+                    Payload: DbPollingHelper.ToJsonElement(e.Payload),
+                    OccurredAt: new DateTimeOffset(DateTime.SpecifyKind(e.Timestamp, DateTimeKind.Utc), TimeSpan.Zero))).ToList();
+            },
+            isTerminalAsync: async (_) =>
+            {
+                var current = await _workflowService.GetExecutionAsync(executionId, ct);
+                return current is null || ExecutionsController.IsTerminalStatus(current.Status);
+            },
+            since: s,
+            limit: l,
+            waitFor: w,
+            ct: ct);
+
+        return Ok(response);
+    }
+
+    private static string MapConversationEventType(string raw) => raw switch
+    {
+        "hitl_required" => "waiting_for_input",
+        "workflow_completed" => "message_complete",
+        _ => raw
+    };
 
     [HttpGet("{id}/messages/stream")]
     [SwaggerOperation(Summary = "SSE: stream de eventos em tempo real para a conversa ativa")]

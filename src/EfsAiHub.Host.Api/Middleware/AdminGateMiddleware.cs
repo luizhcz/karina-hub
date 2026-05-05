@@ -71,6 +71,13 @@ public sealed class AdminGateMiddleware
     private static readonly Regex ExecutionReadPattern =
         new(@"^/api/executions/[^/]+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // GET /api/executions/{id}/events — polling fallback HTTP (alternativa ao
+    // /stream pra clientes sem SSE). Mesmo project scope da rota /stream e do
+    // GetById (HasQueryFilter via WorkflowExecution). Identidade via headers
+    // padrão (não query param — clients de polling usam fetch, suportam headers).
+    private static readonly Regex ExecutionEventsPattern =
+        new(@"^/api/executions/[^/]+/events$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     // PUT /api/agents/{id} — exatamente 3 segmentos
     // Mesmo regex serve pra GET /api/agents/{id} (read by id) — sub-rotas como
     // /versions, /rollback, /enabled, /visibility, /sandbox NÃO casam (admin-only).
@@ -145,6 +152,12 @@ public sealed class AdminGateMiddleware
     // (controller já cobre isso em StreamRun). Mesmo project scope dos GETs acima.
     private static readonly Regex EvaluationsRunStreamPattern =
         new(@"^/api/evaluations/runs/[^/]+/stream$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // GET /api/evaluations/runs/{id}/events — polling fallback HTTP (Pattern C).
+    // Alternativa ao /stream pra clientes sem SSE. Mesmo project scope (HasQueryFilter
+    // no repo) e mesmo fallback de projectId via query param do StreamRun.
+    private static readonly Regex EvaluationsRunEventsPattern =
+        new(@"^/api/evaluations/runs/[^/]+/events$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // GET /api/analytics/projects/{id}/(overview|timeseries|agents|budget) —
     // dashboard de uso/custo por projeto. Liberado pra non-admin com a mesma
@@ -260,6 +273,11 @@ public sealed class AdminGateMiddleware
             && ExecutionReadPattern.IsMatch(path))
             return true;
 
+        // GET /api/executions/{id}/events — polling fallback (Pattern A).
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && ExecutionEventsPattern.IsMatch(path))
+            return true;
+
         // Agent: criar (POST), ler (GET lista + GET /{id}), forkar pra rascunho
         // de edição (POST /{id}/edit-draft). Naturalmente escopadas por project/
         // tenant via HasQueryFilter no DbContext.
@@ -319,6 +337,11 @@ public sealed class AdminGateMiddleware
         // SSE de progresso (EventSource). Identidade via query param já tratada acima.
         if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
             && EvaluationsRunStreamPattern.IsMatch(path))
+            return true;
+
+        // Polling fallback (Pattern C) — mesma garantia de project scope do /stream.
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+            && EvaluationsRunEventsPattern.IsMatch(path))
             return true;
 
         if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)

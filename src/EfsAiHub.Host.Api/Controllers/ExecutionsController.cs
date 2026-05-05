@@ -1,3 +1,4 @@
+using EfsAiHub.Host.Api.Endpoints.Polling;
 using EfsAiHub.Host.Api.Models.Responses;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
@@ -11,15 +12,18 @@ public class ExecutionsController : ControllerBase
 {
     private readonly IWorkflowService _workflowService;
     private readonly IWorkflowEventBus _eventBus;
+    private readonly IWorkflowEventRepository _eventRepo;
     private readonly IExecutionDetailReader _detailReader;
 
     public ExecutionsController(
         IWorkflowService workflowService,
         IWorkflowEventBus eventBus,
+        IWorkflowEventRepository eventRepo,
         IExecutionDetailReader detailReader)
     {
         _workflowService = workflowService;
         _eventBus = eventBus;
+        _eventRepo = eventRepo;
         _detailReader = detailReader;
     }
 
@@ -88,6 +92,52 @@ public class ExecutionsController : ControllerBase
             events = detail.Events
         });
     }
+
+    [HttpGet("{executionId}/events")]
+    [SwaggerOperation(Summary = "Polling fallback HTTP — alternativa ao /stream pra clientes sem SSE")]
+    [ProducesResponseType(typeof(EventPollingResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Events(
+        string executionId,
+        [FromQuery] long? since,
+        [FromQuery] int? limit,
+        [FromQuery] int? waitMs,
+        CancellationToken ct = default)
+    {
+        var (s, l, w, err) = EventPollingValidation.Parse(since, limit, waitMs);
+        if (err is not null) return BadRequest(new { error = err });
+
+        var execution = await _workflowService.GetExecutionAsync(executionId, ct);
+        if (execution is null) return NotFound();
+
+        var response = await DbPollingHelper.PollAsync(
+            readSince: async (cursor, max, innerCt) =>
+            {
+                var events = await _eventRepo.GetSinceAsync(executionId, cursor, max, innerCt);
+                return events.Select(e => new EventPollingItem(
+                    Seq: e.SequenceId,
+                    Type: e.EventType,
+                    Payload: DbPollingHelper.ToJsonElement(e.Payload),
+                    OccurredAt: new DateTimeOffset(DateTime.SpecifyKind(e.Timestamp, DateTimeKind.Utc), TimeSpan.Zero))).ToList();
+            },
+            isTerminalAsync: async (_) =>
+            {
+                var current = await _workflowService.GetExecutionAsync(executionId, ct);
+                return current is null || IsTerminalStatus(current.Status);
+            },
+            since: s,
+            limit: l,
+            waitFor: w,
+            ct: ct);
+
+        return Ok(response);
+    }
+
+    internal static bool IsTerminalStatus(EfsAiHub.Core.Orchestration.Enums.WorkflowStatus status) =>
+        status is EfsAiHub.Core.Orchestration.Enums.WorkflowStatus.Completed
+              or EfsAiHub.Core.Orchestration.Enums.WorkflowStatus.Failed
+              or EfsAiHub.Core.Orchestration.Enums.WorkflowStatus.Cancelled;
 
     [HttpGet("{executionId}/stream")]
     [SwaggerOperation(Summary = "Streaming SSE de eventos da execução em tempo real")]
