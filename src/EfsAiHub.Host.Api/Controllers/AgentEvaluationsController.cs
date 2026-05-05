@@ -3,6 +3,7 @@ using System.Text;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Agents.Evaluation;
+using EfsAiHub.Host.Api.Endpoints.Polling;
 using EfsAiHub.Host.Api.Models.Requests.Evaluation;
 using EfsAiHub.Host.Api.Models.Responses.Evaluation;
 using EfsAiHub.Host.Api.Services;
@@ -295,6 +296,113 @@ public sealed class AgentEvaluationsController : ControllerBase
             catch (OperationCanceledException) { break; }
         }
     }
+
+    [HttpGet("api/evaluations/runs/{runId}/events")]
+    [SwaggerOperation(Summary = "Polling fallback HTTP — alternativa ao /stream pra clientes sem SSE")]
+    [ProducesResponseType(typeof(EventPollingResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> EventsRun(
+        string runId,
+        [FromQuery] long? since,
+        [FromQuery] int? limit,
+        [FromQuery] int? waitMs,
+        [FromQuery] string? projectId,
+        CancellationToken ct = default)
+    {
+        var (s, l, w, err) = EventPollingValidation.Parse(since, limit, waitMs);
+        if (err is not null) return BadRequest(new { error = err });
+
+        // Mesmo fallback do /stream pra projeto via query string (parity com clientes
+        // que não passam x-efs-project-id no header).
+        if (!string.IsNullOrEmpty(projectId) && !_projectAccessor.Current.IsExplicit)
+        {
+            _projectAccessor.Current = new ProjectContext(projectId);
+        }
+
+        var run = await _runRepo.GetByIdAsync(runId, ct);
+        if (run is null) return NotFound();
+
+        var response = await DbPollingHelper.PollAsync(
+            readSince: async (cursor, max, innerCt) =>
+            {
+                var results = await _resultRepo.GetSinceAsync(runId, cursor, max, innerCt);
+                var current = await _runRepo.GetByIdAsync(runId, innerCt);
+                var progress = await _resultRepo.GetProgressAsync(runId, innerCt);
+                var items = new List<EventPollingItem>(results.Count + 1);
+
+                if (results.Count > 0)
+                {
+                    var snapshot = SerializeProgressPayload(current ?? run, progress);
+                    var firstTicks = ExtractTicks(results[0].CreatedAt);
+                    items.Add(new EventPollingItem(
+                        Seq: firstTicks,
+                        Type: "progress",
+                        Payload: DbPollingHelper.ToJsonElement(snapshot),
+                        OccurredAt: DateTimeOffset.UtcNow));
+
+                    foreach (var r in results)
+                    {
+                        items.Add(new EventPollingItem(
+                            Seq: ExtractTicks(r.CreatedAt),
+                            Type: "result",
+                            Payload: DbPollingHelper.ToJsonElement(EvaluationResultResponse.FromDomain(r)),
+                            OccurredAt: new DateTimeOffset(DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc), TimeSpan.Zero)));
+                    }
+                }
+
+                if (current is not null && IsRunTerminal(current.Status))
+                {
+                    var snapshot = SerializeProgressPayload(current, progress);
+                    items.Add(new EventPollingItem(
+                        Seq: long.MaxValue,
+                        Type: "done",
+                        Payload: DbPollingHelper.ToJsonElement(snapshot),
+                        OccurredAt: DateTimeOffset.UtcNow));
+                }
+
+                return items;
+            },
+            isTerminalAsync: async (_) =>
+            {
+                var current = await _runRepo.GetByIdAsync(runId, ct);
+                return current is null || IsRunTerminal(current.Status);
+            },
+            since: s,
+            limit: l,
+            waitFor: w,
+            ct: ct);
+
+        // Sanitiza nextSince — long.MaxValue (placeholder do "done") seria devolvido
+        // como cursor e quebraria a leitura na próxima chamada. Volta pro último
+        // ticks de result real, ou mantém since se nada novo.
+        if (response.Events.Count > 0)
+        {
+            var lastReal = response.Events
+                .Where(e => e.Seq != long.MaxValue)
+                .Select(e => (long?)e.Seq)
+                .LastOrDefault();
+            if (lastReal.HasValue && lastReal.Value != response.NextSince)
+            {
+                response = new EventPollingResponse(response.Events, lastReal.Value, response.Terminal);
+            }
+        }
+
+        return Ok(response);
+    }
+
+    private static long ExtractTicks(DateTime createdAt)
+    {
+        var utc = createdAt.Kind == DateTimeKind.Utc
+            ? createdAt
+            : DateTime.SpecifyKind(createdAt, DateTimeKind.Utc);
+        return utc.Ticks;
+    }
+
+    private static bool IsRunTerminal(EvaluationRunStatus status) =>
+        status is EvaluationRunStatus.Completed
+              or EvaluationRunStatus.Failed
+              or EvaluationRunStatus.Cancelled;
 
     private static string SerializeProgressPayload(EvaluationRun run, EvaluationRunProgress? p)
     {

@@ -199,6 +199,34 @@ WHERE u.""ExecutionId"" = @executionId
         }
     }
 
+    public async Task<IReadOnlyList<EvaluationResult>> GetSinceAsync(
+        string runId,
+        long sinceTicks,
+        int limit,
+        CancellationToken ct = default)
+    {
+        if (limit <= 0) limit = 100;
+        if (sinceTicks < 0) sinceTicks = 0;
+
+        var sinceUtc = sinceTicks == 0
+            ? DateTime.MinValue
+            : new DateTime(sinceTicks, DateTimeKind.Utc);
+
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        var rows = await ctx.EvaluationResults
+            .AsNoTracking()
+            .Where(r => r.RunId == runId && r.CreatedAt > sinceUtc)
+            .OrderBy(r => r.CreatedAt)
+            .ThenBy(r => r.CaseId)
+            .ThenBy(r => r.EvaluatorName)
+            .ThenBy(r => r.BindingIndex)
+            .ThenBy(r => r.RepetitionIndex)
+            .Take(limit)
+            .ToListAsync(ct);
+
+        return rows.Select(ToDomain).ToList();
+    }
+
     private static EvaluationResult ToDomain(EvaluationResultRow row)
     {
         JsonDocument? metadata = null;
