@@ -232,6 +232,7 @@
   <a href="#auth">Autenticação</a>
   <a href="#endpoints">Endpoints</a>
   <a href="#other-streams">Outros endpoints SSE</a>
+  <a href="#polling-fallback">Polling fallback HTTP</a>
   <a href="#events">Catálogo de Eventos</a>
   <a href="#turn-anatomy">Anatomia de um turno</a>
   <a href="#minimal-client">Cliente mínimo (JS)</a>
@@ -822,6 +823,105 @@ es.addEventListener('done', (ev) => {
         </tr>
       </tbody>
     </table>
+  </section>
+
+  <!-- Polling fallback HTTP -->
+  <section id="polling-fallback">
+    <h2>Polling fallback HTTP</h2>
+    <p>
+      Cada endpoint SSE tem um par <strong>POST/GET</strong> alternativo pra clientes que não conseguem
+      consumir <code>text/event-stream</code> — proxies corporativos que derrubam long-lived connections,
+      mobile WebView restrita, integrações server-to-server simples. O modelo é o mesmo do
+      <code>POST /api/workflows/{id}/trigger</code> + <code>GET /api/executions/{id}</code> de hoje:
+      <strong>POST dispara a operação</strong> (já existia), <strong>GET pulla eventos com cursor</strong>.
+    </p>
+
+    <h3>Shape unificado</h3>
+    <p>Os 4 endpoints <code>/events</code> retornam o mesmo envelope JSON:</p>
+    <pre class="language-json"><code class="language-json">{
+  "events": [
+    { "seq": 12, "type": "step_completed", "payload": { /* ... */ }, "occurredAt": "2026-05-05T12:00:00Z" },
+    { "seq": 13, "type": "workflow_completed", "payload": { /* ... */ }, "occurredAt": "2026-05-05T12:00:01Z" }
+  ],
+  "nextSince": 13,
+  "terminal": true
+}</code></pre>
+
+    <h3>Query params</h3>
+    <table class="event-table">
+      <tbody>
+        <tr><td><code>since</code></td><td>cursor — passe <code>nextSince</code> da resposta anterior. Default 0 (desde o início).</td></tr>
+        <tr><td><code>limit</code></td><td>máximo de eventos por chamada. <code>1..500</code>, default 100.</td></tr>
+        <tr><td><code>waitMs</code></td><td>long-poll opcional — espera até <code>waitMs</code> ms por eventos novos antes de responder vazio. <code>0..25000</code>, default 0 (poll puro).</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Endpoints disponíveis</h3>
+    <table class="event-table">
+      <thead>
+        <tr><th>Endpoint</th><th>Trigger correspondente</th><th>Tipos de evento</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>GET /api/executions/{id}/events</code></td>
+          <td><code>POST /api/workflows/{id}/trigger</code></td>
+          <td><code>step_started</code>, <code>step_completed</code>, <code>tool_call</code>, <code>workflow_completed</code>, <code>error</code></td>
+        </tr>
+        <tr>
+          <td><code>GET /api/conversations/{id}/messages/events</code></td>
+          <td><code>POST /api/conversations/{id}/messages</code></td>
+          <td><code>waiting_for_input</code>, <code>message_complete</code>, <code>error</code> (mesmo mapeamento do <code>/messages/stream</code>)</td>
+        </tr>
+        <tr>
+          <td><code>GET /api/agents/{id}/sessions/{sid}/events</code></td>
+          <td><code>POST /api/agents/{id}/sessions/{sid}/run-async</code></td>
+          <td><code>token</code>, <code>done</code>, <code>error</code></td>
+        </tr>
+        <tr>
+          <td><code>GET /api/evaluations/runs/{runId}/events</code></td>
+          <td><code>POST /api/agents/{id}/evaluations/auto-deploy</code></td>
+          <td><code>progress</code>, <code>result</code>, <code>done</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Exemplo curl</h3>
+    <pre class="language-bash"><code class="language-bash"># 1. dispara
+EXEC=$(curl -s -X POST http://localhost:5189/api/workflows/wf-x/trigger \
+  -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo' \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"hello"}' | jq -r .executionId)
+
+# 2. polla com long-poll 10s
+curl "http://localhost:5189/api/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
+  -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo'
+# → { "events": [...], "nextSince": 42, "terminal": false }
+
+# 3. próxima chamada usa nextSince (idempotente — sem perder evento)
+curl "http://localhost:5189/api/executions/$EXEC/events?since=42&waitMs=10000"</code></pre>
+
+    <h3>Recomendações</h3>
+    <ul>
+      <li><strong>Use long-poll</strong> (<code>waitMs=10000</code>) — economiza chamadas em ~90% e ainda assim retorna em &lt;1s quando há evento novo.</li>
+      <li><strong>Pare quando <code>terminal=true</code></strong>. Próxima chamada com <code>since=NextSince</code> retorna idempotente vazio + <code>terminal=true</code>.</li>
+      <li><strong>Back-off de 500ms</strong> quando <code>terminal=false</code> e <code>events=[]</code> sem long-poll, pra não martelar o backend.</li>
+      <li><strong>Não combine SSE e polling no mesmo recurso</strong> — você pode receber o mesmo evento 2× (SSE não tem cursor; polling tem). Escolha um.</li>
+    </ul>
+
+    <h3>Limitações por endpoint</h3>
+    <ul>
+      <li><strong>Pattern A (executions/conversations)</strong>: eventos persistidos em <code>workflow_event_audit</code> (TTL 7 dias). Cursor estável, replay seguro desde <code>since=0</code>.</li>
+      <li><strong>Pattern B (agent sessions tokens)</strong>: buffer in-memory por pod com retenção 30min após <code>done</code>/<code>error</code>. Após esse TTL, polling com <code>since=0</code> retorna vazio. Buffer cap em 5000 eventos por sessão (drop-oldest). Migração pra Redis Streams remove a limitação por-pod.</li>
+      <li><strong>Pattern C (evaluation runs)</strong>: eventos derivados de <code>evaluation_results</code> (cursor = <code>UtcTicks</code> do <code>CreatedAt</code>). Permanente enquanto a run não for purgada.</li>
+    </ul>
+
+    <h3>Auth</h3>
+    <p>
+      Identidade vai por <strong>headers padrão</strong> (<code>x-efs-account</code>, <code>x-efs-project-id</code>) — diferente do
+      <code>/stream</code> que aceita query param porque <code>EventSource</code> não envia headers customizados.
+      Clients de polling usam <code>fetch</code> que suporta headers nativamente.
+      Exceção: <code>GET /api/evaluations/runs/{id}/events</code> ainda aceita <code>?projectId=</code> como fallback (parity com o <code>/stream</code>).
+    </p>
   </section>
 
   <!-- Catálogo de Eventos -->
