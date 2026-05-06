@@ -11,6 +11,7 @@ namespace EfsAiHub.Host.Api.Middleware;
 /// <see cref="AdminOptions.AccountIds"/>.
 ///
 /// Endpoints públicos (sem restrição):
+///   - /health/*                            (k8s liveness/readiness probes)
 ///   - /api/aihub/chat/ag-ui/*              (integração de chat)
 ///   - POST /api/aihub/workflows            (criar workflow)
 ///   - PUT  /api/aihub/workflows/{id}       (editar workflow — exatamente 3 segmentos)
@@ -226,6 +227,13 @@ public sealed class AdminGateMiddleware
     {
         var method = ctx.Request.Method;
         var path = ctx.Request.Path.Value ?? string.Empty;
+
+        // Health endpoints (/health/live, /health/ready) — públicos por design,
+        // consumidos por Kubernetes liveness/readiness probes e load balancer.
+        // Sem isso o gate retorna 403 e probe marca pod como unhealthy.
+        if (path.StartsWith("/health/", StringComparison.OrdinalIgnoreCase)
+            || path.Equals("/health", StringComparison.OrdinalIgnoreCase))
+            return true;
 
         // Chat AG-UI — todos os métodos
         if (path.StartsWith("/api/aihub/chat/ag-ui", StringComparison.OrdinalIgnoreCase))
