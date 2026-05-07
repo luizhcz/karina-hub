@@ -7,7 +7,7 @@
  * Implantacoes — listWorkflows + isAgentDeployment + deployedAgentId).
  */
 
-import { get } from './api.js';
+import { get, post, put } from './api.js';
 
 /**
  * @typedef {object} Workflow
@@ -51,4 +51,39 @@ export function isAgentDeployment(workflow) {
  */
 export function deployedAgentId(workflow) {
   return workflow.metadata?.deployedFromAgentId ?? null;
+}
+
+/** @param {string} agentId */
+export function deploymentWorkflowId(agentId) {
+  return `deploy-${agentId}`;
+}
+
+/**
+ * @param {string} id
+ * @returns {Promise<Workflow>}
+ */
+export function getWorkflow(id) {
+  return get(`/workflows/${encodeURIComponent(id)}`);
+}
+
+/**
+ * @param {object} body
+ * @returns {Promise<Workflow>}
+ */
+export function createWorkflow(body) {
+  return post('/workflows', body);
+}
+
+/**
+ * @typedef {object} WorkflowEnabledStatus
+ * @property {boolean} enabled
+ * @property {string[]} disabledAgentIds
+ */
+
+/**
+ * @param {string} workflowId
+ * @returns {Promise<WorkflowEnabledStatus>}
+ */
+export function getWorkflowEnabledStatus(workflowId) {
+  return get(`/workflows/${encodeURIComponent(workflowId)}/enabled-status`);
 }
