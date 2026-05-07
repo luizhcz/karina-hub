@@ -7,7 +7,6 @@ import {
   listWorkflows,
   type Workflow,
 } from '../api/workflows'
-import { listEvalRunsByAgent, type EvalRunSummary } from '../api/profileEvaluation'
 import { friendlyError } from '../api/client'
 import { isInCurrentProject } from '../stores/projectScope'
 import {
@@ -31,7 +30,6 @@ export function Implantacoes() {
   const [workflows, setWorkflows] = useState<Workflow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [lastEvalByAgent, setLastEvalByAgent] = useState<Map<string, EvalRunSummary>>(new Map())
 
   const [search, setSearch] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -47,23 +45,6 @@ export function Implantacoes() {
         // do projeto atual (visibility continua válida pra runtime/consumo).
         const deployments = all.filter(isAgentDeployment).filter(isInCurrentProject)
         setWorkflows(deployments)
-
-        // Carrega último run por agente em paralelo (best-effort).
-        const agentIds = deployments
-          .map((w) => deployedAgentId(w))
-          .filter((id): id is string => !!id)
-        Promise.allSettled(
-          agentIds.map((aid) => listEvalRunsByAgent(aid, 1).then((runs) => ({ aid, run: runs[0] }))),
-        ).then((results) => {
-          if (cancelled) return
-          const map = new Map<string, EvalRunSummary>()
-          for (const r of results) {
-            if (r.status === 'fulfilled' && r.value.run) {
-              map.set(r.value.aid, r.value.run)
-            }
-          }
-          setLastEvalByAgent(map)
-        })
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(friendlyError(err, 'Não foi possível carregar as implantações.'))
@@ -138,7 +119,6 @@ export function Implantacoes() {
               <DeploymentCard
                 key={w.id}
                 workflow={w}
-                lastEval={aid ? lastEvalByAgent.get(aid) ?? null : null}
                 onClick={() => {
                   if (aid) navigate(`/agentes/${aid}/implantar`)
                 }}
@@ -161,41 +141,12 @@ export function Implantacoes() {
   )
 }
 
-function EvalBadge({ run }: { run: EvalRunSummary }) {
-  const status = run.status
-  if (status === 'Pending' || status === 'Running') {
-    return <Badge tone="accent" className="text-[10px]">Avaliação rodando</Badge>
-  }
-  if (status === 'Failed' || status === 'Cancelled') {
-    return <Badge tone="danger" className="text-[10px]">Avaliação falhou</Badge>
-  }
-  if (status === 'Completed') {
-    const passed = run.casesPassed ?? 0
-    const failed = run.casesFailed ?? 0
-    // Todos evaluators NotApplicable — preset não casa com o agente.
-    if (run.casesTotal > 0 && passed + failed === 0) {
-      return <Badge tone="warning" className="text-[10px]">Preset não aplicável</Badge>
-    }
-    const score = run.avgScore !== null && run.avgScore !== undefined
-      ? Math.round(Number(run.avgScore) * 100)
-      : null
-    if (score !== null) {
-      const tone = score >= 60 ? 'success' : 'warning'
-      const label = score >= 60 ? `Avaliação ✓ ${score}` : `Score baixo ${score}`
-      return <Badge tone={tone} className="text-[10px]">{label}</Badge>
-    }
-    return <Badge tone="success" className="text-[10px]">Avaliado</Badge>
-  }
-  return null
-}
-
 interface DeploymentCardProps {
   workflow: Workflow
-  lastEval: EvalRunSummary | null
   onClick: () => void
 }
 
-function DeploymentCard({ workflow, lastEval, onClick }: DeploymentCardProps) {
+function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
   const agentId = deployedAgentId(workflow)
   return (
     <Card
@@ -227,10 +178,7 @@ function DeploymentCard({ workflow, lastEval, onClick }: DeploymentCardProps) {
             </p>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <Badge tone="success">Implantado</Badge>
-          {lastEval && <EvalBadge run={lastEval} />}
-        </div>
+        <Badge tone="success">Implantado</Badge>
       </div>
 
       {workflow.description && (
