@@ -1,0 +1,48 @@
+/* Base typography + body styles. Carrega ANTES de utilities.css pra não
+   sobrescrever utility classes. */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: rgb(var(--color-bg));
+  color: rgb(var(--color-fg));
+  /* Halo discreto — accent a 4% gera vinheta sutil em light mode (navy)
+     e glow leve em dark mode (branco). */
+  background-image:
+    radial-gradient(800px 600px at 15% -10%, rgb(var(--color-accent) / 0.04), transparent 60%),
+    radial-gradient(700px 500px at 110% 110%, rgb(var(--color-accent) / 0.03), transparent 60%);
+  background-attachment: fixed;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: rgb(var(--color-accent));
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* Padrão pra elementos interativos custom (web components) */
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}

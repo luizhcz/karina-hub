@@ -1,0 +1,64 @@
+/* Design tokens — paleta BTG (navy + branco). Tokens RGB sem alpha consumidos
+   por utilities.css via rgb(var(--name) / <alpha>). Trocar cor base aqui é
+   uma única edição que propaga pra todo o app.
+
+   Light mode: superfície branca, texto/accent navy BTG.
+   Dark mode: superfície navy BTG, texto/accent branco (inversão).
+
+   Sincronizado com mvp/src/index.css (versão React); regerar utilities.css
+   via tools/build-css.sh quando este arquivo mudar. */
+
+:root {
+  /* Marcador de versão da paleta — incrementar invalida cache do browser. */
+  --btg-theme-version: 1;
+
+  /* Light mode — superfícies (branco puro com escalas mínimas) */
+  --color-bg: 255 255 255;
+  --color-bg-soft: 245 247 250;
+  --color-surface: 255 255 255;
+  --color-surface-hover: 240 243 248;
+  --color-border: 222 227 235;
+  --color-border-strong: 184 196 214;
+
+  /* Light mode — texto (navy BTG e variações) */
+  --color-fg: 5 19 42;
+  --color-fg-muted: 74 88 116;
+  --color-fg-dim: 148 163 184;
+
+  /* Light mode — accent (navy BTG) */
+  --color-accent: 5 19 42;
+  --color-accent-soft: 26 43 74;
+  --color-accent-contrast: 255 255 255;
+  --color-accent-subtle: 232 236 243;
+
+  /* Feedback (igual em ambos modes pra manter semântica) */
+  --color-success: 22 163 74;
+  --color-warning: 217 119 6;
+  --color-danger: 220 38 38;
+}
+
+:root.dark {
+  /* Dark mode — superfícies navy BTG */
+  --color-bg: 5 19 42;
+  --color-bg-soft: 10 26 56;
+  --color-surface: 15 35 73;
+  --color-surface-hover: 21 42 85;
+  --color-border: 31 50 88;
+  --color-border-strong: 46 69 113;
+
+  /* Dark mode — texto branco e variações */
+  --color-fg: 255 255 255;
+  --color-fg-muted: 168 181 204;
+  --color-fg-dim: 110 126 156;
+
+  /* Dark mode — accent (branco) */
+  --color-accent: 255 255 255;
+  --color-accent-soft: 226 232 240;
+  --color-accent-contrast: 5 19 42;
+  --color-accent-subtle: 21 42 85;
+
+  /* Feedback ajustado pro contraste em dark */
+  --color-success: 74 222 128;
+  --color-warning: 250 204 21;
+  --color-danger: 248 113 113;
+}

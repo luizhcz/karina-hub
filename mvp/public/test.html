@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EFS AI Hub — Smoke vanilla pilot</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/tokens.css" />
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/utilities.css" />
+</head>
+<body class="min-h-screen p-8">
+  <main class="mx-auto max-w-3xl">
+    <header class="mb-8">
+      <h1 class="text-2xl font-bold text-fg">vanilla pilot</h1>
+      <p class="mt-1 text-sm text-fg-muted">Smoke test da Fase 0 — primitivos vanilla carregados via ESM nativo.</p>
+    </header>
+
+    <efs-card>
+      <efs-card-header
+        title="Identidade atual"
+        description="Lê o store mvp/public/lib/identity.js (compatível com a chave React 'efs-mvp-identity').">
+      </efs-card-header>
+      <pre id="identity-state" class="mt-4 rounded-lg bg-bg-soft p-3 font-mono text-xs text-fg-muted overflow-auto"></pre>
+    </efs-card>
+
+    <div class="mt-6">
+      <efs-card>
+        <efs-card-header title="Web components" description="Modal, spinner, empty state.">
+          <div data-efs-actions>
+            <button id="open-modal" class="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-accent-contrast hover:bg-accent-soft">
+              Abrir modal
+            </button>
+          </div>
+        </efs-card-header>
+
+        <div class="mt-5 flex items-center gap-4">
+          <efs-spinner class="inline-flex h-5 w-5 text-accent"></efs-spinner>
+          <span class="text-sm text-fg-muted">spinner inline</span>
+        </div>
+
+        <div class="mt-5 border-t border-border pt-5">
+          <efs-empty-state
+            title="Nenhum projeto selecionado"
+            description="Empty state vanilla — usa o mesmo padrão visual do React.">
+          </efs-empty-state>
+        </div>
+      </efs-card>
+    </div>
+
+    <p class="mt-8 text-xs text-fg-dim">
+      Este arquivo será removido na Fase 5 (cleanup React). Smoke da Fase 0:
+      este pilot rendera junto do app React (rota /test.html), confirmando que
+      ESM nativo + Tailwind compilado + custom elements funcionam sem build.
+    </p>
+  </main>
+
+  <!-- Modal escondido até user clicar o botão -->
+  <efs-modal id="demo-modal" title="Modal vanilla" description="Custom element com ESC handler + body scroll lock." size="sm">
+    <p class="text-sm text-fg-muted">
+      Este modal é um Web Component. Sem React, sem Vite. ESM nativo + Tailwind compilado.
+    </p>
+    <div data-efs-footer class="flex justify-end gap-2">
+      <button id="modal-close" class="rounded-lg border border-border px-3 py-1.5 text-sm text-fg hover:bg-surface-hover">
+        Fechar
+      </button>
+    </div>
+  </efs-modal>
+
+  <script type="module">
+    // Carrega componentes (registro via customElements.define).
+    import '/components/efs-modal.js';
+    import '/components/efs-spinner.js';
+    import '/components/efs-card.js';
+    import '/components/efs-empty-state.js';
+
+    // Renderiza estado da identity.
+    import { getIdentity } from '/lib/identity.js';
+    const pre = document.getElementById('identity-state');
+    if (pre) {
+      const id = getIdentity();
+      pre.textContent = id ? JSON.stringify(id, null, 2) : '(sem identidade salva — onboarding ainda não rodou)';
+    }
+
+    // Wire do modal.
+    const modal = document.getElementById('demo-modal');
+    document.getElementById('open-modal')?.addEventListener('click', () => {
+      modal?.setAttribute('open', '');
+    });
+    document.getElementById('modal-close')?.addEventListener('click', () => {
+      modal?.removeAttribute('open');
+    });
+    modal?.addEventListener('close', () => {
+      modal.removeAttribute('open');
+    });
+  </script>
+</body>
+</html>
