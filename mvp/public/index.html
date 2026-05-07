@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EFS AI Hub · MVP</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/tokens.css" />
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/utilities.css" />
+  <!-- theme.js auto-aplica `<html class="dark">` antes do primeiro paint -->
+  <script type="module" src="/lib/theme.js"></script>
+</head>
+<body class="min-h-screen">
+  <div class="absolute right-6 top-6">
+    <efs-theme-toggle></efs-theme-toggle>
+  </div>
+
+  <main class="flex min-h-screen items-center justify-center px-6">
+    <div class="w-full max-w-md">
+      <div class="mb-10 text-center">
+        <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-subtle text-accent shadow-soft" id="logo-mount"></div>
+        <h1 class="text-[28px] font-semibold tracking-tight text-fg">Bem-vindo ao AI Hub</h1>
+        <p class="mt-2 text-sm text-fg-muted">Identifique-se para começar a montar suas ferramentas.</p>
+      </div>
+
+      <efs-card>
+        <form id="onboarding-form" class="space-y-5" novalidate>
+          <div>
+            <label for="field-name" class="block text-sm font-medium text-fg mb-1.5">Seu nome</label>
+            <input id="field-name" name="name" type="text" autofocus
+                   placeholder="Ex.: Ana Souza"
+                   class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-dim focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20" />
+          </div>
+
+          <div>
+            <label for="field-account" class="block text-sm font-medium text-fg mb-1.5">Conta</label>
+            <input id="field-account" name="account" type="text"
+                   placeholder="ex.: 12345"
+                   class="w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-dim focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20" />
+            <p class="mt-1 text-xs text-fg-muted">Identifica seu acesso em todas as chamadas do hub.</p>
+          </div>
+
+          <div>
+            <label for="field-project" class="block text-sm font-medium text-fg mb-1.5">Projeto</label>
+            <select id="field-project" name="projectId" disabled
+                    class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-60">
+              <option value="">Informe a conta primeiro</option>
+            </select>
+            <p id="project-error" class="mt-1 text-xs text-danger hidden"></p>
+          </div>
+
+          <button type="submit" id="submit-btn" disabled
+                  class="w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-accent-contrast hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-60 transition-colors">
+            Continuar
+          </button>
+        </form>
+      </efs-card>
+
+      <p id="form-error" class="mt-4 hidden rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"></p>
+
+      <p class="mt-6 text-center text-[11px] text-fg-dim">
+        Você pode trocar de projeto a qualquer momento pelo ícone de configurações.
+      </p>
+    </div>
+  </main>
+
+  <script type="module">
+    import '/components/efs-card.js';
+    import '/components/efs-theme-toggle.js';
+    import '/pages/onboarding.js';
+  </script>
+</body>
+</html>
