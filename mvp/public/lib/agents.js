@@ -4,7 +4,7 @@
  * (apenas listAgents — o editor é Fase 4).
  */
 
-import { get } from './api.js';
+import { get, post } from './api.js';
 
 /**
  * @typedef {object} Agent
@@ -30,4 +30,15 @@ export function listAgents() {
  */
 export function getAgent(id) {
   return get(`/agents/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Cria um draft de edição a partir de um agent publicado. Retorna o draft
+ * (status=Draft, isEditDraft=true) — caller navega pro AgentEditor.
+ *
+ * @param {string} id agentId
+ * @returns {Promise<{ id: string, name: string, payload: Record<string, any>, status: 'Draft' | 'PendingApproval' | 'Rejected', updatedAt: string, isEditDraft: boolean }>}
+ */
+export function createEditDraft(id) {
+  return post(`/agents/${encodeURIComponent(id)}/edit-draft`, {});
 }
