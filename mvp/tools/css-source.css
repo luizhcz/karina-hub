@@ -1,0 +1,6 @@
+/* Input do Tailwind. Roda via mvp/tools/build-css.sh quando o design system
+   muda. Os tokens semânticos (cores BTG navy/branco) ficam em
+   mvp/public/css/tokens.css; este arquivo só ativa as 3 layers do Tailwind. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

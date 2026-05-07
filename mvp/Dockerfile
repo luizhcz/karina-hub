@@ -1,21 +1,15 @@
-# Build do bundle Vite e serve via nginx alpine; nginx.conf usa BACKEND_URL
-# como template substituído em runtime via envsubst (igual frontend principal).
+# Single-stage nginx — após cleanup React (Fase 5), o app é HTML/CSS/JS
+# vanilla servido estaticamente. Sem Node, sem npm, sem build step.
+#
+# nginx.conf usa BACKEND_URL como template substituído em runtime via envsubst
+# (igual ao frontend principal).
+#
+# Pra regerar mvp/public/css/utilities.css quando o design mudar, rode
+# `bash tools/build-css.sh` localmente — output é versionado em git.
 
-# ── Stage 1: build ───────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM nginx:1.27-alpine
 
-WORKDIR /app
-
-COPY package.json package-lock.json* ./
-RUN npm install
-
-COPY . .
-RUN npm run build
-
-# ── Stage 2: serve ───────────────────────────────────────────────────────────
-FROM nginx:1.27-alpine AS runner
-
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY public/ /usr/share/nginx/html
 
 # Template processado automaticamente pelo nginx:alpine no startup
 COPY nginx.conf /etc/nginx/templates/default.conf.template
