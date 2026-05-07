@@ -27,10 +27,37 @@ import { get } from './api.js';
  */
 
 /**
+ * @typedef {object} EvalResultDetail
+ * @property {string} resultId
+ * @property {string} caseId
+ * @property {string} evaluatorName
+ * @property {number} bindingIndex
+ * @property {number} repetitionIndex
+ * @property {number | null} score
+ * @property {boolean} passed
+ * @property {string | null} reason
+ * @property {string | null} outputContent
+ * @property {string | null} judgeModel
+ * @property {number | null} latencyMs
+ * @property {number | null} costUsd
+ * @property {number | null} inputTokens
+ * @property {number | null} outputTokens
+ * @property {string} createdAt
+ */
+
+/**
  * @param {string} agentId
  * @param {number} [take]
  * @returns {Promise<EvalRunSummary[]>}
  */
 export function listEvalRunsByAgent(agentId, take = 1) {
   return get(`/agents/${encodeURIComponent(agentId)}/evaluations/runs?take=${take}`);
+}
+
+/**
+ * @param {string} runId
+ * @returns {Promise<EvalResultDetail[]>}
+ */
+export function listResultsByRun(runId) {
+  return get(`/evaluations/runs/${encodeURIComponent(runId)}/results`);
 }

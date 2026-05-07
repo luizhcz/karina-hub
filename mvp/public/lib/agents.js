@@ -23,3 +23,11 @@ import { get } from './api.js';
 export function listAgents() {
   return get('/agents');
 }
+
+/**
+ * @param {string} id
+ * @returns {Promise<Agent>}
+ */
+export function getAgent(id) {
+  return get(`/agents/${encodeURIComponent(id)}`);
+}
