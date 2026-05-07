@@ -1,32 +1,22 @@
 // @ts-check
 /**
  * Página /implantacoes — lista deployments (workflows criados pela tela de
- * AgentDeploy) + último eval run por agente. Substitui
- * mvp/src/routes/Implantacoes.tsx.
- *
- * Pattern de carga em 2 fases:
- *  1. listWorkflows + filtra isAgentDeployment + isInCurrentProject
- *  2. Em paralelo (Promise.allSettled), listEvalRunsByAgent(agentId, 1) por agente
- *     pra alimentar o badge de status de eval.
+ * AgentDeploy). Substitui mvp/src/routes/Implantacoes.tsx.
  */
 
 import { listWorkflows, isAgentDeployment, deployedAgentId } from '../lib/workflows.js';
-import { listEvalRunsByAgent } from '../lib/profile-evaluation.js';
 import { listAgents } from '../lib/agents.js';
 import { isInCurrentProject } from '../lib/project-scope.js';
 import { friendlyError } from '../lib/api.js';
 import { AgentIcon, BoltIcon, PlusIcon, SearchIcon } from '../lib/icons.js';
 
 /** @typedef {import('../lib/workflows.js').Workflow} Workflow */
-/** @typedef {import('../lib/profile-evaluation.js').EvalRunSummary} EvalRunSummary */
 /** @typedef {import('../lib/agents.js').Agent} Agent */
 
 const root = /** @type {HTMLElement} */ (document.getElementById('implantacoes-page'));
 
 /** @type {Workflow[]} */
 let workflows = [];
-/** @type {Map<string, EvalRunSummary>} */
-let lastEvalByAgent = new Map();
 let loading = true;
 /** @type {string | null} */
 let error = null;
@@ -42,24 +32,6 @@ async function loadDeployments() {
   try {
     const all = await listWorkflows();
     workflows = all.filter(isAgentDeployment).filter(isInCurrentProject);
-
-    // Best-effort: carrega último eval run por agente em paralelo.
-    const agentIds = workflows.map(deployedAgentId).filter(Boolean);
-    Promise.allSettled(
-      agentIds.map(async (aid) => {
-        const runs = await listEvalRunsByAgent(/** @type {string} */ (aid), 1);
-        return { aid: /** @type {string} */ (aid), run: runs[0] };
-      }),
-    ).then((results) => {
-      const next = new Map();
-      for (const r of results) {
-        if (r.status === 'fulfilled' && r.value.run) {
-          next.set(r.value.aid, r.value.run);
-        }
-      }
-      lastEvalByAgent = next;
-      renderBody();
-    });
   } catch (err) {
     error = friendlyError(err, 'Não foi possível carregar as implantações.');
     workflows = [];
@@ -187,8 +159,6 @@ function filterDeployments(list, q) {
 /** @param {Workflow} w */
 function deploymentCardHtml(w) {
   const aid = deployedAgentId(w);
-  const evalRun = aid ? lastEvalByAgent.get(aid) ?? null : null;
-  const evalBadge = evalRun ? evalBadgeHtml(evalRun) : '';
   const canClick = !!aid;
 
   return `
@@ -206,10 +176,7 @@ function deploymentCardHtml(w) {
               <p class="mt-0.5 truncate font-mono text-[10px] uppercase tracking-wider text-fg-dim">${escapeHtml(w.id)}</p>
             </div>
           </div>
-          <div class="flex flex-col items-end gap-1">
-            <span class="inline-flex items-center rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">Implantado</span>
-            ${evalBadge}
-          </div>
+          <span class="inline-flex items-center rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">Implantado</span>
         </div>
         ${w.description ? `<p class="line-clamp-2 text-xs text-fg-muted">${escapeHtml(w.description)}</p>` : ''}
         <div class="mt-auto flex items-center justify-between text-[11px] text-fg-dim">
@@ -221,37 +188,6 @@ function deploymentCardHtml(w) {
       </div>
     </efs-card>
   `;
-}
-
-/** @param {EvalRunSummary} run */
-function evalBadgeHtml(run) {
-  const status = run.status;
-  if (status === 'Pending' || status === 'Running') {
-    return `<span class="inline-flex items-center rounded-full border border-accent/40 bg-accent-subtle px-2 py-0.5 text-[10px] font-medium text-accent">Avaliação rodando</span>`;
-  }
-  if (status === 'Failed' || status === 'Cancelled') {
-    return `<span class="inline-flex items-center rounded-full border border-danger/40 bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger">Avaliação falhou</span>`;
-  }
-  if (status === 'Completed') {
-    const passed = run.casesPassed ?? 0;
-    const failed = run.casesFailed ?? 0;
-    if (run.casesTotal > 0 && passed + failed === 0) {
-      return `<span class="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">Preset não aplicável</span>`;
-    }
-    const score = run.avgScore !== null && run.avgScore !== undefined
-      ? Math.round(Number(run.avgScore) * 100)
-      : null;
-    if (score !== null) {
-      const isOk = score >= 60;
-      const tone = isOk
-        ? 'border-success/40 bg-success/10 text-success'
-        : 'border-warning/40 bg-warning/10 text-warning';
-      const label = isOk ? `Avaliação ✓ ${score}` : `Score baixo ${score}`;
-      return `<span class="inline-flex items-center rounded-full border ${tone} px-2 py-0.5 text-[10px] font-medium">${escapeHtml(label)}</span>`;
-    }
-    return `<span class="inline-flex items-center rounded-full border border-success/40 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">Avaliado</span>`;
-  }
-  return '';
 }
 
 // ── Modal "Nova implantação" — picker de agente publicado ──────────────────
