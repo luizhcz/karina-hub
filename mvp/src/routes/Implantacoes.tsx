@@ -8,7 +8,6 @@ import {
   type Workflow,
 } from '../api/workflows'
 import { friendlyError } from '../api/client'
-import { isInCurrentProject } from '../stores/projectScope'
 import {
   AgentIcon,
   Badge,
@@ -38,12 +37,10 @@ export function Implantacoes() {
     let cancelled = false
     setLoading(true)
     setError(null)
-    listWorkflows()
+    listWorkflows('project')
       .then((all) => {
         if (cancelled) return
-        // Filtra Visibility=global cross-project — visualmente só mostra deploys
-        // do projeto atual (visibility continua válida pra runtime/consumo).
-        const deployments = all.filter(isAgentDeployment).filter(isInCurrentProject)
+        const deployments = all.filter(isAgentDeployment)
         setWorkflows(deployments)
       })
       .catch((err: unknown) => {

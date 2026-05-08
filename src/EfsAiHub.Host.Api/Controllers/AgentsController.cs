@@ -61,11 +61,13 @@ public class AgentsController : ControllerBase
     }
 
     [HttpGet]
-    [SwaggerOperation(Summary = "Lista todas as definições de agentes")]
+    [SwaggerOperation(Summary = "Lista todas as definições de agentes. ?scope=project filtra estritamente pelo projeto atual (ignora Visibility=global de outros projetos do tenant); sem o param ou com qualquer outro valor mantém comportamento legado.")]
     [ProducesResponseType(typeof(IReadOnlyList<AgentResponse>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAll(CancellationToken ct)
+    public async Task<IActionResult> GetAll([FromQuery] string? scope, CancellationToken ct)
     {
-        var agents = await _agentService.ListAsync(ct);
+        var agents = string.Equals(scope, "project", StringComparison.OrdinalIgnoreCase)
+            ? await _agentService.ListByProjectAsync(ct)
+            : await _agentService.ListAsync(ct);
         return Ok(agents.Select(AgentResponse.FromDomain));
     }
 

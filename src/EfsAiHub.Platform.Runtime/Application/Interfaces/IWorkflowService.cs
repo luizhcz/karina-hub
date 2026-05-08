@@ -7,6 +7,13 @@ public interface IWorkflowService
     Task<WorkflowDefinition> CreateAsync(WorkflowDefinition definition, CancellationToken ct = default);
     Task<WorkflowDefinition?> GetAsync(string id, CancellationToken ct = default);
     Task<IReadOnlyList<WorkflowDefinition>> ListAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Lista workflows estritamente do ProjectId atual — ignora Visibility=global de
+    /// outros projetos. Existe pro front evitar filtro client-side; runtime/consumo
+    /// segue usando <see cref="ListAsync"/> ou <see cref="ListVisibleAsync"/>.
+    /// </summary>
+    Task<IReadOnlyList<WorkflowDefinition>> ListByProjectAsync(CancellationToken ct = default);
     Task<WorkflowDefinition> UpdateAsync(WorkflowDefinition definition, CancellationToken ct = default);
 
     /// <summary>

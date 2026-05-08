@@ -40,7 +40,15 @@ export interface Agent {
   updatedAt: string
 }
 
-export const listAgents = () => get<Agent[]>('/agents')
+/**
+ * @param scope `'project'` retorna apenas agentes do ProjectId atual. Sem o param,
+ *  inclui também `Visibility=global` de outros projetos do mesmo tenant — usado em
+ *  runtime/consumo cross-project.
+ */
+export const listAgents = (scope?: 'project') => {
+  const qs = scope ? `?scope=${scope}` : ''
+  return get<Agent[]>(`/agents${qs}`)
+}
 export const getAgent = (id: string) => get<Agent>(`/agents/${id}`)
 
 // Cria um draft de edição a partir do agent publicado. Backend retorna o

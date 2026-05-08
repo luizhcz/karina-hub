@@ -21,7 +21,6 @@ import {
   type EvalRunSummary,
   listEvalRunsByAgent,
 } from '../../api/profileEvaluation'
-import { isInCurrentProject } from '../../stores/projectScope'
 import { RunHistory } from './RunHistory'
 import { RunDetailDrawer } from './RunDetailDrawer'
 import { GlossaryDrawer } from './GlossaryDrawer'
@@ -51,10 +50,9 @@ export function Avaliacoes() {
     setLoading(true)
     setError(null)
 
-    listWorkflows()
+    listWorkflows('project')
       .then(async (all) => {
-        // Esconde deploys de outros projetos (Visibility=global cross-project).
-        const deployments = all.filter(isAgentDeployment).filter(isInCurrentProject)
+        const deployments = all.filter(isAgentDeployment)
         const entries: AgentEntry[] = []
         for (const w of deployments) {
           const aid = deployedAgentId(w)

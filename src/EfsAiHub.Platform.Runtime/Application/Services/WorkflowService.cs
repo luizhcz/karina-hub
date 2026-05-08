@@ -95,6 +95,13 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
     public Task<IReadOnlyList<WorkflowDefinition>> ListAsync(CancellationToken ct = default)
         => _definitionRepo.GetAllAsync(ct);
 
+    public async Task<IReadOnlyList<WorkflowDefinition>> ListByProjectAsync(CancellationToken ct = default)
+    {
+        var currentProjectId = _projectAccessor.Current.ProjectId;
+        var all = await _definitionRepo.GetAllAsync(ct).ConfigureAwait(false);
+        return all.Where(w => w.ProjectId == currentProjectId).ToList();
+    }
+
     public async Task<WorkflowDefinition> UpdateAsync(WorkflowDefinition definition, CancellationToken ct = default)
     {
         var existing = await _definitionRepo.GetByIdAsync(definition.Id, ct)

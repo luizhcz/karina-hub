@@ -105,11 +105,13 @@ public class WorkflowsController : ControllerBase
     }
 
     [HttpGet]
-    [SwaggerOperation(Summary = "Lista todos os workflows")]
+    [SwaggerOperation(Summary = "Lista todos os workflows. ?scope=project filtra estritamente pelo projeto atual (ignora Visibility=global de outros projetos do tenant); sem o param ou com qualquer outro valor mantém comportamento legado.")]
     [ProducesResponseType(typeof(IReadOnlyList<WorkflowResponse>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAll(CancellationToken ct)
+    public async Task<IActionResult> GetAll([FromQuery] string? scope, CancellationToken ct)
     {
-        var workflows = await _workflowService.ListAsync(ct);
+        var workflows = string.Equals(scope, "project", StringComparison.OrdinalIgnoreCase)
+            ? await _workflowService.ListByProjectAsync(ct)
+            : await _workflowService.ListAsync(ct);
         return Ok(workflows.Select(WorkflowResponse.FromDomain));
     }
 

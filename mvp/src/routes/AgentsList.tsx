@@ -12,7 +12,6 @@ import {
 } from '../api/agents'
 import { ApiError, friendlyError } from '../api/client'
 import { getIdentity } from '../stores/identity'
-import { isInCurrentProject } from '../stores/projectScope'
 import {
   deployedAgentId,
   isAgentDeployment,
@@ -124,7 +123,7 @@ export function AgentsList() {
       .finally(() => {
         if (!cancelled) setDraftsLoading(false)
       })
-    listAgents()
+    listAgents('project')
       .then((list) => {
         if (!cancelled) setAgents(list)
       })
@@ -139,11 +138,10 @@ export function AgentsList() {
     }
   }, [])
 
-  // Mesmo backend devolvendo agentes globais cross-project (HasQueryFilter inclui
-  // Visibility=global), no MVP o usuário só vê recursos do próprio projeto. A
-  // visibilidade continua válida no runtime — é separação puramente visual.
-  const ownDrafts = useMemo(() => drafts.filter(isInCurrentProject), [drafts])
-  const ownAgents = useMemo(() => agents.filter(isInCurrentProject), [agents])
+  // Filtro server-side via ?scope=project nos endpoints — drafts já vêm strict
+  // pelo HasQueryFilter, então `drafts` e `agents` aqui já são "do meu projeto".
+  const ownDrafts = drafts
+  const ownAgents = agents
 
   const filteredDrafts = useMemo(() => {
     const q = search.trim().toLowerCase()

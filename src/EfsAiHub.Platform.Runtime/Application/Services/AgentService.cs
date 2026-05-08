@@ -77,6 +77,13 @@ public class AgentService : IAgentService
     public Task<IReadOnlyList<AgentDefinition>> ListAsync(CancellationToken ct = default)
         => _repository.GetAllAsync(ct);
 
+    public async Task<IReadOnlyList<AgentDefinition>> ListByProjectAsync(CancellationToken ct = default)
+    {
+        var currentProjectId = _projectAccessor.Current.ProjectId;
+        var all = await _repository.GetAllAsync(ct).ConfigureAwait(false);
+        return all.Where(a => a.ProjectId == currentProjectId).ToList();
+    }
+
     public async Task<AgentDefinition> UpdateAsync(
         AgentDefinition definition,
         CancellationToken ct = default,

@@ -19,6 +19,13 @@ public interface IAgentService
     Task<IReadOnlyList<AgentDefinition>> ListAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// Lista agentes filtrando estritamente pelo ProjectId atual — ignora
+    /// Visibility=global de outros projetos do tenant. Existe pro front evitar
+    /// filtro client-side; runtime/consumo continua usando <see cref="ListAsync"/>.
+    /// </summary>
+    Task<IReadOnlyList<AgentDefinition>> ListByProjectAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Atualiza definição + auto-snapshot com intent declarado.
     /// Idempotência por ContentHash: re-upsert sem mudança no behavior retorna a version
     /// existente, ignorando metadata declarada (versions são imutáveis).

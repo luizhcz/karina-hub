@@ -59,7 +59,14 @@ export interface Workflow {
   [key: string]: unknown
 }
 
-export const listWorkflows = () => get<Workflow[]>('/workflows')
+/**
+ * @param scope `'project'` retorna apenas workflows do ProjectId atual. Sem o param,
+ *  inclui também `Visibility=global` de outros projetos do mesmo tenant.
+ */
+export const listWorkflows = (scope?: 'project') => {
+  const qs = scope ? `?scope=${scope}` : ''
+  return get<Workflow[]>(`/workflows${qs}`)
+}
 
 export const getWorkflow = (id: string) => get<Workflow>(`/workflows/${id}`)
 
