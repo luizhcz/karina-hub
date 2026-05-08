@@ -293,6 +293,24 @@ export function AgentEditor({ mode }: Props) {
     if (prev) goTo(prev.key)
   }
 
+  // Steps que o user já visitou — usado pelo Stepper pra fixar o verde (não
+  // depende mais de currentIndex). Em modo edit começa com tudo visitado, já
+  // que o agente publicado tem todos os steps válidos. Em create, só o step
+  // inicial conta como visitado e o set cresce conforme o user avança.
+  const [visitedSteps, setVisitedSteps] = useState<Set<StepKey>>(() => {
+    if (mode === 'edit') return new Set(stepsFor(initialMode).map((s) => s.key))
+    return new Set([form.currentStep])
+  })
+
+  useEffect(() => {
+    setVisitedSteps((prev) => {
+      if (prev.has(form.currentStep)) return prev
+      const next = new Set(prev)
+      next.add(form.currentStep)
+      return next
+    })
+  }, [form.currentStep])
+
   const setMode = (next: AgentMode) => {
     if (next === form.agentMode) return
     setForm((prev) => {
@@ -643,6 +661,7 @@ export function AgentEditor({ mode }: Props) {
           onSelect={goTo}
           disabled={readonly}
           issues={stepIssues}
+          visited={visitedSteps}
         />
         {/* Hint inline pra issue do step ATUAL — substitui o tooltip nativo
             (title="…") que demora 1.5s pra aparecer e some em touch. Aqui o

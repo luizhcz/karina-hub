@@ -185,11 +185,27 @@ export function AgentsList() {
       const draft = await createEditDraft(agentId)
       navigate(`/agentes/${draft.id}`)
     } catch (err) {
-      const msg =
-        err instanceof ApiError && err.status === 409
-          ? 'Já existe um rascunho de edição em aberto para este agente. Procure-o na aba Rascunhos.'
-          : friendlyError(err, 'Não foi possível abrir o agente para edição.')
-      setForkError(msg)
+      // 409 = já existe rascunho de edição aberto. Em vez de pedir pro user
+      // navegar até a aba Rascunhos, abrimos o rascunho existente direto.
+      if (err instanceof ApiError && err.status === 409) {
+        try {
+          const all = await listAgentDrafts()
+          const existing = all.find(
+            (d) => d.isEditDraft && d.baseAgentId === agentId,
+          )
+          if (existing) {
+            navigate(`/agentes/${existing.id}`)
+            return
+          }
+        } catch {
+          // Fallback pra mensagem original quando o lookup falha.
+        }
+        setForkError(
+          'Já existe um rascunho de edição em aberto para este agente. Procure-o na aba Rascunhos.',
+        )
+        return
+      }
+      setForkError(friendlyError(err, 'Não foi possível abrir o agente para edição.'))
     } finally {
       setForkingId(null)
     }

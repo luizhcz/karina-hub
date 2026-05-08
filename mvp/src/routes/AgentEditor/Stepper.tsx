@@ -14,16 +14,18 @@ interface StepperProps {
   // Steps com pendência obrigatória — ganham um indicador warning na pílula
   // pra que o user identifique no Stepper (não só no Review) o que falta.
   issues?: Partial<Record<StepKey, string>>
+  // Steps já visitados pelo user no fluxo. "Done" fica fixado pelo histórico de
+  // visitação (não pelo currentIndex), então voltar ao step anterior NÃO
+  // remove o verde dos steps que continuam válidos.
+  visited?: Set<StepKey>
 }
 
-export function Stepper({ steps, current, onSelect, disabled, issues }: StepperProps) {
-  const currentIndex = steps.findIndex((s) => s.key === current)
-
+export function Stepper({ steps, current, onSelect, disabled, issues, visited }: StepperProps) {
   return (
     <nav className="flex items-center gap-2" aria-label="Progresso">
       {steps.map((step, idx) => {
         const isCurrent = step.key === current
-        const isDone = idx < currentIndex
+        const isDone = !isCurrent && (visited?.has(step.key) ?? false)
         const issueMsg = issues?.[step.key]
         const hasIssue = !!issueMsg
         return (
@@ -71,7 +73,9 @@ export function Stepper({ steps, current, onSelect, disabled, issues }: StepperP
                 aria-hidden="true"
                 className={cn(
                   'h-px w-6 transition',
-                  idx < currentIndex ? 'bg-success/40' : 'bg-border',
+                  // Conector verde se o próximo step já foi visitado — segue
+                  // o mesmo critério histórico do isDone.
+                  visited?.has(steps[idx + 1].key) ? 'bg-success/40' : 'bg-border',
                 )}
               />
             )}
