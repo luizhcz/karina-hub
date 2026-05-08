@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { getAgent, type Agent } from '../api/agents'
 import { createSession, streamRun, type AgentSession, type StreamEvent } from '../api/agentSessions'
@@ -59,6 +59,24 @@ export function AgentSandbox() {
 
   const abortRef = useRef<AbortController | null>(null)
   const scrollerRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
+
+  // Auto-grow do textarea: cresce conforme o user adiciona linhas, com cap
+  // em 5 linhas (line-height + padding lidos do computed style pra não
+  // hardcodar números). Acima do cap, scroll vertical aparece.
+  useLayoutEffect(() => {
+    const ta = inputRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    const cs = window.getComputedStyle(ta)
+    const lh = parseFloat(cs.lineHeight) || 20
+    const pt = parseFloat(cs.paddingTop) || 0
+    const pb = parseFloat(cs.paddingBottom) || 0
+    const maxH = lh * 5 + pt + pb
+    const desired = ta.scrollHeight
+    ta.style.height = `${Math.min(desired, maxH)}px`
+    ta.style.overflowY = desired > maxH ? 'auto' : 'hidden'
+  }, [input])
 
   // Carrega o agent pra mostrar nome/modelo no header.
   useEffect(() => {
@@ -256,6 +274,7 @@ export function AgentSandbox() {
         <div className="border-t border-border bg-bg-soft/50 px-4 py-3">
           <div className="flex items-end gap-2">
             <textarea
+              ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -263,7 +282,9 @@ export function AgentSandbox() {
               rows={1}
               disabled={sending}
               className={cn(
-                'block max-h-32 min-h-[40px] flex-1 resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-dim',
+                // leading-5 fixa o line-height pro auto-grow ler valor previsível.
+                // Altura é controlada via style.height no useLayoutEffect (cap = 5 linhas).
+                'block flex-1 resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm leading-5 text-fg placeholder:text-fg-dim',
                 'focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent',
                 'disabled:cursor-not-allowed disabled:opacity-60',
               )}
