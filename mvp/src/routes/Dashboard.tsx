@@ -9,10 +9,8 @@ import {
   type ProjectOverview,
   type ProjectTimeseriesBucket,
 } from '../api/projectAnalytics'
-import { listAgents } from '../api/agents'
 import { ApiError, friendlyError } from '../api/client'
 import { getIdentity } from '../stores/identity'
-import { isInCurrentProject } from '../stores/projectScope'
 import {
   Badge,
   Button,
@@ -31,8 +29,6 @@ interface DashboardData {
   timeseries: ProjectTimeseriesBucket[]
   agents: ProjectAgentBreakdown[]
   budget: ProjectBudgetStatus
-  /** Agentes ocultos da tabela (Visibility=global, projeto-dono diferente). */
-  hiddenAgents: ProjectAgentBreakdown[]
 }
 
 export function Dashboard() {
@@ -52,65 +48,17 @@ export function Dashboard() {
     setError(null)
     setForbidden(false)
     try {
-      // Fase 1 (paralelo): descobrir quais IDs de agente são "internos da
-      // plataforma" (visibility=global pertencendo a outro projeto). Isso
-      // alimenta a serialização da Fase 2 — timeseries usa excludeAgentIds
-      // pra descontar consumo desses no backend (LLM agg via JOIN).
-      const [agents, allAgents] = await Promise.all([
-        getProjectAgents(projectId, 20),
-        listAgents(),
-      ])
-      const ownAgentIds = new Set(allAgents.filter(isInCurrentProject).map((a) => a.id))
-      const visibleAgents = agents.filter((a) => ownAgentIds.has(a.agentId))
-      const hiddenAgents = agents.filter((a) => !ownAgentIds.has(a.agentId))
-      const hiddenIds = hiddenAgents.map((a) => a.agentId)
-
-      // Fase 2 (paralelo): overview/timeseries/budget. Timeseries recebe
-      // excludeAgentIds pra que cost/tokens/calls dos buckets já venham
-      // descontados do backend.
-      const [overview, timeseries, budget] = await Promise.all([
-        getProjectOverview(projectId),
-        getProjectTimeseries(projectId, signalGranularity, undefined, undefined, hiddenIds),
+      // Backend já filtra por agentes do próprio ProjectId via ownedOnly=true —
+      // métricas LLM (cost/tokens/calls) e topAgents do overview, agentes da
+      // tabela e buckets do timeseries. Métricas de execução continuam
+      // project-wide porque granularidade é por workflow, não por agent.
+      const [overview, timeseries, agents, budget] = await Promise.all([
+        getProjectOverview(projectId, undefined, undefined, true),
+        getProjectTimeseries(projectId, signalGranularity, undefined, undefined, undefined, true),
+        getProjectAgents(projectId, 20, undefined, undefined, true),
         getProjectBudget(projectId),
       ])
-      // Desconta os hidden dos totais. cost/tokens/calls são diretamente
-      // somados; execuções/completed/failed são aproximados via calls (cada
-      // workflow do assistente-perfil/gerador-testcases é 1 execution = 1 call,
-      // razão prática válida pra workflows simples Graph single-agent).
-      const sub = hiddenAgents.reduce(
-        (acc, a) => {
-          acc.cost += a.costUsd
-          acc.tokens += a.totalTokens
-          acc.calls += a.calls
-          // Falhas = errorRate * calls; sucessos = calls - falhas.
-          const fail = Math.round(a.calls * a.errorRate)
-          acc.failed += fail
-          acc.completed += Math.max(0, a.calls - fail)
-          return acc
-        },
-        { cost: 0, tokens: 0, calls: 0, completed: 0, failed: 0 },
-      )
-      const adjCompleted = Math.max(0, overview.completed - sub.completed)
-      const adjFailed = Math.max(0, overview.failed - sub.failed)
-      const totalResolved = adjCompleted + adjFailed
-      const adjustedOverview: ProjectOverview = {
-        ...overview,
-        totalCostUsd: Math.max(0, overview.totalCostUsd - sub.cost),
-        totalTokens: Math.max(0, overview.totalTokens - sub.tokens),
-        totalCalls: Math.max(0, overview.totalCalls - sub.calls),
-        totalExecutions: Math.max(0, overview.totalExecutions - sub.calls),
-        completed: adjCompleted,
-        failed: adjFailed,
-        successRate: totalResolved > 0 ? adjCompleted / totalResolved : 0,
-        topAgents: overview.topAgents.filter((a) => ownAgentIds.has(a.agentId)),
-      }
-      setData({
-        overview: adjustedOverview,
-        timeseries,
-        agents: visibleAgents,
-        budget,
-        hiddenAgents,
-      })
+      setData({ overview, timeseries, agents, budget })
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
         setForbidden(true)
@@ -186,14 +134,10 @@ export function Dashboard() {
               </div>
             </div>
             <Spark buckets={data.timeseries} mode={chartType} />
-            {data.hiddenAgents.length > 0 && (
-              <p className="text-[11px] leading-relaxed text-fg-dim">
-                Custo, tokens e LLM calls já descontam os {data.hiddenAgents.length} agente
-                {data.hiddenAgents.length === 1 ? '' : 's'} interno{data.hiddenAgents.length === 1 ? '' : 's'} da plataforma.
-                A contagem de execuções/falhas é por workflow (granularidade diferente) — pode incluir
-                runs do assistente de perfil/gerador de test cases.
-              </p>
-            )}
+            <p className="text-[11px] leading-relaxed text-fg-dim">
+              Custo, tokens e LLM calls são só dos agentes do projeto. Execuções/falhas
+              continuam project-wide (granularidade por workflow).
+            </p>
           </Card>
 
           <Card className="space-y-4">
@@ -202,16 +146,6 @@ export function Dashboard() {
               description="Top 20 por custo no período. p95 reflete a duração das chamadas LLM no agente; error rate é por execução do workflow envolvendo o agente."
             />
             <AgentsTable rows={data.agents} />
-            {data.hiddenAgents.length > 0 && (
-              <p className="text-[11px] leading-relaxed text-fg-dim">
-                {data.hiddenAgents.length} agente
-                {data.hiddenAgents.length === 1 ? '' : 's'} interno
-                {data.hiddenAgents.length === 1 ? '' : 's'} da plataforma oculto
-                {data.hiddenAgents.length === 1 ? '' : 's'} (assistente de perfil, gerador de test
-                cases). Consumo de <strong>${data.hiddenAgents.reduce((sum, a) => sum + a.costUsd, 0).toFixed(4)}</strong>{' '}
-                já foi descontado dos cards e da taxa de sucesso acima.
-              </p>
-            )}
           </Card>
 
           <BudgetCard status={data.budget} />

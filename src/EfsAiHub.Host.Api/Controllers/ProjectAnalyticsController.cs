@@ -47,7 +47,7 @@ public sealed class ProjectAnalyticsController : ControllerBase
 
     [HttpGet("{projectId}/overview")]
     [SwaggerOperation(Summary = "Resumo de uso/custo do projeto no período (default: mês até agora). " +
-                                "Inclui top 3 agentes por custo. Usado no card-resumo do dashboard.")]
+                                "Inclui top 3 agentes por custo. ?ownedOnly=true filtra métricas LLM e topAgents pra agentes cujo ProjectId é o do request (ignora Visibility=global de outros projetos do tenant). Métricas de execução continuam incluindo todos os workflows.")]
     [ProducesResponseType(typeof(ProjectOverview), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -55,19 +55,20 @@ public sealed class ProjectAnalyticsController : ControllerBase
         string projectId,
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
+        [FromQuery] bool? ownedOnly,
         CancellationToken ct)
     {
         var gate = await EnsureProjectAccessAsync(projectId, ct);
         if (gate is not null) return gate;
 
         var (fromDt, toDt) = ResolveRange(from, to);
-        var overview = await _repo.GetProjectOverviewAsync(projectId, fromDt, toDt, ct);
+        var overview = await _repo.GetProjectOverviewAsync(projectId, fromDt, toDt, ownedOnly == true, ct);
         return Ok(overview);
     }
 
     [HttpGet("{projectId}/timeseries")]
     [SwaggerOperation(Summary = "Série temporal de custo + execuções por bucket (day|hour). " +
-                                "Default: últimos 30 dias agrupados por dia.")]
+                                "Default: últimos 30 dias agrupados por dia. ?ownedOnly=true mantém só métricas LLM dos agentes do próprio projeto; combinável com excludeAgentIds.")]
     [ProducesResponseType(typeof(IReadOnlyList<ProjectTimeseriesBucket>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -77,6 +78,7 @@ public sealed class ProjectAnalyticsController : ControllerBase
         [FromQuery] DateTime? to,
         [FromQuery] string? groupBy,
         [FromQuery] string? excludeAgentIds,
+        [FromQuery] bool? ownedOnly,
         CancellationToken ct)
     {
         var gate = await EnsureProjectAccessAsync(projectId, ct);
@@ -93,13 +95,13 @@ public sealed class ProjectAnalyticsController : ControllerBase
                 .ToArray();
 
         var buckets = await _repo.GetProjectTimeseriesAsync(
-            projectId, fromDt, toDt, groupBy ?? "day", excludeIds, ct);
+            projectId, fromDt, toDt, groupBy ?? "day", excludeIds, ownedOnly == true, ct);
         return Ok(buckets);
     }
 
     [HttpGet("{projectId}/agents")]
     [SwaggerOperation(Summary = "Breakdown por agente: calls, tokens, custo, p95 latência, error rate. " +
-                                "Ordenado por custo DESC. top default = 20.")]
+                                "Ordenado por custo DESC. top default = 20. ?ownedOnly=true retorna só agentes cujo ProjectId é o do request (descarta Visibility=global de outros projetos do tenant).")]
     [ProducesResponseType(typeof(IReadOnlyList<ProjectAgentBreakdown>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -108,6 +110,7 @@ public sealed class ProjectAnalyticsController : ControllerBase
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
         [FromQuery] int? top,
+        [FromQuery] bool? ownedOnly,
         CancellationToken ct)
     {
         var gate = await EnsureProjectAccessAsync(projectId, ct);
@@ -115,7 +118,7 @@ public sealed class ProjectAnalyticsController : ControllerBase
 
         var (fromDt, toDt) = ResolveRange(from, to);
         var clampedTop = Math.Clamp(top ?? 20, 1, 100);
-        var rows = await _repo.GetProjectAgentBreakdownAsync(projectId, fromDt, toDt, clampedTop, ct);
+        var rows = await _repo.GetProjectAgentBreakdownAsync(projectId, fromDt, toDt, clampedTop, ownedOnly == true, ct);
         return Ok(rows);
     }
 

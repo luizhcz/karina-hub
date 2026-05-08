@@ -32,24 +32,36 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
     }
 
     public async Task<ProjectOverview> GetProjectOverviewAsync(
-        string projectId, DateTime from, DateTime to, CancellationToken ct = default)
+        string projectId, DateTime from, DateTime to, bool ownedOnly = false, CancellationToken ct = default)
     {
         await using var db = await _factory.CreateDbContextAsync(ct);
 
-        // Stats LLM (tokens/custo/calls) via v_llm_cost JOIN workflow_executions.
-        var llmStats = await db.Database.SqlQueryRaw<LlmAggRaw>("""
+        // Quando ownedOnly=true precisamos do AgentId (via llm_token_usage) e do
+        // ProjectId do agent (via agent_definitions). Caso contrário mantemos a
+        // query original sem o JOIN extra (mais barata + cobre rows sem AgentId).
+        var llmJoin = ownedOnly
+            ? @"INNER JOIN aihub.llm_token_usage ltu ON ltu.""Id"" = c.""Id""
+                INNER JOIN aihub.agent_definitions ad ON ad.""Id"" = ltu.""AgentId"""
+            : "";
+        var llmExtraWhere = ownedOnly ? @" AND ad.""ProjectId"" = {0}" : "";
+
+        var llmStats = await db.Database.SqlQueryRaw<LlmAggRaw>($@"
             SELECT
-                COALESCE(SUM(c."EstimatedCostUsd"), 0)::numeric AS "CostUsd",
-                COALESCE(SUM(c."TotalTokens"), 0)::bigint        AS "Tokens",
-                COUNT(*)::int                                    AS "Calls"
+                COALESCE(SUM(c.""EstimatedCostUsd""), 0)::numeric AS ""CostUsd"",
+                COALESCE(SUM(c.""TotalTokens""), 0)::bigint        AS ""Tokens"",
+                COUNT(*)::int                                      AS ""Calls""
             FROM aihub.v_llm_cost c
-            INNER JOIN aihub.workflow_executions we ON we."ExecutionId" = c."ExecutionId"
-            WHERE we."ProjectId" = {0}
-              AND c."CreatedAt" BETWEEN {1} AND {2}
-            """, projectId, from, to)
+            INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = c.""ExecutionId""
+            {llmJoin}
+            WHERE we.""ProjectId"" = {{0}}
+              AND c.""CreatedAt"" BETWEEN {{1}} AND {{2}}
+              {llmExtraWhere}
+            ", projectId, from, to)
             .ToListAsync(ct);
 
         // Stats execução (total/completed/failed) — direto de workflow_executions.
+        // Granularidade workflow ≠ agent: ownedOnly NÃO afeta esse bloco (mesma
+        // semântica documentada em GetProjectTimeseriesAsync).
         var execStats = await db.Database.SqlQueryRaw<ExecAggRaw>("""
             SELECT
                 COUNT(*)::int                                          AS "Total",
@@ -62,21 +74,28 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
             .ToListAsync(ct);
 
         // Top 3 agentes por custo no período.
-        var topAgentRows = await db.Database.SqlQueryRaw<AgentMiniRaw>("""
+        var topAgentJoin = ownedOnly
+            ? @"INNER JOIN aihub.agent_definitions ad ON ad.""Id"" = ltu.""AgentId"""
+            : "";
+        var topAgentExtraWhere = ownedOnly ? @" AND ad.""ProjectId"" = {0}" : "";
+
+        var topAgentRows = await db.Database.SqlQueryRaw<AgentMiniRaw>($@"
             SELECT
-                ltu."AgentId"                                AS "AgentId",
-                COALESCE(SUM(c."EstimatedCostUsd"), 0)::numeric AS "CostUsd",
-                COALESCE(SUM(c."TotalTokens"), 0)::bigint    AS "Tokens",
-                COUNT(*)::int                                AS "Calls"
+                ltu.""AgentId""                                AS ""AgentId"",
+                COALESCE(SUM(c.""EstimatedCostUsd""), 0)::numeric AS ""CostUsd"",
+                COALESCE(SUM(c.""TotalTokens""), 0)::bigint    AS ""Tokens"",
+                COUNT(*)::int                                AS ""Calls""
             FROM aihub.v_llm_cost c
-            INNER JOIN aihub.llm_token_usage ltu ON ltu."Id" = c."Id"
-            INNER JOIN aihub.workflow_executions we ON we."ExecutionId" = c."ExecutionId"
-            WHERE we."ProjectId" = {0}
-              AND c."CreatedAt" BETWEEN {1} AND {2}
-            GROUP BY ltu."AgentId"
-            ORDER BY SUM(c."EstimatedCostUsd") DESC
+            INNER JOIN aihub.llm_token_usage ltu ON ltu.""Id"" = c.""Id""
+            INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = c.""ExecutionId""
+            {topAgentJoin}
+            WHERE we.""ProjectId"" = {{0}}
+              AND c.""CreatedAt"" BETWEEN {{1}} AND {{2}}
+              {topAgentExtraWhere}
+            GROUP BY ltu.""AgentId""
+            ORDER BY SUM(c.""EstimatedCostUsd"") DESC
             LIMIT 3
-            """, projectId, from, to)
+            ", projectId, from, to)
             .ToListAsync(ct);
 
         var llm = llmStats.FirstOrDefault() ?? new LlmAggRaw();
@@ -111,6 +130,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
         DateTime to,
         string groupBy,
         IReadOnlyCollection<string>? excludeAgentIds = null,
+        bool ownedOnly = false,
         CancellationToken ct = default)
     {
         // Defensivo: groupBy só aceita day/hour pra evitar SQL injection no
@@ -119,15 +139,18 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
 
         await using var db = await _factory.CreateDbContextAsync(ct);
 
-        // LLM agrega custo/tokens/calls por bucket. Quando excludeAgentIds é
-        // passado, JOIN com llm_token_usage permite filtrar por AgentId — o
-        // próprio v_llm_cost.Id casa com llm_token_usage.Id (mesma row).
-        // Limit prático: como o JOIN puxa AgentId, calls = chamadas LLM com
-        // AgentId atribuído (rows de runtime sem AgentId NÃO são contadas
-        // quando o filtro é ativo — caso patológico, raro).
+        // LLM agrega custo/tokens/calls por bucket. Filtros opcionais por agent:
+        // - excludeAgentIds: drop rows com AgentId nessa lista.
+        // - ownedOnly: mantém só rows cujo agent pertence ao próprio ProjectId
+        //   (JOIN com agent_definitions). Combinável com excludeAgentIds.
+        // ltu fica acoplado quando qualquer um dos dois filtros está ativo —
+        // INNER JOIN se ownedOnly (precisa do agent dono); LEFT se só exclude
+        // (rows sem AgentId continuam contando).
         // Exec agrega workflow_executions — granularidade workflow ≠ agent,
         // não é filtrável por AgentId aqui.
         var hasExclusion = excludeAgentIds is { Count: > 0 };
+        var needsLtuJoin = hasExclusion || ownedOnly;
+        var ltuJoinKind = ownedOnly ? "INNER" : "LEFT";
 
         var parameters = new List<object> { projectId, from, to };
         var llmSql = @"
@@ -138,21 +161,32 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                 COUNT(*)::int                                              AS ""Calls""
             FROM aihub.v_llm_cost c
             INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = c.""ExecutionId""";
-        if (hasExclusion)
+        if (needsLtuJoin)
+        {
+            llmSql += $@"
+            {ltuJoinKind} JOIN aihub.llm_token_usage ltu ON ltu.""Id"" = c.""Id""";
+        }
+        if (ownedOnly)
         {
             llmSql += @"
-            LEFT JOIN aihub.llm_token_usage ltu ON ltu.""Id"" = c.""Id""";
+            INNER JOIN aihub.agent_definitions ad ON ad.""Id"" = ltu.""AgentId""";
         }
         llmSql += @"
             WHERE we.""ProjectId"" = {0}
               AND c.""CreatedAt"" BETWEEN {1} AND {2}";
+        if (ownedOnly)
+        {
+            // Reusa {0} (projectId) — agent dono == projeto do request.
+            llmSql += @"
+              AND ad.""ProjectId"" = {0}";
+        }
         if (hasExclusion)
         {
-            // Parametrizamos como text[] e usamos NOT = ANY({3}) — Npgsql
-            // serializa List<string> como text[] sem precisar de várias
-            // posições nos parâmetros.
-            llmSql += @"
-              AND (ltu.""AgentId"" IS NULL OR NOT (ltu.""AgentId"" = ANY({3})))";
+            // Parametrizamos como text[] e usamos NOT = ANY — Npgsql serializa
+            // List<string> como text[] sem precisar de várias posições.
+            var paramIdx = parameters.Count;
+            llmSql += $@"
+              AND (ltu.""AgentId"" IS NULL OR NOT (ltu.""AgentId"" = ANY({{{paramIdx}}})))";
             parameters.Add(excludeAgentIds!.ToArray());
         }
         llmSql += @"
@@ -199,53 +233,66 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
     }
 
     public async Task<IReadOnlyList<ProjectAgentBreakdown>> GetProjectAgentBreakdownAsync(
-        string projectId, DateTime from, DateTime to, int top, CancellationToken ct = default)
+        string projectId, DateTime from, DateTime to, int top, bool ownedOnly = false, CancellationToken ct = default)
     {
         await using var db = await _factory.CreateDbContextAsync(ct);
+
+        // ownedOnly = true: JOIN com agent_definitions e filtra
+        // ad.ProjectId = projectId nas duas CTEs (mantém consistência entre
+        // calls e error_rate). Sem o JOIN o agent_calls captura também
+        // chamadas de agentes Visibility=global de outros projetos.
+        var ownedJoin = ownedOnly
+            ? @"INNER JOIN aihub.agent_definitions ad ON ad.""Id"" = ltu.""AgentId"""
+            : "";
+        var ownedWhere = ownedOnly ? @" AND ad.""ProjectId"" = {0}" : "";
 
         // CTE com 2 partes: agent_calls (custo/tokens/duration por chamada do
         // agente) e agent_error_rate (% de execuções distintas envolvendo o
         // agente que terminaram em Failed). LEFT JOIN garante 0 quando não
         // há execução resolvida.
-        var rows = await db.Database.SqlQueryRaw<AgentBreakdownRaw>("""
+        var rows = await db.Database.SqlQueryRaw<AgentBreakdownRaw>($@"
             WITH agent_calls AS (
-                SELECT ltu."AgentId", ltu."ModelId", ltu."ExecutionId",
-                       ltu."DurationMs", c."EstimatedCostUsd", c."TotalTokens"
+                SELECT ltu.""AgentId"", ltu.""ModelId"", ltu.""ExecutionId"",
+                       ltu.""DurationMs"", c.""EstimatedCostUsd"", c.""TotalTokens""
                 FROM aihub.v_llm_cost c
-                INNER JOIN aihub.llm_token_usage ltu ON ltu."Id" = c."Id"
-                INNER JOIN aihub.workflow_executions we ON we."ExecutionId" = c."ExecutionId"
-                WHERE we."ProjectId" = {0}
-                  AND c."CreatedAt" BETWEEN {1} AND {2}
+                INNER JOIN aihub.llm_token_usage ltu ON ltu.""Id"" = c.""Id""
+                INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = c.""ExecutionId""
+                {ownedJoin}
+                WHERE we.""ProjectId"" = {{0}}
+                  AND c.""CreatedAt"" BETWEEN {{1}} AND {{2}}
+                  {ownedWhere}
             ),
             agent_exec_status AS (
-                SELECT DISTINCT ltu."AgentId", we."ExecutionId", we."Status"
+                SELECT DISTINCT ltu.""AgentId"", we.""ExecutionId"", we.""Status""
                 FROM aihub.llm_token_usage ltu
-                INNER JOIN aihub.workflow_executions we ON we."ExecutionId" = ltu."ExecutionId"
-                WHERE we."ProjectId" = {0}
-                  AND ltu."CreatedAt" BETWEEN {1} AND {2}
-                  AND we."Status" IN ('Completed', 'Failed')
+                INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = ltu.""ExecutionId""
+                {ownedJoin}
+                WHERE we.""ProjectId"" = {{0}}
+                  AND ltu.""CreatedAt"" BETWEEN {{1}} AND {{2}}
+                  AND we.""Status"" IN ('Completed', 'Failed')
+                  {ownedWhere}
             ),
             agent_error_rate AS (
-                SELECT "AgentId",
-                       (COUNT(*) FILTER (WHERE "Status" = 'Failed'))::double precision
-                       / NULLIF(COUNT(*), 0)::double precision AS "ErrorRate"
+                SELECT ""AgentId"",
+                       (COUNT(*) FILTER (WHERE ""Status"" = 'Failed'))::double precision
+                       / NULLIF(COUNT(*), 0)::double precision AS ""ErrorRate""
                 FROM agent_exec_status
-                GROUP BY "AgentId"
+                GROUP BY ""AgentId""
             )
-            SELECT ac."AgentId"                                                  AS "AgentId",
-                   MAX(ac."ModelId")                                              AS "ModelId",
-                   COUNT(*)::int                                                  AS "Calls",
-                   COALESCE(SUM(ac."TotalTokens"), 0)::bigint                     AS "TotalTokens",
-                   COALESCE(SUM(ac."EstimatedCostUsd"), 0)::numeric               AS "CostUsd",
-                   COALESCE(AVG(ac."DurationMs"), 0)::double precision            AS "AvgDurationMs",
-                   COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY ac."DurationMs"), 0)::double precision AS "P95DurationMs",
-                   COALESCE(MAX(aer."ErrorRate"), 0)::double precision            AS "ErrorRate"
+            SELECT ac.""AgentId""                                                  AS ""AgentId"",
+                   MAX(ac.""ModelId"")                                              AS ""ModelId"",
+                   COUNT(*)::int                                                    AS ""Calls"",
+                   COALESCE(SUM(ac.""TotalTokens""), 0)::bigint                     AS ""TotalTokens"",
+                   COALESCE(SUM(ac.""EstimatedCostUsd""), 0)::numeric               AS ""CostUsd"",
+                   COALESCE(AVG(ac.""DurationMs""), 0)::double precision            AS ""AvgDurationMs"",
+                   COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY ac.""DurationMs""), 0)::double precision AS ""P95DurationMs"",
+                   COALESCE(MAX(aer.""ErrorRate""), 0)::double precision            AS ""ErrorRate""
             FROM agent_calls ac
-            LEFT JOIN agent_error_rate aer ON aer."AgentId" = ac."AgentId"
-            GROUP BY ac."AgentId"
-            ORDER BY SUM(ac."EstimatedCostUsd") DESC
-            LIMIT {3}
-            """, projectId, from, to, top)
+            LEFT JOIN agent_error_rate aer ON aer.""AgentId"" = ac.""AgentId""
+            GROUP BY ac.""AgentId""
+            ORDER BY SUM(ac.""EstimatedCostUsd"") DESC
+            LIMIT {{3}}
+            ", projectId, from, to, top)
             .ToListAsync(ct);
 
         return rows.Select(r => new ProjectAgentBreakdown

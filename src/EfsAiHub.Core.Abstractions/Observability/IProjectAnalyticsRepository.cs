@@ -12,16 +12,24 @@ namespace EfsAiHub.Core.Abstractions.Observability;
 /// </summary>
 public interface IProjectAnalyticsRepository
 {
+    /// <summary>
+    /// <paramref name="ownedOnly"/>: quando true, restringe as métricas LLM
+    /// (cost/tokens/calls) e <c>topAgents</c> a agentes cujo <c>ProjectId</c>
+    /// é o do request (ignora Visibility=global de outros projetos do tenant
+    /// que rodaram aqui — ex.: assistente-perfil, gerador-testcases). Métricas
+    /// de <c>workflow_executions</c> (executions/completed/failed) NÃO são
+    /// afetadas — granularidade é por workflow, não por agent.
+    /// </summary>
     Task<ProjectOverview> GetProjectOverviewAsync(
-        string projectId, DateTime from, DateTime to, CancellationToken ct = default);
+        string projectId, DateTime from, DateTime to, bool ownedOnly = false, CancellationToken ct = default);
 
     /// <summary>
     /// <paramref name="excludeAgentIds"/>: quando informado, filtra as métricas
-    /// LLM (cost/tokens/calls) para ignorar consumo dos agentes listados —
-    /// frontend usa isso pra esconder consumo de agentes internos da plataforma
-    /// (ex.: assistente-perfil, gerador-testcases). As métricas baseadas em
-    /// <c>workflow_executions</c> (executions/completed/failed) não são afetadas
-    /// porque a granularidade é por workflow, não por agent.
+    /// LLM (cost/tokens/calls) para ignorar consumo dos agentes listados.
+    /// <paramref name="ownedOnly"/>: quando true, mantém só métricas LLM de
+    /// agentes pertencentes ao projeto. Pode ser combinado com
+    /// <paramref name="excludeAgentIds"/>. Métricas <c>workflow_executions</c>
+    /// continuam intactas (granularidade workflow ≠ agent).
     /// </summary>
     Task<IReadOnlyList<ProjectTimeseriesBucket>> GetProjectTimeseriesAsync(
         string projectId,
@@ -29,10 +37,16 @@ public interface IProjectAnalyticsRepository
         DateTime to,
         string groupBy,
         IReadOnlyCollection<string>? excludeAgentIds = null,
+        bool ownedOnly = false,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// <paramref name="ownedOnly"/>: quando true, retorna só agentes cujo
+    /// <c>ProjectId</c> é o do request (descarta Visibility=global de outros
+    /// projetos do mesmo tenant).
+    /// </summary>
     Task<IReadOnlyList<ProjectAgentBreakdown>> GetProjectAgentBreakdownAsync(
-        string projectId, DateTime from, DateTime to, int top, CancellationToken ct = default);
+        string projectId, DateTime from, DateTime to, int top, bool ownedOnly = false, CancellationToken ct = default);
 
     Task<ProjectBudgetStatus> GetProjectBudgetStatusAsync(
         string projectId, int? maxTokensPerDay, decimal? maxCostUsdPerDay, CancellationToken ct = default);

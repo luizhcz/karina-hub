@@ -62,20 +62,36 @@ export interface ProjectBudgetStatus {
 
 export type Granularity = 'day' | 'hour'
 
-export const getProjectOverview = (projectId: string, from?: string, to?: string) => {
+/**
+ * @param ownedOnly Quando true, totais e topAgents incluem só agentes cujo
+ *  ProjectId é o do request (ignora Visibility=global rodando aqui). Métricas
+ *  de execução continuam project-wide (granularidade workflow ≠ agent).
+ */
+export const getProjectOverview = (
+  projectId: string,
+  from?: string,
+  to?: string,
+  ownedOnly = false,
+) => {
   const qs = new URLSearchParams()
   if (from) qs.set('from', from)
   if (to) qs.set('to', to)
+  if (ownedOnly) qs.set('ownedOnly', 'true')
   const suffix = qs.toString() ? `?${qs}` : ''
   return get<ProjectOverview>(`/analytics/projects/${projectId}/overview${suffix}`)
 }
 
+/**
+ * @param ownedOnly Quando true, mantém só métricas LLM dos agentes do próprio
+ *  projeto. Combinável com excludeAgentIds.
+ */
 export const getProjectTimeseries = (
   projectId: string,
   groupBy: Granularity = 'day',
   from?: string,
   to?: string,
   excludeAgentIds?: readonly string[],
+  ownedOnly = false,
 ) => {
   const qs = new URLSearchParams({ groupBy })
   if (from) qs.set('from', from)
@@ -83,20 +99,24 @@ export const getProjectTimeseries = (
   if (excludeAgentIds && excludeAgentIds.length > 0) {
     qs.set('excludeAgentIds', excludeAgentIds.join(','))
   }
+  if (ownedOnly) qs.set('ownedOnly', 'true')
   return get<ProjectTimeseriesBucket[]>(
     `/analytics/projects/${projectId}/timeseries?${qs}`,
   )
 }
 
+/** @param ownedOnly Quando true, retorna só agentes cujo ProjectId é o do request. */
 export const getProjectAgents = (
   projectId: string,
   top = 20,
   from?: string,
   to?: string,
+  ownedOnly = false,
 ) => {
   const qs = new URLSearchParams({ top: String(top) })
   if (from) qs.set('from', from)
   if (to) qs.set('to', to)
+  if (ownedOnly) qs.set('ownedOnly', 'true')
   return get<ProjectAgentBreakdown[]>(`/analytics/projects/${projectId}/agents?${qs}`)
 }
 
