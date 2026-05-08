@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import {
   createGenericTool,
+  executeGenericTool,
   extractPlaceholders,
   getGenericTool,
   updateGenericTool,
   type CreateGenericToolBody,
   type GenericTool,
+  type GenericToolTestResult,
   type HttpMethodType,
   type InputContentType,
   type OutputContentType,
@@ -17,12 +19,14 @@ import { KvTable, type KvRow } from '../components/PostmanEditor/KvTable'
 import {
   ArrowLeftIcon,
   Badge,
+  BoltIcon,
   Button,
   Card,
   CardHeader,
   ErrorMessage,
   Input,
   JsonSchemaBuilder,
+  Modal,
   Select,
   Spinner,
   Textarea,
@@ -171,6 +175,7 @@ export function ToolEditor({ mode }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(mode === 'edit')
   const [existingUpdatedAt, setExistingUpdatedAt] = useState<string | null>(null)
+  const [testOpen, setTestOpen] = useState(false)
 
   // Carrega tool existente em modo edit.
   useEffect(() => {
@@ -642,6 +647,15 @@ export function ToolEditor({ mode }: Props) {
       {error && <ErrorMessage message={error} className="mb-4" />}
 
       <div className="flex items-center justify-end gap-2">
+        {mode === 'edit' && id && (
+          <Button
+            variant="secondary"
+            leftIcon={<BoltIcon className="h-4 w-4" />}
+            onClick={() => setTestOpen(true)}
+          >
+            Testar
+          </Button>
+        )}
         <Button variant="ghost" onClick={() => navigate('/ferramentas')}>
           Cancelar
         </Button>
@@ -649,6 +663,15 @@ export function ToolEditor({ mode }: Props) {
           {mode === 'edit' ? 'Salvar alterações' : 'Criar ferramenta'}
         </Button>
       </div>
+
+      {mode === 'edit' && id && (
+        <TestToolModal
+          open={testOpen}
+          onClose={() => setTestOpen(false)}
+          toolId={id}
+          form={form}
+        />
+      )}
     </div>
   )
 }
@@ -713,6 +736,271 @@ function ParamValEditor({ val, onChange, requiredLocked }: ParamValEditorProps) 
         />
         obrigatório
       </label>
+    </div>
+  )
+}
+
+interface TestToolModalProps {
+  open: boolean
+  onClose: () => void
+  toolId: string
+  form: FormState
+}
+
+// Pré-popula o JSON de args com chaves de path/query/body do schema atual.
+// Valor vazio força o user a preencher antes de executar.
+function buildArgsTemplate(form: FormState): string {
+  const keys: string[] = []
+  for (const r of form.pathRows) if (r.key.trim()) keys.push(r.key.trim())
+  for (const r of form.queryRows) if (r.key.trim()) keys.push(r.key.trim())
+  if (form.method === 'POST') {
+    if (form.inputContentType === 'Json' || form.inputContentType === 'FormUrlEncoded') {
+      try {
+        const schema = JSON.parse(form.inputBodyExample) as { properties?: Record<string, unknown> }
+        if (schema.properties) keys.push(...Object.keys(schema.properties))
+      } catch {
+        // schema inválido — ignora; user preenche manualmente
+      }
+    } else if (form.inputContentType === 'Text') {
+      keys.push(form.textBodyFieldName.trim() || 'body')
+    }
+  }
+  if (keys.length === 0) return '{}'
+  const unique = Array.from(new Set(keys))
+  const lines = unique.map((k) => `  "${k}": ""`).join(',\n')
+  return `{\n${lines}\n}`
+}
+
+function TestToolModal({ open, onClose, toolId, form }: TestToolModalProps) {
+  const [argsText, setArgsText] = useState('')
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<GenericToolTestResult | null>(null)
+  const [argsError, setArgsError] = useState<string | null>(null)
+
+  // Reseta state ao abrir e regenera template a partir do form atual.
+  useEffect(() => {
+    if (!open) return
+    setArgsText(buildArgsTemplate(form))
+    setResult(null)
+    setArgsError(null)
+  }, [open, form])
+
+  const run = async () => {
+    setArgsError(null)
+    let parsed: Record<string, unknown>
+    try {
+      const v = JSON.parse(argsText)
+      if (!v || typeof v !== 'object' || Array.isArray(v)) {
+        setArgsError('Args precisa ser um objeto JSON.')
+        return
+      }
+      parsed = v as Record<string, unknown>
+    } catch {
+      setArgsError('JSON inválido.')
+      return
+    }
+    setRunning(true)
+    setResult(null)
+    try {
+      const r = await executeGenericTool(toolId, parsed)
+      setResult(r)
+    } catch (err) {
+      setResult({
+        success: false,
+        statusCode: null,
+        durationMs: 0,
+        url: '',
+        method: '',
+        requestBody: null,
+        requestHeaders: {},
+        responseBody: null,
+        responseTruncated: false,
+        responseHeaders: {},
+        parsedData: null,
+        error: friendlyError(err, 'Falha ao chamar o endpoint de teste.'),
+      })
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  const isPost = form.method === 'POST'
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title="Testar ferramenta"
+      description="Executa a request real contra o endpoint configurado. Timeout fixo de 10s. Sem audit, sem métricas — não afeta dashboard de uso."
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Fechar
+          </Button>
+          <Button onClick={run} loading={running} leftIcon={<BoltIcon className="h-4 w-4" />}>
+            Executar
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {isPost && (
+          <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] text-warning">
+            Atenção: <span className="font-mono">POST</span> executa de verdade — qualquer
+            efeito colateral do endpoint (criar registro, enviar email, etc.) acontece.
+          </div>
+        )}
+
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-fg-muted">
+            Args (JSON)
+          </label>
+          <p className="mb-2 text-[11px] text-fg-dim">
+            Chaves correspondem a path/query/body da ferramenta. Pré-preenchido com os campos
+            detectados — substitua os valores vazios pelos que quer testar.
+          </p>
+          <textarea
+            className="min-h-[180px] w-full resize-y rounded-lg border border-border bg-surface px-3 py-2 font-mono text-[12px] leading-5 text-fg placeholder:text-fg-dim focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            value={argsText}
+            onChange={(e) => {
+              setArgsText(e.target.value)
+              if (argsError) setArgsError(null)
+            }}
+            spellCheck={false}
+          />
+          {argsError && (
+            <div className="mt-2 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
+              {argsError}
+            </div>
+          )}
+        </div>
+
+        {result && <TestResultPanel result={result} />}
+      </div>
+    </Modal>
+  )
+}
+
+function TestResultPanel({ result }: { result: GenericToolTestResult }) {
+  const tone: 'success' | 'danger' | 'warning' = result.success
+    ? 'success'
+    : result.statusCode && result.statusCode >= 400
+      ? 'danger'
+      : 'warning'
+  const toneClass =
+    tone === 'success'
+      ? 'border-success/40 bg-success/10 text-success'
+      : tone === 'danger'
+        ? 'border-danger/40 bg-danger/10 text-danger'
+        : 'border-warning/40 bg-warning/10 text-warning'
+
+  const parsedJson = useMemo(() => {
+    if (result.parsedData === null || result.parsedData === undefined) return null
+    try {
+      return JSON.stringify(result.parsedData, null, 2)
+    } catch {
+      return String(result.parsedData)
+    }
+  }, [result.parsedData])
+
+  return (
+    <div className="space-y-3 border-t border-border pt-4">
+      <div className={cn('flex items-center justify-between rounded-lg border px-3 py-2 text-[11px]', toneClass)}>
+        <div className="flex items-center gap-3">
+          <span className="font-semibold uppercase tracking-wider">
+            {result.success ? 'OK' : 'Falhou'}
+          </span>
+          {result.statusCode !== null && (
+            <span className="font-mono">HTTP {result.statusCode}</span>
+          )}
+        </div>
+        <span className="font-mono">{result.durationMs} ms</span>
+      </div>
+
+      {result.error && (
+        <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
+          {result.error}
+        </div>
+      )}
+
+      {result.url && (
+        <div>
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-fg-dim">
+            {result.method} URL
+          </div>
+          <div className="break-all rounded-lg border border-border bg-bg-soft px-3 py-2 font-mono text-[11px] text-fg">
+            {result.url}
+          </div>
+        </div>
+      )}
+
+      {parsedJson && (
+        <details open className="rounded-lg border border-border bg-bg-soft">
+          <summary className="cursor-pointer px-3 py-2 text-[11px] uppercase tracking-wider text-fg-muted hover:text-fg">
+            Resposta parseada
+          </summary>
+          <pre className="max-h-72 overflow-auto px-3 pb-3 font-mono text-[11px] leading-5 text-fg">
+            {parsedJson}
+          </pre>
+        </details>
+      )}
+
+      {result.responseBody && (
+        <details className="rounded-lg border border-border bg-bg-soft">
+          <summary className="cursor-pointer px-3 py-2 text-[11px] uppercase tracking-wider text-fg-muted hover:text-fg">
+            Body cru {result.responseTruncated && <span className="text-warning">(truncado)</span>}
+          </summary>
+          <pre className="max-h-72 overflow-auto px-3 pb-3 font-mono text-[11px] leading-5 text-fg">
+            {result.responseBody}
+          </pre>
+        </details>
+      )}
+
+      {result.requestBody && (
+        <details className="rounded-lg border border-border bg-bg-soft">
+          <summary className="cursor-pointer px-3 py-2 text-[11px] uppercase tracking-wider text-fg-muted hover:text-fg">
+            Request body
+          </summary>
+          <pre className="max-h-48 overflow-auto px-3 pb-3 font-mono text-[11px] leading-5 text-fg">
+            {result.requestBody}
+          </pre>
+        </details>
+      )}
+
+      <details className="rounded-lg border border-border bg-bg-soft">
+        <summary className="cursor-pointer px-3 py-2 text-[11px] uppercase tracking-wider text-fg-muted hover:text-fg">
+          Headers
+        </summary>
+        <div className="space-y-3 px-3 pb-3 text-[11px]">
+          <HeadersList title="Request" headers={result.requestHeaders} />
+          <HeadersList title="Response" headers={result.responseHeaders} />
+        </div>
+      </details>
+    </div>
+  )
+}
+
+function HeadersList({ title, headers }: { title: string; headers: Record<string, string> }) {
+  const entries = Object.entries(headers)
+  if (entries.length === 0) {
+    return (
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-fg-dim">{title}</div>
+        <p className="text-fg-dim">— vazio —</p>
+      </div>
+    )
+  }
+  return (
+    <div>
+      <div className="mb-1 text-[10px] uppercase tracking-wider text-fg-dim">{title}</div>
+      <div className="space-y-0.5 font-mono">
+        {entries.map(([k, v]) => (
+          <div key={k} className="break-all">
+            <span className="text-fg-muted">{k}:</span> <span className="text-fg">{v}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

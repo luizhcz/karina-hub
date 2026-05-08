@@ -112,11 +112,18 @@ builder.Services.AddHttpClient("generic-tool-executor", c =>
 {
     c.Timeout = Timeout.InfiniteTimeSpan;
 });
+// Mesmo padrão do executor: o tester controla o timeout via CTS (10s fixo).
+builder.Services.AddHttpClient("generic-tool-tester", c =>
+{
+    c.Timeout = Timeout.InfiniteTimeSpan;
+});
 builder.Services.AddSingleton<BoletaToolFunctions>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IGenericToolRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgGenericToolRepository>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolExecutor,
     EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolExecutor>();
+builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolTester,
+    EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolTester>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Interfaces.IGenericToolService,
     EfsAiHub.Platform.Runtime.Services.GenericToolService>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolBinder,

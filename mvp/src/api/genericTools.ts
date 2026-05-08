@@ -59,6 +59,27 @@ export const createGenericTool = (body: CreateGenericToolBody) =>
 export const updateGenericTool = (id: string, body: UpdateGenericToolBody) =>
   put<GenericTool>(`/generic-tools/${id}`, body)
 
+// Envelope verboso retornado por POST /{id}/execute. Não usar em runtime de
+// agente — esse endpoint só serve pra teste manual no editor (timeout 10s,
+// sem audit, sem métricas).
+export interface GenericToolTestResult {
+  success: boolean
+  statusCode: number | null
+  durationMs: number
+  url: string
+  method: string
+  requestBody: string | null
+  requestHeaders: Record<string, string>
+  responseBody: string | null
+  responseTruncated: boolean
+  responseHeaders: Record<string, string>
+  parsedData: unknown
+  error: string | null
+}
+
+export const executeGenericTool = (id: string, args: Record<string, unknown>) =>
+  post<GenericToolTestResult>(`/generic-tools/${id}/execute`, { args })
+
 // Detecta placeholders {nome} no UrlTemplate em ordem de aparição. Usado pra
 // auto-popular path params no editor.
 export function extractPlaceholders(urlTemplate: string): string[] {

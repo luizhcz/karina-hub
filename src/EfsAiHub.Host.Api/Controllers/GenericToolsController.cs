@@ -3,6 +3,7 @@ using EfsAiHub.Core.Agents;
 using EfsAiHub.Core.Agents.GenericTools;
 using EfsAiHub.Host.Api.Models.Requests;
 using EfsAiHub.Host.Api.Models.Responses;
+using EfsAiHub.Platform.Runtime.Tools.Generic;
 
 namespace EfsAiHub.Host.Api.Controllers;
 
@@ -12,15 +13,18 @@ namespace EfsAiHub.Host.Api.Controllers;
 public class GenericToolsController : ControllerBase
 {
     private readonly IGenericToolService _service;
+    private readonly IGenericToolTester _tester;
     private readonly IAdminAuditLogger _audit;
     private readonly AdminAuditContext _auditContext;
 
     public GenericToolsController(
         IGenericToolService service,
+        IGenericToolTester tester,
         IAdminAuditLogger audit,
         AdminAuditContext auditContext)
     {
         _service = service;
+        _tester = tester;
         _audit = audit;
         _auditContext = auditContext;
     }
@@ -121,6 +125,25 @@ public class GenericToolsController : ControllerBase
         {
             return NotFound();
         }
+    }
+
+    [HttpPost("{id}/execute")]
+    [SwaggerOperation(Summary = "Executa o Generic Tool isoladamente pra teste. Sem audit, sem métricas, timeout fixo de 10s. Retorna envelope verboso (status, headers, body cru, parsed) — não usar em runtime de agente.")]
+    [ProducesResponseType(typeof(GenericToolTestResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Execute(
+        string id,
+        [FromBody] ExecuteGenericToolRequest request,
+        CancellationToken ct)
+    {
+        var tool = await _service.GetAsync(id, ct);
+        if (tool is null) return NotFound();
+
+        var rawArgs = request.Args ?? new();
+        var args = rawArgs.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+
+        var result = await _tester.TestAsync(tool, args, ct);
+        return Ok(GenericToolTestResponse.FromResult(result));
     }
 
     [HttpDelete("{id}")]
