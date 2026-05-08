@@ -2,34 +2,53 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from './Button'
 import { IconButton } from './IconButton'
 import { Input } from './Input'
+import { Modal } from './Modal'
 import { Select, type SelectOption } from './Select'
-import { CloseIcon, PlusIcon } from './Icons'
+import { CloseIcon, PlusIcon, SparklesIcon } from './Icons'
 import { cn } from './cn'
 
 // Editor visual de JSON Schema. Cada campo tem: nome, tipo, obrigatório,
 // descrição. Suporta primitivos (string/number/integer/boolean), `object`
 // (com sub-campos editáveis recursivamente) e `array` (com `items` primitivo).
 //
+// Suporta dois shapes de raiz: objeto puro ({type:'object',...}) ou lista de
+// objetos ({type:'array',items:{type:'object',...}}). O toggle "Objeto /
+// Lista de objetos" alterna entre os dois sem deixar o user preso no modo JSON.
+//
 // Toggle "Visual / JSON" alterna entre o editor de campos e a representação
 // JSON crua editável. Schemas com features avançadas (anyOf, $ref, array de
-// objetos) caem automaticamente em modo JSON e o botão Visual fica desabilitado.
+// primitivo na raiz) caem automaticamente em modo JSON e o botão Visual fica
+// desabilitado.
 
 const PRIMITIVE_TYPES = ['string', 'number', 'integer', 'boolean'] as const
 type PrimitiveType = (typeof PRIMITIVE_TYPES)[number]
 
-const FIELD_TYPES = [...PRIMITIVE_TYPES, 'object', 'array'] as const
+// JSON Schema não tem `type:'date'`. Datas viram `{type:'string', format:'date'|'date-time'}`,
+// mas no builder elas aparecem como tipos próprios pra UX — converte-se no
+// parse/serialize. Mantém os dois constantes pareados.
+const STRING_FORMAT_TYPES = ['date', 'datetime'] as const
+type StringFormatType = (typeof STRING_FORMAT_TYPES)[number]
+
+const STRING_FORMAT_FOR_TYPE: Record<StringFormatType, string> = {
+  date: 'date',
+  datetime: 'date-time',
+}
+
+const FIELD_TYPES = [...PRIMITIVE_TYPES, ...STRING_FORMAT_TYPES, 'object', 'array'] as const
 type FieldType = (typeof FIELD_TYPES)[number]
 
-// itemType de array — primitivos OR 'object'. Quando é 'object', os campos do
-// item ficam armazenados em FieldRow.children (mesma estrutura que type=object).
-const ARRAY_ITEM_TYPES = [...PRIMITIVE_TYPES, 'object'] as const
+// itemType de array — primitivos + datas + 'object'. Quando é 'object', os campos
+// do item ficam em FieldRow.children (mesma estrutura que type=object).
+const ARRAY_ITEM_TYPES = [...PRIMITIVE_TYPES, ...STRING_FORMAT_TYPES, 'object'] as const
 type ArrayItemType = (typeof ARRAY_ITEM_TYPES)[number]
 
 const FIELD_TYPE_OPTIONS: SelectOption[] = [
   { value: 'string', label: 'texto' },
   { value: 'number', label: 'número' },
   { value: 'integer', label: 'inteiro' },
-  { value: 'boolean', label: 'sim/não' },
+  { value: 'boolean', label: 'boolean' },
+  { value: 'date', label: 'data' },
+  { value: 'datetime', label: 'data e hora' },
   { value: 'object', label: 'objeto' },
   { value: 'array', label: 'lista' },
 ]
@@ -38,12 +57,20 @@ const ARRAY_ITEM_OPTIONS: SelectOption[] = [
   { value: 'string', label: 'lista de textos' },
   { value: 'number', label: 'lista de números' },
   { value: 'integer', label: 'lista de inteiros' },
-  { value: 'boolean', label: 'lista de sim/não' },
+  { value: 'boolean', label: 'lista de booleans' },
+  { value: 'date', label: 'lista de datas' },
+  { value: 'datetime', label: 'lista de datas e horas' },
   { value: 'object', label: 'lista de objetos' },
 ]
 
 function isArrayItemType(t: unknown): t is ArrayItemType {
   return typeof t === 'string' && (ARRAY_ITEM_TYPES as readonly string[]).includes(t)
+}
+
+function stringFormatToType(format: unknown): StringFormatType | null {
+  if (format === 'date') return 'date'
+  if (format === 'date-time') return 'datetime'
+  return null
 }
 
 interface FieldRow {
@@ -61,6 +88,11 @@ interface FieldRow {
 
 type Mode = 'visual' | 'json'
 
+// Shape da raiz do schema. 'object' = `{type:'object',properties:{...}}`;
+// 'array-of-object' = `{type:'array',items:{type:'object',properties:{...}}}`.
+// Em ambos os casos os campos editados na UI são os do objeto (raiz ou item).
+type RootKind = 'object' | 'array-of-object'
+
 interface JsonSchemaBuilderProps {
   value: string
   onChange: (next: string) => void
@@ -75,6 +107,7 @@ interface JsonSchemaBuilderProps {
 interface ParsedSchema {
   ok: boolean
   fields: FieldRow[]
+  rootKind: RootKind
 }
 
 function shortId() {
@@ -112,11 +145,14 @@ function parseProperties(
     const t = propSchema.type
 
     if (isPrimitive(t)) {
+      // String com format reconhecido (date / date-time) vira tipo lógico próprio.
+      const kind: FieldType =
+        t === 'string' ? (stringFormatToType(propSchema.format) ?? 'string') : t
       fields.push({
         ...emptyField(),
         id: shortId(),
         name,
-        type: t,
+        type: kind,
         required: requiredSet.has(name),
         description,
       })
@@ -156,6 +192,10 @@ function parseProperties(
       const itemTypeRaw = itemsObj.type
 
       if (isPrimitive(itemTypeRaw)) {
+        const itemKind: ArrayItemType =
+          itemTypeRaw === 'string'
+            ? (stringFormatToType(itemsObj.format) ?? 'string')
+            : itemTypeRaw
         fields.push({
           ...emptyField(),
           id: shortId(),
@@ -163,7 +203,7 @@ function parseProperties(
           type: 'array',
           required: requiredSet.has(name),
           description,
-          itemType: itemTypeRaw,
+          itemType: itemKind,
         })
         continue
       }
@@ -210,8 +250,8 @@ function parseProperties(
 }
 
 function parseSchema(raw: string): ParsedSchema {
-  const fallback: ParsedSchema = { ok: false, fields: [] }
-  if (!raw || !raw.trim()) return { ok: true, fields: [] }
+  const fallback: ParsedSchema = { ok: false, fields: [], rootKind: 'object' }
+  if (!raw || !raw.trim()) return { ok: true, fields: [], rootKind: 'object' }
 
   let parsed: unknown
   try {
@@ -222,6 +262,26 @@ function parseSchema(raw: string): ParsedSchema {
 
   if (!parsed || typeof parsed !== 'object') return fallback
   const root = parsed as Record<string, unknown>
+
+  // Raiz = lista de objetos: aceita {type:'array',items:{type:'object',...}}
+  // e edita os campos do item como se fossem campos da raiz.
+  if (root.type === 'array') {
+    const items = root.items
+    if (!items || typeof items !== 'object') return fallback
+    const itemsObj = items as Record<string, unknown>
+    if (itemsObj.type !== 'object') return fallback
+    const subProps = itemsObj.properties
+    if (subProps !== undefined && (typeof subProps !== 'object' || subProps === null)) {
+      return fallback
+    }
+    const subRequired = Array.isArray(itemsObj.required)
+      ? (itemsObj.required as unknown[]).filter((r): r is string => typeof r === 'string')
+      : []
+    const props = (subProps ?? {}) as Record<string, unknown>
+    const fields = parseProperties(props, new Set(subRequired))
+    if (fields === null) return fallback
+    return { ok: true, fields, rootKind: 'array-of-object' }
+  }
 
   if (root.type !== undefined && root.type !== 'object') return fallback
 
@@ -235,7 +295,7 @@ function parseSchema(raw: string): ParsedSchema {
   const props = (properties ?? {}) as Record<string, unknown>
   const fields = parseProperties(props, new Set(requiredArr))
   if (fields === null) return fallback
-  return { ok: true, fields }
+  return { ok: true, fields, rootKind: 'object' }
 }
 
 // Serializa fields recursivamente. Produz `{ type, properties, required? }`
@@ -247,7 +307,11 @@ function buildSchemaObject(fields: FieldRow[]): Record<string, unknown> {
   for (const f of fields) {
     const name = f.name.trim()
     if (!name) continue
-    const schema: Record<string, unknown> = { type: f.type }
+    // date/datetime são tipos lógicos: serializam como string + format JSON Schema.
+    const schema: Record<string, unknown> =
+      f.type === 'date' || f.type === 'datetime'
+        ? { type: 'string', format: STRING_FORMAT_FOR_TYPE[f.type] }
+        : { type: f.type }
     if (f.description.trim()) schema.description = f.description.trim()
 
     if (f.type === 'array') {
@@ -262,6 +326,8 @@ function buildSchemaObject(fields: FieldRow[]): Record<string, unknown> {
           items.required = sub.required
         }
         schema.items = items
+      } else if (f.itemType === 'date' || f.itemType === 'datetime') {
+        schema.items = { type: 'string', format: STRING_FORMAT_FOR_TYPE[f.itemType] }
       } else {
         schema.items = { type: f.itemType }
       }
@@ -282,8 +348,104 @@ function buildSchemaObject(fields: FieldRow[]): Record<string, unknown> {
   return result
 }
 
-function serializeSchema(fields: FieldRow[]): string {
-  return JSON.stringify(buildSchemaObject(fields), null, 2)
+function serializeSchema(fields: FieldRow[], rootKind: RootKind): string {
+  const inner = buildSchemaObject(fields)
+  if (rootKind === 'array-of-object') {
+    return JSON.stringify({ type: 'array', items: inner }, null, 2)
+  }
+  return JSON.stringify(inner, null, 2)
+}
+
+// Infere um JSON Schema a partir de um valor de exemplo (resposta real da API).
+// Para arrays, faz merge recursivo dos schemas dos itens — properties viram a
+// união das chaves vistas e `required` fica como interseção (chave presente em
+// TODOS os itens). Tipos numéricos divergentes (integer vs number) caem em
+// number; tipos totalmente diferentes caem em string como denominador comum.
+function inferSchema(value: unknown): Record<string, unknown> {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return { type: 'array', items: { type: 'string' } }
+    let merged = inferSchema(value[0])
+    for (let i = 1; i < value.length; i++) {
+      merged = mergeSchemas(merged, inferSchema(value[i]))
+    }
+    return { type: 'array', items: merged }
+  }
+  if (value === null || value === undefined) return { type: 'string' }
+  const t = typeof value
+  if (t === 'boolean') return { type: 'boolean' }
+  if (t === 'number') {
+    return Number.isInteger(value as number) ? { type: 'integer' } : { type: 'number' }
+  }
+  if (t === 'string') {
+    const s = value as string
+    // YYYY-MM-DD puro → format: 'date'.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return { type: 'string', format: 'date' }
+    // ISO 8601 com componente de tempo → format: 'date-time'.
+    if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(s)) {
+      return { type: 'string', format: 'date-time' }
+    }
+    return { type: 'string' }
+  }
+  if (t === 'object') {
+    const obj = value as Record<string, unknown>
+    const properties: Record<string, unknown> = {}
+    const required: string[] = []
+    for (const [k, v] of Object.entries(obj)) {
+      properties[k] = inferSchema(v)
+      required.push(k)
+    }
+    const result: Record<string, unknown> = { type: 'object', properties }
+    if (required.length > 0) result.required = required
+    return result
+  }
+  return { type: 'string' }
+}
+
+function mergeSchemas(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+): Record<string, unknown> {
+  const at = a.type
+  const bt = b.type
+  if (at !== bt) {
+    if ((at === 'integer' && bt === 'number') || (at === 'number' && bt === 'integer')) {
+      return { type: 'number' }
+    }
+    return { type: 'string' }
+  }
+  // String com format só permanece se ambos os lados concordam — caso contrário
+  // descarta o format e mantém só `type:'string'` (denominador comum).
+  if (at === 'string') {
+    const af = a.format
+    const bf = b.format
+    if (af && af === bf) return { type: 'string', format: af }
+    return { type: 'string' }
+  }
+  if (at === 'object') {
+    const aProps = (a.properties ?? {}) as Record<string, Record<string, unknown>>
+    const bProps = (b.properties ?? {}) as Record<string, Record<string, unknown>>
+    const aReq = new Set(Array.isArray(a.required) ? (a.required as string[]) : [])
+    const bReq = new Set(Array.isArray(b.required) ? (b.required as string[]) : [])
+    const allKeys = new Set([...Object.keys(aProps), ...Object.keys(bProps)])
+    const properties: Record<string, unknown> = {}
+    const required: string[] = []
+    for (const k of allKeys) {
+      const av = aProps[k]
+      const bv = bProps[k]
+      properties[k] = av && bv ? mergeSchemas(av, bv) : (av ?? bv ?? { type: 'string' })
+      // Só é required quando estava em ambos os lados (presente em todos os itens).
+      if (av && bv && aReq.has(k) && bReq.has(k)) required.push(k)
+    }
+    const result: Record<string, unknown> = { type: 'object', properties }
+    if (required.length > 0) result.required = required
+    return result
+  }
+  if (at === 'array') {
+    const ai = (a.items ?? { type: 'string' }) as Record<string, unknown>
+    const bi = (b.items ?? { type: 'string' }) as Record<string, unknown>
+    return { type: 'array', items: mergeSchemas(ai, bi) }
+  }
+  return a
 }
 
 export function JsonSchemaBuilder({
@@ -295,12 +457,16 @@ export function JsonSchemaBuilder({
 }: JsonSchemaBuilderProps) {
   const initialParse = parseSchema(value)
   const [fields, setFields] = useState<FieldRow[]>(initialParse.fields)
+  const [rootKind, setRootKind] = useState<RootKind>(initialParse.rootKind)
   const [mode, setMode] = useState<Mode>(initialParse.ok ? 'visual' : 'json')
   const [jsonText, setJsonText] = useState<string>(value)
   const [visualLocked, setVisualLocked] = useState<boolean>(!initialParse.ok)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [importError, setImportError] = useState<string | null>(null)
 
   const lastEmittedRef = useRef<string>(
-    initialParse.ok ? serializeSchema(initialParse.fields) : value,
+    initialParse.ok ? serializeSchema(initialParse.fields, initialParse.rootKind) : value,
   )
 
   useEffect(() => {
@@ -309,6 +475,7 @@ export function JsonSchemaBuilder({
     const reparsed = parseSchema(value)
     if (reparsed.ok) {
       setFields(reparsed.fields)
+      setRootKind(reparsed.rootKind)
       setVisualLocked(false)
     } else {
       setVisualLocked(true)
@@ -324,7 +491,15 @@ export function JsonSchemaBuilder({
 
   const updateFields = (next: FieldRow[]) => {
     setFields(next)
-    const json = serializeSchema(next)
+    const json = serializeSchema(next, rootKind)
+    setJsonText(json)
+    emit(json)
+  }
+
+  const updateRootKind = (next: RootKind) => {
+    if (next === rootKind) return
+    setRootKind(next)
+    const json = serializeSchema(fields, next)
     setJsonText(json)
     emit(json)
   }
@@ -335,6 +510,7 @@ export function JsonSchemaBuilder({
     const reparsed = parseSchema(text)
     if (reparsed.ok) {
       setFields(reparsed.fields)
+      setRootKind(reparsed.rootKind)
       setVisualLocked(false)
     } else {
       setVisualLocked(true)
@@ -358,6 +534,54 @@ export function JsonSchemaBuilder({
     }
   }
 
+  const openImport = () => {
+    setImportText('')
+    setImportError(null)
+    setImportOpen(true)
+  }
+
+  const closeImport = () => {
+    setImportOpen(false)
+  }
+
+  const applyImport = () => {
+    const trimmed = importText.trim()
+    if (!trimmed) {
+      setImportError('Cole um JSON de exemplo antes de converter.')
+      return
+    }
+    let sample: unknown
+    try {
+      sample = JSON.parse(trimmed)
+    } catch {
+      setImportError('JSON inválido. Verifique a sintaxe e tente novamente.')
+      return
+    }
+    // Só objetos ou listas-de-objetos viram schema editável (raiz). Primitivos
+    // ou listas-de-primitivos na raiz não cabem no builder visual.
+    const isObject = sample !== null && typeof sample === 'object' && !Array.isArray(sample)
+    const isArrayOfObjects =
+      Array.isArray(sample) &&
+      sample.length > 0 &&
+      sample.every((item) => item !== null && typeof item === 'object' && !Array.isArray(item))
+    if (!isObject && !isArrayOfObjects) {
+      setImportError('A raiz precisa ser um objeto ou uma lista de objetos.')
+      return
+    }
+    const inferred = inferSchema(sample)
+    const json = JSON.stringify(inferred, null, 2)
+    setJsonText(json)
+    emit(json)
+    const reparsed = parseSchema(json)
+    if (reparsed.ok) {
+      setFields(reparsed.fields)
+      setRootKind(reparsed.rootKind)
+      setVisualLocked(false)
+      setMode('visual')
+    }
+    setImportOpen(false)
+  }
+
   return (
     <div className="space-y-3">
       <ModeToggle
@@ -366,6 +590,7 @@ export function JsonSchemaBuilder({
         onVisual={handleSwitchToVisual}
         onJson={handleSwitchToJson}
         onCopy={handleCopy}
+        onImport={openImport}
       />
 
       {visualLocked && mode === 'json' && (
@@ -376,14 +601,23 @@ export function JsonSchemaBuilder({
       )}
 
       {mode === 'visual' ? (
-        <FieldList
-          fields={fields}
-          flatOnly={flatOnly}
-          addLabel={addLabel}
-          emptyHint={emptyHint}
-          onChange={updateFields}
-          depth={0}
-        />
+        <div className="space-y-3">
+          {!flatOnly && (
+            <RootKindToggle rootKind={rootKind} onChange={updateRootKind} />
+          )}
+          <FieldList
+            fields={fields}
+            flatOnly={flatOnly}
+            addLabel={addLabel}
+            emptyHint={
+              rootKind === 'array-of-object'
+                ? 'Cada item da lista ainda não tem campos.'
+                : emptyHint
+            }
+            onChange={updateFields}
+            depth={0}
+          />
+        </div>
       ) : (
         <textarea
           className="min-h-[260px] w-full resize-y rounded-lg border border-border bg-surface px-3 py-2 font-mono text-[12px] leading-5 text-fg placeholder:text-fg-dim focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
@@ -392,6 +626,71 @@ export function JsonSchemaBuilder({
           spellCheck={false}
         />
       )}
+
+      <Modal
+        open={importOpen}
+        onClose={closeImport}
+        size="lg"
+        title="Importar do JSON de exemplo"
+        description="Cole um JSON de exemplo (ex.: a resposta real da sua API) e nós inferimos o schema editável."
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={closeImport}>
+              Cancelar
+            </Button>
+            <Button onClick={applyImport} leftIcon={<SparklesIcon className="h-4 w-4" />}>
+              Converter
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-[11px] text-fg-muted">
+            Tipos são inferidos pelos valores. Para listas, o builder funde os schemas dos itens —
+            chaves presentes em todos viram <span className="font-mono">required</span>.
+          </p>
+          <textarea
+            className="min-h-[260px] w-full resize-y rounded-lg border border-border bg-surface px-3 py-2 font-mono text-[12px] leading-5 text-fg placeholder:text-fg-dim focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            value={importText}
+            onChange={(e) => {
+              setImportText(e.target.value)
+              if (importError) setImportError(null)
+            }}
+            placeholder={'{\n  "items": [\n    { "id": 1, "name": "foo" }\n  ],\n  "total": 42\n}'}
+            spellCheck={false}
+            autoFocus
+          />
+          {importError && (
+            <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
+              {importError}
+            </div>
+          )}
+        </div>
+      </Modal>
+    </div>
+  )
+}
+
+interface RootKindToggleProps {
+  rootKind: RootKind
+  onChange: (next: RootKind) => void
+}
+
+function RootKindToggle({ rootKind, onChange }: RootKindToggleProps) {
+  return (
+    <div className="flex items-center gap-2 text-[11px] text-fg-muted">
+      <span className="uppercase tracking-wider">Tipo do schema</span>
+      <div className="inline-flex items-center rounded-lg border border-border bg-bg-soft p-0.5">
+        <ModeButton active={rootKind === 'object'} onClick={() => onChange('object')}>
+          Objeto
+        </ModeButton>
+        <ModeButton
+          active={rootKind === 'array-of-object'}
+          onClick={() => onChange('array-of-object')}
+        >
+          Lista de objetos
+        </ModeButton>
+      </div>
     </div>
   )
 }
@@ -402,9 +701,10 @@ interface ModeToggleProps {
   onVisual: () => void
   onJson: () => void
   onCopy: () => void
+  onImport: () => void
 }
 
-function ModeToggle({ mode, visualLocked, onVisual, onJson, onCopy }: ModeToggleProps) {
+function ModeToggle({ mode, visualLocked, onVisual, onJson, onCopy, onImport }: ModeToggleProps) {
   return (
     <div className="flex items-center justify-between gap-2">
       <div className="inline-flex items-center rounded-lg border border-border bg-bg-soft p-0.5">
@@ -415,15 +715,26 @@ function ModeToggle({ mode, visualLocked, onVisual, onJson, onCopy }: ModeToggle
           JSON
         </ModeButton>
       </div>
-      {mode === 'json' && (
+      <div className="flex items-center gap-1">
         <button
           type="button"
-          onClick={onCopy}
-          className="rounded-md px-2 py-1 text-[10px] uppercase tracking-wider text-fg-muted hover:bg-surface hover:text-fg"
+          onClick={onImport}
+          title="Cole um JSON de exemplo e o builder gera o schema"
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] uppercase tracking-wider text-fg-muted hover:bg-surface hover:text-fg"
         >
-          copiar
+          <SparklesIcon className="h-3.5 w-3.5" />
+          Importar JSON
         </button>
-      )}
+        {mode === 'json' && (
+          <button
+            type="button"
+            onClick={onCopy}
+            className="rounded-md px-2 py-1 text-[10px] uppercase tracking-wider text-fg-muted hover:bg-surface hover:text-fg"
+          >
+            copiar
+          </button>
+        )}
+      </div>
     </div>
   )
 }
