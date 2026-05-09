@@ -170,7 +170,7 @@ function emptySection(): StructuredSection {
 }
 
 function emptyMemorySection() {
-  return { enabled: false, schema: '', maxBytes: null as number | null }
+  return { enabled: false, schema: '' }
 }
 
 export function emptyFormState(): FormState {
@@ -238,7 +238,6 @@ export function fromDraft(draft: AgentDraft): FormState {
     memory: {
       enabled: memEnabled,
       schema: memSchemaText,
-      maxBytes: typeof mem?.maxBytes === 'number' ? mem.maxBytes : null,
     },
     input: {
       mode: inputHasContent ? 'structured' : 'text',
@@ -323,8 +322,5 @@ function encodeOperationalMemory(memory: FormState['memory']): AgentDraftPayload
     return null
   }
   if (!parsed || typeof parsed !== 'object') return null
-  return {
-    schema: parsed,
-    maxBytes: memory.maxBytes,
-  }
+  return { schema: parsed }
 }

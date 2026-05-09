@@ -40,8 +40,6 @@ export interface OperationalMemorySection {
   enabled: boolean
   // JSON Schema crua (string) — alimenta o JsonSchemaBuilder.
   schema: string
-  // null = usa default do backend (8 KB).
-  maxBytes: number | null
 }
 
 export interface FormState {

@@ -22,21 +22,27 @@ interface StepperProps {
 
 export function Stepper({ steps, current, onSelect, disabled, issues, visited }: StepperProps) {
   return (
-    <nav className="flex items-center gap-2" aria-label="Progresso">
+    <nav
+      // overflow-x-auto + min-w-0 evita que a fila de pílulas estoure o card
+      // pai quando o número de etapas cresce (ex.: modo avançado com Memória).
+      // -mx-1 px-1 dá folga visual pro foco/sombra das pílulas no scroll.
+      className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1"
+      aria-label="Progresso"
+    >
       {steps.map((step, idx) => {
         const isCurrent = step.key === current
         const isDone = !isCurrent && (visited?.has(step.key) ?? false)
         const issueMsg = issues?.[step.key]
         const hasIssue = !!issueMsg
         return (
-          <div key={step.key} className="flex items-center gap-2">
+          <div key={step.key} className="flex shrink-0 items-center gap-2">
             <button
               type="button"
               onClick={() => !disabled && onSelect(step.key)}
               disabled={disabled}
               aria-label={issueMsg ? `${step.label} — ${issueMsg}` : step.label}
               className={cn(
-                'flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30',
+                'flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30',
                 disabled && 'cursor-not-allowed opacity-60',
                 !disabled && 'hover:border-accent/40',
                 isCurrent

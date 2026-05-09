@@ -449,6 +449,7 @@ function UserBubble({ msg }: { msg: UserMsg }) {
 
 function AssistantBubble({ msg }: { msg: AssistantMsg }) {
   const showTyping = msg.streaming && msg.content.length === 0 && msg.toolCalls.length === 0
+  const display = msg.streaming ? msg.content : extractDisplayText(msg.content)
 
   return (
     <div className="flex justify-start">
@@ -456,7 +457,7 @@ function AssistantBubble({ msg }: { msg: AssistantMsg }) {
         {msg.toolCalls.map((call) => (
           <ToolCallChip key={call.id} call={call} />
         ))}
-        {(msg.content.length > 0 || msg.errored || showTyping) && (
+        {(display.length > 0 || msg.errored || showTyping) && (
           <div
             className={cn(
               'rounded-2xl rounded-bl-sm border px-4 py-2.5 text-sm leading-relaxed shadow-card',
@@ -465,12 +466,42 @@ function AssistantBubble({ msg }: { msg: AssistantMsg }) {
                 : 'border-border bg-surface text-fg',
             )}
           >
-            {showTyping ? <TypingDots /> : <div className="whitespace-pre-wrap break-words">{msg.content}</div>}
+            {showTyping ? <TypingDots /> : <div className="whitespace-pre-wrap break-words">{display}</div>}
           </div>
         )}
       </div>
     </div>
   )
+}
+
+/**
+ * Extrai o texto exibível do output de um agente. Quando o agent emite JSON
+ * estruturado (caso típico de structuredOutput=json_schema ou agente com
+ * memória operacional), o caller recebe `{"response":"texto"}` envelopado.
+ * Esta função faz parse seguro e devolve só o campo `response`. Em caso de
+ * texto puro ou JSON malformado (ex.: chunk parcial durante streaming),
+ * devolve o conteúdo cru sem alteração.
+ *
+ * Também resolve escapes Unicode (`—` → `—`) automaticamente via
+ * <c>JSON.parse</c>.
+ */
+function extractDisplayText(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed.startsWith('{')) return raw
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    if (
+      parsed !== null
+      && typeof parsed === 'object'
+      && 'response' in parsed
+      && typeof (parsed as { response: unknown }).response === 'string'
+    ) {
+      return (parsed as { response: string }).response
+    }
+  } catch {
+    // JSON inválido — pode ser texto puro ou chunk parcial. Devolve cru.
+  }
+  return raw
 }
 
 function ToolCallChip({ call }: { call: ToolCall }) {

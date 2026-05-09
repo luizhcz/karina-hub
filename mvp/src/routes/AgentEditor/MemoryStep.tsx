@@ -1,4 +1,4 @@
-import { Card, CardHeader, Input, JsonSchemaBuilder, cn } from '../../ui'
+import { Card, CardHeader, JsonSchemaBuilder, cn } from '../../ui'
 import type { FormState, OperationalMemorySection } from './types'
 
 interface MemoryStepProps {
@@ -6,8 +6,6 @@ interface MemoryStepProps {
   setForm: (mutator: (prev: FormState) => FormState) => void
   readonly: boolean
 }
-
-const DEFAULT_MAX_BYTES = 8192
 
 export function MemoryStep({ form, setForm, readonly }: MemoryStepProps) {
   const updateMemory = (mutator: (prev: OperationalMemorySection) => OperationalMemorySection) =>
@@ -47,29 +45,6 @@ export function MemoryStep({ form, setForm, readonly }: MemoryStepProps) {
               value={form.memory.schema}
               onChange={(schema) => updateMemory((prev) => ({ ...prev, schema }))}
               emptyHint="Adicione os campos canônicos do estado mental do agente (preferências, fatos confirmados, próximo passo, etc.)."
-            />
-          </Card>
-
-          <Card className="space-y-3">
-            <CardHeader
-              title="Limite de tamanho"
-              description="Cap em bytes do payload persistido. Acima do limite a escrita é rejeitada e a memória anterior é preservada."
-            />
-            <Input
-              type="number"
-              value={form.memory.maxBytes ?? ''}
-              onChange={(e) =>
-                updateMemory((prev) => ({
-                  ...prev,
-                  maxBytes:
-                    e.target.value === ''
-                      ? null
-                      : Math.max(0, Number.parseInt(e.target.value, 10) || 0),
-                }))
-              }
-              placeholder={String(DEFAULT_MAX_BYTES)}
-              disabled={readonly}
-              hint={`Padrão: ${DEFAULT_MAX_BYTES} bytes (≈ 8 KB).`}
             />
           </Card>
 
