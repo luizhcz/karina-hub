@@ -14,6 +14,7 @@ public class CreateAgentRequest
     public string? Instructions { get; init; }
     public List<AgentToolDefinition> Tools { get; init; } = [];
     public AgentStructuredOutputDefinition? StructuredOutput { get; init; }
+    public AgentOperationalMemoryDefinition? OperationalMemory { get; init; }
     public List<AgentMiddlewareConfig> Middlewares { get; init; } = [];
 
     /// <summary>Política de retry/backoff. Null = defaults do engine.</summary>
@@ -64,6 +65,7 @@ public class CreateAgentRequest
         Instructions = Instructions,
         Tools = Tools,
         StructuredOutput = StructuredOutput,
+        OperationalMemory = OperationalMemory,
         Middlewares = Middlewares,
         Resilience = Resilience,
         CostBudget = CostBudget,

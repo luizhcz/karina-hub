@@ -19,6 +19,7 @@ public sealed class AgentDraftPayload
     public string? Instructions { get; set; }
     public IReadOnlyList<AgentToolDefinition>? Tools { get; set; }
     public AgentStructuredOutputDefinition? StructuredOutput { get; set; }
+    public AgentOperationalMemoryDefinition? OperationalMemory { get; set; }
     public IReadOnlyList<AgentMiddlewareConfig>? Middlewares { get; set; }
     public AgentProviderConfig? FallbackProvider { get; set; }
     public ResiliencePolicy? Resilience { get; set; }
@@ -59,6 +60,7 @@ public sealed class AgentDraftPayload
             Instructions = Instructions,
             Tools = Tools ?? Array.Empty<AgentToolDefinition>(),
             StructuredOutput = StructuredOutput,
+            OperationalMemory = OperationalMemory,
             Middlewares = Middlewares ?? Array.Empty<AgentMiddlewareConfig>(),
             FallbackProvider = FallbackProvider,
             Resilience = Resilience,
@@ -93,6 +95,7 @@ public sealed class AgentDraftPayload
         Instructions = def.Instructions,
         Tools = def.Tools,
         StructuredOutput = def.StructuredOutput,
+        OperationalMemory = def.OperationalMemory,
         Middlewares = def.Middlewares,
         FallbackProvider = def.FallbackProvider,
         Resilience = def.Resilience,

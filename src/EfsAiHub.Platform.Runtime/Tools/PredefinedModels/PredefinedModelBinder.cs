@@ -73,6 +73,7 @@ public sealed class PredefinedModelBinder : IPredefinedModelBinder
         Instructions = d.Instructions,
         Tools = d.Tools,
         StructuredOutput = d.StructuredOutput,
+        OperationalMemory = d.OperationalMemory,
         Middlewares = d.Middlewares,
         Resilience = d.Resilience,
         CostBudget = d.CostBudget,

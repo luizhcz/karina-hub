@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -74,7 +75,7 @@ public static class ChatOptionsBuilder
         if (tools.Count > 0)
             options.Tools = tools;
 
-        var responseFormat = BuildResponseFormat(definition.StructuredOutput, logger, definition.Id);
+        var responseFormat = BuildResponseFormat(definition, logger);
         if (responseFormat is not null)
             options.ResponseFormat = responseFormat;
 
@@ -214,10 +215,15 @@ public static class ChatOptionsBuilder
     }
 
     private static ChatResponseFormat? BuildResponseFormat(
-        AgentStructuredOutputDefinition? structuredOutput,
-        ILogger logger,
-        string agentId)
+        AgentDefinition definition,
+        ILogger logger)
     {
+        var structuredOutput = definition.StructuredOutput;
+        var memory = definition.OperationalMemory;
+
+        if (memory?.Schema is not null)
+            return BuildResponseFormatWithMemory(definition, logger);
+
         if (structuredOutput is null)
             return null;
 
@@ -230,10 +236,92 @@ public static class ChatOptionsBuilder
                     structuredOutput.SchemaName ?? "response",
                     structuredOutput.SchemaDescription),
             "json_schema" =>
-                LogAndReturnNull(logger, agentId, "json_schema format requires a Schema definition"),
+                LogAndReturnNull(logger, definition.Id, "json_schema format requires a Schema definition"),
             "text" => null,
-            _ => LogAndReturnNull(logger, agentId, $"Unknown responseFormat '{structuredOutput.ResponseFormat}'")
+            _ => LogAndReturnNull(logger, definition.Id, $"Unknown responseFormat '{structuredOutput.ResponseFormat}'")
         };
+    }
+
+    /// <summary>
+    /// Compõe ResponseFormat quando o agente tem memória operacional. Adiciona
+    /// property <c>operationalMemory</c> ao schema do StructuredOutput existente
+    /// (ou cria wrapper <c>{response, operationalMemory}</c> quando não há
+    /// schema base). Throws quando o schema do agente já reserva o nome —
+    /// melhor falhar cedo que sobrescrever silenciosamente.
+    /// </summary>
+    private static ChatResponseFormat? BuildResponseFormatWithMemory(
+        AgentDefinition definition,
+        ILogger logger)
+    {
+        const string MemoryFieldName = "operationalMemory";
+
+        var memSchemaJson = definition.OperationalMemory!.Schema!.RootElement.GetRawText();
+        var memNode = JsonNode.Parse(memSchemaJson)
+            ?? throw new InvalidOperationException(
+                $"Agent '{definition.Id}': OperationalMemory.Schema inválido (parse falhou).");
+
+        JsonObject root;
+        string schemaName;
+        string? schemaDescription;
+
+        var structuredOutput = definition.StructuredOutput;
+        var hasJsonSchema = structuredOutput is not null
+            && string.Equals(structuredOutput.ResponseFormat, "json_schema", StringComparison.OrdinalIgnoreCase)
+            && structuredOutput.Schema is not null;
+
+        if (hasJsonSchema)
+        {
+            var baseRoot = JsonNode.Parse(structuredOutput!.Schema!.RootElement.GetRawText())
+                ?? throw new InvalidOperationException(
+                    $"Agent '{definition.Id}': StructuredOutput.Schema inválido (parse falhou).");
+            if (baseRoot is not JsonObject baseObj)
+                throw new InvalidOperationException(
+                    $"Agent '{definition.Id}': StructuredOutput.Schema deve ser um objeto JSON na raiz.");
+
+            root = baseObj;
+            schemaName = structuredOutput.SchemaName ?? "response";
+            schemaDescription = structuredOutput.SchemaDescription;
+        }
+        else
+        {
+            // Sem schema base — wrapper mínimo onde a resposta livre vai em "response".
+            root = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["response"] = new JsonObject { ["type"] = "string" },
+                },
+                ["required"] = new JsonArray { "response" },
+            };
+            schemaName = structuredOutput?.SchemaName ?? "response";
+            schemaDescription = structuredOutput?.SchemaDescription;
+        }
+
+        var properties = root["properties"] as JsonObject;
+        if (properties is null)
+        {
+            properties = new JsonObject();
+            root["properties"] = properties;
+        }
+
+        if (properties.ContainsKey(MemoryFieldName))
+            throw new InvalidOperationException(
+                $"Agent '{definition.Id}': StructuredOutput.Schema já contém property '{MemoryFieldName}' — " +
+                "remove do schema do agente ou desative OperationalMemory pra evitar colisão.");
+
+        properties[MemoryFieldName] = memNode;
+
+        var required = root["required"] as JsonArray ?? new JsonArray();
+        if (!required.Any(n => n is JsonValue v && v.TryGetValue<string>(out var s) && s == MemoryFieldName))
+            required.Add(MemoryFieldName);
+        root["required"] = required;
+
+        using var composed = JsonDocument.Parse(root.ToJsonString());
+        return ChatResponseFormat.ForJsonSchema(
+            composed.RootElement.Clone(),
+            schemaName,
+            schemaDescription);
     }
 
     private static ChatResponseFormat? LogAndReturnNull(ILogger logger, string agentId, string message)

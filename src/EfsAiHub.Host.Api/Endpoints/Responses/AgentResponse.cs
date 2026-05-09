@@ -13,6 +13,7 @@ public class AgentResponse
     public string? Instructions { get; init; }
     public IReadOnlyList<AgentToolDefinition> Tools { get; init; } = [];
     public AgentStructuredOutputDefinition? StructuredOutput { get; init; }
+    public AgentOperationalMemoryDefinition? OperationalMemory { get; init; }
     public IReadOnlyList<AgentMiddlewareConfig> Middlewares { get; init; } = [];
 
     public ResiliencePolicy? Resilience { get; init; }
@@ -56,6 +57,7 @@ public class AgentResponse
         Instructions = def.Instructions,
         Tools = def.Tools,
         StructuredOutput = def.StructuredOutput,
+        OperationalMemory = def.OperationalMemory,
         Middlewares = def.Middlewares,
         Resilience = def.Resilience,
         CostBudget = def.CostBudget,

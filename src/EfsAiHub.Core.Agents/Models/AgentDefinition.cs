@@ -21,6 +21,14 @@ public class AgentDefinition
     public string? Instructions { get; init; }
     public IReadOnlyList<AgentToolDefinition> Tools { get; init; } = [];
     public AgentStructuredOutputDefinition? StructuredOutput { get; init; }
+
+    /// <summary>
+    /// Quando não-null, ativa memória operacional: schema é mergeado ao
+    /// ResponseFormat enviado ao LLM e o middleware OperationalMemoryChatClient
+    /// é injetado automaticamente no pipeline (sem entry em <see cref="Middlewares"/>).
+    /// Persistência por (ProjectId, AgentId, ConversationId|ExecutionId).
+    /// </summary>
+    public AgentOperationalMemoryDefinition? OperationalMemory { get; init; }
     public IReadOnlyList<AgentMiddlewareConfig> Middlewares { get; init; } = [];
 
     /// <summary>
@@ -335,4 +343,21 @@ public class AgentStructuredOutputDefinition
 
     /// <summary>JSON Schema raw — repassado diretamente ao framework via ChatResponseFormat.ForJsonSchema()</summary>
     public JsonDocument? Schema { get; init; }
+}
+
+/// <summary>
+/// Configuração da memória operacional do agente. Schema declara a forma
+/// canônica do estado que o LLM emite/lê a cada turno; <see cref="MaxBytes"/>
+/// limita o tamanho persistido pra evitar inflar o prompt indefinidamente.
+/// </summary>
+public class AgentOperationalMemoryDefinition
+{
+    /// <summary>Default usado quando <see cref="MaxBytes"/> é null.</summary>
+    public const int DefaultMaxBytes = 8192;
+
+    /// <summary>JSON Schema do payload da memória. Required — sem schema, não há ativação.</summary>
+    public JsonDocument? Schema { get; init; }
+
+    /// <summary>Cap em bytes do payload persistido. Acima disso a escrita é rejeitada e a memória anterior preservada.</summary>
+    public int? MaxBytes { get; init; }
 }

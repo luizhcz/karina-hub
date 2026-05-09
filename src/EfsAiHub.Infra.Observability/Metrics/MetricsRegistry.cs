@@ -551,4 +551,19 @@ public static class MetricsRegistry
         _meter.CreateHistogram<double>("generic_tools.duration_ms",
             unit: "ms",
             description: "Duração de execução de Generic Tool. Tags: tool_id, success.");
+
+    /// <summary>
+    /// Eventos do middleware de memória operacional. Tag <c>event</c> com valores:
+    /// <c>hit</c> (memória existia e foi injetada), <c>miss</c> (primeiro turno do escopo),
+    /// <c>write</c> (Upsert OK), <c>strip</c> (campo removido do output devolvido),
+    /// <c>parse_failure</c> (output não é JSON válido), <c>size_exceeded</c> (payload acima do MaxBytes),
+    /// <c>streaming_buffered</c> (stream foi acumulado pra strip no fim),
+    /// <c>concurrency_conflict</c> (Version divergente — write rejeitada),
+    /// <c>no_op_tool_call</c> (LLM emitiu tool call em vez de texto),
+    /// <c>no_context</c> (sem ProjectId/ScopeId — middleware no-op).
+    /// Tag adicional <c>agent_id</c>.
+    /// </summary>
+    public static readonly Counter<long> OperationalMemoryEvents =
+        _meter.CreateCounter<long>("operational_memory.events_total",
+            description: "Eventos do middleware de memória operacional. Tags: event, agent_id.");
 }

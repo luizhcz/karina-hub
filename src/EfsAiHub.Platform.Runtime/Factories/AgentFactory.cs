@@ -62,6 +62,10 @@ public class AgentFactory : IAgentFactory
     // Resolve PredefinedModelId no catálogo global e hidrata Provider/Model do
     // agent com os valores do preset. Optional pra BC com testes que não injetam.
     private readonly IPredefinedModelBinder? _predefinedModelBinder;
+    // Persistência da memória operacional. Optional: agentes sem
+    // OperationalMemory.Schema NÃO acessam o repo, então testes que não
+    // exercitam essa feature podem omitir.
+    private readonly EfsAiHub.Core.Agents.IOperationalMemoryRepository? _operationalMemoryRepo;
 
     // Throttle pra cross_project_invoke audit. Capacity 1000, janela 60s,
     // emite métrica ao despejar. Static singleton: factory é registrado scoped em DI
@@ -96,7 +100,8 @@ public class AgentFactory : IAgentFactory
         EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor? projectContextAccessor = null,
         IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? sharingOptions = null,
         IGenericToolBinder? genericToolBinder = null,
-        IPredefinedModelBinder? predefinedModelBinder = null)
+        IPredefinedModelBinder? predefinedModelBinder = null,
+        EfsAiHub.Core.Agents.IOperationalMemoryRepository? operationalMemoryRepo = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
@@ -123,6 +128,7 @@ public class AgentFactory : IAgentFactory
         _sharingOptions = sharingOptions;
         _genericToolBinder = genericToolBinder;
         _predefinedModelBinder = predefinedModelBinder;
+        _operationalMemoryRepo = operationalMemoryRepo;
     }
 
     public async Task<ExecutableWorkflow> CreateAgentAsync(AgentDefinition definition, CancellationToken ct = default)
@@ -143,7 +149,7 @@ public class AgentFactory : IAgentFactory
         var provider = ResolveProvider(definition);
         var options = ChatOptionsBuilder.BuildAgentOptions(definition, _functionRegistry, _toolPersistence.Writer, _trackedFnLogger, _logger, _allowFingerprintMismatch, projectId: definition.ProjectId);
 
-        if (provider.ProviderType is "AZUREOPENAI" or "OPENAI")
+        if (CanWrapAsChatClient(provider, definition))
         {
             var rawClient = await provider.CreateChatClientAsync(definition, ct);
             var wrappedClient = await WrapWithTokenTrackingAsync(rawClient, definition, ct);
@@ -151,6 +157,23 @@ public class AgentFactory : IAgentFactory
         }
 
         return ExecutableWorkflow.FromAgent(await provider.CreateAgentAsync(definition, options, ct));
+    }
+
+    /// <summary>
+    /// Providers que expõem um <see cref="IChatClient"/> stateless local-side
+    /// passam pelo pipeline de middleware (TokenTracking, Blocklist, OperationalMemory,
+    /// etc.). AzureFoundry com <c>ClientType=PersistentAgents</c> mantém state
+    /// server-side e não suporta esse pipeline — segue o caminho antigo via
+    /// <see cref="ILlmClientProvider.CreateAgentAsync"/>.
+    /// </summary>
+    private static bool CanWrapAsChatClient(ILlmClientProvider provider, AgentDefinition definition)
+    {
+        if (provider.ProviderType is "AZUREOPENAI" or "OPENAI")
+            return true;
+        if (string.Equals(provider.ProviderType, "AZUREFOUNDRY", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(definition.Provider.ClientType, "Responses", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return false;
     }
 
     /// <summary>Cria <see cref="IChatClient"/> bare com pipeline completo (sem wrapper de workflow) — usado pelo subsistema de avaliação.</summary>
@@ -566,7 +589,7 @@ public class AgentFactory : IAgentFactory
     {
         var modelId = definition.Model.DeploymentName ?? "unknown";
 
-        // Cadeia: Retry → Circuit → Blocklist → [AccountGuard etc] → TokenTracking → Raw
+        // Cadeia: Retry → Circuit → Blocklist → [AccountGuard etc] → OperationalMemory → TokenTracking → Raw
         // agentMaxCostUsd: quando setado em AgentDefinition.CostBudget.MaxCostUsd, o
         // TokenTrackingChatClient emite LogCritical (warning-only) quando o custo
         // acumulado da execução cruza esse teto. Não bloqueia.
@@ -576,6 +599,11 @@ public class AgentFactory : IAgentFactory
             inner, definition.Id, modelId, _tokenPersistence.Writer, _logger, _pricingCache, _agUiTokenSink,
             agentMaxCostUsd: definition.CostBudget?.MaxCostUsd,
             agentOwnerProjectId: definition.ProjectId);
+
+        // Memória operacional fica entre TokenTracking e os middlewares opt-in:
+        // tokens da injeção pré-call são contabilizados; output strippado é o que
+        // os demais middlewares (e o Blocklist) veem.
+        current = WrapWithOperationalMemory(current, definition);
 
         foreach (var mw in definition.Middlewares.Where(m => m.Enabled))
         {
@@ -621,7 +649,10 @@ public class AgentFactory : IAgentFactory
     /// </summary>
     private IChatClient WrapWithMiddlewares(IChatClient inner, AgentDefinition definition)
     {
-        IChatClient current = inner;
+        // Mesma posição do caminho não-Graph: memória operacional fica mais
+        // interna que os middlewares opt-in, garantindo que estes vejam o
+        // output já strippado e o Blocklist scaneie o texto final.
+        IChatClient current = WrapWithOperationalMemory(inner, definition);
         foreach (var mw in definition.Middlewares.Where(m => m.Enabled))
         {
             if (!_middlewareRegistry.TryCreate(mw.Type, current, definition.Id, mw.Settings, _logger, out var wrapped))
@@ -645,6 +676,29 @@ public class AgentFactory : IAgentFactory
         return new BlocklistChatClient(inner, _blocklistEngine, _eventBus, _auditLogger, agentId, _logger);
     }
 
+    /// <summary>
+    /// Plug do <see cref="OperationalMemoryChatClient"/> quando o agent declara
+    /// schema de memória e o repo está disponível em DI. No-op silencioso quando
+    /// faltar qualquer um dos dois (preserva BC com agentes antigos e testes
+    /// que não injetam o repo).
+    /// </summary>
+    private IChatClient WrapWithOperationalMemory(IChatClient inner, AgentDefinition definition)
+    {
+        if (definition.OperationalMemory?.Schema is null) return inner;
+        if (_operationalMemoryRepo is null)
+        {
+            _logger.LogWarning(
+                "Agent '{AgentId}' declara OperationalMemory mas IOperationalMemoryRepository não está em DI — middleware ignorado.",
+                definition.Id);
+            return inner;
+        }
+
+        var maxBytes = definition.OperationalMemory.MaxBytes
+            ?? AgentOperationalMemoryDefinition.DefaultMaxBytes;
+        return new EfsAiHub.Platform.Runtime.Middlewares.OperationalMemoryChatClient(
+            inner, definition.Id, _operationalMemoryRepo, maxBytes, _logger);
+    }
+
     private IChatClient LogAndSkipMiddleware(IChatClient current, string type, string agentId)
     {
         _logger.LogWarning("Unknown middleware type '{Type}' on agent '{AgentId}' — ignored.", type, agentId);
@@ -662,6 +716,7 @@ public class AgentFactory : IAgentFactory
         Instructions = instructions,
         Tools = d.Tools,
         StructuredOutput = d.StructuredOutput,
+        OperationalMemory = d.OperationalMemory,
         Middlewares = d.Middlewares,
         Metadata = d.Metadata,
         CreatedAt = d.CreatedAt,
@@ -713,6 +768,7 @@ public class AgentFactory : IAgentFactory
         Instructions = d.Instructions,
         Tools = d.Tools,
         StructuredOutput = d.StructuredOutput,
+        OperationalMemory = d.OperationalMemory,
         Middlewares = d.Middlewares,
         Metadata = d.Metadata,
         CreatedAt = d.CreatedAt,
