@@ -38,12 +38,22 @@ export interface AgentToolDefinition {
   [key: string]: unknown
 }
 
+export interface AgentDraftOperationalMemory {
+  /**
+   * JSON Schema do payload da memória. Quando presente, ativa o middleware
+   * server-side. `null` ou ausente = memória desligada.
+   */
+  schema?: unknown | null
+  maxBytes?: number | null
+}
+
 export interface AgentDraftPayload {
   name?: string | null
   description?: string | null
   instructions?: string | null
   model?: AgentDraftModelConfig | null
   tools?: AgentToolDefinition[] | null
+  operationalMemory?: AgentDraftOperationalMemory | null
   metadata?: Record<string, string> | null
   // Demais campos (provider, middlewares, skillRefs, etc.) são opaque pra esta
   // camada — preservados intactos no update.

@@ -4,12 +4,18 @@ import { getAgent, type Agent } from '../api/agents'
 import { createSession, streamRun, type AgentSession, type StreamEvent } from '../api/agentSessions'
 import { ApiError, friendlyError } from '../api/client'
 import {
+  deleteOperationalMemory,
+  getOperationalMemory,
+  type OperationalMemory,
+} from '../api/operationalMemory'
+import {
   AgentIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
   Button,
   Card,
   ErrorMessage,
+  Modal,
   PlusIcon,
   Spinner,
   cn,
@@ -56,6 +62,12 @@ export function AgentSandbox() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [turnError, setTurnError] = useState<string | null>(null)
+
+  const [memoryOpen, setMemoryOpen] = useState(false)
+  const [memoryRecord, setMemoryRecord] = useState<OperationalMemory | null>(null)
+  const [memoryLoading, setMemoryLoading] = useState(false)
+  const [memoryError, setMemoryError] = useState<string | null>(null)
+  const [memoryResetting, setMemoryResetting] = useState(false)
 
   const abortRef = useRef<AbortController | null>(null)
   const scrollerRef = useRef<HTMLDivElement | null>(null)
@@ -127,6 +139,43 @@ export function AgentSandbox() {
     setMessages([])
     setInput('')
     setTurnError(null)
+  }
+
+  const hasOperationalMemory = !!agent?.operationalMemory?.schema
+
+  const openMemoryDrawer = async () => {
+    if (!id || !session) return
+    setMemoryOpen(true)
+    setMemoryError(null)
+    setMemoryLoading(true)
+    try {
+      const record = await getOperationalMemory(id, session.sessionId, 'session')
+      setMemoryRecord(record)
+    } catch (err) {
+      setMemoryError(friendlyError(err, 'Não foi possível carregar a memória.'))
+    } finally {
+      setMemoryLoading(false)
+    }
+  }
+
+  const closeMemoryDrawer = () => {
+    setMemoryOpen(false)
+    setMemoryRecord(null)
+    setMemoryError(null)
+  }
+
+  const resetMemory = async () => {
+    if (!id || !session) return
+    setMemoryResetting(true)
+    setMemoryError(null)
+    try {
+      await deleteOperationalMemory(id, session.sessionId, 'session')
+      setMemoryRecord(null)
+    } catch (err) {
+      setMemoryError(friendlyError(err, 'Não foi possível resetar a memória.'))
+    } finally {
+      setMemoryResetting(false)
+    }
   }
 
   const handleSend = async () => {
@@ -230,15 +279,27 @@ export function AgentSandbox() {
             </div>
           </div>
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          leftIcon={<PlusIcon className="h-4 w-4" />}
-          onClick={handleNewSession}
-          disabled={sending && !abortRef.current}
-        >
-          Nova sessão
-        </Button>
+        <div className="flex items-center gap-2">
+          {hasOperationalMemory && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={openMemoryDrawer}
+              disabled={!session}
+            >
+              Memória
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            size="sm"
+            leftIcon={<PlusIcon className="h-4 w-4" />}
+            onClick={handleNewSession}
+            disabled={sending && !abortRef.current}
+          >
+            Nova sessão
+          </Button>
+        </div>
       </div>
 
       {agent.enabled === false && (
@@ -305,8 +366,60 @@ export function AgentSandbox() {
           </p>
         </div>
       </Card>
+
+      <Modal
+        open={memoryOpen}
+        onClose={closeMemoryDrawer}
+        title="Memória operacional"
+        description="Estado canônico que o agente atualiza a cada turno. Replace puro — cada turn sobrescreve o documento inteiro."
+        size="lg"
+        footer={
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[11px] text-fg-dim">
+              {memoryRecord ? `Versão ${memoryRecord.version} · atualizada em ${formatMemoryTimestamp(memoryRecord.updatedAt)}` : 'Sem registros pra esta sessão.'}
+            </span>
+            <div className="flex items-center gap-2">
+              {memoryRecord && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={resetMemory}
+                  loading={memoryResetting}
+                >
+                  Resetar
+                </Button>
+              )}
+              <Button variant="secondary" size="sm" onClick={closeMemoryDrawer}>
+                Fechar
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        {memoryLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Spinner className="h-6 w-6 text-fg-muted" />
+          </div>
+        ) : memoryError ? (
+          <ErrorMessage message={memoryError} />
+        ) : memoryRecord ? (
+          <pre className="max-h-[60vh] overflow-auto rounded-lg border border-border bg-bg-soft p-4 font-mono text-[12px] leading-5 text-fg">
+            {JSON.stringify(memoryRecord.payload, null, 2)}
+          </pre>
+        ) : (
+          <p className="py-8 text-center text-sm text-fg-muted">
+            Memória vazia pra esta sessão. O próximo turno do agente cria a primeira versão.
+          </p>
+        )}
+      </Modal>
     </div>
   )
+}
+
+function formatMemoryTimestamp(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleString('pt-BR')
 }
 
 function EmptyState() {

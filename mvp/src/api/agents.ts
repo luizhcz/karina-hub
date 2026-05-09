@@ -22,6 +22,15 @@ export interface AgentProvider {
   [key: string]: unknown
 }
 
+export interface AgentOperationalMemory {
+  /**
+   * JSON Schema do payload da memória. Quando presente, ativa o middleware
+   * server-side. `null` ou ausente = memória desligada.
+   */
+  schema?: unknown | null
+  maxBytes?: number | null
+}
+
 export interface Agent {
   id: string
   name: string
@@ -30,6 +39,7 @@ export interface Agent {
   provider?: AgentProvider | null
   instructions?: string | null
   tools?: AgentToolDefinition[] | null
+  operationalMemory?: AgentOperationalMemory | null
   visibility: AgentVisibility
   enabled: boolean
   originProjectId?: string | null

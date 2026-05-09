@@ -72,6 +72,10 @@ export function patch<T>(path: string, body: unknown): Promise<T> {
   })
 }
 
+export function del<T>(path: string): Promise<T> {
+  return request<T>(path, { method: 'DELETE' })
+}
+
 // Marcadores de mensagens internas do backend que NÃO devem aparecer pra
 // PMs/POs (ex.: "projeto 'default'", "permissão de administrador"). Filtramos
 // pra evitar vazar detalhes do gating administrativo.

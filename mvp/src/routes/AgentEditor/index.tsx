@@ -38,6 +38,7 @@ import {
 import { Stepper, type StepDescriptor } from './Stepper'
 import { ProfileStep } from './ProfileStep'
 import { ToolsKnowledgeStep } from './ToolsKnowledgeStep'
+import { MemoryStep } from './MemoryStep'
 import { InputStep } from './InputStep'
 import { OutputStep } from './OutputStep'
 import { ModelStep } from './ModelStep'
@@ -106,6 +107,7 @@ const BASIC_STEPS: StepDescriptor[] = [
 const ADVANCED_STEPS: StepDescriptor[] = [
   { key: 'profile', label: 'Perfil' },
   { key: 'tools', label: 'Ferramentas' },
+  { key: 'memory', label: 'Memória' },
   { key: 'input', label: 'Input' },
   { key: 'output', label: 'Output' },
   { key: 'model', label: 'Modelo' },
@@ -280,8 +282,23 @@ export function AgentEditor({ mode }: Props) {
     const issues: Partial<Record<StepKey, string>> = {}
     if (!form.name.trim()) issues.profile = 'Informe um nome'
     if (!form.predefinedModelId.trim()) issues.model = 'Selecione um modelo'
+    if (form.memory.enabled) {
+      const trimmed = form.memory.schema.trim()
+      if (!trimmed) {
+        issues.memory = 'Defina a estrutura da memória ou desative.'
+      } else {
+        try {
+          const parsed = JSON.parse(trimmed)
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            issues.memory = 'Schema da memória precisa ser um objeto JSON.'
+          }
+        } catch {
+          issues.memory = 'Schema da memória não é JSON válido.'
+        }
+      }
+    }
     return issues
-  }, [form.name, form.predefinedModelId])
+  }, [form.name, form.predefinedModelId, form.memory.enabled, form.memory.schema])
 
   const goTo = (key: StepKey) => setForm((prev) => ({ ...prev, currentStep: key }))
   const goNext = () => {
@@ -318,10 +335,18 @@ export function AgentEditor({ mode }: Props) {
       // Mantém step se ainda existe na nova lista; senão, vai pra "tools"
       // (último step comum entre os dois modos antes da Revisão).
       const stillExists = nextSteps.some((s) => s.key === prev.currentStep)
+      // Memória vive só no modo avançado: descer pra basic preserva o schema
+      // editado mas desliga o toggle pra que o backend não receba a config sem
+      // que o user veja onde editá-la. Subir pra advanced restaura o que estava.
+      const nextMemory =
+        next === 'basic' && prev.memory.enabled
+          ? { ...prev.memory, enabled: false }
+          : prev.memory
       return {
         ...prev,
         agentMode: next,
         currentStep: stillExists ? prev.currentStep : 'tools',
+        memory: nextMemory,
       }
     })
   }
@@ -468,6 +493,17 @@ export function AgentEditor({ mode }: Props) {
   const validateForSubmit = (): string | null => {
     if (!form.name.trim()) return 'Informe um nome antes de submeter.'
     if (!form.predefinedModelId.trim()) return 'Selecione um modelo antes de submeter.'
+    if (form.memory.enabled) {
+      const trimmed = form.memory.schema.trim()
+      if (!trimmed) return 'Memória operacional ativa exige um schema — defina a estrutura ou desative.'
+      try {
+        const parsed = JSON.parse(trimmed)
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+          return 'Schema da memória operacional precisa ser um objeto JSON.'
+      } catch {
+        return 'Schema da memória operacional não é JSON válido.'
+      }
+    }
     return null
   }
 
@@ -695,6 +731,9 @@ export function AgentEditor({ mode }: Props) {
             mcpsError={mcpsError}
             readonly={readonly}
           />
+        )}
+        {form.currentStep === 'memory' && form.agentMode === 'advanced' && (
+          <MemoryStep form={form} setForm={setForm} readonly={readonly} />
         )}
         {form.currentStep === 'input' && form.agentMode === 'advanced' && (
           <InputStep form={form} setForm={setForm} readonly={readonly} />

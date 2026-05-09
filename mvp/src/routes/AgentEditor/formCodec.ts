@@ -169,6 +169,10 @@ function emptySection(): StructuredSection {
   return { mode: 'text', description: '', schema: '' }
 }
 
+function emptyMemorySection() {
+  return { enabled: false, schema: '', maxBytes: null as number | null }
+}
+
 export function emptyFormState(): FormState {
   return {
     name: '',
@@ -182,6 +186,7 @@ export function emptyFormState(): FormState {
     },
     toolIds: [],
     mcpIds: [],
+    memory: emptyMemorySection(),
     input: emptySection(),
     output: emptySection(),
     agentMode: 'basic',
@@ -218,12 +223,23 @@ export function fromDraft(draft: AgentDraft): FormState {
   const inputHasContent = decoded.input.description.length > 0 || decoded.input.schema.length > 0
   const outputHasContent = decoded.output.description.length > 0 || decoded.output.schema.length > 0
 
+  const mem = payload.operationalMemory ?? null
+  const memEnabled = mem !== null && mem.schema !== null && mem.schema !== undefined
+  const memSchemaText = memEnabled
+    ? JSON.stringify(mem!.schema, null, 2)
+    : ''
+
   return {
     name: payload.name ?? draft.name ?? '',
     predefinedModelId: payload.model?.predefinedModelId ?? '',
     profile: decoded.profile,
     toolIds,
     mcpIds,
+    memory: {
+      enabled: memEnabled,
+      schema: memSchemaText,
+      maxBytes: typeof mem?.maxBytes === 'number' ? mem.maxBytes : null,
+    },
     input: {
       mode: inputHasContent ? 'structured' : 'text',
       description: decoded.input.description,
@@ -234,7 +250,7 @@ export function fromDraft(draft: AgentDraft): FormState {
       description: decoded.output.description,
       schema: decoded.output.schema,
     },
-    agentMode: decoded.hasStructured ? 'advanced' : 'basic',
+    agentMode: decoded.hasStructured || memEnabled ? 'advanced' : 'basic',
     currentStep: 'profile',
     metadataRows: metadataRowsFromPayload(payload),
   }
@@ -278,6 +294,7 @@ export function buildPayload(
   }
 
   const mergedTools = mergeTools(prev?.tools ?? null, form.toolIds, form.mcpIds)
+  const operationalMemory = encodeOperationalMemory(form.memory)
 
   return {
     ...(prev ?? {}),
@@ -286,5 +303,28 @@ export function buildPayload(
     instructions,
     model: nextModel,
     tools: mergedTools,
+    operationalMemory,
+  }
+}
+
+/**
+ * Serializa o estado do step "Memória" pro payload do draft. Schema string
+ * vira objeto JSON real (backend espera JsonDocument). Inválido OU desligado
+ * vira `null` — limpa qualquer config anterior preservada via spread.
+ */
+function encodeOperationalMemory(memory: FormState['memory']): AgentDraftPayload['operationalMemory'] {
+  if (!memory.enabled) return null
+  const trimmed = memory.schema.trim()
+  if (!trimmed) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(trimmed)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  return {
+    schema: parsed,
+    maxBytes: memory.maxBytes,
   }
 }

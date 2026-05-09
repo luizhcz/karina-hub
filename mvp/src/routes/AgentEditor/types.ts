@@ -22,7 +22,7 @@ export interface ProfileFields {
 
 export type AgentMode = 'basic' | 'advanced'
 
-export type StepKey = 'profile' | 'tools' | 'input' | 'output' | 'model' | 'review'
+export type StepKey = 'profile' | 'tools' | 'memory' | 'input' | 'output' | 'model' | 'review'
 
 export interface StructuredSection {
   mode: 'text' | 'structured'
@@ -31,12 +31,26 @@ export interface StructuredSection {
   schema: string
 }
 
+/**
+ * Estado do step "Memória" no wizard. <c>enabled</c> false = sem schema, sem
+ * write/strip em runtime. Quando true, <c>schema</c> deve ser um JSON Schema
+ * válido — validação acontece no save.
+ */
+export interface OperationalMemorySection {
+  enabled: boolean
+  // JSON Schema crua (string) — alimenta o JsonSchemaBuilder.
+  schema: string
+  // null = usa default do backend (8 KB).
+  maxBytes: number | null
+}
+
 export interface FormState {
   name: string
   predefinedModelId: string
   profile: ProfileFields
   toolIds: string[]
   mcpIds: string[]
+  memory: OperationalMemorySection
   input: StructuredSection
   output: StructuredSection
   agentMode: AgentMode
