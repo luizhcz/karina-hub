@@ -11,12 +11,14 @@ import type { FormState } from './types'
 
 interface ReviewStepProps {
   form: FormState
+  setForm: (mutator: (prev: FormState) => FormState) => void
   models: PredefinedModel[]
   tools: GenericTool[]
   mcps: McpServer[]
+  readonly: boolean
 }
 
-export function ReviewStep({ form, models, tools, mcps }: ReviewStepProps) {
+export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: ReviewStepProps) {
   const includeStructured = form.agentMode === 'advanced'
   const inputForCodec = form.input.mode === 'structured' ? form.input : { description: '', schema: '' }
   const outputForCodec = form.output.mode === 'structured' ? form.output : { description: '', schema: '' }
@@ -52,8 +54,13 @@ export function ReviewStep({ form, models, tools, mcps }: ReviewStepProps) {
     })
   }
 
+  const enableSecurity = () =>
+    setForm((prev) => ({ ...prev, security: { ...prev.security, enabled: true } }))
+
   return (
     <div className="space-y-5">
+      <SecurityBanner enabled={form.security.enabled} disabled={readonly} onEnable={enableSecurity} />
+
       <Card className="space-y-3">
         <CardHeader
           title="Identificação"
@@ -130,6 +137,46 @@ export function ReviewStep({ form, models, tools, mcps }: ReviewStepProps) {
           </div>
         </div>
       </Card>
+    </div>
+  )
+}
+
+interface SecurityBannerProps {
+  enabled: boolean
+  disabled: boolean
+  onEnable: () => void
+}
+
+// Banner de recomendação na revisão. O step "Segurança" só existe no modo
+// avançado, então o PM/PO que opera no básico nunca veria a feature; este
+// banner garante visibilidade no momento que ele já está prestes a submeter.
+function SecurityBanner({ enabled, disabled, onEnable }: SecurityBannerProps) {
+  if (enabled) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-accent/30 bg-accent-subtle/60 px-4 py-2.5 text-xs text-accent">
+        <span aria-hidden="true" className="text-sm">✓</span>
+        <span>Guardrails de segurança ativos. Resposta limitada ao escopo declarado, sem invenção de dados, sem vazar instruções.</span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-warning">Esse agente não tem guardrails de segurança ativos.</p>
+        <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+          Recomendado para agentes expostos a usuários finais — adiciona proteção contra prompt
+          injection, respostas fora do escopo e vazamento de instruções. Custo: ~300 tokens por chamada.
+        </p>
+      </div>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={onEnable}
+        disabled={disabled}
+        className="shrink-0"
+      >
+        Ativar guardrails
+      </Button>
     </div>
   )
 }

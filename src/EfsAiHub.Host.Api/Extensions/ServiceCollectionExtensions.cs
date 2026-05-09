@@ -51,6 +51,13 @@ public static class ServiceCollectionExtensions
                 label: "Structured Output State",
                 description: "Atualiza automaticamente o shared state (AG-UI) a partir do output estruturado do agente após cada resposta.");
 
+            registry.Register("SecurityGuardrails", MiddlewarePhase.Pre,
+                (inner, agentId, settings, _) =>
+                    new EfsAiHub.Platform.Runtime.Middlewares.SecurityGuardrailsChatClient(inner, agentId, settings, logger),
+                label: "Guardrails de segurança",
+                description: "Injeta uma safety policy fixa (anti prompt injection, scope adherence, anti hallucination, anti leakage) como system message a cada chamada.",
+                settings: []);
+
             return registry;
         });
 

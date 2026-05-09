@@ -38,6 +38,7 @@ import {
 import { Stepper, type StepDescriptor } from './Stepper'
 import { ProfileStep } from './ProfileStep'
 import { ToolsKnowledgeStep } from './ToolsKnowledgeStep'
+import { SecurityStep } from './SecurityStep'
 import { MemoryStep } from './MemoryStep'
 import { InputStep } from './InputStep'
 import { OutputStep } from './OutputStep'
@@ -107,6 +108,7 @@ const BASIC_STEPS: StepDescriptor[] = [
 const ADVANCED_STEPS: StepDescriptor[] = [
   { key: 'profile', label: 'Perfil' },
   { key: 'tools', label: 'Ferramentas' },
+  { key: 'security', label: 'Segurança' },
   { key: 'memory', label: 'Memória' },
   { key: 'input', label: 'Input' },
   { key: 'output', label: 'Output' },
@@ -342,11 +344,19 @@ export function AgentEditor({ mode }: Props) {
         next === 'basic' && prev.memory.enabled
           ? { ...prev.memory, enabled: false }
           : prev.memory
+      // Mesma lógica do toggle de memória: o step de Segurança só aparece em
+      // advanced; descer pra basic desliga o middleware pra evitar config
+      // ativa que o user não vê na UI.
+      const nextSecurity =
+        next === 'basic' && prev.security.enabled
+          ? { ...prev.security, enabled: false }
+          : prev.security
       return {
         ...prev,
         agentMode: next,
         currentStep: stillExists ? prev.currentStep : 'tools',
         memory: nextMemory,
+        security: nextSecurity,
       }
     })
   }
@@ -732,6 +742,9 @@ export function AgentEditor({ mode }: Props) {
             readonly={readonly}
           />
         )}
+        {form.currentStep === 'security' && form.agentMode === 'advanced' && (
+          <SecurityStep form={form} setForm={setForm} readonly={readonly} />
+        )}
         {form.currentStep === 'memory' && form.agentMode === 'advanced' && (
           <MemoryStep form={form} setForm={setForm} readonly={readonly} />
         )}
@@ -752,7 +765,7 @@ export function AgentEditor({ mode }: Props) {
           />
         )}
         {form.currentStep === 'review' && (
-          <ReviewStep form={form} models={models} tools={tools} mcps={mcps} />
+          <ReviewStep form={form} setForm={setForm} models={models} tools={tools} mcps={mcps} readonly={readonly} />
         )}
       </div>
 

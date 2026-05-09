@@ -5,6 +5,18 @@ import type { KvRow } from '../../components/PostmanEditor/KvTable'
 import { decodeInstructions, encodeInstructions, type ToolDescriptor } from './instructionsCodec'
 import type { FormState, StructuredSection } from './types'
 
+// Type discriminante de uma entry de payload.middlewares[]. Espelha
+// EfsAiHub.Core.Agents.AgentMiddlewareConfig — só os campos que mexemos. Demais
+// chaves viajam intactas via spread quando preservamos entries de outros tipos.
+interface MiddlewareConfigEntry {
+  type?: string
+  enabled?: boolean
+  settings?: Record<string, string>
+  [key: string]: unknown
+}
+
+const SECURITY_MIDDLEWARE_TYPE = 'SecurityGuardrails'
+
 export function shortId(): string {
   return Math.random().toString(36).slice(2, 10)
 }
@@ -186,6 +198,7 @@ export function emptyFormState(): FormState {
     },
     toolIds: [],
     mcpIds: [],
+    security: { enabled: false },
     memory: emptyMemorySection(),
     input: emptySection(),
     output: emptySection(),
@@ -229,12 +242,23 @@ export function fromDraft(draft: AgentDraft): FormState {
     ? JSON.stringify(mem!.schema, null, 2)
     : ''
 
+  // Round-trip via payload.middlewares[]. Outras entries (AccountGuard,
+  // StructuredOutputState) são opaque pra esta camada — preservadas via spread
+  // no buildPayload sem necessidade de leitura aqui.
+  const rawMiddlewares = payload.middlewares
+  const middlewareList: MiddlewareConfigEntry[] = Array.isArray(rawMiddlewares)
+    ? (rawMiddlewares as MiddlewareConfigEntry[])
+    : []
+  const securityEntry = middlewareList.find((m) => m?.type === SECURITY_MIDDLEWARE_TYPE)
+  const securityEnabled = securityEntry?.enabled === true
+
   return {
     name: payload.name ?? draft.name ?? '',
     predefinedModelId: payload.model?.predefinedModelId ?? '',
     profile: decoded.profile,
     toolIds,
     mcpIds,
+    security: { enabled: securityEnabled },
     memory: {
       enabled: memEnabled,
       schema: memSchemaText,
@@ -294,6 +318,7 @@ export function buildPayload(
 
   const mergedTools = mergeTools(prev?.tools ?? null, form.toolIds, form.mcpIds)
   const operationalMemory = encodeOperationalMemory(form.memory)
+  const mergedMiddlewares = mergeMiddlewares(prev?.middlewares, form.security)
 
   return {
     ...(prev ?? {}),
@@ -303,7 +328,25 @@ export function buildPayload(
     model: nextModel,
     tools: mergedTools,
     operationalMemory,
+    middlewares: mergedMiddlewares,
   }
+}
+
+/**
+ * Garante que payload.middlewares[] reflita o toggle de Segurança preservando
+ * todas as outras entries (AccountGuard etc.). Toggle off = entry removida do
+ * array, sem ficar zumbi com enabled:false.
+ */
+function mergeMiddlewares(
+  prevMiddlewares: unknown,
+  security: FormState['security'],
+): MiddlewareConfigEntry[] {
+  const list: MiddlewareConfigEntry[] = Array.isArray(prevMiddlewares)
+    ? (prevMiddlewares as MiddlewareConfigEntry[])
+    : []
+  const others = list.filter((m) => m?.type !== SECURITY_MIDDLEWARE_TYPE)
+  if (!security.enabled) return others
+  return [...others, { type: SECURITY_MIDDLEWARE_TYPE, enabled: true, settings: {} }]
 }
 
 /**

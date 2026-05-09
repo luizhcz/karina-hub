@@ -22,7 +22,7 @@ export interface ProfileFields {
 
 export type AgentMode = 'basic' | 'advanced'
 
-export type StepKey = 'profile' | 'tools' | 'memory' | 'input' | 'output' | 'model' | 'review'
+export type StepKey = 'profile' | 'tools' | 'security' | 'memory' | 'input' | 'output' | 'model' | 'review'
 
 export interface StructuredSection {
   mode: 'text' | 'structured'
@@ -42,12 +42,22 @@ export interface OperationalMemorySection {
   schema: string
 }
 
+/**
+ * Estado do step "Segurança". Toggle único: ativa/desativa o middleware
+ * SecurityGuardrails server-side (texto fixo, não editável). Mapeia pra
+ * uma entry em payload.middlewares[] no round-trip.
+ */
+export interface SecuritySection {
+  enabled: boolean
+}
+
 export interface FormState {
   name: string
   predefinedModelId: string
   profile: ProfileFields
   toolIds: string[]
   mcpIds: string[]
+  security: SecuritySection
   memory: OperationalMemorySection
   input: StructuredSection
   output: StructuredSection

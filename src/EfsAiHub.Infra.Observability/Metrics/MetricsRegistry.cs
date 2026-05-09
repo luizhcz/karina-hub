@@ -566,4 +566,13 @@ public static class MetricsRegistry
     public static readonly Counter<long> OperationalMemoryEvents =
         _meter.CreateCounter<long>("operational_memory.events_total",
             description: "Eventos do middleware de memória operacional. Tags: event, agent_id.");
+
+    /// <summary>
+    /// Eventos do middleware de guardrails de segurança. Tag <c>event</c> com valores:
+    /// <c>policy_injected</c> (system message com a safety policy adicionada à lista enviada ao LLM).
+    /// Tag adicional <c>agent_id</c>.
+    /// </summary>
+    public static readonly Counter<long> SecurityEvents =
+        _meter.CreateCounter<long>("security.events_total",
+            description: "Eventos do middleware de guardrails de segurança. Tags: event, agent_id.");
 }
