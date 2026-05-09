@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { getAgent, type Agent } from '../api/agents'
 import { listAgentVersions } from '../api/agentVersions'
@@ -16,7 +16,7 @@ import {
 } from '../api/workflows'
 import { ApiError, friendlyError } from '../api/client'
 import { getSystemInfo } from '../api/system'
-import { getIdentity } from '../stores/identity'
+import { HowToConsumeWorkflow } from '../components/HowToConsumeWorkflow'
 import {
   ArrowLeftIcon,
   Badge,
@@ -219,6 +219,7 @@ export function AgentDeploy() {
           enabledStatus={enabledStatus}
           onRedeploy={handleRedeploy}
           onOpenVersions={() => setVersionsOpen(true)}
+          onOpenSandbox={() => navigate(`/implantacoes/${workflow.id}/sandbox`)}
           redeploying={redeploying}
           redeployError={redeployError}
           redeployFlash={redeployFlash}
@@ -294,6 +295,7 @@ interface DeployedViewProps {
   enabledStatus: WorkflowEnabledStatus | null
   onRedeploy: () => void
   onOpenVersions: () => void
+  onOpenSandbox: () => void
   redeploying: boolean
   redeployError: string | null
   redeployFlash: string | null
@@ -306,52 +308,11 @@ function DeployedView({
   enabledStatus,
   onRedeploy,
   onOpenVersions,
+  onOpenSandbox,
   redeploying,
   redeployError,
   redeployFlash,
 }: DeployedViewProps) {
-  const identity = useMemo(() => getIdentity(), [])
-  const projectId = identity?.projectId ?? '<seu-project-id>'
-  const account = identity?.account ?? '<seu-account>'
-  const baseUrl = publicBaseUrl ?? '<base-url-do-backend>'
-  const triggerUrl = `${baseUrl}/api/aihub/workflows/${workflow.id}/trigger`
-
-  const headers: Array<{ key: string; value: string }> = [
-    { key: 'Content-Type', value: 'application/json' },
-    { key: 'x-efs-account', value: account },
-    { key: 'x-efs-project-id', value: projectId },
-  ]
-
-  const bodyExample = JSON.stringify({ input: 'Olá, faça uma análise sobre…', metadata: {} }, null, 2)
-
-  const triggerResponseExample = JSON.stringify(
-    {
-      executionId: '04bf1f50-763c-47ed-94e3-34ab3f47ea85',
-      statusUrl: `${baseUrl}/api/aihub/executions/04bf1f50-763c-47ed-94e3-34ab3f47ea85`,
-    },
-    null,
-    2,
-  )
-
-  const executionUrl = `${baseUrl}/api/aihub/executions/{executionId}`
-
-  const executionResponseExample = JSON.stringify(
-    {
-      executionId: '04bf1f50-763c-47ed-94e3-34ab3f47ea85',
-      workflowId: workflow.id,
-      status: 'Completed',
-      input: 'Olá, faça uma análise sobre…',
-      output: '{"resumo":"…","numeros":[…],"avisos":[…]}',
-      errorMessage: null,
-      startedAt: '2026-05-03T21:48:59.97Z',
-      completedAt: '2026-05-03T21:49:03.56Z',
-      metadata: {},
-    },
-    null,
-    2,
-  )
-
-
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -414,70 +375,14 @@ function DeployedView({
             <Button variant="secondary" size="sm" onClick={onRedeploy} loading={redeploying}>
               Atualizar agente
             </Button>
+            <Button size="sm" onClick={onOpenSandbox} leftIcon={<BoltIcon className="h-3.5 w-3.5" />}>
+              Testar
+            </Button>
           </div>
         </div>
       </Card>
 
-      <Card className="space-y-4">
-        <CardHeader
-          title="Como consumir"
-          description="O workflow é assíncrono: dispara com POST, retorna 202 + executionId, e o resultado é lido fazendo polling no GET de execução."
-        />
-        <div className="space-y-5">
-          <div className="space-y-3">
-            <StepHeading number={1} title="Disparar a execução" />
-            <Section label="Endpoint">
-              <CodeBlock value={`POST ${triggerUrl}`} />
-            </Section>
-            <Section label="Headers">
-              <table className="w-full text-xs">
-                <tbody>
-                  {headers.map((h) => (
-                    <tr key={h.key} className="border-b border-border last:border-b-0">
-                      <td className="py-1.5 pr-3 font-mono text-fg-muted">{h.key}</td>
-                      <td className="py-1.5 font-mono text-fg">{h.value}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Section>
-            <Section label="Body (request)">
-              <CodeBlock value={bodyExample} />
-            </Section>
-            <Section label="Resposta (202)">
-              <CodeBlock value={triggerResponseExample} />
-            </Section>
-          </div>
-
-          <div className="space-y-3 border-t border-border pt-5">
-            <StepHeading number={2} title="Ler o resultado" />
-            <p className="text-xs text-fg-muted">
-              Faça polling neste endpoint até <code className="font-mono">status</code> virar <code className="font-mono">Completed</code> (ou <code className="font-mono">Failed</code>/<code className="font-mono">Cancelled</code>). O output do agente vem como string em <code className="font-mono">output</code> — geralmente JSON quando o agente tem schema estruturado.
-            </p>
-            <Section label="Endpoint">
-              <CodeBlock value={`GET ${executionUrl}`} />
-            </Section>
-            <Section label="Headers">
-              <table className="w-full text-xs">
-                <tbody>
-                  {headers
-                    .filter((h) => h.key !== 'Content-Type')
-                    .map((h) => (
-                      <tr key={h.key} className="border-b border-border last:border-b-0">
-                        <td className="py-1.5 pr-3 font-mono text-fg-muted">{h.key}</td>
-                        <td className="py-1.5 font-mono text-fg">{h.value}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </Section>
-            <Section label="Resposta (200) — exemplo quando concluída">
-              <CodeBlock value={executionResponseExample} />
-            </Section>
-          </div>
-
-        </div>
-      </Card>
+      <HowToConsumeWorkflow workflowId={workflow.id} publicBaseUrl={publicBaseUrl} />
       </div>
     </div>
   )
@@ -663,53 +568,6 @@ function VersionsModal({ open, workflow, onClose, onRolledBack }: VersionsModalP
         </p>
       </Modal>
     </>
-  )
-}
-
-function StepHeading({ number, title }: { number: number; title: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-[11px] font-semibold text-accent-contrast">
-        {number}
-      </span>
-      <h3 className="text-sm font-semibold text-fg">{title}</h3>
-    </div>
-  )
-}
-
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-fg-muted">{label}</p>
-      {children}
-    </div>
-  )
-}
-
-function CodeBlock({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false)
-  const onCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      /* noop */
-    }
-  }
-  return (
-    <div className="relative">
-      <pre className="overflow-x-auto rounded-md border border-border bg-bg-soft px-3 py-2 font-mono text-[11px] leading-relaxed text-fg">
-        {value}
-      </pre>
-      <button
-        type="button"
-        onClick={onCopy}
-        className="absolute right-2 top-1.5 rounded-md border border-border bg-surface px-2 py-0.5 text-[10px] font-semibold text-fg-muted transition hover:text-fg"
-      >
-        {copied ? 'Copiado' : 'Copiar'}
-      </button>
-    </div>
   )
 }
 

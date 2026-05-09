@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { listAgents, type Agent } from '../api/agents'
 import {
   deployedAgentId,
+  deploymentKindOf,
   isAgentDeployment,
+  isPipelineDeployment,
   listWorkflows,
+  type DeploymentKind,
   type Workflow,
 } from '../api/workflows'
 import { friendlyError } from '../api/client'
@@ -23,15 +26,39 @@ import {
   cn,
 } from '../ui'
 
+type FilterKind = 'all' | DeploymentKind
+
+const FILTER_LABELS: Record<FilterKind, string> = {
+  all: 'Todas',
+  single: 'Single',
+  pipeline: 'Pipeline',
+}
+
 export function Implantacoes() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [workflows, setWorkflows] = useState<Workflow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const [search, setSearch] = useState('')
+  const [chooserOpen, setChooserOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
+
+  // Filtro persistido em query string (?type=pipeline|single|all). Default
+  // 'all' mantém comportamento anterior pra quem não usa o filtro.
+  const filterKind: FilterKind = (() => {
+    const raw = searchParams.get('type')
+    return raw === 'pipeline' || raw === 'single' ? raw : 'all'
+  })()
+
+  const setFilterKind = (next: FilterKind) => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'all') params.delete('type')
+    else params.set('type', next)
+    setSearchParams(params, { replace: true })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -40,7 +67,10 @@ export function Implantacoes() {
     listWorkflows('project')
       .then((all) => {
         if (cancelled) return
-        const deployments = all.filter(isAgentDeployment)
+        // Lista mostra tanto single (legado, deploy-{agentId}) quanto pipelines
+        // (deploy-pipeline-{guid}). Outros workflows criados por admin via API
+        // continuam fora — só o que nasceu dos fluxos de implantação aparece.
+        const deployments = all.filter((w) => isAgentDeployment(w) || isPipelineDeployment(w))
         setWorkflows(deployments)
       })
       .catch((err: unknown) => {
@@ -59,15 +89,36 @@ export function Implantacoes() {
     [workflows],
   )
 
+  const counts = useMemo(() => {
+    let single = 0
+    let pipeline = 0
+    for (const w of workflows) {
+      if (deploymentKindOf(w) === 'pipeline') pipeline++
+      else single++
+    }
+    return { all: workflows.length, single, pipeline }
+  }, [workflows])
+
   const filtered = useMemo(() => {
+    const byKind =
+      filterKind === 'all' ? workflows : workflows.filter((w) => deploymentKindOf(w) === filterKind)
     const q = search.trim().toLowerCase()
-    if (!q) return workflows
-    return workflows.filter((w) => {
+    if (!q) return byKind
+    return byKind.filter((w) => {
       const name = (w.name ?? '').toLowerCase()
       const desc = (w.description ?? '').toLowerCase()
       return name.includes(q) || desc.includes(q) || w.id.toLowerCase().includes(q)
     })
-  }, [workflows, search])
+  }, [workflows, search, filterKind])
+
+  const handleCardClick = (w: Workflow) => {
+    if (deploymentKindOf(w) === 'pipeline') {
+      navigate(`/implantacoes/avancada/${w.id}`)
+      return
+    }
+    const aid = deployedAgentId(w)
+    if (aid) navigate(`/agentes/${aid}/implantar`)
+  }
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -75,21 +126,34 @@ export function Implantacoes() {
         <div>
           <h1 className="text-[28px] font-semibold tracking-tight">Implantações</h1>
           <p className="mt-2 text-sm text-fg-muted">
-            Cada implantação cria um workflow Graph que expõe um agente publicado para consumo via API.
+            Cada implantação expõe um agente — ou uma sequência de agentes — para consumo via API.
           </p>
         </div>
-        <Button leftIcon={<PlusIcon className="h-4 w-4" />} onClick={() => setPickerOpen(true)}>
+        <Button leftIcon={<PlusIcon className="h-4 w-4" />} onClick={() => setChooserOpen(true)}>
           Nova implantação
         </Button>
       </div>
 
-      <div className="mb-6 max-w-md">
-        <Input
-          placeholder="Buscar por nome, descrição ou id…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          leftAddon={<SearchIcon className="h-4 w-4" />}
-        />
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex rounded-lg border border-border bg-bg-soft p-1">
+          {(['all', 'single', 'pipeline'] as const).map((kind) => (
+            <FilterPill
+              key={kind}
+              active={filterKind === kind}
+              onClick={() => setFilterKind(kind)}
+              label={FILTER_LABELS[kind]}
+              count={counts[kind]}
+            />
+          ))}
+        </div>
+        <div className="max-w-md sm:w-80">
+          <Input
+            placeholder="Buscar por nome, descrição ou id…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            leftAddon={<SearchIcon className="h-4 w-4" />}
+          />
+        </div>
       </div>
 
       {loading ? (
@@ -106,24 +170,25 @@ export function Implantacoes() {
         </Card>
       ) : filtered.length === 0 ? (
         <Card padded className="text-center">
-          <p className="text-sm text-fg-muted">Nada bate com a busca. Tente ajustar o termo.</p>
+          <p className="text-sm text-fg-muted">Nada bate com os filtros. Tente ajustar.</p>
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((w) => {
-            const aid = deployedAgentId(w)
-            return (
-              <DeploymentCard
-                key={w.id}
-                workflow={w}
-                onClick={() => {
-                  if (aid) navigate(`/agentes/${aid}/implantar`)
-                }}
-              />
-            )
-          })}
+          {filtered.map((w) => (
+            <DeploymentCard key={w.id} workflow={w} onClick={() => handleCardClick(w)} />
+          ))}
         </div>
       )}
+
+      <KindChooserModal
+        open={chooserOpen}
+        onClose={() => setChooserOpen(false)}
+        onChoose={(kind: DeploymentKind) => {
+          setChooserOpen(false)
+          if (kind === 'single') setPickerOpen(true)
+          else navigate('/implantacoes/avancada')
+        }}
+      />
 
       <NewDeploymentModal
         open={pickerOpen}
@@ -138,13 +203,40 @@ export function Implantacoes() {
   )
 }
 
+interface FilterPillProps {
+  active: boolean
+  onClick: () => void
+  label: string
+  count: number
+}
+
+function FilterPill({ active, onClick, label, count }: FilterPillProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30',
+        active ? 'bg-surface text-fg shadow-soft' : 'text-fg-muted hover:text-fg',
+      )}
+    >
+      {label}
+      <span className={cn('rounded-full px-1.5 text-[10px]', active ? 'bg-bg-soft text-fg' : 'bg-bg/50 text-fg-dim')}>
+        {count}
+      </span>
+    </button>
+  )
+}
+
 interface DeploymentCardProps {
   workflow: Workflow
   onClick: () => void
 }
 
 function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
+  const kind = deploymentKindOf(workflow)
   const agentId = deployedAgentId(workflow)
+  const agentCount = workflow.agents?.length ?? 0
   return (
     <Card
       interactive
@@ -160,12 +252,18 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
       }}
       className={cn(
         'group relative flex min-h-[160px] cursor-pointer flex-col gap-3 overflow-hidden p-5',
-        'before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-success',
+        'before:absolute before:inset-y-0 before:left-0 before:w-1',
+        kind === 'pipeline' ? 'before:bg-accent' : 'before:bg-success',
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-success/10 text-success">
+          <div
+            className={cn(
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+              kind === 'pipeline' ? 'bg-accent-subtle text-accent' : 'bg-success/10 text-success',
+            )}
+          >
             <BoltIcon className="h-5 w-5" />
           </div>
           <div className="min-w-0">
@@ -175,7 +273,9 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
             </p>
           </div>
         </div>
-        <Badge tone="success">Implantado</Badge>
+        <Badge tone={kind === 'pipeline' ? 'accent' : 'success'}>
+          {kind === 'pipeline' ? 'Pipeline' : 'Single'}
+        </Badge>
       </div>
 
       {workflow.description && (
@@ -183,7 +283,12 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
       )}
 
       <div className="mt-auto flex items-center justify-between text-[11px] text-fg-dim">
-        {agentId ? (
+        {kind === 'pipeline' ? (
+          <span className="flex items-center gap-1.5">
+            <AgentIcon className="h-3.5 w-3.5" />
+            {agentCount} {agentCount === 1 ? 'agente' : 'agentes em sequência'}
+          </span>
+        ) : agentId ? (
           <span className="flex items-center gap-1.5">
             <AgentIcon className="h-3.5 w-3.5" />
             <span className="truncate font-mono">{agentId}</span>
@@ -194,6 +299,70 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
         <span className="opacity-0 transition group-hover:opacity-100">Abrir →</span>
       </div>
     </Card>
+  )
+}
+
+interface KindChooserModalProps {
+  open: boolean
+  onClose: () => void
+  onChoose: (kind: DeploymentKind) => void
+}
+
+function KindChooserModal({ open, onClose, onChoose }: KindChooserModalProps) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="md"
+      title="Como você quer implantar?"
+      description="Escolha o tipo de implantação. Você pode mudar a qualquer momento criando outra implantação."
+    >
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <KindChooserCard
+          label="Um agente"
+          description="Implanta um agente publicado como workflow de chamada única."
+          tone="success"
+          onClick={() => onChoose('single')}
+        />
+        <KindChooserCard
+          label="Pipeline em sequência"
+          description="Vários agentes em fila — a saída de um vira a entrada do próximo, automaticamente."
+          tone="accent"
+          onClick={() => onChoose('pipeline')}
+        />
+      </div>
+    </Modal>
+  )
+}
+
+interface KindChooserCardProps {
+  label: string
+  description: string
+  tone: 'success' | 'accent'
+  onClick: () => void
+}
+
+function KindChooserCard({ label, description, tone, onClick }: KindChooserCardProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex flex-col gap-2 rounded-xl border border-border bg-surface p-4 text-left transition',
+        'hover:border-accent/60 hover:bg-accent-subtle/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+      )}
+    >
+      <div
+        className={cn(
+          'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+          tone === 'accent' ? 'bg-accent-subtle text-accent' : 'bg-success/10 text-success',
+        )}
+      >
+        <BoltIcon className="h-5 w-5" />
+      </div>
+      <div className="text-sm font-semibold text-fg">{label}</div>
+      <p className="text-xs leading-relaxed text-fg-muted">{description}</p>
+    </button>
   )
 }
 
