@@ -95,8 +95,13 @@ export function Onboarding() {
     if (!account.trim()) return 'Informe a conta primeiro'
     if (loading) return 'Carregando…'
     if (projects.length === 0) return 'Nenhum projeto disponível'
+    // Sem placeholder, <select value=""> sem matching option exibe o primeiro
+    // <option> visualmente — o user pensa que está selecionado, mas o state
+    // segue vazio e o botão "Continuar" fica desabilitado. Forçar option
+    // vazio resolve a divergência state ↔ display.
+    if (!projectId) return 'Selecione um projeto'
     return undefined
-  }, [account, loading, projects.length])
+  }, [account, loading, projects.length, projectId])
 
   const canSubmit = !!(name.trim() && account.trim() && projectId)
 
