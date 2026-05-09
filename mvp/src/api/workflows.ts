@@ -1,4 +1,12 @@
+import { generateDraftId } from './agentDrafts'
 import { get, post, put } from './client'
+
+// Marca workflows criados pelo editor de pipeline (sequência de N agentes) pra
+// distinguir de single-agent deploys na listagem. Backend trata metadata como
+// dicionário opaco — esse marcador é só convenção do MVP.
+export const PIPELINE_DEPLOYMENT_KIND = 'pipeline'
+
+export const pipelineWorkflowId = () => `deploy-pipeline-${generateDraftId()}`
 
 export type OrchestrationMode =
   | 'Sequential'
@@ -88,6 +96,23 @@ export function deployedAgentId(workflow: Workflow): string | null {
   return md?.deployedFromAgentId ?? null
 }
 
+// Pipeline = sequência de N agentes criada pelo editor de implantação avançada.
+// Reconhecido pela convenção `deploy-pipeline-{guid}` no id ou pelo marcador
+// metadata.deploymentKind === 'pipeline'. Workflows externos criados via API
+// (admin) não nascem com nenhum desses marcadores e ficam fora da lista de
+// Implantações — mantém o escopo da tela em "o que o PM pode editar aqui".
+export function isPipelineDeployment(workflow: Workflow): boolean {
+  if (workflow.id.startsWith('deploy-pipeline-')) return true
+  const md = (workflow as { metadata?: Record<string, string> | null }).metadata
+  return md?.deploymentKind === PIPELINE_DEPLOYMENT_KIND
+}
+
+export type DeploymentKind = 'single' | 'pipeline'
+
+export function deploymentKindOf(workflow: Workflow): DeploymentKind {
+  return isPipelineDeployment(workflow) ? 'pipeline' : 'single'
+}
+
 export interface WorkflowVersion {
   workflowVersionId: string
   workflowDefinitionId: string
@@ -130,3 +155,121 @@ export const updateWorkflow = (id: string, body: CreateWorkflowBody) =>
 // telas que revisitam o mesmo agente recuperam o workflow existente via GET
 // sem criar duplicado.
 export const deploymentWorkflowId = (agentId: string) => `deploy-${agentId}`
+
+// ── Trigger / execução ──────────────────────────────────────────────────────
+
+export interface TriggerWorkflowBody {
+  input?: string | null
+  metadata?: Record<string, string>
+}
+
+export interface TriggerWorkflowResponse {
+  executionId: string
+  statusUrl?: string
+}
+
+export const triggerWorkflow = (workflowId: string, body: TriggerWorkflowBody) =>
+  post<TriggerWorkflowResponse>(`/workflows/${workflowId}/trigger`, body)
+
+// Mesmo shape do trigger mas com `mode=Sandbox` no backend: tools mockadas,
+// métricas tagueadas, sem persistência de chat. Usado pelo sandbox de
+// implantação (single ou pipeline) — execução é sempre standalone.
+export const sandboxWorkflow = (workflowId: string, body: TriggerWorkflowBody) =>
+  post<TriggerWorkflowResponse>(`/workflows/${workflowId}/sandbox`, body)
+
+export type ExecutionStatus =
+  | 'Pending'
+  | 'Running'
+  | 'Paused'
+  | 'Completed'
+  | 'Failed'
+  | 'Cancelled'
+
+export interface ExecutionSummary {
+  executionId: string
+  workflowId: string
+  status: ExecutionStatus
+  startedAt?: string | null
+  completedAt?: string | null
+  output?: string | null
+  errorMessage?: string | null
+  [key: string]: unknown
+}
+
+export const getExecution = (executionId: string) =>
+  get<ExecutionSummary>(`/executions/${executionId}`)
+
+// ── Eventos SSE da execução ──────────────────────────────────────────────────
+// Backend emite via /api/aihub/executions/{id}/stream com format SSE
+// `event: <type>\ndata: <json>\n\n`. Tipos relevantes pro sandbox stepwise
+// estão modelados como discriminated union; outros tipos viajam como `unknown`
+// no campo `payload` e podem ser inspecionados pelo caller.
+export type WorkflowEvent =
+  | { type: 'workflow_started'; payload: WorkflowStartedPayload }
+  | { type: 'node_started'; payload: NodeStartedPayload }
+  | { type: 'node_completed'; payload: NodeCompletedPayload }
+  | { type: 'workflow_completed'; payload: WorkflowCompletedPayload }
+  | { type: 'workflow_failed' | 'workflow_cancelled' | 'error'; payload: WorkflowFailedPayload }
+  | { type: 'hitl_required'; payload: unknown }
+  | { type: 'tool_invocation'; payload: unknown }
+  | { type: 'state_delta'; payload: unknown }
+  | { type: 'token'; payload: unknown }
+  | { type: string; payload: unknown }
+
+export interface WorkflowStartedPayload {
+  executionId?: string
+  workflowId?: string
+  [key: string]: unknown
+}
+
+export interface NodeStartedPayload {
+  nodeId?: string
+  nodeType?: string
+  agentId?: string
+  agentName?: string
+  timestamp?: string
+  [key: string]: unknown
+}
+
+export interface NodeCompletedPayload {
+  nodeId?: string
+  nodeType?: string
+  agentId?: string
+  agentName?: string
+  output?: string
+  timestamp?: string
+  [key: string]: unknown
+}
+
+export interface WorkflowCompletedPayload {
+  output?: string
+  [key: string]: unknown
+}
+
+export interface WorkflowFailedPayload {
+  error?: string
+  message?: string
+  [key: string]: unknown
+}
+
+// Tipos de evento que o sandbox stepwise consome do SSE pra atualizar a
+// timeline. Outros tipos (token, hitl_required, tool_invocation, state_delta)
+// são publicados pelo backend mas o sandbox sequencial não os usa hoje.
+export const STREAM_EVENT_TYPES = [
+  'workflow_started',
+  'node_started',
+  'node_completed',
+  'workflow_completed',
+  'workflow_failed',
+  'workflow_cancelled',
+  'error',
+] as const
+
+export type StreamEventType = (typeof STREAM_EVENT_TYPES)[number]
+
+// Constrói URL absoluta do SSE de execução com fallback de identity em query
+// param — EventSource API não envia headers custom no browser.
+export function executionStreamUrl(executionId: string, account: string): string {
+  const qs = new URLSearchParams({ account }).toString()
+  return `/api/aihub/executions/${executionId}/stream?${qs}`
+}

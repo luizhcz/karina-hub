@@ -389,7 +389,7 @@ export function AgentsList() {
           searchActive={search.trim().length > 0}
           forkingId={forkingId}
           onEdit={handleEdit}
-          onTest={(id) => navigate(`/agentes/${id}/sandbox`)}
+          onDeploy={(id) => navigate(`/agentes/${id}/implantar`)}
           onVersions={(id) => navigate(`/agentes/${id}/versoes`)}
           onHistory={handleOpenHistory}
           onToggleEnabled={handleOpenToggle}
@@ -517,7 +517,7 @@ interface PublishedTabProps {
   searchActive: boolean
   forkingId: string | null
   onEdit: (id: string) => void
-  onTest: (id: string) => void
+  onDeploy: (id: string) => void
   onVersions: (id: string) => void
   onHistory: (agent: Agent) => void
   onToggleEnabled: (agent: Agent) => void
@@ -530,7 +530,7 @@ function PublishedTab({
   searchActive,
   forkingId,
   onEdit,
-  onTest,
+  onDeploy,
   onVersions,
   onHistory,
   onToggleEnabled,
@@ -568,7 +568,7 @@ function PublishedTab({
           agent={a}
           forking={forkingId === a.id}
           onEdit={() => onEdit(a.id)}
-          onTest={() => onTest(a.id)}
+          onDeploy={() => onDeploy(a.id)}
           onVersions={() => onVersions(a.id)}
           onHistory={() => onHistory(a)}
           onToggleEnabled={() => onToggleEnabled(a)}
@@ -712,13 +712,13 @@ interface PublishedAgentCardProps {
   agent: Agent
   forking: boolean
   onEdit: () => void
-  onTest: () => void
+  onDeploy: () => void
   onVersions: () => void
   onHistory: () => void
   onToggleEnabled: () => void
 }
 
-function PublishedAgentCard({ agent, forking, onEdit, onTest, onVersions, onHistory, onToggleEnabled }: PublishedAgentCardProps) {
+function PublishedAgentCard({ agent, forking, onEdit, onDeploy, onVersions, onHistory, onToggleEnabled }: PublishedAgentCardProps) {
   const description = agent.description ?? ''
   const modelLabel = agent.model?.predefinedModelId || agent.model?.deploymentName || ''
   const toolCount = agent.tools?.length ?? 0
@@ -777,8 +777,8 @@ function PublishedAgentCard({ agent, forking, onEdit, onTest, onVersions, onHist
           <Button variant="secondary" size="sm" onClick={onEdit} loading={forking}>
             Editar
           </Button>
-          <Button size="sm" onClick={onTest} leftIcon={<BoltIcon className="h-3.5 w-3.5" />}>
-            Testar
+          <Button size="sm" onClick={onDeploy} leftIcon={<BoltIcon className="h-3.5 w-3.5" />}>
+            Implantar
           </Button>
         </div>
       </div>
