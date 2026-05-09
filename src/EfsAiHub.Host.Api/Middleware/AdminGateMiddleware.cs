@@ -127,6 +127,14 @@ public sealed class AdminGateMiddleware
     private static readonly Regex AgentEnabledPattern =
         new(@"^/api/aihub/agents/[^/]+/enabled$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // GET/DELETE /api/aihub/agents/{id}/operational-memory/{scopeId} — non-admin
+    // consulta ou reseta a memória do próprio escopo (conversa/sessão).
+    // OperationalMemoryRepository herda o HasQueryFilter por ProjectId, então
+    // só vem dado dos escopos do project atual. GET-list (sem segmento extra)
+    // continua admin-only — segue o padrão de versions/approval-history.
+    private static readonly Regex AgentOperationalMemoryScopePattern =
+        new(@"^/api/aihub/agents/[^/]+/operational-memory/[^/]+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     // POST /api/aihub/agents/{id}/evaluations/auto-deploy — fluxo composto disparado
     // pelo PM/PO logo após "Implantar agente". Orquestra (gera test cases via
     // wf-gerador-testcases → cria TestSet+EvaluatorConfig do preset → enfileira
@@ -325,6 +333,11 @@ public sealed class AdminGateMiddleware
 
         if (method.Equals("PATCH", StringComparison.OrdinalIgnoreCase)
             && AgentEnabledPattern.IsMatch(path))
+            return true;
+
+        if (AgentOperationalMemoryScopePattern.IsMatch(path)
+            && (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+                || method.Equals("DELETE", StringComparison.OrdinalIgnoreCase)))
             return true;
 
         // Auto-deploy de avaliação (PM/PO chama logo após implantar agente).
