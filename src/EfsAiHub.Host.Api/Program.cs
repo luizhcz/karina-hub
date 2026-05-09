@@ -120,6 +120,8 @@ builder.Services.AddHttpClient("generic-tool-tester", c =>
 builder.Services.AddSingleton<BoletaToolFunctions>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IGenericToolRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgGenericToolRepository>();
+builder.Services.AddScoped<EfsAiHub.Core.Agents.IOperationalMemoryRepository,
+    EfsAiHub.Infra.Persistence.Postgres.PgOperationalMemoryRepository>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolExecutor,
     EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolExecutor>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolTester,

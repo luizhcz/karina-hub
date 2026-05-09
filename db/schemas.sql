@@ -1516,3 +1516,32 @@ CREATE TABLE IF NOT EXISTS aihub.predefined_models (
 CREATE INDEX IF NOT EXISTS "IX_predefined_models_Enabled"
     ON aihub.predefined_models ("Enabled")
     WHERE "Enabled" = TRUE;
+
+-- =============================================================================
+-- 30. OPERATIONAL MEMORY — estado canônico por (project, agent, escopo)
+--
+-- Replace-only: cada turno de LLM pode reescrever o Payload completo. Version
+-- serve pra concorrência otimista — middleware lê com Version=N, persiste com
+-- expectedVersion=N e Postgres rejeita se outra escrita já bumped pra N+1.
+-- ScopeType separa chat (conversation) de sandbox (session) com mesma chave.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.operational_memory (
+    "ProjectId"  VARCHAR(128) NOT NULL,
+    "AgentId"    VARCHAR(256) NOT NULL,
+    "ScopeType"  VARCHAR(32)  NOT NULL,                 -- conversation | session
+    "ScopeId"    VARCHAR(128) NOT NULL,
+    "Payload"    JSONB        NOT NULL DEFAULT '{}',
+    "Version"    INTEGER      NOT NULL DEFAULT 0,
+    "CreatedAt"  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    "UpdatedAt"  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT "PK_operational_memory"
+        PRIMARY KEY ("ProjectId", "AgentId", "ScopeType", "ScopeId"),
+    CONSTRAINT "CK_operational_memory_ScopeType"
+        CHECK ("ScopeType" IN ('conversation', 'session'))
+);
+
+-- Listagem admin "todos os escopos de um agente neste projeto" — pattern menos
+-- frequente que o point lookup pela PK, mas precisa de plano não-sequencial.
+CREATE INDEX IF NOT EXISTS "IX_operational_memory_ProjectId_AgentId"
+    ON aihub.operational_memory ("ProjectId", "AgentId");

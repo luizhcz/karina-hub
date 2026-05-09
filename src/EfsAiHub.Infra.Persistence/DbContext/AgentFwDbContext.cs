@@ -101,6 +101,21 @@ internal class PredefinedModelRow
     public DateTime UpdatedAt { get; set; }
 }
 
+// Memória operacional do agente: estado canônico replace-only por (project,
+// agent, escopo). ScopeType separa chat (conversation) de sandbox (session)
+// dentro da mesma chave. Owner-only via HasQueryFilter por ProjectId.
+internal class OperationalMemoryRow
+{
+    public string ProjectId { get; set; } = "default";
+    public string AgentId { get; set; } = "";
+    public string ScopeType { get; set; } = "conversation";
+    public string ScopeId { get; set; } = "";
+    public string Payload { get; set; } = "{}";
+    public int Version { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
 // Tool HTTP genérica owner-only (project-scoped strict). Workflows e agents
 // de outros projetos nunca enxergam essa tabela — o binder em runtime resolve
 // só pelo agent.ProjectId atual.
@@ -586,6 +601,7 @@ public class AgentFwDbContext : DbContext
     internal DbSet<AgentDraftRow> AgentDrafts => Set<AgentDraftRow>();
     internal DbSet<AgentApprovalHistoryRow> AgentApprovalHistory => Set<AgentApprovalHistoryRow>();
     internal DbSet<GenericToolRow> GenericTools => Set<GenericToolRow>();
+    internal DbSet<OperationalMemoryRow> OperationalMemory => Set<OperationalMemoryRow>();
     internal DbSet<PredefinedModelRow> PredefinedModels => Set<PredefinedModelRow>();
     internal DbSet<AgentPromptVersionRow> AgentPromptVersions => Set<AgentPromptVersionRow>();
     internal DbSet<AgentVersionRow> AgentVersions => Set<AgentVersionRow>();
@@ -831,6 +847,25 @@ public class AgentFwDbContext : DbContext
                 .HasDatabaseName("UX_generic_tools_ProjectId_Name");
             // Strictamente owner-only: sem cláusula global. Workflows não enxergam
             // tools de outros projects mesmo via Id direto.
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+        });
+
+        modelBuilder.Entity<OperationalMemoryRow>(b =>
+        {
+            b.ToTable("operational_memory");
+            b.HasKey(e => new { e.ProjectId, e.AgentId, e.ScopeType, e.ScopeId });
+            b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.AgentId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.ScopeType).HasMaxLength(32).IsRequired();
+            b.Property(e => e.ScopeId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Payload).HasColumnType("jsonb").IsRequired().HasDefaultValue("{}");
+            b.Property(e => e.Version).IsRequired().HasDefaultValue(0);
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.HasIndex(e => new { e.ProjectId, e.AgentId })
+                .HasDatabaseName("IX_operational_memory_ProjectId_AgentId");
+            // Owner-only: memória de outro project é invisível mesmo via combinação
+            // direta da chave composta.
             b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
         });
 
