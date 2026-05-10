@@ -7,7 +7,11 @@ import type { McpServer } from '../../api/mcpServers'
 import type { PredefinedModel } from '../../api/predefinedModels'
 import { listRouterIntents, type RouterIntent } from '../../api/routerIntents'
 import { encodeInstructions } from './instructionsCodec'
-import { buildToolDescriptors, encodeRouterInstructions } from './formCodec'
+import {
+  buildToolDescriptors,
+  encodeRouterInstructions,
+  encodeWorkerInstructions,
+} from './formCodec'
 import type { FormState } from './types'
 
 interface ReviewStepProps {
@@ -33,7 +37,9 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
     () =>
       form.type === 'Router'
         ? encodeRouterInstructions(form.name)
-        : encodeInstructions(form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured),
+        : form.type === 'Worker'
+          ? encodeWorkerInstructions(form.name)
+          : encodeInstructions(form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured),
     [
       form.type,
       form.name,
@@ -98,6 +104,8 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
       </Card>
 
       {form.type === 'Router' && <RouterPreview form={form} />}
+
+      {form.type === 'Worker' && <WorkerPreview form={form} />}
 
       <SecurityReviewCard
         enabled={form.security.enabled}
@@ -240,6 +248,55 @@ function RouterPreview({ form }: RouterPreviewProps) {
             </p>
           )}
         </>
+      )}
+    </Card>
+  )
+}
+
+interface WorkerPreviewProps {
+  form: FormState
+}
+
+// Preview do Worker no Review: mostra o domínio (scope) que será injetado
+// em runtime + warnings soft (scope vazio). Sem fetch — Worker é
+// standalone (sem pool global). Validações hard de Worker são apenas o
+// nome; demais expectativas (modelo full, security on, output structured)
+// são warnings exibidos em outros cards do Review.
+function WorkerPreview({ form }: WorkerPreviewProps) {
+  const scope = form.workerScope.trim()
+  const empty = scope.length === 0
+  const SCOPE_PREVIEW_MAX = 200
+  const truncated = scope.length > SCOPE_PREVIEW_MAX
+  const [expanded, setExpanded] = useState(false)
+  const visible = !truncated || expanded ? scope : scope.slice(0, SCOPE_PREVIEW_MAX) + '…'
+
+  return (
+    <Card className="space-y-3">
+      <CardHeader
+        title="Domínio de análise"
+        description="Texto injetado em runtime ao final do system prompt como bloco '# Domínio de análise'. Edits no scope propagam pra próxima chamada — sem necessidade de re-publish."
+      />
+      {empty ? (
+        <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+          Nenhum domínio definido. O Worker funciona, mas o LLM não recebe orientação de escopo — qualidade pode degradar. Volte pra etapa Domínio.
+        </p>
+      ) : (
+        <div className="rounded-lg border border-border bg-bg-soft px-3 py-2.5">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{visible}</p>
+          {truncated && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setExpanded((x) => !x)}
+              className="mt-2 -ml-1"
+            >
+              {expanded ? 'Ver menos' : 'Ver mais'}
+            </Button>
+          )}
+          <p className="mt-2 text-[11px] text-fg-dim">
+            {scope.length} caracteres
+          </p>
+        </div>
       )}
     </Card>
   )

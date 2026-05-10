@@ -67,6 +67,12 @@ export interface FormState {
    * lookup runtime; só criar intent nova é manual.
    */
   routerIntentIds: string[]
+  /**
+   * Domínio de análise do Worker — texto livre PT-BR injetado em runtime
+   * ao final das instructions (bloco "# Domínio de análise"). Persistido
+   * em payload.metadata['x-worker-scope']. Vazio quando type !== 'Worker'.
+   */
+  workerScope: string
   predefinedModelId: string
   profile: ProfileFields
   toolIds: string[]

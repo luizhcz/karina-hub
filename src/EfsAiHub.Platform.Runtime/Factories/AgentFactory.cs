@@ -791,6 +791,12 @@ public class AgentFactory : IAgentFactory
         Id = d.Id,
         Name = d.Name,
         Description = d.Description,
+        // Campos chave de tipologia que precisam atravessar todas as cópias:
+        // Type rege a injeção de blocos em runtime (RouterIntent / WorkerScope);
+        // RouterIntentIds é o set transient do save que o builder consome.
+        // Sem propagação, o agent chega ao runtime degradado pra Custom.
+        Type = d.Type,
+        RouterIntentIds = d.RouterIntentIds,
         Model = d.Model,
         Provider = d.Provider,
         FallbackProvider = d.FallbackProvider,
@@ -799,7 +805,17 @@ public class AgentFactory : IAgentFactory
         StructuredOutput = d.StructuredOutput,
         OperationalMemory = d.OperationalMemory,
         Middlewares = d.Middlewares,
+        Resilience = d.Resilience,
+        CostBudget = d.CostBudget,
+        SkillRefs = d.SkillRefs,
         Metadata = d.Metadata,
+        ProjectId = d.ProjectId,
+        TenantId = d.TenantId,
+        Visibility = d.Visibility,
+        AllowedProjectIds = d.AllowedProjectIds,
+        Enabled = d.Enabled,
+        RegressionTestSetId = d.RegressionTestSetId,
+        RegressionEvaluatorConfigVersionId = d.RegressionEvaluatorConfigVersionId,
         CreatedAt = d.CreatedAt,
         UpdatedAt = d.UpdatedAt,
     };

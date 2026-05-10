@@ -39,6 +39,7 @@ import { Stepper, type StepDescriptor } from './Stepper'
 import { TypeStep } from './TypeStep'
 import { ProfileStep } from './ProfileStep'
 import { RouterProfileStep } from './RouterProfileStep'
+import { WorkerProfileStep } from './WorkerProfileStep'
 import { ToolsKnowledgeStep } from './ToolsKnowledgeStep'
 import { SecurityStep } from './SecurityStep'
 import { MemoryStep } from './MemoryStep'
@@ -132,8 +133,24 @@ const ROUTER_STEPS: StepDescriptor[] = [
   { key: 'review', label: 'Revisão' },
 ]
 
+// Worker substitui o ProfileStep por um step próprio (Domínio) que
+// captura nome + scope. Inclui Tools (opcional), Segurança (recomendado
+// on por default), Output structured (recomendado) e Modelo. Pula
+// Memória e Input — Worker é single-shot, sem multi-turn nem schema de
+// input separado.
+const WORKER_STEPS: StepDescriptor[] = [
+  { key: 'type', label: 'Tipo' },
+  { key: 'profile', label: 'Domínio' },
+  { key: 'tools', label: 'Ferramentas' },
+  { key: 'security', label: 'Segurança' },
+  { key: 'output', label: 'Output' },
+  { key: 'model', label: 'Modelo' },
+  { key: 'review', label: 'Revisão' },
+]
+
 function stepsFor(mode: AgentMode, type: AgentType): StepDescriptor[] {
   if (type === 'Router') return ROUTER_STEPS
+  if (type === 'Worker') return WORKER_STEPS
   return mode === 'advanced' ? ADVANCED_STEPS : BASIC_STEPS
 }
 
@@ -152,7 +169,13 @@ export function AgentEditor({ mode }: Props) {
     ? 'advanced'
     : 'basic'
   const initialType: AgentType =
-    mode === 'create' && searchParams.get('type') === 'Router' ? 'Router' : 'Custom'
+    mode === 'create'
+      ? searchParams.get('type') === 'Router'
+        ? 'Router'
+        : searchParams.get('type') === 'Worker'
+          ? 'Worker'
+          : 'Custom'
+      : 'Custom'
   const initialTemplateKey = mode === 'create' ? searchParams.get('template') : null
   const [form, setForm] = useState<FormState>(() => {
     // Router pula o step de "Tipo" porque já foi escolhido no modal — entra
@@ -320,6 +343,26 @@ export function AgentEditor({ mode }: Props) {
       } else if (selectedCount < 2) {
         issues.profile = 'Selecione ao menos 2 intenções'
       }
+    } else if (form.type === 'Worker') {
+      // Worker tem validações soft no backend (warnings). No wizard, só o
+      // nome é hard requirement; scope vazio é warning de qualidade exposto
+      // no review (não bloqueia "Próximo" no Stepper).
+      if (!form.name.trim()) issues.profile = 'Informe um nome'
+      if (form.output.mode === 'structured') {
+        const trimmed = form.output.schema.trim()
+        if (!trimmed) {
+          issues.output = 'Schema do output vazio — defina ou troque pra texto livre.'
+        } else {
+          try {
+            const parsed = JSON.parse(trimmed)
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+              issues.output = 'Schema do output precisa ser um objeto JSON.'
+            }
+          } catch {
+            issues.output = 'Schema do output não é JSON válido.'
+          }
+        }
+      }
     } else {
       if (!form.name.trim()) issues.profile = 'Informe um nome'
       if (form.memory.enabled) {
@@ -346,6 +389,8 @@ export function AgentEditor({ mode }: Props) {
     form.routerIntentIds,
     form.memory.enabled,
     form.memory.schema,
+    form.output.mode,
+    form.output.schema,
   ])
 
   const goTo = (key: StepKey) => setForm((prev) => ({ ...prev, currentStep: key }))
@@ -560,6 +605,20 @@ export function AgentEditor({ mode }: Props) {
         return 'Schema da memória operacional não é JSON válido.'
       }
     }
+    // Worker grava form.output em payload.structuredOutput (json_schema).
+    // Schema inválido vai pro backend e quebra a chamada — checar antes do
+    // submit pra dar feedback inline.
+    if (form.type === 'Worker' && form.output.mode === 'structured') {
+      const trimmedSchema = form.output.schema.trim()
+      if (!trimmedSchema) return 'Worker com output estruturado exige um schema — defina ou troque pra texto livre.'
+      try {
+        const parsed = JSON.parse(trimmedSchema)
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+          return 'Schema do output do Worker precisa ser um objeto JSON.'
+      } catch {
+        return 'Schema do output do Worker não é JSON válido.'
+      }
+    }
     return null
   }
 
@@ -673,32 +732,34 @@ export function AgentEditor({ mode }: Props) {
             )}
           </div>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <Button
-            size="sm"
-            variant={assistantResult ? 'secondary' : 'primary'}
-            onClick={runAnalysis}
-            disabled={assistantDisabled}
-            loading={assistantLoading}
-            leftIcon={!assistantLoading ? <SparklesIcon className="h-4 w-4" /> : undefined}
-            title={
-              !roleReady
-                ? `Preencha o papel com pelo menos ${MIN_ROLE_CHARS} caracteres pra habilitar.`
+        {form.type !== 'Router' && form.type !== 'Worker' && (
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <Button
+              size="sm"
+              variant={assistantResult ? 'secondary' : 'primary'}
+              onClick={runAnalysis}
+              disabled={assistantDisabled}
+              loading={assistantLoading}
+              leftIcon={!assistantLoading ? <SparklesIcon className="h-4 w-4" /> : undefined}
+              title={
+                !roleReady
+                  ? `Preencha o papel com pelo menos ${MIN_ROLE_CHARS} caracteres pra habilitar.`
+                  : onCooldown
+                  ? `Aguarde ${cooldownRemaining}s pra rodar de novo.`
+                  : 'Analisa o perfil e devolve sugestões granulares.'
+              }
+            >
+              {assistantLoading
+                ? 'Analisando perfil…'
                 : onCooldown
-                ? `Aguarde ${cooldownRemaining}s pra rodar de novo.`
-                : 'Analisa o perfil e devolve sugestões granulares.'
-            }
-          >
-            {assistantLoading
-              ? 'Analisando perfil…'
-              : onCooldown
-              ? `Aguarde ${cooldownRemaining}s`
-              : assistantResult
-              ? 'Reanalisar perfil'
-              : 'Refinar com IA'}
-          </Button>
-          <span className="text-[10px] text-fg-dim">~$0.001 por análise</span>
-        </div>
+                ? `Aguarde ${cooldownRemaining}s`
+                : assistantResult
+                ? 'Reanalisar perfil'
+                : 'Refinar com IA'}
+            </Button>
+            <span className="text-[10px] text-fg-dim">~$0.001 por análise</span>
+          </div>
+        )}
       </div>
 
       {isPending && (
@@ -724,17 +785,23 @@ export function AgentEditor({ mode }: Props) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-fg-dim">
-              {form.type === 'Router' ? 'Router' : 'Tipo de agente'}
+              {form.type === 'Router'
+                ? 'Router'
+                : form.type === 'Worker'
+                  ? 'Worker'
+                  : 'Tipo de agente'}
             </p>
             <p className="mt-1 text-xs text-fg-muted">
               {form.type === 'Router'
                 ? 'Classifier de intenções com output estruturado fixo (intent + confidence + rationale). Steps são fixos pelo tipo — sem modo básico/avançado.'
-                : form.agentMode === 'basic'
-                  ? 'Configuração rápida com perfil, ferramentas e revisão.'
-                  : 'Inclui input e output estruturados além do básico.'}
+                : form.type === 'Worker'
+                  ? 'Specialist de domínio. Recebe input estruturado e produz análise rica conforme o schema. Steps são fixos pelo tipo — sem modo básico/avançado.'
+                  : form.agentMode === 'basic'
+                    ? 'Configuração rápida com perfil, ferramentas e revisão.'
+                    : 'Inclui input e output estruturados além do básico.'}
             </p>
           </div>
-          {form.type !== 'Router' && (
+          {form.type !== 'Router' && form.type !== 'Worker' && (
             <div className="flex rounded-lg border border-border bg-bg-soft p-1">
               <ModeToggleButton
                 active={form.agentMode === 'basic'}
@@ -782,7 +849,10 @@ export function AgentEditor({ mode }: Props) {
         {form.currentStep === 'profile' && form.type === 'Router' && (
           <RouterProfileStep form={form} setForm={setForm} readonly={readonly} />
         )}
-        {form.currentStep === 'profile' && form.type !== 'Router' && (
+        {form.currentStep === 'profile' && form.type === 'Worker' && (
+          <WorkerProfileStep form={form} setForm={setForm} readonly={readonly} />
+        )}
+        {form.currentStep === 'profile' && form.type !== 'Router' && form.type !== 'Worker' && (
           <ProfileStep form={form} setForm={setForm} readonly={readonly} />
         )}
         {form.currentStep === 'tools' && (
@@ -798,7 +868,7 @@ export function AgentEditor({ mode }: Props) {
             readonly={readonly}
           />
         )}
-        {form.currentStep === 'security' && form.agentMode === 'advanced' && (
+        {form.currentStep === 'security' && (form.agentMode === 'advanced' || form.type === 'Worker') && (
           <SecurityStep form={form} setForm={setForm} readonly={readonly} />
         )}
         {form.currentStep === 'memory' && form.agentMode === 'advanced' && (
@@ -807,7 +877,7 @@ export function AgentEditor({ mode }: Props) {
         {form.currentStep === 'input' && form.agentMode === 'advanced' && (
           <InputStep form={form} setForm={setForm} readonly={readonly} />
         )}
-        {form.currentStep === 'output' && form.agentMode === 'advanced' && (
+        {form.currentStep === 'output' && (form.agentMode === 'advanced' || form.type === 'Worker') && (
           <OutputStep form={form} setForm={setForm} readonly={readonly} />
         )}
         {form.currentStep === 'model' && (

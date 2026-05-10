@@ -17,8 +17,8 @@ interface TypeCard {
 }
 
 // Cards descrevem o que cada tipo *é* e quando faz sentido escolher. O wizard
-// adapta os steps subsequentes a partir desta seleção (Router substitui o
-// editor de Output por um StringListEditor de categorias). Custom mantém o
+// adapta os steps subsequentes a partir desta seleção (Router troca Profile
+// por seletor de intents; Worker adiciona step de Domínio). Custom mantém o
 // fluxo livre — nenhuma validação por tipo, nenhum campo derivado.
 const TYPE_CARDS: TypeCard[] = [
   {
@@ -43,12 +43,93 @@ const TYPE_CARDS: TypeCard[] = [
       'Histórico de chat via workflow `InputMode=Chat`, não memória operacional',
     ],
   },
+  {
+    type: 'Worker',
+    title: 'Worker',
+    tagline: 'Raciocínio profundo em domínio específico — análise rica e estruturada.',
+    bestFor: 'Step do meio em pipeline (depois do Router) ou standalone quando a análise sozinha é a resposta. Casos: parecer técnico, outlook macro, recomendação contextualizada, descrição padronizada.',
+    bullets: [
+      'StructuredOutput, modelo full, MaxTokens 2000–4000 — recomendados',
+      'SecurityGuardrails recomendado pra manter escopo declarado',
+      'OperationalMemory off — single-shot dentro de pipeline',
+    ],
+  },
 ]
+
+// Defaults idempotentes do template Worker. Aplicados apenas quando o
+// campo correspondente ainda está no estado "default Custom" — assim, se o
+// user troca pra Worker, volta pra Custom, troca pra Worker de novo, a
+// customização que ele aplicou no meio é preservada.
+const WORKER_DEFAULT_OUTPUT_SCHEMA = JSON.stringify(
+  {
+    type: 'object',
+    properties: {
+      analise: {
+        type: 'string',
+        description:
+          'Análise multifator do caso recebido. Cobre os fatores relevantes do domínio declarado.',
+      },
+      recomendacao: {
+        type: 'string',
+        description:
+          'Recomendação consolidada — direta, sem hedging desnecessário.',
+      },
+      riscos: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Riscos/limitações identificados na análise.',
+      },
+      reason: {
+        type: 'string',
+        description:
+          'Pensamento que conduziu à recomendação — chain-of-thought visível.',
+      },
+    },
+    required: ['analise', 'recomendacao', 'riscos', 'reason'],
+    additionalProperties: false,
+  },
+  null,
+  2,
+)
+
+const WORKER_DEFAULT_OUTPUT_DESCRIPTION =
+  'Saída estruturada com análise, recomendação, riscos e reason. ' +
+  'Padrão recomendado pra Worker; ajuste o schema conforme o domínio.'
 
 export function TypeStep({ form, setForm, readonly }: TypeStepProps) {
   const select = (next: AgentType) => {
     if (readonly || form.type === next) return
-    setForm((prev) => ({ ...prev, type: next }))
+    setForm((prev) => {
+      const base: FormState = { ...prev, type: next }
+      if (next !== 'Worker') return base
+
+      // Output structured com schema padrão é a marca registrada do Worker
+      // — só aplica quando o user ainda não tocou em nada. Se ele já
+      // configurou um output (text com descrição custom, ou structured com
+      // schema próprio), preserva.
+      const outputUntouched =
+        prev.output.mode === 'text'
+        && prev.output.description.trim() === ''
+        && prev.output.schema.trim() === ''
+
+      // SecurityGuardrails é recomendação do template — liga só quando
+      // não está explicitamente off com toggle do user. Mesmo critério:
+      // só ativa em estado virgem.
+      const securityUntouched = !prev.security.enabled
+
+      return {
+        ...base,
+        agentMode: outputUntouched ? 'advanced' : prev.agentMode,
+        output: outputUntouched
+          ? {
+              mode: 'structured',
+              description: WORKER_DEFAULT_OUTPUT_DESCRIPTION,
+              schema: WORKER_DEFAULT_OUTPUT_SCHEMA,
+            }
+          : prev.output,
+        security: securityUntouched ? { enabled: true } : prev.security,
+      }
+    })
   }
 
   return (

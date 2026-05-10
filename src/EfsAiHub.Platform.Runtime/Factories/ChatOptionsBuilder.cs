@@ -69,12 +69,16 @@ public static class ChatOptionsBuilder
         bool isStandaloneFlow = false,
         IReadOnlyList<EfsAiHub.Core.Agents.RouterIntents.RouterIntent>? resolvedRouterIntents = null)
     {
+        var instructionsAfterRouter = AppendRouterIntentBlockIfApplicable(
+            definition,
+            definition.Instructions,
+            resolvedRouterIntents);
+
         var options = new ChatOptions
         {
-            Instructions = AppendRouterIntentBlockIfApplicable(
+            Instructions = AppendWorkerScopeBlockIfApplicable(
                 definition,
-                definition.Instructions,
-                resolvedRouterIntents),
+                instructionsAfterRouter),
             Temperature = definition.Model.Temperature,
             MaxOutputTokens = definition.Model.MaxTokens,
             ModelId = definition.Model.DeploymentName
@@ -103,9 +107,24 @@ public static class ChatOptionsBuilder
                 "[ChatOptionsBuilder] Router '{AgentId}' final instructions:\n{Instructions}",
                 definition.Id, options.Instructions);
         }
+        else if (definition.Type == AgentType.Worker
+                 && definition.Metadata is { } metadataForLog
+                 && metadataForLog.TryGetValue(AgentDefinition.WorkerScopeMetadataKey, out var scopeForLog)
+                 && !string.IsNullOrWhiteSpace(scopeForLog))
+        {
+            logger.LogInformation(
+                "[ChatOptionsBuilder] Worker '{AgentId}' scope length={ScopeLen} chars. " +
+                "Final instructions length={Len} chars (block appended).",
+                definition.Id, scopeForLog.Length,
+                options.Instructions?.Length ?? 0);
+            logger.LogDebug(
+                "[ChatOptionsBuilder] Worker '{AgentId}' final instructions:\n{Instructions}",
+                definition.Id, options.Instructions);
+        }
 
         return options;
     }
+
 
     /// <summary>
     /// Pra Router com intents resolvidas, anexa bloco markdown
@@ -118,7 +137,7 @@ public static class ChatOptionsBuilder
     /// (recência atende mais peso). Anti-leak explícito no header do bloco
     /// reforça "não inventar/combinar/fora do enum".
     /// </summary>
-    private static string? AppendRouterIntentBlockIfApplicable(
+    internal static string? AppendRouterIntentBlockIfApplicable(
         AgentDefinition definition,
         string? baseInstructions,
         IReadOnlyList<EfsAiHub.Core.Agents.RouterIntents.RouterIntent>? resolvedRouterIntents)
@@ -165,6 +184,42 @@ public static class ChatOptionsBuilder
                     sb.Append($"  • \"{example}\"\n");
             }
         }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Pra Worker com <c>metadata['x-worker-scope']</c> preenchido, anexa
+    /// bloco <c># Domínio de análise</c> ao final do <c>Instructions</c>.
+    /// Sem marker no skeleton — runtime concatena com separador. Mesmo
+    /// padrão de recência do Router (bloco no fim → maior peso pro LLM).
+    /// </summary>
+    internal static string? AppendWorkerScopeBlockIfApplicable(
+        AgentDefinition definition,
+        string? baseInstructions)
+    {
+        if (definition.Type != AgentType.Worker)
+            return baseInstructions;
+
+        if (definition.Metadata is not { } metadata
+            || !metadata.TryGetValue(AgentDefinition.WorkerScopeMetadataKey, out var scope)
+            || string.IsNullOrWhiteSpace(scope))
+        {
+            return baseInstructions;
+        }
+
+        var trimmedScope = scope.Trim();
+
+        var sb = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(baseInstructions))
+        {
+            sb.Append(baseInstructions.TrimEnd());
+            sb.Append("\n\n");
+        }
+
+        sb.Append("# Domínio de análise\n\n");
+        sb.Append(trimmedScope);
+        sb.Append("\n\n---");
 
         return sb.ToString();
     }

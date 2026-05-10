@@ -74,6 +74,15 @@ public class AgentDefinition
     public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
 
     /// <summary>
+    /// Chave em <see cref="Metadata"/> que carrega o escopo/domínio do
+    /// Worker. Vive em metadata em vez de campo top-level pra evitar
+    /// propagação manual nos múltiplos paths que reconstroem
+    /// <see cref="AgentDefinition"/>. Lida pelo runtime
+    /// (<c>ChatOptionsBuilder</c>) e validação (<c>AgentService</c>).
+    /// </summary>
+    public const string WorkerScopeMetadataKey = "x-worker-scope";
+
+    /// <summary>
     /// "project" (default) — agent visível apenas dentro do projeto dono.
     /// "global" — agent visível a todos os projetos do mesmo tenant; outros projetos
     /// podem referenciá-lo em workflows. Cross-tenant é proibido.

@@ -22,7 +22,7 @@ public class AgentService : IAgentService
         new(StringComparer.OrdinalIgnoreCase) { "never", "always" };
 
     private static readonly HashSet<string> ValidMiddlewareTypes =
-        new(StringComparer.OrdinalIgnoreCase) { "AccountGuard", "StructuredOutputState" };
+        new(StringComparer.OrdinalIgnoreCase) { "AccountGuard", "StructuredOutputState", "SecurityGuardrails" };
 
     private readonly IAgentDefinitionRepository _repository;
     private readonly IAgentPromptRepository _promptRepo;
@@ -464,13 +464,20 @@ public class AgentService : IAgentService
                 errors.Add($"Middleware type inválido: '{mw.Type}'. Valores aceitos: {string.Join(", ", ValidMiddlewareTypes)}.");
         }
 
-        // ── Validações por tipo (Router) ─────────────────────────────────────
+        // ── Validações por tipo ──────────────────────────────────────────────
         // Custom não tem template aplicado: skip. Outros tipos rodam invariantes
         // específicas após os checks genéricos acima — assim erros estruturais
         // (model, provider, tools) são reportados sem ruído de "schema não tem
         // intent" quando a definition já tá quebrada na base.
-        if (definition.Type == AgentType.Router)
-            await ValidateRouterAsync(definition, errors, warnings, ct);
+        switch (definition.Type)
+        {
+            case AgentType.Router:
+                await ValidateRouterAsync(definition, errors, warnings, ct);
+                break;
+            case AgentType.Worker:
+                ValidateWorker(definition, warnings);
+                break;
+        }
 
         return (errors.Count == 0, errors, warnings);
     }
@@ -522,4 +529,67 @@ public class AgentService : IAgentService
         if (definition.OperationalMemory?.Schema is not null)
             warnings.Add("OperationalMemory raramente é útil em Router; pra contexto de chat, prefira workflow com 'InputMode=Chat'.");
     }
+
+    /// <summary>
+    /// Worker é template "soft": todas as expectativas (modelo full,
+    /// StructuredOutput, MaxTokens alto, SecurityGuardrails on, scope
+    /// declarado) viram warnings — nunca bloqueiam o save. Mantém o usuário
+    /// no controle e sinaliza desvios na UI.
+    /// </summary>
+    private static void ValidateWorker(AgentDefinition definition, List<string> warnings)
+    {
+        if (definition.Metadata is not { } metadata
+            || !metadata.TryGetValue(AgentDefinition.WorkerScopeMetadataKey, out var scope)
+            || string.IsNullOrWhiteSpace(scope))
+        {
+            warnings.Add(
+                "Worker sem domínio de análise definido — preencha o campo 'Domínio de análise' " +
+                "pra que o agente saiba o escopo do raciocínio.");
+        }
+
+        var deployment = definition.Model?.DeploymentName ?? string.Empty;
+        var hasPredefined = !string.IsNullOrWhiteSpace(definition.Model?.PredefinedModelId);
+        if (!hasPredefined && !string.IsNullOrEmpty(deployment)
+            && (deployment.IndexOf("mini", StringComparison.OrdinalIgnoreCase) >= 0
+                || deployment.IndexOf("nano", StringComparison.OrdinalIgnoreCase) >= 0
+                || deployment.IndexOf("haiku", StringComparison.OrdinalIgnoreCase) >= 0))
+        {
+            warnings.Add(
+                $"Worker recomenda modelo full (gpt-5, claude-opus, gemini-pro) — " +
+                $"'model.deploymentName'='{deployment}' é um modelo leve. Análise rasa pode degradar o pipeline.");
+        }
+
+        var responseFormat = definition.StructuredOutput?.ResponseFormat ?? "text";
+        if (!responseFormat.Equals("json_schema", StringComparison.OrdinalIgnoreCase))
+        {
+            warnings.Add(
+                "Worker recomenda StructuredOutput (json_schema) pra que o caller downstream " +
+                "consuma a análise como objeto, não texto livre.");
+        }
+
+        if (definition.Model?.MaxTokens is { } maxTokens && maxTokens < 1500)
+        {
+            warnings.Add(
+                $"Worker recomenda 'model.maxTokens' >= 2000 pra acomodar análise substantiva — " +
+                $"recebido: {maxTokens}.");
+        }
+
+        var hasGuardrails = definition.Middlewares.Any(m =>
+            string.Equals(m.Type, "SecurityGuardrails", StringComparison.OrdinalIgnoreCase)
+            && m.Enabled);
+        if (!hasGuardrails)
+        {
+            warnings.Add(
+                "Worker recomenda middleware 'SecurityGuardrails' pra manter a análise dentro do " +
+                "domínio declarado e mitigar prompt injection.");
+        }
+
+        if (definition.OperationalMemory?.Schema is not null)
+        {
+            warnings.Add(
+                "Worker normalmente é single-shot dentro de pipeline — OperationalMemory raramente faz " +
+                "sentido. Se precisar de contexto multi-turn, considere o tipo Conversational.");
+        }
+    }
+
 }

@@ -17,6 +17,10 @@ interface MiddlewareConfigEntry {
 
 const SECURITY_MIDDLEWARE_TYPE = 'SecurityGuardrails'
 
+// Chave em payload.metadata que carrega o domínio do Worker. Mesmo valor
+// usado pelo backend (AgentDefinition.WorkerScopeMetadataKey).
+const WORKER_SCOPE_METADATA_KEY = 'x-worker-scope'
+
 export function shortId(): string {
   return Math.random().toString(36).slice(2, 10)
 }
@@ -190,6 +194,7 @@ export function emptyFormState(): FormState {
     name: '',
     type: 'Custom',
     routerIntentIds: [],
+    workerScope: '',
     predefinedModelId: '',
     profile: {
       role: '',
@@ -254,11 +259,12 @@ export function fromDraft(draft: AgentDraft): FormState {
   const securityEntry = middlewareList.find((m) => m?.type === SECURITY_MIDDLEWARE_TYPE)
   const securityEnabled = securityEntry?.enabled === true
 
-  // Backend default = Custom quando ausente. Aceita só Router|Custom no UI;
-  // qualquer outro valor (futuro Worker/ToolRunner) cai pra Custom até o
-  // suporte chegar — evita travar o wizard com tipos não-implementados.
+  // Backend default = Custom quando ausente. Aceita Custom|Router|Worker no
+  // UI; tipos não-implementados (futuro ToolRunner/Conversational) caem pra
+  // Custom — evita travar o wizard com value inválido.
   const rawType = payload.type
-  const type: AgentType = rawType === 'Router' ? 'Router' : 'Custom'
+  const type: AgentType =
+    rawType === 'Router' ? 'Router' : rawType === 'Worker' ? 'Worker' : 'Custom'
 
   // IDs das intents que este Router atende. Source of truth = backend
   // (junction aihub.agent_router_intents); response do agent já traz no
@@ -269,10 +275,36 @@ export function fromDraft(draft: AgentDraft): FormState {
     ? (rawIntentIds.filter((v) => typeof v === 'string') as string[])
     : []
 
+  // Scope do Worker vive em metadata['x-worker-scope']. Lê do payload e
+  // hidrata no form. Outros tipos não usam essa chave — fica string vazia.
+  const rawMetadataScope = payload.metadata?.[WORKER_SCOPE_METADATA_KEY]
+  const workerScope = typeof rawMetadataScope === 'string' ? rawMetadataScope : ''
+
+  // Worker grava o schema em payload.structuredOutput (não no instructions
+  // como Custom-advanced). Hidrata o FormState a partir dele pra que o
+  // OutputStep mostre o schema editável ao reabrir.
+  let workerOutput: StructuredSection | null = null
+  if (type === 'Worker') {
+    const so = payload.structuredOutput
+    if (so && so.schema) {
+      try {
+        const schemaText = JSON.stringify(so.schema, null, 2)
+        workerOutput = {
+          mode: 'structured',
+          description: so.schemaDescription ?? '',
+          schema: schemaText,
+        }
+      } catch {
+        workerOutput = null
+      }
+    }
+  }
+
   return {
     name: payload.name ?? draft.name ?? '',
     type,
     routerIntentIds,
+    workerScope,
     predefinedModelId: payload.model?.predefinedModelId ?? '',
     profile: decoded.profile,
     toolIds,
@@ -287,12 +319,20 @@ export function fromDraft(draft: AgentDraft): FormState {
       description: decoded.input.description,
       schema: decoded.input.schema,
     },
-    output: {
+    output: workerOutput ?? {
       mode: outputHasContent ? 'structured' : 'text',
       description: decoded.output.description,
       schema: decoded.output.schema,
     },
-    agentMode: decoded.hasStructured || memEnabled ? 'advanced' : 'basic',
+    // Worker sempre é tratado como "advanced" (steps fixos pelo tipo): força
+    // o modo independente do conteúdo do instructions, pra que toggles e
+    // hidratação de visited steps fiquem consistentes ao reabrir o draft.
+    agentMode:
+      type === 'Worker'
+        ? 'advanced'
+        : decoded.hasStructured || memEnabled
+          ? 'advanced'
+          : 'basic',
     currentStep: 'profile',
     metadataRows: metadataRowsFromPayload(payload),
   }
@@ -317,18 +357,21 @@ export function buildPayload(
 
   // Router usa placeholder deterministico — runtime (ChatOptionsBuilder)
   // resolve o conteúdo real ao montar o prompt baseado no set vivo do join
-  // agent_router_intents. Edits no pool propagam sem re-publish.
-  // Custom segue o encoder genérico do ProfileStep.
+  // agent_router_intents. Worker usa skeleton mínimo — runtime injeta o
+  // bloco "# Domínio de análise" lendo metadata['x-worker-scope']. Custom
+  // segue o encoder genérico do ProfileStep.
   const instructions =
     form.type === 'Router'
       ? encodeRouterInstructions(form.name)
-      : encodeInstructions(
-          form.profile,
-          inputForCodec,
-          outputForCodec,
-          toolDocs,
-          includeStructured,
-        )
+      : form.type === 'Worker'
+        ? encodeWorkerInstructions(form.name)
+        : encodeInstructions(
+            form.profile,
+            inputForCodec,
+            outputForCodec,
+            toolDocs,
+            includeStructured,
+          )
 
   // AgentModelConfig.DeploymentName é `required` no backend (System.Text.Json
   // valida no bind). Cliente envia '' quando só usa preset — o
@@ -351,7 +394,12 @@ export function buildPayload(
   // Drafts novos não persistem mais 'x-router-intents' no metadata.
   // Refs do agent → intents do pool vivem em aihub.agent_router_intents
   // (junction). Removemos a chave legacy se vier do prev pra higienizar.
-  const metadata = stripLegacyRouterIntentsMetadata(prev?.metadata)
+  // Worker grava 'x-worker-scope' aqui (texto livre lido em runtime); pra
+  // outros tipos a chave é removida pra evitar lixo cross-tipo.
+  const metadata = encodeWorkerScopeMetadata(
+    stripLegacyRouterIntentsMetadata(prev?.metadata),
+    form,
+  )
 
   // Pra Router, viaja routerIntentIds no payload. Esse campo é consumido
   // pelo controller (POST/PUT /agents) que reconcilia a junction após o
@@ -382,11 +430,45 @@ export function buildPayload(
  * (ChatOptionsBuilder) injeta o enum dinâmico baseado nas intents resolvidas
  * pelo lookup do join. Confidence/rationale ficam fixos pra dar pro caller
  * dos workflows um shape estável (predicates leem <c>$.intent</c>).
+ *
+ * Worker serializa o schema editado em <c>form.output</c> pro
+ * <c>payload.structuredOutput</c> (envia json_schema real pro LLM). Schema
+ * inválido cai no <c>prev</c> pra preservar último estado válido. Custom
+ * NÃO usa <c>payload.structuredOutput</c> — output rico pra Custom é
+ * embutido como texto no <c>instructions</c> via <c>encodeInstructions</c>.
  */
 function encodeStructuredOutput(
   prev: AgentDraftPayload | undefined,
   form: FormState,
 ): AgentDraftPayload['structuredOutput'] {
+  if (form.type === 'Worker') {
+    if (form.output.mode !== 'structured') {
+      return null
+    }
+    const trimmedSchema = form.output.schema.trim()
+    if (!trimmedSchema) return prev?.structuredOutput ?? null
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(trimmedSchema)
+    } catch {
+      return prev?.structuredOutput ?? null
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return prev?.structuredOutput ?? null
+    }
+    const trimmedDesc = form.output.description.trim()
+    const prevSchemaName =
+      typeof prev?.structuredOutput?.schemaName === 'string'
+        ? prev.structuredOutput.schemaName
+        : null
+    return {
+      responseFormat: 'json_schema',
+      schemaName: prevSchemaName || 'WorkerOutput',
+      schemaDescription: trimmedDesc.length > 0 ? trimmedDesc : null,
+      schema: parsed,
+    }
+  }
+
   if (form.type !== 'Router') {
     const prevSO = prev?.structuredOutput
     return prevSO === undefined ? null : prevSO
@@ -442,6 +524,46 @@ function stripLegacyRouterIntentsMetadata(
  * output sem quebrar a injeção (não há marker frágil; runtime apenas
  * concatena com separador).
  */
+/**
+ * Skeleton determinístico mínimo do Worker. O domínio (scope) NÃO entra
+ * aqui — vive em <c>metadata['x-worker-scope']</c> e é injetado em runtime
+ * pelo <c>ChatOptionsBuilder</c> (bloco "# Domínio de análise" anexado ao
+ * final). Manter o skeleton enxuto evita duplicação quando o user edita
+ * scope sem perceber que também tem texto análogo no instructions.
+ */
+export function encodeWorkerInstructions(name: string): string {
+  const cleanName = (name || '').trim()
+  const role = cleanName
+    ? `Você é ${cleanName}.`
+    : 'Você é um Worker (specialist de domínio).'
+  return [
+    role,
+    'Produza análise estruturada conforme o schema fornecido.',
+    'Mantenha-se dentro do domínio declarado.',
+  ].join(' ')
+}
+
+/**
+ * Mantém <c>metadata['x-worker-scope']</c> sincronizado com o form. Pra
+ * Worker grava o scope (ou remove a chave quando vazio); pra outros tipos
+ * remove a chave pra evitar lixo cross-tipo (Custom/Router herdando scope
+ * de uma transição anterior).
+ */
+function encodeWorkerScopeMetadata(
+  prev: Record<string, string>,
+  form: FormState,
+): Record<string, string> {
+  const next: Record<string, string> = { ...prev }
+  if (form.type === 'Worker') {
+    const trimmed = form.workerScope.trim()
+    if (trimmed.length > 0) next[WORKER_SCOPE_METADATA_KEY] = trimmed
+    else delete next[WORKER_SCOPE_METADATA_KEY]
+  } else {
+    delete next[WORKER_SCOPE_METADATA_KEY]
+  }
+  return next
+}
+
 export function encodeRouterInstructions(name: string): string {
   const cleanName = (name || '').trim()
   const role = cleanName

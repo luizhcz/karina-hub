@@ -614,11 +614,14 @@ function DraftCard({ draft, onClick }: DraftCardProps) {
   const slaInfo =
     draft.status === 'PendingApproval' && draft.submittedAt ? buildSlaInfo(draft.submittedAt) : null
   // Mantém a barra lateral refletindo status do draft (Draft/Pending/Rejected)
-  // — não trocar por roxo. Apenas o ícone e a badge sinalizam Router.
+  // — não trocar por roxo/azul. Apenas o ícone e a badge sinalizam o tipo.
   const isRouter = draft.payload?.type === 'Router'
+  const isWorker = draft.payload?.type === 'Worker'
   const iconBg = isRouter
     ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
-    : 'bg-accent-subtle text-accent'
+    : isWorker
+      ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400'
+      : 'bg-accent-subtle text-accent'
 
   return (
     <Card
@@ -674,6 +677,11 @@ function DraftCard({ draft, onClick }: DraftCardProps) {
           {isRouter && (
             <span className="inline-flex items-center rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">
               Router
+            </span>
+          )}
+          {isWorker && (
+            <span className="inline-flex items-center rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+              Worker
             </span>
           )}
           {draft.isEditDraft && <Badge>edição</Badge>}
@@ -734,18 +742,23 @@ function PublishedAgentCard({ agent, forking, onEdit, onDeploy, onVersions, onHi
   const modelLabel = agent.model?.predefinedModelId || agent.model?.deploymentName || ''
   const toolCount = agent.tools?.length ?? 0
   const enabled = agent.enabled !== false
-  // Router herda o accent roxo (espelha o card de tipo no NewAgentModeModal —
-  // mantém consistência visual entre seleção e listagem). Custom segue verde
-  // do tom success (default).
+  // Router herda o accent roxo, Worker o azul (sky) — espelham os cards de
+  // tipo no NewAgentModeModal/TypeStep, mantendo consistência visual entre
+  // seleção e listagem. Custom segue verde do tom success (default).
   const isRouter = agent.type === 'Router'
+  const isWorker = agent.type === 'Worker'
   const accentBar = !enabled
     ? 'before:bg-warning'
     : isRouter
       ? 'before:bg-violet-500'
-      : 'before:bg-success'
+      : isWorker
+        ? 'before:bg-sky-500'
+        : 'before:bg-success'
   const iconBg = isRouter
     ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
-    : 'bg-success/10 text-success'
+    : isWorker
+      ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400'
+      : 'bg-success/10 text-success'
 
   return (
     <Card
@@ -789,6 +802,11 @@ function PublishedAgentCard({ agent, forking, onEdit, onDeploy, onVersions, onHi
           {isRouter && (
             <span className="inline-flex items-center rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">
               Router
+            </span>
+          )}
+          {isWorker && (
+            <span className="inline-flex items-center rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+              Worker
             </span>
           )}
           {toolCount > 0 && <Badge>{toolCount} ferramenta{toolCount === 1 ? '' : 's'}</Badge>}

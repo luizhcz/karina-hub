@@ -544,3 +544,53 @@ VALUES (
   NOW()
 )
 ON CONFLICT ("Id") DO NOTHING;
+
+-- =================================================================
+-- Workers exemplares (Type=Worker, Visibility=project)
+-- =================================================================
+-- Demonstram o template Worker: modelo full (foundry-cerquela), MaxTokens
+-- alto, StructuredOutput rico, Middlewares.SecurityGuardrails on,
+-- metadata['x-worker-scope'] declarando o domínio injetado em runtime.
+-- ProjectId=default; cada agente é standalone (sem pool global).
+
+INSERT INTO aihub.agent_definitions ("Id","Name","Data","ProjectId","Visibility","TenantId","AllowedProjectIds","CreatedAt","UpdatedAt")
+VALUES (
+  'wk-analista-de-credito',
+  'Analista de Crédito (template Worker)',
+  $json${"ProjectId":"default","Id":"wk-analista-de-credito","Name":"Analista de Crédito (template Worker)","Description":"Worker de análise de risco de crédito empresarial. Recebe perfil + produto solicitado + política e produz parecer técnico estruturado.","Type":"Worker","Model":{"DeploymentName":"","PredefinedModelId":"foundry-cerquela","Temperature":0.4,"MaxTokens":3000},"Provider":{"Type":"AzureFoundry","ClientType":"ChatCompletion","Endpoint":null,"ApiKey":null},"Instructions":"Você é Analista de Crédito. Produza análise estruturada conforme o schema fornecido. Mantenha-se dentro do domínio declarado.","Tools":[],"StructuredOutput":{"ResponseFormat":"json_schema","SchemaName":"AnaliseCreditoOutput","SchemaDescription":"Parecer técnico de crédito.","Schema":{"type":"object","properties":{"analise":{"type":"string","description":"Análise multifator do pedido (capacidade de pagamento, exposição agregada, aderência à política)."},"recomendacao":{"type":"string","enum":["aprovar","aprovar_com_ressalvas","reprovar","encaminhar_a_comite"]},"riscos":{"type":"array","items":{"type":"string"},"description":"Lista de riscos identificados (ex.: inadimplência recente, renda comprovada insuficiente, concentração setorial)."},"confidence":{"type":"number","minimum":0,"maximum":1},"reason":{"type":"string","description":"Pensamento que levou à recomendação — chain-of-thought visível."}},"required":["analise","recomendacao","riscos","confidence","reason"],"additionalProperties":false}},"Middlewares":[{"Type":"SecurityGuardrails","Enabled":true,"Settings":{}}],"FallbackProvider":null,"Resilience":null,"CostBudget":null,"SkillRefs":[],"Metadata":{"x-worker-scope":"Análise de risco de crédito empresarial. Recebe perfil do solicitante (porte, segmento, faturamento, histórico de pagamentos, garantias), produto solicitado e política aplicável. Avalia capacidade de pagamento, exposição agregada do tomador, aderência ao apetite de risco da política, e produz parecer estruturado. Não toma decisão final — recomenda; comitê delibera. Não consulta bureaus em tempo real (esses dados chegam no input). Mantém análise sóbria, sem otimismo de venda."},"Enabled":true}$json$,
+  'default',
+  'project',
+  'default',
+  NULL,
+  NOW(),
+  NOW()
+)
+ON CONFLICT ("Id") DO NOTHING;
+
+INSERT INTO aihub.agent_definitions ("Id","Name","Data","ProjectId","Visibility","TenantId","AllowedProjectIds","CreatedAt","UpdatedAt")
+VALUES (
+  'wk-economista-chefe',
+  'Economista Chefe (template Worker)',
+  $json${"ProjectId":"default","Id":"wk-economista-chefe","Name":"Economista Chefe (template Worker)","Description":"Worker de análise macroeconômica. Recebe indicadores correntes e produz outlook estruturado com tendências e cenários.","Type":"Worker","Model":{"DeploymentName":"","PredefinedModelId":"foundry-cerquela","Temperature":0.5,"MaxTokens":3500},"Provider":{"Type":"AzureFoundry","ClientType":"ChatCompletion","Endpoint":null,"ApiKey":null},"Instructions":"Você é Economista Chefe. Produza análise estruturada conforme o schema fornecido. Mantenha-se dentro do domínio declarado.","Tools":[],"StructuredOutput":{"ResponseFormat":"json_schema","SchemaName":"OutlookMacroOutput","SchemaDescription":"Outlook macroeconômico estruturado.","Schema":{"type":"object","properties":{"outlook":{"type":"string","description":"Outlook macro consolidado (3-5 frases)."},"indicadores":{"type":"array","items":{"type":"object","properties":{"nome":{"type":"string"},"tendencia":{"type":"string","enum":["alta","baixa","estavel"]},"comentario":{"type":"string"}},"required":["nome","tendencia","comentario"],"additionalProperties":false}},"cenarios":{"type":"array","items":{"type":"object","properties":{"nome":{"type":"string"},"probabilidade":{"type":"string","enum":["baixa","media","alta"]},"descricao":{"type":"string"}},"required":["nome","probabilidade","descricao"],"additionalProperties":false}},"reason":{"type":"string","description":"Pensamento que levou ao outlook — chain-of-thought visível."}},"required":["outlook","indicadores","cenarios","reason"],"additionalProperties":false}},"Middlewares":[{"Type":"SecurityGuardrails","Enabled":true,"Settings":{}}],"FallbackProvider":null,"Resilience":null,"CostBudget":null,"SkillRefs":[],"Metadata":{"x-worker-scope":"Análise macroeconômica para outlook de mercado. Recebe indicadores correntes (PIB, IPCA, taxa de juros, câmbio, balança comercial, atividade industrial, confiança do consumidor). Produz outlook consolidado de curto prazo (3-6 meses), tendências por indicador e cenários alternativos com probabilidade. Foco no Brasil; menciona contexto global apenas quando relevante para a leitura local. Não emite recomendação de investimento — só leitura macro."},"Enabled":true}$json$,
+  'default',
+  'project',
+  'default',
+  NULL,
+  NOW(),
+  NOW()
+)
+ON CONFLICT ("Id") DO NOTHING;
+
+INSERT INTO aihub.agent_definitions ("Id","Name","Data","ProjectId","Visibility","TenantId","AllowedProjectIds","CreatedAt","UpdatedAt")
+VALUES (
+  'wk-escritor-setor-descricao',
+  'Escritor de Descrição Setorial (template Worker)',
+  $json${"ProjectId":"default","Id":"wk-escritor-setor-descricao","Name":"Escritor de Descrição Setorial (template Worker)","Description":"Worker de redação descritiva padronizada de setores econômicos. Recebe nome do setor e produz texto explicativo estruturado.","Type":"Worker","Model":{"DeploymentName":"","PredefinedModelId":"foundry-cerquela","Temperature":0.6,"MaxTokens":2000},"Provider":{"Type":"AzureFoundry","ClientType":"ChatCompletion","Endpoint":null,"ApiKey":null},"Instructions":"Você é Escritor de Descrição Setorial. Produza texto descritivo padronizado conforme o schema fornecido. Mantenha-se dentro do domínio declarado.","Tools":[],"StructuredOutput":{"ResponseFormat":"json_schema","SchemaName":"DescricaoSetorOutput","SchemaDescription":"Descrição padronizada de setor econômico.","Schema":{"type":"object","properties":{"descricao":{"type":"string","description":"Texto descritivo do setor (200-400 palavras): cadeia de valor, players por porte, drivers, ciclos, regulação."},"palavras_chave":{"type":"array","items":{"type":"string"},"description":"5-10 palavras-chave que caracterizam o setor."}},"required":["descricao","palavras_chave"],"additionalProperties":false}},"Middlewares":[{"Type":"SecurityGuardrails","Enabled":true,"Settings":{}}],"FallbackProvider":null,"Resilience":null,"CostBudget":null,"SkillRefs":[],"Metadata":{"x-worker-scope":"Redação descritiva padronizada de setores econômicos. Recebe nome do setor (ex.: Saneamento básico, Logística rodoviária, Educação básica privada). Produz texto explicativo entre 200-400 palavras com: cadeia de valor, players principais por porte, drivers de receita, ciclos típicos, regulação aplicável. Tom neutro e expositivo. Sem juízo de valor, sem recomendação, sem dados sensíveis específicos de empresas. Foco no Brasil quando possível, contexto global quando pertinente."},"Enabled":true}$json$,
+  'default',
+  'project',
+  'default',
+  NULL,
+  NOW(),
+  NOW()
+)
+ON CONFLICT ("Id") DO NOTHING;

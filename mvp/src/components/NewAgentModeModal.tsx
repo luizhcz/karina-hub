@@ -62,6 +62,17 @@ const TYPE_CHOICES: TypeChoice[] = [
     accent: 'from-violet-500/15 to-violet-500/0 text-violet-600 dark:text-violet-400',
     iconBg: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
   },
+  {
+    type: 'Worker',
+    defaultMode: 'advanced',
+    title: 'Worker',
+    pitch:
+      'Specialist de domínio. Recebe input estruturado e produz análise rica (texto + recomendação + riscos). Step próprio de Domínio captura o escopo de análise — injetado no system prompt em runtime.',
+    steps: ['Tipo', 'Domínio', 'Ferramentas', 'Segurança', 'Output', 'Modelo', 'Revisão'],
+    icon: <SparklesIcon className="h-6 w-6" />,
+    accent: 'from-sky-500/15 to-sky-500/0 text-sky-600 dark:text-sky-400',
+    iconBg: 'bg-sky-500/15 text-sky-600 dark:text-sky-400',
+  },
 ]
 
 export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModalProps) {
@@ -70,13 +81,13 @@ export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModal
       open={open}
       onClose={onClose}
       title="Como você quer começar?"
-      description="Escolha o tipo formal do agente — Custom (livre) ou Router (classifier). Templates abaixo aceleram quando o caso já tem um modelo pronto."
+      description="Escolha o tipo formal do agente — Custom (livre), Router (classifier) ou Worker (specialist de domínio). Templates abaixo aceleram quando o caso já tem um modelo pronto."
       size="lg"
     >
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-fg-dim">
         Tipo do agente
       </p>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {TYPE_CHOICES.map((choice) => (
           <button
             key={choice.type}
