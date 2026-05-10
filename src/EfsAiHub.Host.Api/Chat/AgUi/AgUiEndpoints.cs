@@ -188,10 +188,18 @@ public static class AgUiEndpoints
         {
             new("user", effectiveMessage!, Actor: actorEnum)
         };
+
+        // Pin opcional: header x-version pinna a execução numa WorkflowVersion
+        // específica. Empty/whitespace tratado como ausente — caminho legado
+        // continua lendo o estado mutável atual.
+        var rawVersion = context.Request.Headers["x-version"].FirstOrDefault();
+        var workflowVersionId = string.IsNullOrWhiteSpace(rawVersion) ? null : rawVersion;
+
         var sendResult = await facade.SendMessagesAsync(
             session.ConversationId,
             resolvedUserId,
-            messages, ct);
+            messages, ct,
+            workflowVersionId);
 
         if (sendResult.Status != ConversationOperationStatus.Ok)
         {
