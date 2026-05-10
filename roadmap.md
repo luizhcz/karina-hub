@@ -38,13 +38,13 @@ camada **opcional** sobre o domínio existente.
 
 ### Os 5 tipos da V1
 
-| Tipo | Objetivo | Modelo típico | Workflow position |
-|---|---|---|---|
-| **Router** | Classifica input em label discreta | mini | step inicial / decisão de switch |
-| **Worker** | Raciocínio profundo em domínio específico | full | step do meio |
-| **Tool Runner** | Decide quando/como chamar tools | full | standalone ou embutido em chat |
-| **Conversational** | Multi-turn com histórico persistente | balanced | workflow `InputMode = Chat` |
-| **Custom** | Agente livre, sem template aplicado | livre | livre |
+| Tipo | Status | Objetivo | Modelo típico | Workflow position |
+|---|---|---|---|---|
+| **Custom** | ✅ default desde MVP | Agente livre, sem template aplicado | livre | livre |
+| **Router** | ✅ entregue (PR #32) | Classifica input em label discreta | mini | step inicial / decisão de switch |
+| **Worker** | ⏳ próximo | Raciocínio profundo em domínio específico | full | step do meio |
+| **Tool Runner** | ⏳ depois de Worker | Decide quando/como chamar tools | full | standalone ou embutido em chat |
+| **Conversational** | ⏳ último da V1 | Multi-turn com histórico persistente | balanced | workflow `InputMode = Chat` |
 
 **Custom** é o tipo default — funciona como escape hatch pra agentes que
 não cabem nos 4 patterns formais e cobre back-compat (todo agente
@@ -55,6 +55,23 @@ emite warnings — é o "construa do zero" intencional.
 Tipos adicionais (**Critic**, **Synthesizer**) ficam fora da V1 — entram
 em V2 quando houver mais workflows multi-step com reflection patterns
 em produção.
+
+### Estado de entrega da tipologia
+
+- **Custom + Router** já em produção (PR #32). Pool global de intents
+  cross-project (`aihub.router_intents`) + analyzer LLM no save +
+  injeção dinâmica de enum/bloco markdown no prompt em runtime + sandbox
+  com pin via `x-version`. Smoke E2E: criar intent (analyzer) → adicionar
+  ao Router → publicar nova versão do workflow → testar pin no sandbox →
+  classificação correta com confidence 0.99.
+- **Worker** é o próximo a entrar. Capabilities default + workflow
+  position estão desenhados nesta página; falta refinamento técnico
+  (validações por tipo, prompt skeleton, smoke).
+- **Tool Runner** depende de Worker (compartilham a base de structured
+  output rico) e pode reaproveitar 80% da infra de Router (validações
+  por tipo, pool global se aplicável a tools genéricas).
+- **Conversational** é o último — depende de evolução do `InputMode=Chat`
+  e do pattern de memória operacional já consolidado.
 
 ### Enum no domínio
 
@@ -97,7 +114,19 @@ templates. Sem migration de schema porque persiste no jsonb.
 
 ---
 
-## 1. Router — Classifier / Intent classifier ⏳
+## 1. Router — Classifier / Intent classifier ✅
+
+> **Status: entregue.** PR #32 (`feat/agent-types-router`). Cobre: enum
+> `AgentType` no domínio, pool global de intents por tenant
+> (`aihub.router_intents`), analyzer LLM no save, junction
+> `aihub.agent_router_intents` (intents per-Router), runtime injetando
+> enum dinâmico no schema + bloco markdown com descrições/exemplos no
+> system prompt, validações hard (count ≥ 2) + soft warnings, telas
+> `/intencoes` (pool) e refactor do wizard. Smoke E2E completo
+> validado com confidence 0.99 na classificação.
+>
+> A documentação abaixo permanece como referência de design, não como
+> backlog.
 
 ### Objetivo
 
@@ -333,7 +362,7 @@ JSON e o próximo agente lê como input.
 
 ---
 
-## 2. Worker — Specialist / Domain expert ⏳
+## 2. Worker — Specialist / Domain expert ⏳ próximo
 
 ### Objetivo
 
@@ -385,7 +414,7 @@ Pode ser **standalone** quando a análise sozinha já é a resposta final
 
 ---
 
-## 3. Tool Runner — Function-caller / Action agent ⏳
+## 3. Tool Runner — Function-caller / Action agent ⏳ depois de Worker
 
 ### Objetivo
 
@@ -445,7 +474,7 @@ deve forçar:
 
 ---
 
-## 4. Conversational — Chat / Assistant ⏳
+## 4. Conversational — Chat / Assistant ⏳ último da V1
 
 ### Objetivo
 
