@@ -18,7 +18,7 @@ import {
   listWorkflows,
   type Workflow,
 } from '../api/workflows'
-import { NewAgentModeModal } from '../components/NewAgentModeModal'
+import { NewAgentModeModal, type NewAgentSelection } from '../components/NewAgentModeModal'
 import {
   AgentIcon,
   Badge,
@@ -169,10 +169,10 @@ export function AgentsList() {
     })
   }, [ownAgents, search])
 
-  const handleSelectMode = (mode: 'basic' | 'advanced', template?: string) => {
+  const handleSelectNewAgent = (selection: NewAgentSelection) => {
     setModeModalOpen(false)
-    const qs = new URLSearchParams({ mode })
-    if (template) qs.set('template', template)
+    const qs = new URLSearchParams({ mode: selection.mode, type: selection.type })
+    if (selection.template) qs.set('template', selection.template)
     navigate(`/agentes/novo?${qs.toString()}`)
   }
 
@@ -399,7 +399,7 @@ export function AgentsList() {
       <NewAgentModeModal
         open={modeModalOpen}
         onClose={() => setModeModalOpen(false)}
-        onSelect={handleSelectMode}
+        onSelect={handleSelectNewAgent}
       />
 
       <ApprovalHistoryModal
@@ -613,6 +613,12 @@ function DraftCard({ draft, onClick }: DraftCardProps) {
   const description = draft.payload?.description ?? ''
   const slaInfo =
     draft.status === 'PendingApproval' && draft.submittedAt ? buildSlaInfo(draft.submittedAt) : null
+  // Mantém a barra lateral refletindo status do draft (Draft/Pending/Rejected)
+  // — não trocar por roxo. Apenas o ícone e a badge sinalizam Router.
+  const isRouter = draft.payload?.type === 'Router'
+  const iconBg = isRouter
+    ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
+    : 'bg-accent-subtle text-accent'
 
   return (
     <Card
@@ -635,7 +641,7 @@ function DraftCard({ draft, onClick }: DraftCardProps) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-subtle text-accent">
+          <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', iconBg)}>
             <AgentIcon className="h-5 w-5" />
           </div>
           <h3 className="min-w-0 truncate text-sm font-semibold text-fg">
@@ -665,6 +671,11 @@ function DraftCard({ draft, onClick }: DraftCardProps) {
 
       <div className="mt-auto flex items-center justify-between text-[11px] text-fg-dim">
         <div className="flex items-center gap-2">
+          {isRouter && (
+            <span className="inline-flex items-center rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">
+              Router
+            </span>
+          )}
           {draft.isEditDraft && <Badge>edição</Badge>}
           <span>atualizado {formatRelative(draft.updatedAt)}</span>
         </div>
@@ -723,6 +734,18 @@ function PublishedAgentCard({ agent, forking, onEdit, onDeploy, onVersions, onHi
   const modelLabel = agent.model?.predefinedModelId || agent.model?.deploymentName || ''
   const toolCount = agent.tools?.length ?? 0
   const enabled = agent.enabled !== false
+  // Router herda o accent roxo (espelha o card de tipo no NewAgentModeModal —
+  // mantém consistência visual entre seleção e listagem). Custom segue verde
+  // do tom success (default).
+  const isRouter = agent.type === 'Router'
+  const accentBar = !enabled
+    ? 'before:bg-warning'
+    : isRouter
+      ? 'before:bg-violet-500'
+      : 'before:bg-success'
+  const iconBg = isRouter
+    ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
+    : 'bg-success/10 text-success'
 
   return (
     <Card
@@ -730,12 +753,12 @@ function PublishedAgentCard({ agent, forking, onEdit, onDeploy, onVersions, onHi
       className={cn(
         'group relative flex min-h-[180px] flex-col gap-3 overflow-hidden p-5',
         'before:absolute before:inset-y-0 before:left-0 before:w-1',
-        enabled ? 'before:bg-success' : 'before:bg-warning',
+        accentBar,
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-success/10 text-success">
+          <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', iconBg)}>
             <AgentIcon className="h-5 w-5" />
           </div>
           <div className="min-w-0">
@@ -763,6 +786,11 @@ function PublishedAgentCard({ agent, forking, onEdit, onDeploy, onVersions, onHi
 
       <div className="mt-auto flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-fg-dim">
+          {isRouter && (
+            <span className="inline-flex items-center rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">
+              Router
+            </span>
+          )}
           {toolCount > 0 && <Badge>{toolCount} ferramenta{toolCount === 1 ? '' : 's'}</Badge>}
           {agent.visibility === 'global' && <Badge tone="accent">global</Badge>}
           <span>atualizado {formatRelative(agent.updatedAt)}</span>

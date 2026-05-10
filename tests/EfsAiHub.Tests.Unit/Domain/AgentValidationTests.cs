@@ -26,7 +26,7 @@ public class AgentValidationTests
             Model = new AgentModelConfig { DeploymentName = "" },
         };
 
-        var (isValid, errors) = await svc.ValidateAsync(def);
+        var (isValid, errors, _) = await svc.ValidateAsync(def);
 
         isValid.Should().BeFalse();
         errors.Should().Contain(e => e.Contains("deploymentName"));
@@ -43,7 +43,7 @@ public class AgentValidationTests
             Model = new AgentModelConfig { DeploymentName = "gpt-4o" },
         };
 
-        var (isValid, _) = await svc.ValidateAsync(def);
+        var (isValid, _, _) = await svc.ValidateAsync(def);
 
         isValid.Should().BeTrue();
     }
@@ -62,7 +62,7 @@ public class AgentValidationTests
             Tools = [new AgentToolDefinition { Type = "mcp" }]
         };
 
-        var (isValid, errors) = await svc.ValidateAsync(def);
+        var (isValid, errors, _) = await svc.ValidateAsync(def);
 
         isValid.Should().BeFalse();
         errors.Should().Contain(e => e.Contains("mcpServerId") || e.Contains("serverLabel"));
@@ -82,7 +82,7 @@ public class AgentValidationTests
             Tools = [new AgentToolDefinition { Type = "mcp", McpServerId = "mcp-server-123" }]
         };
 
-        var (isValid, _) = await svc.ValidateAsync(def);
+        var (isValid, _, _) = await svc.ValidateAsync(def);
 
         isValid.Should().BeTrue();
     }
@@ -110,7 +110,7 @@ public class AgentValidationTests
             ]
         };
 
-        var (isValid, errors) = await svc.ValidateAsync(def);
+        var (isValid, errors, _) = await svc.ValidateAsync(def);
 
         isValid.Should().BeFalse();
         errors.Should().Contain(e => e.Contains("mcpServerId") || e.Contains("serverUrl"));
@@ -127,7 +127,7 @@ public class AgentValidationTests
             Model = new AgentModelConfig { DeploymentName = "gpt-4o", Temperature = 3.5f },
         };
 
-        var (isValid, errors) = await svc.ValidateAsync(def);
+        var (isValid, errors, _) = await svc.ValidateAsync(def);
 
         isValid.Should().BeFalse();
         errors.Should().Contain(e => e.Contains("temperature"));
@@ -144,7 +144,7 @@ public class AgentValidationTests
             Model = new AgentModelConfig { DeploymentName = "gpt-4o" },
         };
 
-        var (isValid, errors) = await svc.ValidateAsync(def);
+        var (isValid, errors, _) = await svc.ValidateAsync(def);
 
         isValid.Should().BeFalse();
         errors.Should().Contain(e => e.Contains("id"));

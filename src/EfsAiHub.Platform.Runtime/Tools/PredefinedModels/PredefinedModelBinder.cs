@@ -67,6 +67,10 @@ public sealed class PredefinedModelBinder : IPredefinedModelBinder
         Id = d.Id,
         Name = d.Name,
         Description = d.Description,
+        // Type/RouterIntentIds precisam ser preservados — Router que passa
+        // por preset perdia o tipo e virava Custom silenciosamente.
+        Type = d.Type,
+        RouterIntentIds = d.RouterIntentIds,
         Model = model,
         Provider = provider,
         FallbackProvider = d.FallbackProvider,

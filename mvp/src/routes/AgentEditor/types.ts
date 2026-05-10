@@ -1,4 +1,5 @@
 import type { KvRow } from '../../components/PostmanEditor/KvTable'
+import type { AgentType } from '../../api/agentDrafts'
 
 export const PROFILE_FIELDS = ['role', 'goal', 'backstory', 'rules', 'constraints'] as const
 export type ProfileField = (typeof PROFILE_FIELDS)[number]
@@ -22,7 +23,7 @@ export interface ProfileFields {
 
 export type AgentMode = 'basic' | 'advanced'
 
-export type StepKey = 'profile' | 'tools' | 'security' | 'memory' | 'input' | 'output' | 'model' | 'review'
+export type StepKey = 'type' | 'profile' | 'tools' | 'security' | 'memory' | 'input' | 'output' | 'model' | 'review'
 
 export interface StructuredSection {
   mode: 'text' | 'structured'
@@ -53,6 +54,19 @@ export interface SecuritySection {
 
 export interface FormState {
   name: string
+  /**
+   * Tipo formal do agente. Custom (default) = sem template/validações por tipo;
+   * Router = classifier (intent + enum) com hard validations e soft warnings.
+   * Round-trip via payload.type — apenas selecionado no step "Tipo de agente".
+   */
+  type: AgentType
+  /**
+   * IDs das intents do pool global que este Router atende. Vazio quando
+   * type !== 'Router'. Persistido via aihub.agent_router_intents (junction)
+   * — fonte da verdade no DB. Edits no pool propagam pros Routers via
+   * lookup runtime; só criar intent nova é manual.
+   */
+  routerIntentIds: string[]
   predefinedModelId: string
   profile: ProfileFields
   toolIds: string[]

@@ -9,6 +9,13 @@ public class CreateAgentRequest
     public required string Id { get; init; }
     public required string Name { get; init; }
     public string? Description { get; init; }
+
+    /// <summary>
+    /// Tipo formal do agente. Custom (default) = sem template/validação;
+    /// outros valores habilitam validações por tipo no save.
+    /// </summary>
+    public AgentType? Type { get; init; }
+
     public required AgentModelConfig Model { get; init; }
     public AgentProviderConfig Provider { get; init; } = new();
     public string? Instructions { get; init; }
@@ -55,11 +62,21 @@ public class CreateAgentRequest
     /// </summary>
     public string? ChangeReason { get; init; }
 
+    /// <summary>
+    /// Set de intenções que este Router atende (pool global do tenant —
+    /// <c>aihub.router_intents</c>). Aplicável apenas quando <c>Type=Router</c>;
+    /// ignorado pra Custom. Quando ausente em UPDATE, o serviço preserva o
+    /// set existente. Em CREATE, ausente = vazio (Router rejeitado em
+    /// validate por count &lt; 2).
+    /// </summary>
+    public List<string>? RouterIntentIds { get; init; }
+
     public AgentDefinition ToDomain() => new()
     {
         Id = Id,
         Name = Name,
         Description = Description,
+        Type = Type ?? AgentType.Custom,
         Model = Model,
         Provider = Provider,
         Instructions = Instructions,
@@ -73,6 +90,7 @@ public class CreateAgentRequest
         Metadata = Metadata,
         // Default "project" pra Create; Update preserva existing via AgentService.
         Visibility = Visibility ?? "project",
-        AllowedProjectIds = AllowedProjectIds is null ? null : (IReadOnlyList<string>)AllowedProjectIds
+        AllowedProjectIds = AllowedProjectIds is null ? null : (IReadOnlyList<string>)AllowedProjectIds,
+        RouterIntentIds = RouterIntentIds is null ? null : (IReadOnlyList<string>)RouterIntentIds,
     };
 }

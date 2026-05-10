@@ -48,10 +48,14 @@ export function get<T>(path: string): Promise<T> {
   return request<T>(path)
 }
 
-export function post<T>(path: string, body: unknown): Promise<T> {
+export function post<T>(
+  path: string,
+  body: unknown,
+  extraHeaders?: Record<string, string>,
+): Promise<T> {
   return request<T>(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
     body: JSON.stringify(body),
   })
 }

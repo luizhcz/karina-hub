@@ -168,14 +168,33 @@ export interface TriggerWorkflowResponse {
   statusUrl?: string
 }
 
-export const triggerWorkflow = (workflowId: string, body: TriggerWorkflowBody) =>
-  post<TriggerWorkflowResponse>(`/workflows/${workflowId}/trigger`, body)
+// Quando `workflowVersionId` é informado, propaga via header `x-version` —
+// backend pina a execução numa versão específica (canary/A-B/teste de
+// versão antiga sem rollback). Ausente = comportamento legado (current).
+export const triggerWorkflow = (
+  workflowId: string,
+  body: TriggerWorkflowBody,
+  workflowVersionId?: string | null,
+) =>
+  post<TriggerWorkflowResponse>(
+    `/workflows/${workflowId}/trigger`,
+    body,
+    workflowVersionId ? { 'x-version': workflowVersionId } : undefined,
+  )
 
 // Mesmo shape do trigger mas com `mode=Sandbox` no backend: tools mockadas,
 // métricas tagueadas, sem persistência de chat. Usado pelo sandbox de
 // implantação (single ou pipeline) — execução é sempre standalone.
-export const sandboxWorkflow = (workflowId: string, body: TriggerWorkflowBody) =>
-  post<TriggerWorkflowResponse>(`/workflows/${workflowId}/sandbox`, body)
+export const sandboxWorkflow = (
+  workflowId: string,
+  body: TriggerWorkflowBody,
+  workflowVersionId?: string | null,
+) =>
+  post<TriggerWorkflowResponse>(
+    `/workflows/${workflowId}/sandbox`,
+    body,
+    workflowVersionId ? { 'x-version': workflowVersionId } : undefined,
+  )
 
 export type ExecutionStatus =
   | 'Pending'

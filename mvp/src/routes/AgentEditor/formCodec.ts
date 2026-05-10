@@ -1,4 +1,4 @@
-import type { AgentDraft, AgentDraftPayload, AgentToolDefinition } from '../../api/agentDrafts'
+import type { AgentDraft, AgentDraftPayload, AgentToolDefinition, AgentType } from '../../api/agentDrafts'
 import type { GenericTool, ParamDefinition } from '../../api/genericTools'
 import type { McpServer } from '../../api/mcpServers'
 import type { KvRow } from '../../components/PostmanEditor/KvTable'
@@ -188,6 +188,8 @@ function emptyMemorySection() {
 export function emptyFormState(): FormState {
   return {
     name: '',
+    type: 'Custom',
+    routerIntentIds: [],
     predefinedModelId: '',
     profile: {
       role: '',
@@ -203,7 +205,7 @@ export function emptyFormState(): FormState {
     input: emptySection(),
     output: emptySection(),
     agentMode: 'basic',
-    currentStep: 'profile',
+    currentStep: 'type',
     metadataRows: [],
   }
 }
@@ -252,8 +254,25 @@ export function fromDraft(draft: AgentDraft): FormState {
   const securityEntry = middlewareList.find((m) => m?.type === SECURITY_MIDDLEWARE_TYPE)
   const securityEnabled = securityEntry?.enabled === true
 
+  // Backend default = Custom quando ausente. Aceita só Router|Custom no UI;
+  // qualquer outro valor (futuro Worker/ToolRunner) cai pra Custom até o
+  // suporte chegar — evita travar o wizard com tipos não-implementados.
+  const rawType = payload.type
+  const type: AgentType = rawType === 'Router' ? 'Router' : 'Custom'
+
+  // IDs das intents que este Router atende. Source of truth = backend
+  // (junction aihub.agent_router_intents); response do agent já traz no
+  // campo routerIntentIds. Pra drafts (que não tocam no agent_definitions
+  // ainda), o campo viaja no payload.routerIntentIds.
+  const rawIntentIds = (payload as { routerIntentIds?: unknown }).routerIntentIds
+  const routerIntentIds = Array.isArray(rawIntentIds)
+    ? (rawIntentIds.filter((v) => typeof v === 'string') as string[])
+    : []
+
   return {
     name: payload.name ?? draft.name ?? '',
+    type,
+    routerIntentIds,
     predefinedModelId: payload.model?.predefinedModelId ?? '',
     profile: decoded.profile,
     toolIds,
@@ -295,13 +314,21 @@ export function buildPayload(
   const inputForCodec = form.input.mode === 'structured' ? form.input : { description: '', schema: '' }
   const outputForCodec = form.output.mode === 'structured' ? form.output : { description: '', schema: '' }
   const toolDocs = buildToolDescriptors(form.toolIds, form.mcpIds, toolsCatalog, mcpsCatalog)
-  const instructions = encodeInstructions(
-    form.profile,
-    inputForCodec,
-    outputForCodec,
-    toolDocs,
-    includeStructured,
-  )
+
+  // Router usa placeholder deterministico — runtime (ChatOptionsBuilder)
+  // resolve o conteúdo real ao montar o prompt baseado no set vivo do join
+  // agent_router_intents. Edits no pool propagam sem re-publish.
+  // Custom segue o encoder genérico do ProfileStep.
+  const instructions =
+    form.type === 'Router'
+      ? encodeRouterInstructions(form.name)
+      : encodeInstructions(
+          form.profile,
+          inputForCodec,
+          outputForCodec,
+          toolDocs,
+          includeStructured,
+        )
 
   // AgentModelConfig.DeploymentName é `required` no backend (System.Text.Json
   // valida no bind). Cliente envia '' quando só usa preset — o
@@ -319,17 +346,124 @@ export function buildPayload(
   const mergedTools = mergeTools(prev?.tools ?? null, form.toolIds, form.mcpIds)
   const operationalMemory = encodeOperationalMemory(form.memory)
   const mergedMiddlewares = mergeMiddlewares(prev?.middlewares, form.security)
+  const structuredOutput = encodeStructuredOutput(prev, form)
 
-  return {
+  // Drafts novos não persistem mais 'x-router-intents' no metadata.
+  // Refs do agent → intents do pool vivem em aihub.agent_router_intents
+  // (junction). Removemos a chave legacy se vier do prev pra higienizar.
+  const metadata = stripLegacyRouterIntentsMetadata(prev?.metadata)
+
+  // Pra Router, viaja routerIntentIds no payload. Esse campo é consumido
+  // pelo controller (POST/PUT /agents) que reconcilia a junction após o
+  // upsert. Pra Custom, omite (controller ignora).
+  const payload: AgentDraftPayload = {
     ...(prev ?? {}),
     name: form.name.trim(),
     description: prev?.description ?? null,
+    type: form.type,
     instructions,
     model: nextModel,
     tools: mergedTools,
+    structuredOutput,
     operationalMemory,
     middlewares: mergedMiddlewares,
+    metadata,
   }
+  if (form.type === 'Router') {
+    ;(payload as Record<string, unknown>).routerIntentIds = [...form.routerIntentIds]
+  } else {
+    delete (payload as Record<string, unknown>).routerIntentIds
+  }
+  return payload
+}
+
+/**
+ * Schema de output do Router. Persiste com <c>intent</c> sem enum — runtime
+ * (ChatOptionsBuilder) injeta o enum dinâmico baseado nas intents resolvidas
+ * pelo lookup do join. Confidence/rationale ficam fixos pra dar pro caller
+ * dos workflows um shape estável (predicates leem <c>$.intent</c>).
+ */
+function encodeStructuredOutput(
+  prev: AgentDraftPayload | undefined,
+  form: FormState,
+): AgentDraftPayload['structuredOutput'] {
+  if (form.type !== 'Router') {
+    const prevSO = prev?.structuredOutput
+    return prevSO === undefined ? null : prevSO
+  }
+
+  return {
+    responseFormat: 'json_schema',
+    schemaName: 'router_intent',
+    schema: {
+      type: 'object',
+      properties: {
+        intent: {
+          type: 'string',
+          description:
+            "Identificador da categoria escolhida — ver bloco '# Intenções disponíveis' no system prompt para definição de cada uma. Runtime injeta o enum dinâmico.",
+        },
+        confidence: {
+          type: 'number',
+          description:
+            'Confiança do modelo na classificação, entre 0 e 1. Valores < 0.5 sinalizam ambiguidade — workflow caller deve rotear pra fluxo de fallback ou humano.',
+          minimum: 0,
+          maximum: 1,
+        },
+        reason: {
+          type: 'string',
+          description:
+            'Pensamento que levou à escolha: qual sinal do input apontou pra essa categoria e por que descartou as outras. 1-3 frases concisas, sem repetir o input.',
+        },
+      },
+      required: ['intent', 'confidence', 'reason'],
+      additionalProperties: false,
+    },
+  }
+}
+
+/**
+ * Higieniza a chave 'x-router-intents' do metadata herdado do prev. Drafts
+ * antigos podem ter o campo gravado pelo wizard anterior; removê-lo no save
+ * evita confusão (a fonte da verdade agora é a junction).
+ */
+function stripLegacyRouterIntentsMetadata(
+  prev: Record<string, string> | null | undefined,
+): Record<string, string> {
+  const base: Record<string, string> = { ...(prev ?? {}) }
+  delete base['x-router-intents']
+  return base
+}
+
+/**
+ * Gera instructions skeleton pro Router. O bloco de intenções (com
+ * descrições/exemplos) é resolvido em runtime pelo <c>ChatOptionsBuilder</c>
+ * e anexado ao final deste skeleton — o user pode editar livremente role/goal/
+ * output sem quebrar a injeção (não há marker frágil; runtime apenas
+ * concatena com separador).
+ */
+export function encodeRouterInstructions(name: string): string {
+  const cleanName = (name || '').trim()
+  const role = cleanName
+    ? `Classificador de intenções (${cleanName}). Recebe a mensagem do usuário e devolve a categoria que melhor descreve.`
+    : 'Classificador de intenções. Recebe a mensagem do usuário e devolve a categoria que melhor descreve.'
+
+  return [
+    '# Role',
+    role,
+    '',
+    '# Goal',
+    'Para cada input, escolher exatamente uma categoria do enum `intent` que melhor descreva o conteúdo. ' +
+      'Quando nenhuma categoria encaixar bem, escolher a mais próxima e devolver `confidence < 0.5` ' +
+      'para sinalizar ambiguidade ao workflow caller.',
+    '',
+    '# Output',
+    'Retorne sempre o objeto estruturado definido no schema:',
+    '- `intent`: exatamente um valor do enum (não invente, não combine).',
+    '- `confidence`: número entre 0 e 1; <0.5 quando ambíguo.',
+    '- `reason`: 1-3 frases curtas explicando qual sinal do input levou a essa categoria e por que descartou as outras.',
+    'Não escreva texto fora do JSON.',
+  ].join('\n')
 }
 
 /**

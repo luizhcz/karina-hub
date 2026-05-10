@@ -1502,6 +1502,75 @@ CREATE UNIQUE INDEX IF NOT EXISTS "UX_generic_tools_ProjectId_Name"
     ON aihub.generic_tools ("ProjectId", "Name");
 
 -- =============================================================================
+-- 28b. ROUTER INTENTS — pool global de intenções por TENANT (cross-project)
+--
+-- Cadastrado e mantido em /intencoes. ProjectId aqui não é tenant filter — é
+-- a "categoria" da intent (referência a aihub.projects do mesmo tenant).
+-- Routers do tenant inteiro podem referenciar qualquer intent via a tabela
+-- de junção aihub.agent_router_intents.
+--
+-- Edits propagam pra Routers que referenciam (lookup runtime); creates não
+-- propagam (user precisa editar o Router pra incluir).
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.router_intents (
+    "Id"          VARCHAR(64)  NOT NULL,
+    "TenantId"    VARCHAR(128) NOT NULL,
+    "ProjectId"   VARCHAR(128) NOT NULL,
+    "Name"        VARCHAR(128) NOT NULL,
+    "DisplayName" TEXT         NULL,
+    "Description" TEXT         NOT NULL,
+    "Examples"    JSONB        NOT NULL DEFAULT '[]'::jsonb,
+    "CreatedAt"   TIMESTAMPTZ  NOT NULL,
+    "UpdatedAt"   TIMESTAMPTZ  NOT NULL,
+    CONSTRAINT "PK_router_intents" PRIMARY KEY ("Id"),
+    CONSTRAINT "FK_router_intents_Project"
+        FOREIGN KEY ("ProjectId") REFERENCES aihub.projects (id)
+        ON DELETE RESTRICT
+);
+
+-- Compat para deploys existentes (DDL idempotente).
+ALTER TABLE aihub.router_intents ADD COLUMN IF NOT EXISTS "DisplayName" TEXT NULL;
+
+-- Unique por (TenantId, Name) — pool é por tenant, não por projeto. Dois
+-- projetos do mesmo tenant não podem ter intents homônimas.
+CREATE UNIQUE INDEX IF NOT EXISTS "UX_router_intents_TenantId_Name"
+    ON aihub.router_intents ("TenantId", "Name");
+
+CREATE INDEX IF NOT EXISTS "IX_router_intents_TenantId_ProjectId"
+    ON aihub.router_intents ("TenantId", "ProjectId");
+
+-- =============================================================================
+-- 28c. AGENT_ROUTER_INTENTS — set de intents que cada Router atende
+--
+-- Junction (AgentId, IntentId). Cada Router pode referenciar 0..N intents do
+-- pool global do tenant. CASCADE no agent (deletou agent → cleanup); RESTRICT
+-- no intent (delete da intent bloqueado se em uso por algum Router — força o
+-- user a remover do set primeiro).
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.agent_router_intents (
+    "AgentId"   VARCHAR(256) NOT NULL,
+    "IntentId"  VARCHAR(64)  NOT NULL,
+    "ProjectId" VARCHAR(128) NOT NULL,
+    "TenantId"  VARCHAR(128) NOT NULL,
+    "CreatedAt" TIMESTAMPTZ  NOT NULL,
+    CONSTRAINT "PK_agent_router_intents" PRIMARY KEY ("AgentId", "IntentId"),
+    CONSTRAINT "FK_agent_router_intents_Agent"
+        FOREIGN KEY ("AgentId") REFERENCES aihub.agent_definitions ("Id")
+        ON DELETE CASCADE,
+    CONSTRAINT "FK_agent_router_intents_Intent"
+        FOREIGN KEY ("IntentId") REFERENCES aihub.router_intents ("Id")
+        ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS "IX_agent_router_intents_IntentId"
+    ON aihub.agent_router_intents ("IntentId");
+
+CREATE INDEX IF NOT EXISTS "IX_agent_router_intents_ProjectId_AgentId"
+    ON aihub.agent_router_intents ("ProjectId", "AgentId");
+
+-- =============================================================================
 -- 29. PREDEFINED MODELS — catálogo global de presets para agents
 --
 -- Receitas curadas (DisplayName + Description + Provider + DeploymentName +

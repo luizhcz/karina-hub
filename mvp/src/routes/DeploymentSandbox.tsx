@@ -5,6 +5,7 @@ import {
   deployedAgentId,
   getWorkflow,
   isPipelineDeployment,
+  listWorkflowVersions,
   sandboxWorkflow,
   type NodeCompletedPayload,
   type NodeStartedPayload,
@@ -12,6 +13,7 @@ import {
   type WorkflowCompletedPayload,
   type WorkflowEvent,
   type WorkflowFailedPayload,
+  type WorkflowVersion,
 } from '../api/workflows'
 import { friendlyError } from '../api/client'
 import { useExecutionStream } from '../hooks/useExecutionStream'
@@ -22,9 +24,14 @@ import {
   Button,
   Card,
   ErrorMessage,
+  Select,
   Spinner,
   cn,
 } from '../ui'
+
+// Sentinel pro selector — string vazia = "rodar contra current".
+// Qualquer outro valor é um WorkflowVersionId pinado via header x-version.
+const VERSION_CURRENT = ''
 
 type StepStatus = 'pending' | 'running' | 'completed' | 'failed'
 
@@ -56,6 +63,8 @@ export function DeploymentSandbox() {
   const navigate = useNavigate()
 
   const [workflow, setWorkflow] = useState<Workflow | null>(null)
+  const [versions, setVersions] = useState<WorkflowVersion[]>([])
+  const [selectedVersionId, setSelectedVersionId] = useState<string>(VERSION_CURRENT)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -83,19 +92,21 @@ export function DeploymentSandbox() {
     ta.style.overflowY = desired > maxH ? 'auto' : 'hidden'
   }, [input])
 
-  // Carrega o workflow + nomes dos agentes pra render. Steps inicializam vazios
-  // até o primeiro trigger.
+  // Carrega o workflow + agentes + versões disponíveis. Steps inicializam
+  // vazios até o primeiro trigger. Lista de versões alimenta o selector
+  // "Versão a testar" (default = current).
   useEffect(() => {
     if (!id) return
     let cancelled = false
     setLoading(true)
     setLoadError(null)
-    Promise.all([getWorkflow(id), listAgents()])
-      .then(([wf, list]) => {
+    Promise.all([getWorkflow(id), listAgents(), listWorkflowVersions(id)])
+      .then(([wf, list, vers]) => {
         if (cancelled) return
         const map = new Map(list.map((a) => [a.id, a]))
         setWorkflow(wf)
         setSteps(initialStepsFromWorkflow(wf, map))
+        setVersions(vers)
       })
       .catch((err: unknown) => {
         if (!cancelled) setLoadError(friendlyError(err, 'Não foi possível carregar o pipeline.'))
@@ -179,16 +190,22 @@ export function DeploymentSandbox() {
 
   const handleSubmit = async () => {
     if (!workflow || !input.trim()) return
+    // Limpa qualquer SSE em curso antes de disparar — protege steps de
+    // eventos da run anterior. useExecutionStream se desinscreve quando
+    // executionId === null && running === false.
+    setExecutionId(null)
     setRunError(null)
     setFinalOutput(null)
     setRunning(true)
     // Reset visual: zerar input/output dos steps e marcar todos pendentes.
     setSteps((prev) => prev.map((s) => ({ agentId: s.agentId, name: s.name, status: 'pending' as const })))
     try {
-      const { executionId: execId } = await sandboxWorkflow(workflow.id, {
-        input: input.trim(),
-        metadata: {},
-      })
+      const versionPin = selectedVersionId || null
+      const { executionId: execId } = await sandboxWorkflow(
+        workflow.id,
+        { input: input.trim(), metadata: {} },
+        versionPin,
+      )
       setExecutionId(execId)
       // Marca o primeiro step como running com o input do user (o backend
       // emite node_started logo, mas isso dá feedback imediato).
@@ -254,6 +271,41 @@ export function DeploymentSandbox() {
           className="mb-4"
         />
       )}
+
+      {/* Selector de versão. Default "current" preserva back-compat (sem header
+          x-version → backend usa estado mutável atual, byte-idêntico ao legado).
+          Pinar uma versão histórica dispara via header x-version sem fazer
+          rollback do workflow. */}
+      <Card padded className="mb-4 space-y-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[220px] flex-1">
+            <Select
+              label="Versão a testar"
+              value={selectedVersionId}
+              onChange={(e) => setSelectedVersionId(e.target.value)}
+              disabled={running || versions.length === 0}
+              options={[
+                { value: VERSION_CURRENT, label: versions.length > 0 ? 'Atual (current)' : 'Atual' },
+                ...versions.map((v) => ({
+                  value: v.workflowVersionId,
+                  label: formatVersionOption(v),
+                })),
+              ]}
+            />
+          </div>
+          {selectedVersionId !== VERSION_CURRENT && (
+            <Badge tone="warning">Pinada via x-version</Badge>
+          )}
+        </div>
+        {selectedVersionId !== VERSION_CURRENT && (
+          <p className="text-[11px] leading-relaxed text-fg-muted">
+            <strong>Aviso:</strong> a visualização dos steps abaixo reflete o
+            workflow <em>atual</em>. A execução vai rodar contra a versão
+            pinada — se o pipeline mudou, os cards podem não bater 1:1 com a
+            execução real.
+          </p>
+        )}
+      </Card>
 
       <Card padded={false} className="flex flex-1 flex-col overflow-hidden">
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
@@ -325,6 +377,13 @@ export function DeploymentSandbox() {
 // Backend identifica o nó de runtime como `{Role}_{agentId}` quando o agente
 // tem role declarada (ex: `Triagem_triage`). O agentId puro também aparece em
 // alguns payloads. Match permissivo cobre as duas formas.
+function formatVersionOption(v: WorkflowVersion): string {
+  const stamp = v.createdAt
+    ? new Date(v.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+    : ''
+  return `rev ${v.revision}${stamp ? ` (${stamp})` : ''}`
+}
+
 function matchesStep(nodeRef: string, agentId: string): boolean {
   if (nodeRef === agentId) return true
   if (nodeRef.endsWith(`_${agentId}`)) return true
