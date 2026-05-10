@@ -166,10 +166,16 @@ public class ConversationsController : ControllerBase
         if (inputs is null)
             return BadRequest("A lista de mensagens não pode ser vazia.");
 
+        // Header opcional pra pinar a execução em uma WorkflowVersion específica
+        // (canary/A/B). Empty/whitespace tratado como ausente.
+        var rawVersion = Request.Headers["x-version"].FirstOrDefault();
+        var workflowVersionId = string.IsNullOrWhiteSpace(rawVersion) ? null : rawVersion;
+
         var result = await _facade.SendMessagesAsync(
             id, user.UserId,
             inputs.Select(i => new ChatMessageInput(i.Role, i.Message)).ToList(),
-            ct);
+            ct,
+            workflowVersionId);
 
         if (result.Status != ConversationOperationStatus.Ok)
             return MapError(result.Status, result.ErrorMessage);

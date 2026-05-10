@@ -6,6 +6,13 @@ public class ExecutionResponse
 {
     public required string ExecutionId { get; init; }
     public required string WorkflowId { get; init; }
+
+    // Pin opcional para a WorkflowVersion consumida. Sempre presente no JSON
+    // (null quando a execução leu o estado mutável atual) — caller pode fazer
+    // .workflowVersionId === null pra distinguir current vs canary sem
+    // depender da presença do campo.
+    public string? WorkflowVersionId { get; init; }
+
     public required WorkflowStatus Status { get; init; }
     public string? Input { get; init; }
     public string? Output { get; init; }
@@ -18,6 +25,7 @@ public class ExecutionResponse
     {
         ExecutionId = ex.ExecutionId,
         WorkflowId = ex.WorkflowId,
+        WorkflowVersionId = ex.WorkflowVersionId,
         Status = ex.Status,
         Input = ex.Input,
         Output = ex.Output,
@@ -36,6 +44,7 @@ public class ExecutionDetailResponse : ExecutionResponse
     {
         ExecutionId = ex.ExecutionId,
         WorkflowId = ex.WorkflowId,
+        WorkflowVersionId = ex.WorkflowVersionId,
         Status = ex.Status,
         Input = ex.Input,
         Output = ex.Output,

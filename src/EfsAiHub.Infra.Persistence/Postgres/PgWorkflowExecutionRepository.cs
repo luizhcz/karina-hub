@@ -67,6 +67,10 @@ public class PgWorkflowExecutionRepository : IWorkflowExecutionRepository
         {
             ExecutionId = execution.ExecutionId,
             WorkflowId = execution.WorkflowId,
+            // Pin desnormalizado pra coluna: o JSON em Data também carrega
+            // (round-trip via Deserialize), mas a coluna habilita queries
+            // diretas via index parcial sem deserializar TEXT.
+            WorkflowVersionId = execution.WorkflowVersionId,
             ProjectId = execution.ProjectId,
             Status = execution.Status.ToString(),
             Data = JsonSerializer.Serialize(execution, JsonDefaults.Domain),

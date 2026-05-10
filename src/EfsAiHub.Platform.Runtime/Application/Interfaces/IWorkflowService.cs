@@ -28,8 +28,14 @@ public interface IWorkflowService
     /// <summary>
     /// Enfileira um workflow para execução em background.
     /// Retorna o executionId imediatamente (fire-and-forget).
+    ///
+    /// Quando <paramref name="workflowVersionId"/> é fornecido, a definition
+    /// é carregada do snapshot append-only (WorkflowVersion) em vez do estado
+    /// mutável atual — habilita canary/A/B sem alterar o estado canônico.
+    /// Validação cruzada garante que o snapshot pertence ao workflow alvo
+    /// (400 se não pertencer; 404 se não existir).
     /// </summary>
-    Task<string> TriggerAsync(string workflowId, string? inputPayload, Dictionary<string, string>? metadata = null, ExecutionSource source = ExecutionSource.Api, ExecutionMode mode = ExecutionMode.Production, CancellationToken ct = default);
+    Task<string> TriggerAsync(string workflowId, string? inputPayload, Dictionary<string, string>? metadata = null, ExecutionSource source = ExecutionSource.Api, ExecutionMode mode = ExecutionMode.Production, string? workflowVersionId = null, CancellationToken ct = default);
 
     Task<WorkflowExecution?> GetExecutionAsync(string executionId, CancellationToken ct = default);
     Task<IReadOnlyList<WorkflowExecution>> GetExecutionsAsync(string workflowId, int page = 1, int pageSize = 20, string? status = null, CancellationToken ct = default);

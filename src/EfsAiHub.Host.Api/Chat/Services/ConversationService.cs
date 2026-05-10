@@ -29,7 +29,8 @@ public interface IConversationMessaging
     Task<SendMessageResult> SendMessagesAsync(
         ConversationSession conversation,
         IReadOnlyList<ChatMessageInput> inputs,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? workflowVersionId = null);
 
     Task OnExecutionCompletedAsync(
         string conversationId, string finalOutput, string executionId,

@@ -15,6 +15,7 @@ import {
 import { getIdentityHeaders, post, ApiError } from '../../api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { KEYS } from '../../api/chat'
+import { useWorkflowVersions } from '../../api/workflows'
 import type { LocalMsg } from './types'
 import { UserBubble } from './components/UserBubble'
 import { AssistantBubble } from './components/AssistantBubble'
@@ -111,10 +112,25 @@ export function ChatWindowPage() {
   const { containerRef, bottomRef, isAtBottom, unreadCount, handleScroll, scrollToBottom } =
     useSmartScroll([persistedMsgs.length, localMsgs.length])
 
+  // Pin opcional de WorkflowVersion: 'current' = sem header, dispara contra o
+  // estado mutável atual; <versionId> = envia header x-version pinando o turn
+  // numa revision append-only (canary/A/B). Reset quando troca conversa pra
+  // não vazar pin de uma thread anterior.
+  const [selectedVersionId, setSelectedVersionId] = useState<string>('current')
+  useEffect(() => {
+    setSelectedVersionId('current')
+  }, [id])
+
+  const versionsQuery = useWorkflowVersions(
+    conversation?.workflowId ?? '',
+    !!conversation?.workflowId,
+  )
+
   const makeHeaders = (workflowId?: string | null): Record<string, string> => ({
     'Content-Type': 'application/json',
     ...getIdentityHeaders(),
     ...(workflowId ? { 'x-efs-workflow-id': workflowId } : {}),
+    ...(selectedVersionId !== 'current' ? { 'x-version': selectedVersionId } : {}),
   })
 
   const handleSend = async () => {
@@ -633,6 +649,33 @@ export function ChatWindowPage() {
                 <p className="text-[10px] text-text-muted uppercase tracking-wide">Workflow</p>
                 <p className="text-xs text-text-secondary mt-0.5">{conversation?.workflowId ?? '—'}</p>
               </div>
+              {conversation?.workflowId && (
+                <div>
+                  <p className="text-[10px] text-text-muted uppercase tracking-wide">
+                    Versão (pin opcional via x-version)
+                  </p>
+                  <select
+                    value={selectedVersionId}
+                    onChange={(e) => setSelectedVersionId(e.target.value)}
+                    disabled={isSending || versionsQuery.isLoading}
+                    className="mt-1 w-full rounded-md border border-border-primary bg-bg-primary px-2 py-1 text-xs text-text-secondary focus:outline-none focus:ring-1 focus:ring-accent-blue disabled:opacity-60"
+                    title="Pinar a próxima execução numa WorkflowVersion específica (canary/A/B). Default 'Atual' usa o estado mutável."
+                  >
+                    <option value="current">Atual (sem pin)</option>
+                    {(versionsQuery.data ?? []).map((v) => (
+                      <option key={v.versionId} value={v.versionId}>
+                        {v.versionId.slice(0, 8)}… · {new Date(v.createdAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        {v.description ? ` · ${v.description}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedVersionId !== 'current' && (
+                    <p className="mt-1 text-[10px] text-accent-blue">
+                      Próximo turn vai com x-version pinado
+                    </p>
+                  )}
+                </div>
+              )}
               <div>
                 <p className="text-[10px] text-text-muted uppercase tracking-wide">Mensagens</p>
                 <p className="text-xs text-text-secondary mt-0.5">{persistedMsgs.length}</p>

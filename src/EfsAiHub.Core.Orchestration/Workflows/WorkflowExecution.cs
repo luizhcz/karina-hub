@@ -8,6 +8,13 @@ public class WorkflowExecution
 {
     public required string ExecutionId { get; init; }
     public required string WorkflowId { get; init; }
+
+    // Pin opcional para a WorkflowVersion consumida nesta execução. Null
+    // quando o trigger leu o estado mutável atual (caminho legado). Quando
+    // populado, indica que a definition veio de um snapshot append-only —
+    // útil para canary/A/B e auditoria de qual revisão produziu o resultado.
+    public string? WorkflowVersionId { get; init; }
+
     public string ProjectId { get; init; } = "default";
     public WorkflowStatus Status { get; set; }
     public string? Input { get; set; }

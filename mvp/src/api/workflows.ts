@@ -188,6 +188,10 @@ export type ExecutionStatus =
 export interface ExecutionSummary {
   executionId: string
   workflowId: string
+  // Pin opcional para a WorkflowVersion consumida. null quando a execução
+  // rodou contra o estado mutável atual; string com o id da version quando
+  // o trigger usou header `x-version` (canary/A/B).
+  workflowVersionId?: string | null
   status: ExecutionStatus
   startedAt?: string | null
   completedAt?: string | null

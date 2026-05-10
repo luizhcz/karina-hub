@@ -240,6 +240,12 @@ internal class WorkflowExecutionRow
 {
     public string ExecutionId { get; set; } = "";
     public string WorkflowId { get; set; } = "";
+
+    // Coluna desnormalizada do pin opcional na execução. NULL = sem pin,
+    // execução leu a definition atual; preenchida = snapshot foi consumido.
+    // Index parcial (apenas rows não-nulas) cobre queries de canary/A/B.
+    public string? WorkflowVersionId { get; set; }
+
     public string ProjectId { get; set; } = "default";
     public string Status { get; set; } = "";
     public string Data { get; set; } = "{}";
@@ -984,6 +990,7 @@ public class AgentFwDbContext : DbContext
             b.HasKey(e => e.ExecutionId);
             b.Property(e => e.ExecutionId).HasMaxLength(128);
             b.Property(e => e.WorkflowId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.WorkflowVersionId).HasMaxLength(64);
             b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
             b.Property(e => e.Status).HasMaxLength(32).IsRequired();
             b.Property(e => e.Data).HasColumnType("text").IsRequired();
@@ -994,6 +1001,11 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => new { e.WorkflowId, e.Status, e.StartedAt })
              .IsDescending(false, false, true)
              .HasDatabaseName("IX_workflow_executions_WorkflowId_Status_StartedAt");
+            // Index parcial: cobre apenas rows com pin (minoria), evita inflar
+            // o index com NULLs da maioria das execuções que rodam contra current.
+            b.HasIndex(e => e.WorkflowVersionId)
+             .HasDatabaseName("IX_workflow_executions_WorkflowVersionId")
+             .HasFilter("\"WorkflowVersionId\" IS NOT NULL");
             b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
         });
 

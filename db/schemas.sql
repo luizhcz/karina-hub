@@ -402,6 +402,12 @@ CREATE TABLE IF NOT EXISTS aihub.workflow_executions (
     CONSTRAINT "PK_workflow_executions" PRIMARY KEY ("ExecutionId")
 );
 
+-- Coluna desnormalizada do pin opcional pra WorkflowVersion consumida.
+-- Nullable: a maioria das execuções roda contra o estado mutável atual e
+-- mantém NULL. Capacity bate com WorkflowVersionId em workflow_versions.
+ALTER TABLE aihub.workflow_executions
+    ADD COLUMN IF NOT EXISTS "WorkflowVersionId" VARCHAR(64) NULL;
+
 CREATE INDEX IF NOT EXISTS "IX_workflow_executions_WorkflowId"
     ON aihub.workflow_executions ("WorkflowId");
 
@@ -419,6 +425,13 @@ CREATE INDEX IF NOT EXISTS "IX_workflow_executions_WorkflowId_Status_StartedAt"
 CREATE INDEX IF NOT EXISTS "IX_workflow_executions_ProjectId_StartedAt"
     ON aihub.workflow_executions ("ProjectId", "StartedAt")
     INCLUDE ("Status", "WorkflowId");
+
+-- Index parcial só nas rows com pin: a maioria das execuções fica em NULL,
+-- então um index regular inflaria sem retorno. Cobre lookup canary/A/B
+-- (todas execuções de uma version específica) e debug ad-hoc.
+CREATE INDEX IF NOT EXISTS "IX_workflow_executions_WorkflowVersionId"
+    ON aihub.workflow_executions ("WorkflowVersionId")
+    WHERE "WorkflowVersionId" IS NOT NULL;
 
 -- =============================================================================
 -- 7. NÓS DE EXECUÇÃO (Graph mode)
