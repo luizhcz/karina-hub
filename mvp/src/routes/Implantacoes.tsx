@@ -32,6 +32,7 @@ const FILTER_LABELS: Record<FilterKind, string> = {
   all: 'Todas',
   single: 'Single',
   pipeline: 'Pipeline',
+  routing: 'Roteamento',
 }
 
 export function Implantacoes() {
@@ -46,11 +47,11 @@ export function Implantacoes() {
   const [chooserOpen, setChooserOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
 
-  // Filtro persistido em query string (?type=pipeline|single|all). Default
-  // 'all' mantém comportamento anterior pra quem não usa o filtro.
+  // Filtro persistido em query string (?type=pipeline|single|routing|all).
+  // Default 'all' mantém comportamento anterior pra quem não usa o filtro.
   const filterKind: FilterKind = (() => {
     const raw = searchParams.get('type')
-    return raw === 'pipeline' || raw === 'single' ? raw : 'all'
+    return raw === 'pipeline' || raw === 'single' || raw === 'routing' ? raw : 'all'
   })()
 
   const setFilterKind = (next: FilterKind) => {
@@ -92,11 +93,14 @@ export function Implantacoes() {
   const counts = useMemo(() => {
     let single = 0
     let pipeline = 0
+    let routing = 0
     for (const w of workflows) {
-      if (deploymentKindOf(w) === 'pipeline') pipeline++
+      const kind = deploymentKindOf(w)
+      if (kind === 'pipeline') pipeline++
+      else if (kind === 'routing') routing++
       else single++
     }
-    return { all: workflows.length, single, pipeline }
+    return { all: workflows.length, single, pipeline, routing }
   }, [workflows])
 
   const filtered = useMemo(() => {
@@ -112,8 +116,13 @@ export function Implantacoes() {
   }, [workflows, search, filterKind])
 
   const handleCardClick = (w: Workflow) => {
-    if (deploymentKindOf(w) === 'pipeline') {
+    const kind = deploymentKindOf(w)
+    if (kind === 'pipeline') {
       navigate(`/implantacoes/avancada/${w.id}`)
+      return
+    }
+    if (kind === 'routing') {
+      navigate(`/implantacoes/roteamento/${w.id}`)
       return
     }
     const aid = deployedAgentId(w)
@@ -136,7 +145,7 @@ export function Implantacoes() {
 
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex rounded-lg border border-border bg-bg-soft p-1">
-          {(['all', 'single', 'pipeline'] as const).map((kind) => (
+          {(['all', 'single', 'pipeline', 'routing'] as const).map((kind) => (
             <FilterPill
               key={kind}
               active={filterKind === kind}
@@ -186,6 +195,7 @@ export function Implantacoes() {
         onChoose={(kind: DeploymentKind) => {
           setChooserOpen(false)
           if (kind === 'single') setPickerOpen(true)
+          else if (kind === 'routing') navigate('/implantacoes/roteamento')
           else navigate('/implantacoes/avancada')
         }}
       />
@@ -253,7 +263,11 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
       className={cn(
         'group relative flex min-h-[160px] cursor-pointer flex-col gap-3 overflow-hidden p-5',
         'before:absolute before:inset-y-0 before:left-0 before:w-1',
-        kind === 'pipeline' ? 'before:bg-accent' : 'before:bg-success',
+        kind === 'pipeline'
+          ? 'before:bg-accent'
+          : kind === 'routing'
+            ? 'before:bg-violet-500'
+            : 'before:bg-success',
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -261,7 +275,11 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
           <div
             className={cn(
               'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
-              kind === 'pipeline' ? 'bg-accent-subtle text-accent' : 'bg-success/10 text-success',
+              kind === 'pipeline'
+                ? 'bg-accent-subtle text-accent'
+                : kind === 'routing'
+                  ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
+                  : 'bg-success/10 text-success',
             )}
           >
             <BoltIcon className="h-5 w-5" />
@@ -273,9 +291,15 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
             </p>
           </div>
         </div>
-        <Badge tone={kind === 'pipeline' ? 'accent' : 'success'}>
-          {kind === 'pipeline' ? 'Pipeline' : 'Single'}
-        </Badge>
+        {kind === 'routing' ? (
+          <span className="inline-flex items-center rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">
+            Roteamento
+          </span>
+        ) : (
+          <Badge tone={kind === 'pipeline' ? 'accent' : 'success'}>
+            {kind === 'pipeline' ? 'Pipeline' : 'Single'}
+          </Badge>
+        )}
       </div>
 
       {workflow.description && (
@@ -287,6 +311,11 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
           <span className="flex items-center gap-1.5">
             <AgentIcon className="h-3.5 w-3.5" />
             {agentCount} {agentCount === 1 ? 'agente' : 'agentes em sequência'}
+          </span>
+        ) : kind === 'routing' ? (
+          <span className="flex items-center gap-1.5">
+            <AgentIcon className="h-3.5 w-3.5" />
+            {agentCount} {agentCount === 1 ? 'agente' : 'agentes (router + branches)'}
           </span>
         ) : agentId ? (
           <span className="flex items-center gap-1.5">
@@ -317,7 +346,7 @@ function KindChooserModal({ open, onClose, onChoose }: KindChooserModalProps) {
       title="Como você quer implantar?"
       description="Escolha o tipo de implantação. Você pode mudar a qualquer momento criando outra implantação."
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <KindChooserCard
           label="Um agente"
           description="Implanta um agente publicado como workflow de chamada única."
@@ -330,6 +359,12 @@ function KindChooserModal({ open, onClose, onChoose }: KindChooserModalProps) {
           tone="accent"
           onClick={() => onChoose('pipeline')}
         />
+        <KindChooserCard
+          label="Roteamento por intent"
+          description="Router como entry node + 1 agente por intent + fallback. Switch edge encaminha o input pra branch que a intent escolhida indica."
+          tone="violet"
+          onClick={() => onChoose('routing')}
+        />
       </div>
     </Modal>
   )
@@ -338,11 +373,17 @@ function KindChooserModal({ open, onClose, onChoose }: KindChooserModalProps) {
 interface KindChooserCardProps {
   label: string
   description: string
-  tone: 'success' | 'accent'
+  tone: 'success' | 'accent' | 'violet'
   onClick: () => void
 }
 
 function KindChooserCard({ label, description, tone, onClick }: KindChooserCardProps) {
+  const iconClass =
+    tone === 'accent'
+      ? 'bg-accent-subtle text-accent'
+      : tone === 'violet'
+        ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
+        : 'bg-success/10 text-success'
   return (
     <button
       type="button"
@@ -352,12 +393,7 @@ function KindChooserCard({ label, description, tone, onClick }: KindChooserCardP
         'hover:border-accent/60 hover:bg-accent-subtle/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
       )}
     >
-      <div
-        className={cn(
-          'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
-          tone === 'accent' ? 'bg-accent-subtle text-accent' : 'bg-success/10 text-success',
-        )}
-      >
+      <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', iconClass)}>
         <BoltIcon className="h-5 w-5" />
       </div>
       <div className="text-sm font-semibold text-fg">{label}</div>

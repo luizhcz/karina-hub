@@ -5,8 +5,10 @@ import { get, post, put } from './client'
 // distinguir de single-agent deploys na listagem. Backend trata metadata como
 // dicionário opaco — esse marcador é só convenção do MVP.
 export const PIPELINE_DEPLOYMENT_KIND = 'pipeline'
+export const ROUTING_DEPLOYMENT_KIND = 'routing'
 
 export const pipelineWorkflowId = () => `deploy-pipeline-${generateDraftId()}`
+export const routingWorkflowId = () => `deploy-routing-${generateDraftId()}`
 
 export type OrchestrationMode =
   | 'Sequential'
@@ -107,10 +109,21 @@ export function isPipelineDeployment(workflow: Workflow): boolean {
   return md?.deploymentKind === PIPELINE_DEPLOYMENT_KIND
 }
 
-export type DeploymentKind = 'single' | 'pipeline'
+// Routing = Router + N branches (1 agente por intent) + fallback. Workflow
+// Graph mode com Switch edge. Reconhecido pela convenção `deploy-routing-{guid}`
+// no id ou pelo marcador metadata.deploymentKind === 'routing'.
+export function isRoutingDeployment(workflow: Workflow): boolean {
+  if (workflow.id.startsWith('deploy-routing-')) return true
+  const md = (workflow as { metadata?: Record<string, string> | null }).metadata
+  return md?.deploymentKind === ROUTING_DEPLOYMENT_KIND
+}
+
+export type DeploymentKind = 'single' | 'pipeline' | 'routing'
 
 export function deploymentKindOf(workflow: Workflow): DeploymentKind {
-  return isPipelineDeployment(workflow) ? 'pipeline' : 'single'
+  if (isRoutingDeployment(workflow)) return 'routing'
+  if (isPipelineDeployment(workflow)) return 'pipeline'
+  return 'single'
 }
 
 export interface WorkflowVersion {
