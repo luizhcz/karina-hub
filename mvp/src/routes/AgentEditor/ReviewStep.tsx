@@ -44,13 +44,12 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
           : form.type === 'ToolRunner'
             ? encodeToolRunnerInstructions(form.name)
             : form.type === 'Conversational'
-              ? encodeConversationalInstructions(form.name, form.conversationalPersona)
+              ? encodeConversationalInstructions(form.profile)
               : encodeInstructions(form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured),
     [
       form.type,
       form.name,
       form.profile,
-      form.conversationalPersona,
       inputForCodec,
       outputForCodec,
       toolDocs,
@@ -401,19 +400,14 @@ interface ConversationalPreviewProps {
   form: FormState
 }
 
-// Preview do Conversational no Review: persona truncada, lista de
-// ui_components declarados (que viram enum no schema canônico) e
-// warning quando algo falta. Não exibe o schema completo — isso vai
-// no card "Prompt do agente" + cards genéricos de output/segurança.
+// Preview do Conversational no Review: papel/objetivo do agente (do
+// profile, mesmo do Custom), lista de ui_components declarados (que
+// viram enum no schema canônico) e warnings quando algo falta. O prompt
+// completo aparece no card "Prompt do agente" abaixo.
 function ConversationalPreview({ form }: ConversationalPreviewProps) {
-  const persona = form.conversationalPersona.trim()
-  const personaEmpty = persona.length === 0
-  const PERSONA_PREVIEW_MAX = 220
-  const truncated = persona.length > PERSONA_PREVIEW_MAX
-  const [expanded, setExpanded] = useState(false)
-  const visible = !truncated || expanded
-    ? persona
-    : persona.slice(0, PERSONA_PREVIEW_MAX) + '…'
+  const role = form.profile.role.trim()
+  const goal = form.profile.goal.trim()
+  const profileEmpty = role.length === 0 && goal.length === 0
 
   const uiComponents = form.conversationalUiComponents
   const noUiComponents = uiComponents.length === 0
@@ -422,29 +416,27 @@ function ConversationalPreview({ form }: ConversationalPreviewProps) {
     <Card className="space-y-3">
       <CardHeader
         title="Conversational"
-        description="Resumo do que será gravado: persona injetada no system prompt, valores válidos do enum `ui_component` (consumidos pelo frontend chat) e shape canônico do output (montado pelo codec no save)."
+        description="Resumo do que será gravado: papel e objetivo do agente (mesma estrutura do Custom), valores válidos do enum `ui_component` (consumidos pelo frontend chat) e shape canônico do output (montado pelo codec no save)."
       />
-      {personaEmpty ? (
+      {profileEmpty ? (
         <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-          Persona vazia. Defina papel, tom e restrições no step Identificação pra orientar o LLM.
+          Papel e objetivo vazios. Preencha ao menos um dos campos no step Identificação pra orientar o LLM.
         </p>
       ) : (
-        <div className="rounded-lg border border-border bg-bg-soft px-3 py-2.5">
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{visible}</p>
-          {truncated && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setExpanded((x) => !x)}
-              className="mt-2 -ml-1"
-            >
-              {expanded ? 'Ver menos' : 'Ver mais'}
-            </Button>
+        <dl className="space-y-2">
+          {role.length > 0 && (
+            <div className="rounded-lg border border-border bg-bg-soft px-3 py-2">
+              <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Papel</dt>
+              <dd className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-fg">{role}</dd>
+            </div>
           )}
-          <p className="mt-2 text-[11px] text-fg-dim">
-            {persona.length} caracteres
-          </p>
-        </div>
+          {goal.length > 0 && (
+            <div className="rounded-lg border border-border bg-bg-soft px-3 py-2">
+              <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Objetivo</dt>
+              <dd className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-fg">{goal}</dd>
+            </div>
+          )}
+        </dl>
       )}
       <div>
         <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">

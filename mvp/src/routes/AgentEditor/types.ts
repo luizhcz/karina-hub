@@ -82,18 +82,16 @@ export interface FormState {
    */
   toolRunnerHitlRequired: boolean
   /**
-   * Persona livre do Conversational — texto descritivo (papel,
-   * personalidade, estilo de fala). Vai pras instructions skeleton do
-   * agente. Vazio quando type !== 'Conversational'.
-   */
-  conversationalPersona: string
-  /**
    * Lista canônica de valores válidos de `ui_component` no schema fixo
    * do Conversational. Persistido como JSON array em
    * payload.metadata['x-conversational-ui-components']. O codec injeta
    * como enum no schema { ui_component, message, output }; frontend
    * renderer consome pra dirigir o switch (ou cair pra fallback).
    * Vazio quando type !== 'Conversational'.
+   *
+   * Persona / papel / objetivo / contexto vivem em <c>profile</c>
+   * (mesma estrutura do Custom — role/goal/backstory/rules/constraints
+   * são injetados no instructions skeleton via encodeInstructions).
    */
   conversationalUiComponents: string[]
   predefinedModelId: string

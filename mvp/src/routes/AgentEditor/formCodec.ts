@@ -3,7 +3,7 @@ import type { GenericTool, ParamDefinition } from '../../api/genericTools'
 import type { McpServer } from '../../api/mcpServers'
 import type { KvRow } from '../../components/PostmanEditor/KvTable'
 import { decodeInstructions, encodeInstructions, type ToolDescriptor } from './instructionsCodec'
-import type { FormState, StructuredSection } from './types'
+import type { FormState, ProfileFields, StructuredSection } from './types'
 
 // Type discriminante de uma entry de payload.middlewares[]. Espelha
 // EfsAiHub.Core.Agents.AgentMiddlewareConfig — só os campos que mexemos. Demais
@@ -215,7 +215,6 @@ export function emptyFormState(): FormState {
     routerIntentIds: [],
     workerScope: '',
     toolRunnerHitlRequired: false,
-    conversationalPersona: '',
     conversationalUiComponents: [],
     predefinedModelId: '',
     profile: {
@@ -358,11 +357,11 @@ export function fromDraft(draft: AgentDraft): FormState {
     }
   }
 
-  // Persona livre do Conversational vai pras instructions skeleton.
-  // Backend extrai do prompt; aqui hidratamos a partir de uma chave
-  // metadata dedicada pra evitar reparser do prompt.
-  const rawPersona = payload.metadata?.[CONVERSATIONAL_PERSONA_METADATA_KEY]
-  const conversationalPersona = typeof rawPersona === 'string' ? rawPersona : ''
+  // Persona/papel/objetivo do Conversational vivem em form.profile (igual
+  // ao Custom) — vão pras instructions skeleton via encodeInstructions e
+  // são reidratadas via decodeInstructions abaixo. Nenhuma chave metadata
+  // dedicada é lida pra isso; codec velho que gravava
+  // 'x-conversational-persona' é higienizado em encodeConversationalMetadata.
 
   // Lista de ui_components vive em metadata['x-conversational-ui-components']
   // como JSON array. Items não-string ou inválidos são descartados aqui.
@@ -387,7 +386,6 @@ export function fromDraft(draft: AgentDraft): FormState {
     routerIntentIds,
     workerScope,
     toolRunnerHitlRequired,
-    conversationalPersona,
     conversationalUiComponents,
     predefinedModelId: payload.model?.predefinedModelId ?? '',
     profile: decoded.profile,
@@ -456,7 +454,7 @@ export function buildPayload(
         : form.type === 'ToolRunner'
           ? encodeToolRunnerInstructions(form.name)
           : form.type === 'Conversational'
-            ? encodeConversationalInstructions(form.name, form.conversationalPersona)
+            ? encodeConversationalInstructions(form.profile)
             : encodeInstructions(
                 form.profile,
                 inputForCodec,
@@ -682,49 +680,55 @@ function stripLegacyRouterIntentsMetadata(
  * concatena com separador).
  */
 /**
- * Skeleton determinístico do Conversational. Inclui persona (texto livre
- * declarado pelo user) numa seção dedicada, e instruções fixas sobre o
- * shape canônico { ui_component, message, output } esperado em cada turn.
- * O middleware StructuredOutputState (ativado por default no save) lê o
- * JSON da resposta e emite STATE_DELTA via SSE pro frontend chat.
+ * Skeleton do Conversational. Reusa o encoder genérico do Custom (mesmo
+ * dos 5 campos role/goal/backstory/rules/constraints) e anexa o bloco
+ * '# Formato de resposta' com o contrato do shape canônico
+ * { ui_component, message, output } — o middleware StructuredOutputState
+ * (ativado por default no save) lê o JSON da resposta e emite STATE_DELTA
+ * via SSE. Input/output structured e tool docs ficam fora do prompt — o
+ * schema canônico viaja em payload.structuredOutput e as tools carregam
+ * sua própria descrição via FunctionTool factory.
  */
-export function encodeConversationalInstructions(name: string, persona: string): string {
-  const cleanName = (name || '').trim()
-  const cleanPersona = (persona || '').trim()
-  const intro = cleanName ? `Você é ${cleanName}.` : 'Você é um assistente conversacional.'
-
-  const parts: string[] = ['# Persona', intro]
-  if (cleanPersona.length > 0) {
-    parts.push('', cleanPersona)
-  }
-  parts.push(
-    '',
+export function encodeConversationalInstructions(profile: ProfileFields): string {
+  const base = encodeInstructions(
+    profile,
+    { description: '', schema: '' },
+    { description: '', schema: '' },
+    [],
+    false,
+  )
+  const responseFormatBlock = [
     '# Formato de resposta',
+    '',
     'Responda SEMPRE em JSON com três campos top-level:',
-    '- `ui_component`: identificador do componente que o frontend deve renderizar (use um dos valores declarados no enum do schema).',
+    '- `ui_component`: identificador do componente UI a renderizar (use um dos valores declarados no enum do schema).',
     '- `message`: texto humano em PT-BR pro usuário — curto, claro, direto.',
     '- `output`: payload estruturado conforme o subschema definido (pode ser objeto vazio quando não houver dado).',
+    '',
     'Não escreva texto fora do JSON; não invente campos top-level extras.',
-  )
-  return parts.join('\n')
+  ].join('\n')
+
+  return base.trim().length > 0
+    ? `${base.trimEnd()}\n\n${responseFormatBlock}`
+    : responseFormatBlock
 }
 
 /**
- * Mantém <c>metadata['x-conversational-persona']</c> e
- * <c>metadata['x-conversational-ui-components']</c> sincronizados com o
- * form. Pra Conversational grava ambos (ou remove quando vazios); pra
- * outros tipos remove as duas chaves pra evitar lixo cross-tipo.
+ * Mantém <c>metadata['x-conversational-ui-components']</c> sincronizado
+ * com o form. Pra Conversational grava (ou remove quando vazio); pra
+ * outros tipos remove a chave pra evitar lixo cross-tipo. A chave legacy
+ * 'x-conversational-persona' é higienizada do prev independente do tipo —
+ * a persona vive agora nos campos do profile (role/goal/backstory/rules/
+ * constraints) injetados no instructions, igual ao Custom.
  */
 function encodeConversationalMetadata(
   prev: Record<string, string>,
   form: FormState,
 ): Record<string, string> {
   const next: Record<string, string> = { ...prev }
-  if (form.type === 'Conversational') {
-    const persona = form.conversationalPersona.trim()
-    if (persona.length > 0) next[CONVERSATIONAL_PERSONA_METADATA_KEY] = persona
-    else delete next[CONVERSATIONAL_PERSONA_METADATA_KEY]
+  delete next[CONVERSATIONAL_PERSONA_METADATA_KEY]
 
+  if (form.type === 'Conversational') {
     const filtered = form.conversationalUiComponents
       .map((item) => item.trim())
       .filter((item) => item.length > 0)
@@ -734,7 +738,6 @@ function encodeConversationalMetadata(
       delete next[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY]
     }
   } else {
-    delete next[CONVERSATIONAL_PERSONA_METADATA_KEY]
     delete next[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY]
   }
   return next
