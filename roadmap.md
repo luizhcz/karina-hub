@@ -78,39 +78,17 @@ inteiro a cada chamada.
 
 ---
 
-## 4. Consumir workflow de versão específica — header `x-version`
+## 4. Consumir workflow de versão específica — header `x-version` ✅
 
-**Hoje:** workflow é sempre executado a partir do estado mutável atual em
-`workflow_definitions`. `WorkflowVersion` existe como snapshot append-only mas
-serve só pra histórico em UI e rollback (que reescreve o estado atual com a
-versão antiga). Não há como rodar duas versões em paralelo (canary, A/B).
+**Status:** entregue. Header opcional `x-version: <workflowVersionId>`
+suportado em `POST /workflows/{id}/trigger`, `POST /workflows/{id}/sandbox`
+e `POST /conversations/{id}/messages`. Quando presente, a execução roda
+contra o snapshot append-only (canary/A/B). Coluna desnormalizada
+`WorkflowVersionId` em `aihub.workflow_executions` + index parcial; campo
+exposto em `GET /executions/{id}` e `/full`. Validações: 404 (version
+inexistente), 400 (version de outro workflow), tenant boundary preservado
+via `HasQueryFilter` no workflow + validação cruzada.
 
-**Próximo passo:** aceitar um header `x-version: <workflowVersionId>` opcional
-nos 3 endpoints que criam execução — `POST /workflows/{id}/trigger`,
-`POST /workflows/{id}/sandbox` e `POST /conversations/{id}/messages`. Quando
-presente, o `WorkflowService.TriggerAsync` carrega a definition do snapshot
-(`IWorkflowVersionRepository.GetDefinitionSnapshotAsync` já existe — usado
-pelo Rollback) em vez do estado atual. Sem header, comportamento legado
-preservado.
-
-Endpoints de streaming (`/messages/stream`, `/executions/{id}/stream`,
-polling fallback) **não mudam** — apenas relêem o event bus pelo `executionId`,
-que já carrega a versão escolhida no trigger.
-
-**Pontos de atenção:**
-- Auditoria: adicionar coluna `WorkflowVersionId` em `aihub.workflow_executions`
-  (migration aditiva). Sem isso, o cliente que consome via stream não tem como
-  saber qual versão rodou — `GET /executions/{id}` precisa expor.
-- Validação: 404 quando version não existe; 400 quando o snapshot pertence a
-  outro workflow (`version.WorkflowDefinitionId != workflowId`). Mesmo padrão
-  já implementado no `RollbackAsync`.
-- Tenant boundary: `IWorkflowVersionRepository` herda `HasQueryFilter` por
-  tenant — versão de outro tenant some naturalmente (404).
-- Pin de agente: o `WorkflowAgentReference.AgentVersionId` já viaja dentro do
-  snapshot — agentes pinados resolvem corretamente sem ajuste no runtime.
-- Semântica no chat: na primeira entrega, header é por-mensagem (paridade com
-  `/trigger`). Se evoluir pra "versão fixa por conversa", basta mover o pin
-  pra coluna de `conversations` no futuro.
-- Esforço estimado: ~5-6h sênior (3 controllers + service + migration + smoke
-  test). Runtime do executor é version-agnostic — recebe `WorkflowDefinition`
-  pronto e não muda.
+**Limitação conhecida (follow-up):** `HitlRecoveryService` retoma
+execuções pinadas usando o estado mutável atual em vez do snapshot — issue
+de recovery a tratar quando virar caso real.

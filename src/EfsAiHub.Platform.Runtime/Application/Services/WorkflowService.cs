@@ -200,10 +200,39 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         Dictionary<string, string>? metadata = null,
         ExecutionSource source = ExecutionSource.Api,
         ExecutionMode mode = ExecutionMode.Production,
+        string? workflowVersionId = null,
         CancellationToken ct = default)
     {
-        var definition = await _definitionRepo.GetByIdAsync(workflowId, ct)
-            ?? throw new KeyNotFoundException($"Workflow '{workflowId}' não encontrado.");
+        // Bifurca o load: pin presente carrega snapshot append-only, ausente lê
+        // o estado mutável atual. Validação cruzada garante que o snapshot
+        // pertence ao workflow alvo — evita pin cruzado entre workflows do
+        // mesmo tenant. Quando workflowId não existe no project (HasQueryFilter),
+        // o ramo "current" retorna null e o 404 é o mesmo erro que o caller
+        // veria sem header — UX consistente.
+        WorkflowDefinition? definition;
+        if (!string.IsNullOrWhiteSpace(workflowVersionId))
+        {
+            // Repo opcional na DI (testes unit que não injetam o snapshot). Em
+            // produção sempre presente — se chegou null aqui o setup quebrou.
+            if (_versionRepo is null)
+                throw new InvalidOperationException(
+                    "Pin de WorkflowVersion solicitado mas IWorkflowVersionRepository " +
+                    "não está disponível no container.");
+
+            definition = await _versionRepo.GetDefinitionSnapshotAsync(workflowVersionId, ct)
+                ?? throw new KeyNotFoundException(
+                    $"WorkflowVersion '{workflowVersionId}' não encontrada.");
+
+            if (!string.Equals(definition.Id, workflowId, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException(
+                    $"WorkflowVersion '{workflowVersionId}' pertence ao workflow " +
+                    $"'{definition.Id}', não '{workflowId}'.");
+        }
+        else
+        {
+            definition = await _definitionRepo.GetByIdAsync(workflowId, ct)
+                ?? throw new KeyNotFoundException($"Workflow '{workflowId}' não encontrado.");
+        }
 
         // Back-pressure global: rejeita ANTES de criar execução no repositório.
         // Evita órfãs em Pending caso o teto esteja batido.
@@ -220,6 +249,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         {
             ExecutionId = Guid.NewGuid().ToString(),
             WorkflowId = workflowId,
+            WorkflowVersionId = workflowVersionId,
             ProjectId = _projectAccessor.Current.ProjectId,
             Status = WorkflowStatus.Pending,
             Input = inputPayload,
@@ -239,8 +269,10 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
 
         // Disparo direto via Task.Run para todas as fontes.
         // O 202 retorna imediatamente; o workflow executa com scope próprio.
-        _logger.LogInformation("Execução '{ExecutionId}' iniciada para workflow '{WorkflowId}' ({Source})",
-            execution.ExecutionId, workflowId, source);
+        _logger.LogInformation(
+            "Execução '{ExecutionId}' iniciada para workflow '{WorkflowId}' (source={Source} version_pin={Pin})",
+            execution.ExecutionId, workflowId, source,
+            workflowVersionId ?? "current");
 
         var execCts = new CancellationTokenSource();
         _chatRegistry.Register(execution.ExecutionId, execCts);

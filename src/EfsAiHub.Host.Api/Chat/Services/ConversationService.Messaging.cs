@@ -14,7 +14,8 @@ public partial class ConversationService
     public async Task<SendMessageResult> SendMessagesAsync(
         ConversationSession conversation,
         IReadOnlyList<ChatMessageInput> inputs,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? workflowVersionId = null)
     {
         if (inputs.Count == 0)
             return new SendMessageResult(null, false, null);
@@ -87,14 +88,15 @@ public partial class ConversationService
             conversation.ActiveExecutionId = null;
         }
 
-        return await TriggerWorkflowAsync(conversation, lastInput, persisted, ct);
+        return await TriggerWorkflowAsync(conversation, lastInput, persisted, ct, workflowVersionId);
     }
 
     private async Task<SendMessageResult> TriggerWorkflowAsync(
         ConversationSession conversation,
         ChatMessageInput lastInput,
         List<ChatMessage> persisted,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? workflowVersionId = null)
     {
         var workflowDef = await _workflowDefRepo.GetByIdAsync(conversation.WorkflowId, ct);
         var config = workflowDef?.Configuration;
@@ -136,6 +138,7 @@ public partial class ConversationService
             contextJson,
             triggerMetadata,
             source: EfsAiHub.Core.Abstractions.Execution.ExecutionSource.Chat,
+            workflowVersionId: workflowVersionId,
             ct: ct);
 
         conversation.ActiveExecutionId = executionId;

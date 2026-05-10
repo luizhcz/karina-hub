@@ -17,6 +17,7 @@ public interface IWorkflowDispatcher
         Dictionary<string, string>? metadata = null,
         ExecutionSource source = ExecutionSource.Api,
         ExecutionMode mode = ExecutionMode.Production,
+        string? workflowVersionId = null,
         CancellationToken ct = default);
 
     Task<WorkflowExecution?> GetExecutionAsync(string executionId, CancellationToken ct = default);

@@ -293,33 +293,74 @@ public class WorkflowsController : ControllerBase
     }
 
     [HttpPost("{id}/trigger")]
-    [SwaggerOperation(Summary = "Dispara a execução de um workflow. Retorna 202 com executionId imediatamente.")]
+    [SwaggerOperation(Summary = "Dispara a execução de um workflow. Retorna 202 com executionId imediatamente. Header opcional 'x-version' pinna a execução numa WorkflowVersion específica (canary/A/B).")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Trigger(string id, [FromBody] TriggerWorkflowRequest request, CancellationToken ct)
     {
-        var executionId = await _workflowService.TriggerAsync(id, request.Input, request.Metadata, ct: ct);
-        return Accepted(new
+        var versionId = ReadVersionPinHeader(Request.Headers);
+        try
         {
-            executionId,
-            statusUrl = Url.Action(nameof(ExecutionsController.GetById), "Executions", new { executionId }, Request.Scheme)
-        });
+            var executionId = await _workflowService.TriggerAsync(
+                id, request.Input, request.Metadata,
+                workflowVersionId: versionId,
+                ct: ct);
+            return Accepted(new
+            {
+                executionId,
+                statusUrl = Url.Action(nameof(ExecutionsController.GetById), "Executions", new { executionId }, Request.Scheme)
+            });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
     [HttpPost("{id}/sandbox")]
-    [SwaggerOperation(Summary = "Executa um workflow em modo sandbox (tools mockadas, sem persistência de chat, métricas tagueadas).")]
+    [SwaggerOperation(Summary = "Executa um workflow em modo sandbox (tools mockadas, sem persistência de chat, métricas tagueadas). Header opcional 'x-version' pinna a execução numa WorkflowVersion específica.")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Sandbox(string id, [FromBody] TriggerWorkflowRequest request, CancellationToken ct)
     {
-        var executionId = await _workflowService.TriggerAsync(
-            id, request.Input, request.Metadata, mode: ExecutionMode.Sandbox, ct: ct);
-        return Accepted(new
+        var versionId = ReadVersionPinHeader(Request.Headers);
+        try
         {
-            executionId,
-            mode = "sandbox",
-            statusUrl = Url.Action(nameof(ExecutionsController.GetById), "Executions", new { executionId }, Request.Scheme)
-        });
+            var executionId = await _workflowService.TriggerAsync(
+                id, request.Input, request.Metadata,
+                mode: ExecutionMode.Sandbox,
+                workflowVersionId: versionId,
+                ct: ct);
+            return Accepted(new
+            {
+                executionId,
+                mode = "sandbox",
+                statusUrl = Url.Action(nameof(ExecutionsController.GetById), "Executions", new { executionId }, Request.Scheme)
+            });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    // Header opcional pra pinar a execução em uma WorkflowVersion específica.
+    // Empty/whitespace tratado como ausente — caller que mandar header vazio
+    // não trava o caminho legado, comportamento idêntico ao "sem header".
+    private static string? ReadVersionPinHeader(IHeaderDictionary headers)
+    {
+        var raw = headers["x-version"].FirstOrDefault();
+        return string.IsNullOrWhiteSpace(raw) ? null : raw;
     }
 
     [HttpGet("{id}/diagram")]
@@ -389,9 +430,9 @@ public class WorkflowsController : ControllerBase
             var cloned = await _workflowService.CloneAsync(id, request?.NewId, ct);
             return CreatedAtAction(nameof(GetById), new { id = cloned.Id }, WorkflowResponse.FromDomain(cloned));
         }
-        catch (KeyNotFoundException)
+        catch (KeyNotFoundException ex)
         {
-            return NotFound();
+            return NotFound(new { error = ex.Message });
         }
         catch (ArgumentException ex)
         {
@@ -433,9 +474,9 @@ public class WorkflowsController : ControllerBase
             var current = await ResolveCurrentVersionAsync(definition, ct);
             return Ok(WorkflowResponse.FromDomain(definition, current));
         }
-        catch (KeyNotFoundException)
+        catch (KeyNotFoundException ex)
         {
-            return NotFound();
+            return NotFound(new { error = ex.Message });
         }
         catch (ArgumentException ex)
         {

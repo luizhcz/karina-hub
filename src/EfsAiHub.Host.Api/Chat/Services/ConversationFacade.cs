@@ -62,7 +62,8 @@ public interface IConversationFacade
         string conversationId,
         string userId,
         IReadOnlyList<ChatMessageInput> inputs,
-        CancellationToken ct);
+        CancellationToken ct,
+        string? workflowVersionId = null);
 
     Task<ConversationOperationResult<bool>> DeleteAsync(string conversationId, CancellationToken ct);
 
@@ -152,7 +153,8 @@ public sealed class ConversationFacade : IConversationFacade
         string conversationId,
         string userId,
         IReadOnlyList<ChatMessageInput> inputs,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? workflowVersionId = null)
     {
         if (inputs.Count == 0)
             return ConversationOperationResult<SendMessageResult>.BadRequest("A lista de mensagens não pode ser vazia.");
@@ -176,12 +178,20 @@ public sealed class ConversationFacade : IConversationFacade
 
         try
         {
-            var result = await _conversationService.SendMessagesAsync(session, inputs, ct);
+            var result = await _conversationService.SendMessagesAsync(session, inputs, ct, workflowVersionId);
             return ConversationOperationResult<SendMessageResult>.Success(result);
         }
         catch (ChatBackPressureException ex)
         {
             return ConversationOperationResult<SendMessageResult>.RateLimited(ex.Message);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return ConversationOperationResult<SendMessageResult>.NotFound(ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            return ConversationOperationResult<SendMessageResult>.BadRequest(ex.Message);
         }
     }
 
