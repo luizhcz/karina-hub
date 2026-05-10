@@ -506,6 +506,7 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
           <tbody>
             <tr><td><code>x-efs-project-id</code></td><td>Projeto do tenant. Default: <code>"default"</code></td></tr>
             <tr><td><code>x-efs-workflow-id</code></td><td>Workflow a executar. Default: padrão do projeto/userType</td></tr>
+            <tr><td><code>x-version</code></td><td>Pinna a execução numa <code>WorkflowVersion</code> específica (snapshot append-only). Útil pra canary/A/B sem alterar o estado canônico. Sem header → roda contra a versão atual. Validações: <span class="badge badge-yellow">404</span> se versionId não existe, <span class="badge badge-yellow">400</span> se a versão pertence a outro workflow.</td></tr>
           </tbody>
         </table>
         <h3>Body</h3>
@@ -886,9 +887,16 @@ es.addEventListener('done', (ev) => {
   -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo' \
   -d '{"input":"hello"}' | jq -r .executionId)
 
+# Pinar uma WorkflowVersion específica (canary/A/B):
+EXEC=$(curl -s -X POST .../api/aihub/workflows/wf-x/trigger \
+  -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo' \
+  -H 'x-version: 7c9a2e1f-c3d4-...' \
+  -d '{"input":"hello"}' | jq -r .executionId)
+
 curl ".../api/aihub/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
   -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo'
-# → { "events": [...], "nextSince": 42, "terminal": false }</code></pre>
+# → { "events": [...], "nextSince": 42, "terminal": false }
+# A version pinada aparece em GET /api/aihub/executions/{id}.workflowVersionId</code></pre>
         <h3>Códigos HTTP</h3>
         <table class="event-table">
           <tbody>
@@ -2083,6 +2091,84 @@ while (true) {
   -H "x-efs-account: 123456789"</code></pre>
       </div>
     </div>
+  </section>
+
+  <!-- Pin de versão de workflow -->
+  <section id="workflow-version-pin">
+    <h2>Pin de versão (canary/A/B) — header <code>x-version</code></h2>
+    <p>
+      Toda execução roda, por default, contra o estado mutável corrente em
+      <code>aihub.workflow_definitions</code>. Pra rodar uma <em>WorkflowVersion</em> específica
+      sem alterar o estado canônico (canary, A/B, smoke de versão antiga em prod, comparação de
+      revisões), envie o header opcional <code>x-version: &lt;workflowVersionId&gt;</code>.
+    </p>
+
+    <h3>Endpoints que aceitam o header</h3>
+    <table>
+      <thead><tr><th>Endpoint</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td><code>POST /api/aihub/workflows/{id}/trigger</code></td><td>Trigger assíncrono direto</td></tr>
+        <tr><td><code>POST /api/aihub/workflows/{id}/sandbox</code></td><td>Mesmo que trigger, mas modo sandbox (tools mockadas)</td></tr>
+        <tr><td><code>POST /api/aihub/conversations/{id}/messages</code></td><td>Chat tradicional (não-AG-UI). Header é por-mensagem.</td></tr>
+        <tr><td><code>POST /api/aihub/chat/ag-ui/stream</code></td><td>Chat AG-UI streaming. Header é por-turn.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Status codes</h3>
+    <table>
+      <thead><tr><th>Código</th><th>Situação</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge badge-green">202</span></td><td>Execução enfileirada com pin (ou sem pin se header ausente)</td></tr>
+        <tr><td><span class="badge badge-yellow">400</span></td><td>VersionId pertence a outro workflow. Body: <code>{"error":"WorkflowVersion '...' pertence ao workflow 'X', não 'Y'."}</code></td></tr>
+        <tr><td><span class="badge badge-yellow">404</span></td><td>VersionId não existe. Body: <code>{"error":"WorkflowVersion '...' não encontrada."}</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3>Inspecionar a versão consumida</h3>
+    <p>
+      <code>GET /api/aihub/executions/{id}</code> e <code>/full</code> expõem
+      <code>workflowVersionId</code> sempre presente no JSON (<code>null</code> quando não houve pin).
+      Endpoints de streaming (<code>/stream</code>, <code>/messages/stream</code>, polling fallback)
+      <strong>não mudam</strong> — apenas relêem eventos pelo <code>executionId</code>, que já
+      carrega o pin definido no trigger.
+    </p>
+
+    <h3>Streaming + EventSource (browser)</h3>
+    <p>
+      Como <code>EventSource</code> nativo do browser não envia headers customizados, o pin
+      precisa ser definido no <code>POST</code> que cria a execução (trigger, sandbox, messages,
+      ag-ui/stream — todos POST). O <code>GET /stream</code> que vem depois só consome eventos
+      da execução pinada e <strong>não precisa</strong> de header.
+    </p>
+
+    <h3>Exemplo — canary de duas versões</h3>
+    <pre class="language-bash"><code class="language-bash"># Lista versões do workflow
+curl -s ".../api/aihub/workflows/wf-x/versions" \
+  -H 'x-efs-account: admin' -H 'x-efs-project-id: demo' | jq
+
+# Dispara contra a última versão (sem header)
+curl -s -X POST ".../api/aihub/workflows/wf-x/trigger" \
+  -H 'x-efs-account: pm' -H 'x-efs-project-id: demo' \
+  -d '{"input":"qual o saldo?"}' | jq
+
+# Mesma chamada, dispara contra revisão antiga (canary)
+curl -s -X POST ".../api/aihub/workflows/wf-x/trigger" \
+  -H 'x-efs-account: pm' -H 'x-efs-project-id: demo' \
+  -H 'x-version: 7c9a2e1f-c3d4-...' \
+  -d '{"input":"qual o saldo?"}' | jq
+
+# Inspeciona qual versão rodou
+curl -s ".../api/aihub/executions/04bf...?" \
+  -H 'x-efs-account: pm' -H 'x-efs-project-id: demo' | jq .workflowVersionId
+# → "7c9a2e1f-c3d4-..." (ou null pra execução sem pin)</code></pre>
+
+    <h3>Notas operacionais</h3>
+    <ul>
+      <li>O snapshot append-only carrega <strong>tudo</strong> da definition no momento da criação da revision: agentes pinados (<code>WorkflowAgentReference.AgentVersionId</code>), <code>orchestrationMode</code>, <code>edges</code>, <code>configuration.InputMode</code> (Standalone/Chat), <code>metadata</code>. Comportamento idêntico ao que rodaria se aquela versão fosse a current.</li>
+      <li>Tenant boundary preservado: o lookup do workflow é filtrado por projeto (<code>HasQueryFilter</code>); a validação cruzada do snapshot (<code>version.WorkflowDefinitionId == workflowId</code>) impede pin de outro tenant em tempo de execução.</li>
+      <li>Pin não viaja em <code>RollbackAsync</code>: rollback continua reescrevendo a current (comportamento atual). Pin é alternativa não-destrutiva para rodar versão antiga sem afetar produção.</li>
+      <li>Limitação conhecida: <code>HitlRecoveryService</code> retoma execuções <code>Paused</code> usando o estado mutável atual, não o snapshot original — a tratar quando virar caso real em produção.</li>
+    </ul>
   </section>
 
   <!-- Schema da Resposta — Workflow -->
