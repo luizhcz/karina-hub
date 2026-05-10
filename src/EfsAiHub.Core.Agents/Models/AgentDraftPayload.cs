@@ -14,6 +14,13 @@ public sealed class AgentDraftPayload
 {
     public string? Name { get; set; }
     public string? Description { get; set; }
+
+    /// <summary>
+    /// Tipo formal do agente (Custom é o default quando ausente). Round-trip
+    /// pro <see cref="AgentDefinition.Type"/> em <see cref="ToAgentDefinition"/>.
+    /// </summary>
+    public AgentType? Type { get; set; }
+
     public AgentModelConfig? Model { get; set; }
     public AgentProviderConfig? Provider { get; set; }
     public string? Instructions { get; set; }
@@ -39,6 +46,15 @@ public sealed class AgentDraftPayload
     public string? RegressionEvaluatorConfigVersionId { get; set; }
 
     /// <summary>
+    /// Set de IDs do pool global (<c>aihub.router_intents</c>) que este Router
+    /// atende. Aplicável apenas quando <c>Type=Router</c>; ignorado pra Custom.
+    /// Persistido no DB via junction <c>aihub.agent_router_intents</c>;
+    /// hidratado no edit-draft via lookup do link repo (não vem do jsonb da
+    /// definition, que tem <c>RouterIntentIds</c> como <c>JsonIgnore</c>).
+    /// </summary>
+    public IReadOnlyList<string>? RouterIntentIds { get; set; }
+
+    /// <summary>
     /// Materializa um <see cref="AgentDefinition"/> estrito — usado no publish.
     /// Aplica defaults pra campos opcionais ausentes e dispara
     /// <see cref="AgentDefinition.EnsureInvariants"/>; payload com Name/Model
@@ -55,6 +71,7 @@ public sealed class AgentDraftPayload
             Id = id,
             Name = Name ?? string.Empty,
             Description = Description,
+            Type = Type ?? AgentType.Custom,
             Model = Model ?? new AgentModelConfig { DeploymentName = string.Empty },
             Provider = Provider ?? new AgentProviderConfig(),
             Instructions = Instructions,
@@ -76,6 +93,7 @@ public sealed class AgentDraftPayload
             UpdatedAt = DateTime.UtcNow,
             RegressionTestSetId = RegressionTestSetId,
             RegressionEvaluatorConfigVersionId = RegressionEvaluatorConfigVersionId,
+            RouterIntentIds = RouterIntentIds,
         };
 
         def.EnsureInvariants();
@@ -90,6 +108,7 @@ public sealed class AgentDraftPayload
     {
         Name = def.Name,
         Description = def.Description,
+        Type = def.Type,
         Model = def.Model,
         Provider = def.Provider,
         Instructions = def.Instructions,
@@ -107,5 +126,6 @@ public sealed class AgentDraftPayload
         Enabled = def.Enabled,
         RegressionTestSetId = def.RegressionTestSetId,
         RegressionEvaluatorConfigVersionId = def.RegressionEvaluatorConfigVersionId,
+        RouterIntentIds = def.RouterIntentIds,
     };
 }

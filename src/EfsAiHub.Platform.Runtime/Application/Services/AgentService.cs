@@ -29,6 +29,7 @@ public class AgentService : IAgentService
     private readonly IProjectContextAccessor _projectAccessor;
     private readonly IAgentVersionRepository? _versionRepo;
     private readonly IAdminAuditLogger? _auditLogger;
+    private readonly IAgentRouterIntentLinkRepository? _intentLinkRepo;
     private readonly ILogger<AgentService> _logger;
 
     public AgentService(
@@ -37,13 +38,15 @@ public class AgentService : IAgentService
         IProjectContextAccessor projectAccessor,
         ILogger<AgentService> logger,
         IAgentVersionRepository? versionRepo = null,
-        IAdminAuditLogger? auditLogger = null)
+        IAdminAuditLogger? auditLogger = null,
+        IAgentRouterIntentLinkRepository? intentLinkRepo = null)
     {
         _repository = repository;
         _promptRepo = promptRepo;
         _projectAccessor = projectAccessor;
         _versionRepo = versionRepo;
         _auditLogger = auditLogger;
+        _intentLinkRepo = intentLinkRepo;
         _logger = logger;
     }
 
@@ -56,7 +59,7 @@ public class AgentService : IAgentService
     {
         definition.ProjectId = _projectAccessor.Current.ProjectId;
 
-        var (isValid, errors) = await ValidateAsync(definition, ct);
+        var (isValid, errors, _) = await ValidateAsync(definition, ct);
         if (!isValid)
             throw new ArgumentException($"Definição de agente inválida: {string.Join(", ", errors)}");
 
@@ -109,13 +112,18 @@ public class AgentService : IAgentService
         definition.ProjectId = existing.ProjectId;
         definition.TenantId = existing.TenantId;
         definition.Visibility = existing.Visibility;
+        // Type também é preservado: clientes legados sem o campo no body fariam
+        // request.ToDomain() default pra Custom e zerariam um Router existente.
+        // Mudança de tipo é semântica (invalida outras invariantes — Router exige
+        // structured output, etc) e fica fora do escopo do PUT genérico.
+        definition.Type = existing.Type;
         // Preserve AllowedProjectIds quando o caller não envia (CreateAgentRequest
         // pode trazer null tanto pra "remover whitelist" quanto pra "não mexer". Pra evitar
         // ambiguidade, PATCH /visibility é o único caminho de mudar AllowedProjectIds).
         if (definition.AllowedProjectIds is null)
             definition.AllowedProjectIds = existing.AllowedProjectIds;
 
-        var (isValid, errors) = await ValidateAsync(definition, ct);
+        var (isValid, errors, _) = await ValidateAsync(definition, ct);
         if (!isValid)
             throw new ArgumentException($"Definição de agente inválida: {string.Join(", ", errors)}");
 
@@ -338,9 +346,10 @@ public class AgentService : IAgentService
         _logger.LogInformation("Definição de agente '{AgentId}' removida.", id);
     }
 
-    public Task<(bool IsValid, IReadOnlyList<string> Errors)> ValidateAsync(AgentDefinition definition, CancellationToken ct = default)
+    public async Task<(bool IsValid, IReadOnlyList<string> Errors, IReadOnlyList<string> Warnings)> ValidateAsync(AgentDefinition definition, CancellationToken ct = default)
     {
         var errors = new List<string>();
+        var warnings = new List<string>();
 
         // ── Id e Name ────────────────────────────────────────────────────────
         ValidationContext.RequireIdentifier(errors, definition.Id, "id");
@@ -455,6 +464,62 @@ public class AgentService : IAgentService
                 errors.Add($"Middleware type inválido: '{mw.Type}'. Valores aceitos: {string.Join(", ", ValidMiddlewareTypes)}.");
         }
 
-        return Task.FromResult<(bool, IReadOnlyList<string>)>((errors.Count == 0, errors));
+        // ── Validações por tipo (Router) ─────────────────────────────────────
+        // Custom não tem template aplicado: skip. Outros tipos rodam invariantes
+        // específicas após os checks genéricos acima — assim erros estruturais
+        // (model, provider, tools) são reportados sem ruído de "schema não tem
+        // intent" quando a definition já tá quebrada na base.
+        if (definition.Type == AgentType.Router)
+            await ValidateRouterAsync(definition, errors, warnings, ct);
+
+        return (errors.Count == 0, errors, warnings);
+    }
+
+    /// <summary>
+    /// Invariantes do tipo Router: o agente precisa atender pelo menos 2
+    /// intents do pool global (<c>aihub.router_intents</c>). Schema persistido
+    /// pode ficar com <c>intent: { type: "string" }</c> sem enum — o runtime
+    /// (<c>ChatOptionsBuilder</c>) injeta o enum dinâmico das intents
+    /// referenciadas. Soft warnings sinalizam configurações que descaracterizam
+    /// o template (memória, tools, modelo pesado, MaxTokens alto).
+    /// </summary>
+    private async Task ValidateRouterAsync(
+        AgentDefinition definition,
+        List<string> errors,
+        List<string> warnings,
+        CancellationToken ct)
+    {
+        // Count vem do request (transient `RouterIntentIds`) quando o caller
+        // está propondo um set novo, ou do link repo quando é validação após
+        // o save (set vivo no DB).
+        var intentCount = definition.RouterIntentIds?.Count
+                          ?? (_intentLinkRepo is null
+                              ? 0
+                              : await _intentLinkRepo.CountForAgentAsync(definition.Id, ct));
+
+        if (intentCount < 2)
+        {
+            errors.Add(
+                $"Router exige pelo menos 2 intenções selecionadas (recebido: {intentCount}). " +
+                "Cadastre intenções em /intencoes e edite o agent pra marcar quais ele atende.");
+        }
+
+        if (definition.Model?.MaxTokens is { } maxTokens && maxTokens > 500)
+            warnings.Add($"Router típico produz output curto — 'model.maxTokens'={maxTokens} sugere uso indevido.");
+
+        var deployment = definition.Model?.DeploymentName ?? string.Empty;
+        if (!string.IsNullOrEmpty(deployment)
+            && deployment.IndexOf("mini", StringComparison.OrdinalIgnoreCase) < 0
+            && deployment.IndexOf("nano", StringComparison.OrdinalIgnoreCase) < 0
+            && deployment.IndexOf("haiku", StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            warnings.Add($"Router típico usa modelo mini/nano/haiku — 'model.deploymentName'='{deployment}' é um modelo full, confirma?");
+        }
+
+        if (definition.Tools.Count > 0)
+            warnings.Add("Tools em Router são incomuns — se o agente precisa invocar ferramentas, considere o tipo Tool Runner.");
+
+        if (definition.OperationalMemory?.Schema is not null)
+            warnings.Add("OperationalMemory raramente é útil em Router; pra contexto de chat, prefira workflow com 'InputMode=Chat'.");
     }
 }

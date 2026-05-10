@@ -38,6 +38,15 @@ export interface AgentToolDefinition {
   [key: string]: unknown
 }
 
+export interface AgentDraftStructuredOutput {
+  /** "text" | "json" | "json_schema" */
+  responseFormat?: string
+  schemaName?: string | null
+  schemaDescription?: string | null
+  /** JSON Schema (objeto serializado já parseado em JS). */
+  schema?: unknown | null
+}
+
 export interface AgentDraftOperationalMemory {
   /**
    * JSON Schema do payload da memória. Quando presente, ativa o middleware
@@ -47,14 +56,27 @@ export interface AgentDraftOperationalMemory {
   maxBytes?: number | null
 }
 
+// Espelho de EfsAiHub.Core.Agents.AgentType. Custom é o default quando ausente
+// no payload (back-end aplica o default na desserialização).
+export type AgentType = 'Custom' | 'Router'
+
 export interface AgentDraftPayload {
   name?: string | null
   description?: string | null
+  type?: AgentType | null
   instructions?: string | null
   model?: AgentDraftModelConfig | null
   tools?: AgentToolDefinition[] | null
+  structuredOutput?: AgentDraftStructuredOutput | null
   operationalMemory?: AgentDraftOperationalMemory | null
   metadata?: Record<string, string> | null
+  /**
+   * Set de IDs de intents do pool global que este Router atende. Aplicável
+   * apenas quando type='Router'; ignorado pra Custom. Persistido no backend
+   * via junction aihub.agent_router_intents — controller reconcilia após o
+   * upsert do agent.
+   */
+  routerIntentIds?: string[] | null
   // Demais campos (provider, middlewares, skillRefs, etc.) são opaque pra esta
   // camada — preservados intactos no update.
   [key: string]: unknown

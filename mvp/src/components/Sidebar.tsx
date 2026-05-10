@@ -20,6 +20,7 @@ interface NavItem {
 const items: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: <ChartIcon className="h-5 w-5" /> },
   { label: 'Agentes', to: '/agentes', icon: <AgentIcon className="h-5 w-5" /> },
+  { label: 'Intenções', to: '/intencoes', icon: <SparklesIcon className="h-5 w-5" /> },
   { label: 'Aprovações', to: '/aprovacoes', icon: <CheckIcon className="h-5 w-5" /> },
   { label: 'Implantações', to: '/implantacoes', icon: <BoltIcon className="h-5 w-5" /> },
   { label: 'Avaliações', to: '/avaliacoes', icon: <SparklesIcon className="h-5 w-5" /> },

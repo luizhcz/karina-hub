@@ -7,6 +7,7 @@ public sealed class AgentDraftService : IAgentDraftService
     private readonly IAgentDraftRepository _draftRepo;
     private readonly IAgentDefinitionRepository _agentRepo;
     private readonly IAgentVersionRepository _versionRepo;
+    private readonly IAgentRouterIntentLinkRepository? _intentLinkRepo;
     private readonly IProjectContextAccessor _projectAccessor;
     private readonly ITenantContextAccessor _tenantAccessor;
     private readonly ILogger<AgentDraftService> _logger;
@@ -17,11 +18,13 @@ public sealed class AgentDraftService : IAgentDraftService
         IAgentVersionRepository versionRepo,
         IProjectContextAccessor projectAccessor,
         ITenantContextAccessor tenantAccessor,
-        ILogger<AgentDraftService> logger)
+        ILogger<AgentDraftService> logger,
+        IAgentRouterIntentLinkRepository? intentLinkRepo = null)
     {
         _draftRepo = draftRepo;
         _agentRepo = agentRepo;
         _versionRepo = versionRepo;
+        _intentLinkRepo = intentLinkRepo;
         _projectAccessor = projectAccessor;
         _tenantAccessor = tenantAccessor;
         _logger = logger;
@@ -92,6 +95,16 @@ public sealed class AgentDraftService : IAgentDraftService
         // de agent_versions resolve definitivamente.
         var current = await _versionRepo.GetCurrentAsync(baseAgentId, ct);
         var baseRevision = current?.Revision;
+
+        // RouterIntentIds não persiste no jsonb da AgentDefinition (campo
+        // [JsonIgnore] cuja fonte da verdade é a junction agent_router_intents).
+        // Pra que o edit-draft mostre o set selecionado no wizard, hidrata
+        // explicitamente via lookup no link repo antes de derivar o payload.
+        if (existingAgent.Type == AgentType.Router && _intentLinkRepo is not null)
+        {
+            existingAgent.RouterIntentIds = await _intentLinkRepo
+                .ListIntentIdsForAgentAsync(baseAgentId, ct);
+        }
 
         var draft = new AgentDraft
         {

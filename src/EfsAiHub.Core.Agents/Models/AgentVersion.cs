@@ -154,11 +154,17 @@ public sealed record AgentVersion(
             ? null
             : new Dictionary<string, string>(definition.Metadata);
 
+        // Type sempre incluído no canonical (JsonStringEnumConverter global serializa
+        // como string). Agentes legacy sem campo Type no jsonb hidratam como Custom e
+        // geram ContentHash novo na primeira edição pós-feature — mudança one-time,
+        // sem regressão recorrente. Snapshots existentes em agent_versions ficam
+        // intactos por serem append-only.
         var canonical = JsonSerializer.Serialize(new
         {
             agentId = definition.Id,
             description = definition.Description,
             metadata,
+            type = definition.Type,
             prompt = promptContent,
             model = canonicalModel,
             provider = new { provider.Type, provider.ClientType, provider.Endpoint, provider.HasValue },
@@ -277,6 +283,11 @@ public sealed record AgentVersion(
             Id = AgentDefinitionId,
             Name = governanceSource?.Name ?? AgentDefinitionId,
             Description = Description,
+            // Type não viaja no snapshot lossless — é estado mutável da row
+            // de governança (a tipologia é decidida no create e preservada em
+            // UpdateAsync). Hidrata do governanceSource quando disponível;
+            // default Custom é seguro pra agentes legacy pré-tipologia.
+            Type = governanceSource?.Type ?? AgentType.Custom,
             Model = modelConfig,
             Provider = providerConfig,
             FallbackProvider = fallbackConfig,

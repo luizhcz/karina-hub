@@ -141,6 +141,42 @@ internal class GenericToolRow
     public DateTime UpdatedAt { get; set; }
 }
 
+// Pool global de intents por TENANT (cross-project). ProjectId aqui é a
+// "categoria" — referência a aihub.projects do mesmo tenant. HasQueryFilter
+// é por TenantId, não por ProjectId — qualquer projeto do tenant enxerga
+// tudo. Examples vem como JSON string (jsonb na coluna).
+internal class RouterIntentRow
+{
+    public string Id { get; set; } = "";
+    public string TenantId { get; set; } = "default";
+    public string ProjectId { get; set; } = "default";
+    public string Name { get; set; } = "";
+
+    // Texto humano editável pelo user (PT-BR, com espaços/acentos). Independe
+    // do Name canônico (snake_case decidido pelo analyzer LLM, vai pro
+    // intent.enum). Listagens preferem DisplayName se presente; runtime LLM
+    // usa Name.
+    public string? DisplayName { get; set; }
+
+    public string Description { get; set; } = "";
+    public string Examples { get; set; } = "[]";
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+// Junction (AgentId, IntentId) com ProjectId/TenantId redundantes pra acelerar
+// HasQueryFilter por ProjectId do AGENT — o join é per-Router/per-projeto.
+// FK CASCADE no AgentId (deletou agent → cleanup); RESTRICT no IntentId
+// (delete da intent bloqueado se em uso).
+internal class AgentRouterIntentRow
+{
+    public string AgentId { get; set; } = "";
+    public string IntentId { get; set; } = "";
+    public string ProjectId { get; set; } = "default";
+    public string TenantId { get; set; } = "default";
+    public DateTime CreatedAt { get; set; }
+}
+
 internal class ProjectRow
 {
     public string Id { get; set; } = "";
@@ -607,6 +643,8 @@ public class AgentFwDbContext : DbContext
     internal DbSet<AgentDraftRow> AgentDrafts => Set<AgentDraftRow>();
     internal DbSet<AgentApprovalHistoryRow> AgentApprovalHistory => Set<AgentApprovalHistoryRow>();
     internal DbSet<GenericToolRow> GenericTools => Set<GenericToolRow>();
+    internal DbSet<RouterIntentRow> RouterIntents => Set<RouterIntentRow>();
+    internal DbSet<AgentRouterIntentRow> AgentRouterIntents => Set<AgentRouterIntentRow>();
     internal DbSet<OperationalMemoryRow> OperationalMemory => Set<OperationalMemoryRow>();
     internal DbSet<PredefinedModelRow> PredefinedModels => Set<PredefinedModelRow>();
     internal DbSet<AgentPromptVersionRow> AgentPromptVersions => Set<AgentPromptVersionRow>();
@@ -853,6 +891,47 @@ public class AgentFwDbContext : DbContext
                 .HasDatabaseName("UX_generic_tools_ProjectId_Name");
             // Strictamente owner-only: sem cláusula global. Workflows não enxergam
             // tools de outros projects mesmo via Id direto.
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+        });
+
+        modelBuilder.Entity<RouterIntentRow>(b =>
+        {
+            b.ToTable("router_intents");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(64);
+            b.Property(e => e.TenantId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Name).HasMaxLength(128).IsRequired();
+            b.Property(e => e.DisplayName).HasColumnType("text");
+            b.Property(e => e.Description).HasColumnType("text").IsRequired();
+            b.Property(e => e.Examples).HasColumnType("jsonb").IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+            b.HasIndex(e => new { e.TenantId, e.Name })
+                .IsUnique()
+                .HasDatabaseName("UX_router_intents_TenantId_Name");
+            b.HasIndex(e => new { e.TenantId, e.ProjectId })
+                .HasDatabaseName("IX_router_intents_TenantId_ProjectId");
+            // Pool é por TENANT (cross-project). ProjectId é apenas a categoria —
+            // não filtra. Qualquer projeto do tenant enxerga todas as intents.
+            b.HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        });
+
+        modelBuilder.Entity<AgentRouterIntentRow>(b =>
+        {
+            b.ToTable("agent_router_intents");
+            b.HasKey(e => new { e.AgentId, e.IntentId });
+            b.Property(e => e.AgentId).HasMaxLength(256);
+            b.Property(e => e.IntentId).HasMaxLength(64);
+            b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.TenantId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.HasIndex(e => e.IntentId)
+                .HasDatabaseName("IX_agent_router_intents_IntentId");
+            b.HasIndex(e => new { e.ProjectId, e.AgentId })
+                .HasDatabaseName("IX_agent_router_intents_ProjectId_AgentId");
+            // Junction é per-Router/per-projeto do AGENT (agentes são project-scoped).
+            // FK CASCADE/RESTRICT já estão garantidos pelo DDL — EF não duplica.
             b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
         });
 

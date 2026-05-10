@@ -67,6 +67,10 @@ public class AgentFactory : IAgentFactory
     // exercitam essa feature podem omitir.
     private readonly EfsAiHub.Core.Agents.IOperationalMemoryRepository? _operationalMemoryRepo;
 
+    // Lookup de Router intents resolvidas em runtime — alimenta enum dinâmico
+    // do schema. Optional: agentes !=Router não tocam.
+    private readonly IAgentRouterIntentLinkRepository? _routerIntentLinkRepo;
+
     // Throttle pra cross_project_invoke audit. Capacity 1000, janela 60s,
     // emite métrica ao despejar. Static singleton: factory é registrado scoped em DI
     // mas o throttle precisa ser process-wide pra evitar duplicar logs entre scopes.
@@ -101,7 +105,8 @@ public class AgentFactory : IAgentFactory
         IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? sharingOptions = null,
         IGenericToolBinder? genericToolBinder = null,
         IPredefinedModelBinder? predefinedModelBinder = null,
-        EfsAiHub.Core.Agents.IOperationalMemoryRepository? operationalMemoryRepo = null)
+        EfsAiHub.Core.Agents.IOperationalMemoryRepository? operationalMemoryRepo = null,
+        IAgentRouterIntentLinkRepository? routerIntentLinkRepo = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
@@ -129,6 +134,7 @@ public class AgentFactory : IAgentFactory
         _genericToolBinder = genericToolBinder;
         _predefinedModelBinder = predefinedModelBinder;
         _operationalMemoryRepo = operationalMemoryRepo;
+        _routerIntentLinkRepo = routerIntentLinkRepo;
     }
 
     public async Task<ExecutableWorkflow> CreateAgentAsync(
@@ -150,11 +156,13 @@ public class AgentFactory : IAgentFactory
         await BindGenericToolsAsync(definition, ct);
         await TrackAgentVersionAsync(definition.Id, ct);
         var provider = ResolveProvider(definition);
+        var resolvedRouterIntents = await ResolveRouterIntentsAsync(definition, ct);
         var options = ChatOptionsBuilder.BuildAgentOptions(
             definition, _functionRegistry, _toolPersistence.Writer, _trackedFnLogger, _logger,
             _allowFingerprintMismatch,
             projectId: definition.ProjectId,
-            isStandaloneFlow: isStandaloneFlow);
+            isStandaloneFlow: isStandaloneFlow,
+            resolvedRouterIntents: resolvedRouterIntents);
 
         if (CanWrapAsChatClient(provider, definition))
         {
@@ -393,10 +401,12 @@ public class AgentFactory : IAgentFactory
         var agentVersionId = await TrackAgentVersionAsync(agentId, ct);
         var provider = ResolveProvider(definition);
         var rawChatClient = await provider.CreateChatClientAsync(definition, ct);
+        var resolvedRouterIntents = await ResolveRouterIntentsAsync(definition, ct);
         var chatOptions = ChatOptionsBuilder.BuildGraphChatOptions(
             definition, _functionRegistry, _toolPersistence.Writer, _trackedFnLogger, _logger,
             _allowFingerprintMismatch, projectId: definition.ProjectId,
-            isStandaloneFlow: isStandaloneFlow);
+            isStandaloneFlow: isStandaloneFlow,
+            resolvedRouterIntents: resolvedRouterIntents);
 
         // Envolve com FunctionInvokingChatClient para tratar chamadas de ferramentas automaticamente no modo Graph.
         // Sem isso, o handler lê apenas response.Text, que fica vazio quando o modelo retorna uma tool call.
@@ -506,6 +516,42 @@ public class AgentFactory : IAgentFactory
 
     /// <summary>
     /// Resolve a versão Published mais recente do agente e registra no ExecutionContext.AgentVersions.
+    /// <summary>
+    /// Resolve as intents que este Router atende em runtime. No-op pra Custom.
+    /// Retorno alimenta o ChatOptionsBuilder em duas frentes: (a) <c>Name</c>
+    /// vai pro <c>intent.enum</c> do schema, (b) lista completa (com
+    /// descrição/exemplos) é formatada num bloco markdown anexado ao
+    /// <c>Instructions</c>. Edits no pool propagam pra próxima chamada sem
+    /// re-publish do agent. Retorna null pra Custom ou quando não há repo de
+    /// link (testes).
+    /// </summary>
+    private async Task<IReadOnlyList<EfsAiHub.Core.Agents.RouterIntents.RouterIntent>?> ResolveRouterIntentsAsync(
+        AgentDefinition definition,
+        CancellationToken ct)
+    {
+        if (definition.Type != AgentType.Router)
+        {
+            _logger.LogInformation(
+                "[AgentFactory] ResolveRouterIntents: agent '{AgentId}' type={Type} — skip",
+                definition.Id, definition.Type);
+            return null;
+        }
+        if (_routerIntentLinkRepo is null)
+        {
+            _logger.LogWarning(
+                "[AgentFactory] ResolveRouterIntents: agent '{AgentId}' is Router but _routerIntentLinkRepo is null — enum não será injetado",
+                definition.Id);
+            return null;
+        }
+
+        var intents = await _routerIntentLinkRepo.ListIntentsForAgentAsync(definition.Id, ct);
+        _logger.LogInformation(
+            "[AgentFactory] Router '{AgentId}' resolved {Count} intents from junction.",
+            definition.Id, intents.Count);
+        return intents;
+    }
+
+    /// <summary>
     /// Retorna o AgentVersionId para uso em LlmTokenUsage (Graph mode).
     /// </summary>
     private async Task<string?> TrackAgentVersionAsync(string agentId, CancellationToken ct)
@@ -798,6 +844,10 @@ public class AgentFactory : IAgentFactory
         Id = d.Id,
         Name = d.Name,
         Description = d.Description,
+        // Type precisa ser preservado nas cópias do runtime — caso contrário
+        // Router vira Custom silenciosamente quando InjectProjectCredentials
+        // ou fallback do circuit breaker recriam o definition.
+        Type = d.Type,
         Model = d.Model,
         Provider = provider,
         Instructions = d.Instructions,
@@ -806,6 +856,12 @@ public class AgentFactory : IAgentFactory
         OperationalMemory = d.OperationalMemory,
         Middlewares = d.Middlewares,
         Metadata = d.Metadata,
+        ProjectId = d.ProjectId,
+        TenantId = d.TenantId,
+        Visibility = d.Visibility,
+        AllowedProjectIds = d.AllowedProjectIds,
+        Enabled = d.Enabled,
+        RouterIntentIds = d.RouterIntentIds,
         CreatedAt = d.CreatedAt,
         UpdatedAt = d.UpdatedAt,
     };

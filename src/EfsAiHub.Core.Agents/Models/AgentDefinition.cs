@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using EfsAiHub.Core.Abstractions.Exceptions;
 using EfsAiHub.Core.Agents.Skills;
 
@@ -10,6 +11,26 @@ public class AgentDefinition
     public required string Id { get; init; }
     public required string Name { get; init; }
     public string? Description { get; init; }
+
+    /// <summary>
+    /// Tipo formal do agente. Custom (default) = agente livre, sem template
+    /// aplicado, sem validações específicas — cobre back-compat de agentes
+    /// criados antes da tipologia. Outros tipos (Router, etc.) habilitam
+    /// validações de invariantes e templates de criação.
+    /// </summary>
+    public AgentType Type { get; set; } = AgentType.Custom;
+
+    /// <summary>
+    /// Set de intents do pool global (<c>aihub.router_intents</c>) que este
+    /// Router atende. Transient — NÃO persiste no jsonb da row do agent;
+    /// fonte da verdade é a junction <c>aihub.agent_router_intents</c>.
+    /// Carregado no GET (lookup do link repo) e enviado no save (controller
+    /// reconcilia o join após o upsert do agent). Aplicável apenas pra
+    /// <c>Type=Router</c>.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<string>? RouterIntentIds { get; set; }
+
     public required AgentModelConfig Model { get; init; }
 
     /// <summary>

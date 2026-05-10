@@ -18,6 +18,9 @@ public class AgentsController : ControllerBase
     private readonly IAgentService _agentService;
     private readonly IAgentVersionRepository _versionRepo;
     private readonly IAgentDraftService _draftService;
+    private readonly IAgentRouterIntentLinkRepository _routerIntentLinks;
+    private readonly EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor _projectAccessor;
+    private readonly EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor _tenantAccessor;
     private readonly IAdminAuditLogger _audit;
     private readonly AdminAuditContext _auditContext;
 
@@ -25,14 +28,42 @@ public class AgentsController : ControllerBase
         IAgentService agentService,
         IAgentVersionRepository versionRepo,
         IAgentDraftService draftService,
+        IAgentRouterIntentLinkRepository routerIntentLinks,
+        EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor projectAccessor,
+        EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor tenantAccessor,
         IAdminAuditLogger audit,
         AdminAuditContext auditContext)
     {
         _agentService = agentService;
         _versionRepo = versionRepo;
         _draftService = draftService;
+        _routerIntentLinks = routerIntentLinks;
+        _projectAccessor = projectAccessor;
+        _tenantAccessor = tenantAccessor;
         _audit = audit;
         _auditContext = auditContext;
+    }
+
+    private async Task<IReadOnlyList<string>?> ReconcileAndLoadRouterIntentsAsync(
+        AgentDefinition def,
+        IReadOnlyList<string>? requestedIntentIds,
+        CancellationToken ct)
+    {
+        if (def.Type != AgentType.Router) return null;
+
+        // Reconcilia se o caller mandou um set explícito; preserva o existente
+        // quando o request veio sem o campo (ex: PUT que só atualiza name).
+        if (requestedIntentIds is not null)
+        {
+            await _routerIntentLinks.SetIntentsForAgentAsync(
+                def.Id,
+                _projectAccessor.Current.ProjectId,
+                _tenantAccessor.Current.TenantId,
+                requestedIntentIds,
+                ct);
+        }
+
+        return await _routerIntentLinks.ListIntentIdsForAgentAsync(def.Id, ct);
     }
 
     [HttpPost]
@@ -43,16 +74,28 @@ public class AgentsController : ControllerBase
     {
         try
         {
-            var definition = await _agentService.CreateAsync(request.ToDomain(), ct,
+            var domain = request.ToDomain();
+            var definition = await _agentService.CreateAsync(domain, ct,
                 breakingChange: request.BreakingChange,
                 changeReason: request.ChangeReason,
                 createdBy: _auditContext.GetActorUserId());
+
+            // Reconcilia o set de intents (Router) na junction após o save.
+            // No-op pra Custom. Re-valida depois pra coletar warnings com o
+            // estado pós-save (link repo já tem o set vivo).
+            var routerIntentIds = await ReconcileAndLoadRouterIntentsAsync(definition, domain.RouterIntentIds, ct);
+            definition.RouterIntentIds = routerIntentIds;
+            var (_, _, warnings) = await _agentService.ValidateAsync(definition, ct);
+
             await _audit.RecordAsync(_auditContext.Build(
                 AdminAuditActions.Create,
                 AdminAuditResources.Agent,
                 definition.Id,
                 payloadAfter: AdminAuditContext.Snapshot(AgentResponse.FromDomain(definition))), ct);
-            return CreatedAtAction(nameof(GetById), new { id = definition.Id }, AgentResponse.FromDomain(definition));
+            return CreatedAtAction(
+                nameof(GetById),
+                new { id = definition.Id },
+                AgentResponse.FromDomain(definition, warnings, routerIntentIds));
         }
         catch (ArgumentException ex)
         {
@@ -68,7 +111,7 @@ public class AgentsController : ControllerBase
         var agents = string.Equals(scope, "project", StringComparison.OrdinalIgnoreCase)
             ? await _agentService.ListByProjectAsync(ct)
             : await _agentService.ListAsync(ct);
-        return Ok(agents.Select(AgentResponse.FromDomain));
+        return Ok(agents.Select(a => AgentResponse.FromDomain(a)));
     }
 
     [HttpGet("{id}")]
@@ -79,7 +122,12 @@ public class AgentsController : ControllerBase
     {
         var agent = await _agentService.GetAsync(id, ct);
         if (agent is null) return NotFound();
-        return Ok(AgentResponse.FromDomain(agent));
+
+        IReadOnlyList<string>? routerIntentIds = null;
+        if (agent.Type == AgentType.Router)
+            routerIntentIds = await _routerIntentLinks.ListIntentIdsForAgentAsync(agent.Id, ct);
+
+        return Ok(AgentResponse.FromDomain(agent, warnings: null, routerIntentIds: routerIntentIds));
     }
 
     [HttpPut("{id}")]
@@ -104,9 +152,15 @@ public class AgentsController : ControllerBase
                 changeReason: request.ChangeReason,
                 createdBy: actorUserId);
 
+            // Reconcilia o join apenas se o request mandou um set explícito.
+            // Re-valida depois pra coletar warnings com o estado pós-save.
+            var routerIntentIds = await ReconcileAndLoadRouterIntentsAsync(updated, definition.RouterIntentIds, ct);
+            updated.RouterIntentIds = routerIntentIds;
+
             // Audit operacional (admin_audit_log) + trilha de governança
             // (agent_approval_history). Os dois servem auditores diferentes
             // (SecOps vs Compliance) e precisam coexistir.
+            var (_, _, warnings) = await _agentService.ValidateAsync(updated, ct);
             await _audit.RecordAsync(_auditContext.Build(
                 AdminAuditActions.Update,
                 AdminAuditResources.Agent,
@@ -119,7 +173,7 @@ public class AgentsController : ControllerBase
                 changeReason: request.ChangeReason,
                 ct: ct);
 
-            return Ok(AgentResponse.FromDomain(updated));
+            return Ok(AgentResponse.FromDomain(updated, warnings, routerIntentIds));
         }
         catch (UnauthorizedAccessException ex)
         {
@@ -418,7 +472,15 @@ public class AgentsController : ControllerBase
 
         var rebuilt = RebuildFromSnapshot(current, target);
         var updated = await _agentService.UpdateAsync(rebuilt, ct);
-        return Ok(AgentResponse.FromDomain(updated));
+        // Rollback não toca o set de intents (snapshot da definition é sobre
+        // model/instructions/tools/output; intents vivem na junction). Apenas
+        // carrega o estado vivo do join pra response.
+        IReadOnlyList<string>? routerIntentIds = null;
+        if (updated.Type == AgentType.Router)
+            routerIntentIds = await _routerIntentLinks.ListIntentIdsForAgentAsync(updated.Id, ct);
+        updated.RouterIntentIds = routerIntentIds;
+        var (_, _, warnings) = await _agentService.ValidateAsync(updated, ct);
+        return Ok(AgentResponse.FromDomain(updated, warnings, routerIntentIds));
     }
 
     private static AgentDefinition RebuildFromSnapshot(AgentDefinition current, AgentVersion snapshot) => new()
@@ -475,8 +537,8 @@ public class AgentsController : ControllerBase
         var agent = await _agentService.GetAsync(id, ct);
         if (agent is null) return NotFound();
 
-        var (isValid, errors) = await _agentService.ValidateAsync(agent, ct);
-        return Ok(new { isValid, errors });
+        var (isValid, errors, warnings) = await _agentService.ValidateAsync(agent, ct);
+        return Ok(new { isValid, errors, warnings });
     }
 
     [HttpPost("{id}/sandbox")]

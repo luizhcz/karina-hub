@@ -69,5 +69,11 @@ public interface IAgentService
         CancellationToken ct = default);
 
     Task DeleteAsync(string id, CancellationToken ct = default);
-    Task<(bool IsValid, IReadOnlyList<string> Errors)> ValidateAsync(AgentDefinition definition, CancellationToken ct = default);
+
+    /// <summary>
+    /// Valida invariantes da definição. Errors são hard (CreateAsync/UpdateAsync
+    /// rejeitam o save quando não-vazio); Warnings são soft — guidance contextual
+    /// por <see cref="AgentDefinition.Type"/> que UI/caller pode ignorar.
+    /// </summary>
+    Task<(bool IsValid, IReadOnlyList<string> Errors, IReadOnlyList<string> Warnings)> ValidateAsync(AgentDefinition definition, CancellationToken ct = default);
 }

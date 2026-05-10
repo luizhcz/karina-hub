@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Badge, Button, Card, CardHeader, cn } from '../../ui'
 import type { GenericTool } from '../../api/genericTools'
 import type { McpServer } from '../../api/mcpServers'
 import type { PredefinedModel } from '../../api/predefinedModels'
+import { listRouterIntents, type RouterIntent } from '../../api/routerIntents'
 import { encodeInstructions } from './instructionsCodec'
-import { buildToolDescriptors } from './formCodec'
+import { buildToolDescriptors, encodeRouterInstructions } from './formCodec'
 import type { FormState } from './types'
 
 interface ReviewStepProps {
@@ -29,8 +30,19 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
   )
 
   const prompt = useMemo(
-    () => encodeInstructions(form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured),
-    [form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured],
+    () =>
+      form.type === 'Router'
+        ? encodeRouterInstructions(form.name)
+        : encodeInstructions(form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured),
+    [
+      form.type,
+      form.name,
+      form.profile,
+      inputForCodec,
+      outputForCodec,
+      toolDocs,
+      includeStructured,
+    ],
   )
 
   const selectedModel = models.find((m) => m.id === form.predefinedModelId) ?? null
@@ -54,13 +66,8 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
     })
   }
 
-  const enableSecurity = () =>
-    setForm((prev) => ({ ...prev, security: { ...prev.security, enabled: true } }))
-
   return (
     <div className="space-y-5">
-      <SecurityBanner enabled={form.security.enabled} disabled={readonly} onEnable={enableSecurity} />
-
       <Card className="space-y-3">
         <CardHeader
           title="Identificação"
@@ -74,6 +81,14 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
             </dd>
           </div>
           <div>
+            <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Tipo</dt>
+            <dd className="mt-1 text-sm text-fg">
+              <Badge tone={form.type === 'Router' ? 'accent' : 'neutral'}>
+                {form.type}
+              </Badge>
+            </dd>
+          </div>
+          <div>
             <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Modelo</dt>
             <dd className="mt-1 text-sm text-fg">
               {selectedModel ? selectedModel.displayName : <span className="italic text-fg-dim">não selecionado</span>}
@@ -81,6 +96,20 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
           </div>
         </dl>
       </Card>
+
+      {form.type === 'Router' && <RouterPreview form={form} />}
+
+      <SecurityReviewCard
+        enabled={form.security.enabled}
+        type={form.type}
+        disabled={readonly}
+        onToggle={() =>
+          setForm((prev) => ({
+            ...prev,
+            security: { ...prev.security, enabled: !prev.security.enabled },
+          }))
+        }
+      />
 
       <Card className="space-y-4">
         <CardHeader
@@ -141,43 +170,131 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
   )
 }
 
-interface SecurityBannerProps {
-  enabled: boolean
-  disabled: boolean
-  onEnable: () => void
+interface RouterPreviewProps {
+  form: FormState
 }
 
-// Banner de recomendação na revisão. O step "Segurança" só existe no modo
-// avançado, então o PM/PO que opera no básico nunca veria a feature; este
-// banner garante visibilidade no momento que ele já está prestes a submeter.
-function SecurityBanner({ enabled, disabled, onEnable }: SecurityBannerProps) {
-  if (enabled) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-accent/30 bg-accent-subtle/60 px-4 py-2.5 text-xs text-accent">
-        <span aria-hidden="true" className="text-sm">✓</span>
-        <span>Guardrails de segurança ativos. Resposta limitada ao escopo declarado, sem invenção de dados, sem vazar instruções.</span>
-      </div>
-    )
-  }
+// Preview no Review das intents que este Router atende. Fetch do pool global
+// + filter pelas selecionadas em form.routerIntentIds. Mostra warning quando
+// <2 selecionadas — backend rejeita o save.
+function RouterPreview({ form }: RouterPreviewProps) {
+  const [pool, setPool] = useState<RouterIntent[]>([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let cancelled = false
+    listRouterIntents()
+      .then((items) => {
+        if (!cancelled) setPool(items)
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const selected = pool.filter((i) => form.routerIntentIds.includes(i.id))
+  const tooFew = form.routerIntentIds.length < 2
+
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">
-        <p className="text-sm font-medium text-warning">Esse agente não tem guardrails de segurança ativos.</p>
-        <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-          Recomendado para agentes expostos a usuários finais — adiciona proteção contra prompt
-          injection, respostas fora do escopo e vazamento de instruções. Custo: ~300 tokens por chamada.
+    <Card className="space-y-3">
+      <CardHeader
+        title="Intenções atendidas"
+        description="As categorias que este Router pode escolher. Edits no pool propagam pra próxima chamada — adicionar intenção nova ao pool não inclui automaticamente neste Router."
+      />
+      {loading ? (
+        <p className="text-xs text-fg-muted">Carregando…</p>
+      ) : form.routerIntentIds.length === 0 ? (
+        <p
+          className={cn(
+            'rounded-lg border px-3 py-2 text-xs',
+            'border-warning/40 bg-warning/10 text-warning',
+          )}
+        >
+          Nenhuma intenção marcada. Volte pra etapa Intenções e selecione ao menos 2 antes de submeter.
         </p>
+      ) : (
+        <>
+          <ul className="space-y-2">
+            {selected.map((intent) => (
+              <li
+                key={intent.id}
+                className="rounded-lg border border-border bg-bg-soft px-3 py-2"
+              >
+                <div className="flex items-center gap-2">
+                  <Badge tone="accent">{intent.name}</Badge>
+                </div>
+                {intent.description.trim() && (
+                  <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+                    {intent.description.trim()}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+          {tooFew && (
+            <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+              Pelo menos 2 intenções são obrigatórias. Selecione mais antes de submeter.
+            </p>
+          )}
+        </>
+      )}
+    </Card>
+  )
+}
+
+interface SecurityReviewCardProps {
+  enabled: boolean
+  type: FormState['type']
+  disabled: boolean
+  onToggle: () => void
+}
+
+// Card permanente de Segurança no Review. Diferente do SecurityBanner (que é
+// reativo e pode passar despercebido quando ativo), este sempre aparece com
+// estado on/off + toggle inline + hint específico pelo tipo do agente —
+// crítico pro Router que não tem step próprio de Segurança no Stepper.
+function SecurityReviewCard({ enabled, type, disabled, onToggle }: SecurityReviewCardProps) {
+  const description =
+    type === 'Router'
+      ? 'Router classifica e devolve label estruturada — output não vai pro usuário, então o vetor de prompt injection é menor. Ative se o input vem de canal hostil e quer proteção extra; do contrário, manter desligado economiza ~300 tokens/chamada.'
+      : 'Adiciona política de sistema fixa: trata input do usuário como dado (não instrução), bloqueia troca de persona, recusa pedidos fora do escopo e impede vazamento de instruções/identificadores. Custo ~300 tokens por chamada.'
+
+  return (
+    <Card className="space-y-3">
+      <CardHeader
+        title="Guardrails de segurança"
+        description={description}
+        actions={
+          <Badge tone={enabled ? 'success' : 'neutral'}>
+            {enabled ? 'Ativos' : 'Desligados'}
+          </Badge>
+        }
+      />
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-bg-soft px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-fg">
+            {enabled
+              ? 'Guardrails ativos — agente bloqueia prompt injection e respostas fora do escopo.'
+              : 'Sem guardrails — agente segue apenas o perfil declarado.'}
+          </p>
+          <p className="mt-0.5 text-[11px] text-fg-muted">
+            Política fixa da plataforma; texto não é editável.
+          </p>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onToggle}
+          disabled={disabled}
+          className="shrink-0"
+        >
+          {enabled ? 'Desativar' : 'Ativar'}
+        </Button>
       </div>
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={onEnable}
-        disabled={disabled}
-        className="shrink-0"
-      >
-        Ativar guardrails
-      </Button>
-    </div>
+    </Card>
   )
 }
 
