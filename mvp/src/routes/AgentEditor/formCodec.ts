@@ -21,6 +21,10 @@ const SECURITY_MIDDLEWARE_TYPE = 'SecurityGuardrails'
 // usado pelo backend (AgentDefinition.WorkerScopeMetadataKey).
 const WORKER_SCOPE_METADATA_KEY = 'x-worker-scope'
 
+// Chave em payload.metadata que declara HITL pro Tool Runner. Mesmo valor
+// usado pelo backend (AgentDefinition.ToolRunnerHitlRequiredMetadataKey).
+const TOOL_RUNNER_HITL_METADATA_KEY = 'x-tool-runner-hitl-required'
+
 export function shortId(): string {
   return Math.random().toString(36).slice(2, 10)
 }
@@ -195,6 +199,7 @@ export function emptyFormState(): FormState {
     type: 'Custom',
     routerIntentIds: [],
     workerScope: '',
+    toolRunnerHitlRequired: false,
     predefinedModelId: '',
     profile: {
       role: '',
@@ -259,12 +264,18 @@ export function fromDraft(draft: AgentDraft): FormState {
   const securityEntry = middlewareList.find((m) => m?.type === SECURITY_MIDDLEWARE_TYPE)
   const securityEnabled = securityEntry?.enabled === true
 
-  // Backend default = Custom quando ausente. Aceita Custom|Router|Worker no
-  // UI; tipos não-implementados (futuro ToolRunner/Conversational) caem pra
-  // Custom — evita travar o wizard com value inválido.
+  // Backend default = Custom quando ausente. Aceita Custom|Router|Worker|
+  // ToolRunner no UI; tipos não-implementados (futuro Conversational) caem
+  // pra Custom — evita travar o wizard com value inválido.
   const rawType = payload.type
   const type: AgentType =
-    rawType === 'Router' ? 'Router' : rawType === 'Worker' ? 'Worker' : 'Custom'
+    rawType === 'Router'
+      ? 'Router'
+      : rawType === 'Worker'
+        ? 'Worker'
+        : rawType === 'ToolRunner'
+          ? 'ToolRunner'
+          : 'Custom'
 
   // IDs das intents que este Router atende. Source of truth = backend
   // (junction aihub.agent_router_intents); response do agent já traz no
@@ -279,6 +290,12 @@ export function fromDraft(draft: AgentDraft): FormState {
   // hidrata no form. Outros tipos não usam essa chave — fica string vazia.
   const rawMetadataScope = payload.metadata?.[WORKER_SCOPE_METADATA_KEY]
   const workerScope = typeof rawMetadataScope === 'string' ? rawMetadataScope : ''
+
+  // Flag HITL do Tool Runner vive em metadata['x-tool-runner-hitl-required'].
+  // Backend grava string "true"/ausente; UI mantém como boolean no FormState.
+  const rawHitl = payload.metadata?.[TOOL_RUNNER_HITL_METADATA_KEY]
+  const toolRunnerHitlRequired =
+    typeof rawHitl === 'string' && rawHitl.toLowerCase() === 'true'
 
   // Worker grava o schema em payload.structuredOutput (não no instructions
   // como Custom-advanced). Hidrata o FormState a partir dele pra que o
@@ -305,6 +322,7 @@ export function fromDraft(draft: AgentDraft): FormState {
     type,
     routerIntentIds,
     workerScope,
+    toolRunnerHitlRequired,
     predefinedModelId: payload.model?.predefinedModelId ?? '',
     profile: decoded.profile,
     toolIds,
@@ -324,11 +342,12 @@ export function fromDraft(draft: AgentDraft): FormState {
       description: decoded.output.description,
       schema: decoded.output.schema,
     },
-    // Worker sempre é tratado como "advanced" (steps fixos pelo tipo): força
-    // o modo independente do conteúdo do instructions, pra que toggles e
-    // hidratação de visited steps fiquem consistentes ao reabrir o draft.
+    // Worker e Tool Runner são sempre tratados como "advanced" (steps fixos
+    // pelo tipo): força o modo independente do conteúdo do instructions,
+    // pra que toggles e hidratação de visited steps fiquem consistentes ao
+    // reabrir o draft.
     agentMode:
-      type === 'Worker'
+      type === 'Worker' || type === 'ToolRunner'
         ? 'advanced'
         : decoded.hasStructured || memEnabled
           ? 'advanced'
@@ -358,20 +377,24 @@ export function buildPayload(
   // Router usa placeholder deterministico — runtime (ChatOptionsBuilder)
   // resolve o conteúdo real ao montar o prompt baseado no set vivo do join
   // agent_router_intents. Worker usa skeleton mínimo — runtime injeta o
-  // bloco "# Domínio de análise" lendo metadata['x-worker-scope']. Custom
-  // segue o encoder genérico do ProfileStep.
+  // bloco "# Domínio de análise" lendo metadata['x-worker-scope']. Tool
+  // Runner usa skeleton mínimo — tools já carregam Description/WhenToUse
+  // pro LLM via FunctionTool factory, sem necessidade de bloco anchor
+  // adicional. Custom segue o encoder genérico do ProfileStep.
   const instructions =
     form.type === 'Router'
       ? encodeRouterInstructions(form.name)
       : form.type === 'Worker'
         ? encodeWorkerInstructions(form.name)
-        : encodeInstructions(
-            form.profile,
-            inputForCodec,
-            outputForCodec,
-            toolDocs,
-            includeStructured,
-          )
+        : form.type === 'ToolRunner'
+          ? encodeToolRunnerInstructions(form.name)
+          : encodeInstructions(
+              form.profile,
+              inputForCodec,
+              outputForCodec,
+              toolDocs,
+              includeStructured,
+            )
 
   // AgentModelConfig.DeploymentName é `required` no backend (System.Text.Json
   // valida no bind). Cliente envia '' quando só usa preset — o
@@ -395,9 +418,13 @@ export function buildPayload(
   // Refs do agent → intents do pool vivem em aihub.agent_router_intents
   // (junction). Removemos a chave legacy se vier do prev pra higienizar.
   // Worker grava 'x-worker-scope' aqui (texto livre lido em runtime); pra
-  // outros tipos a chave é removida pra evitar lixo cross-tipo.
-  const metadata = encodeWorkerScopeMetadata(
-    stripLegacyRouterIntentsMetadata(prev?.metadata),
+  // outros tipos a chave é removida pra evitar lixo cross-tipo. Tool
+  // Runner declara HITL em 'x-tool-runner-hitl-required' (mesma higiene).
+  const metadata = encodeToolRunnerHitlMetadata(
+    encodeWorkerScopeMetadata(
+      stripLegacyRouterIntentsMetadata(prev?.metadata),
+      form,
+    ),
     form,
   )
 
@@ -525,6 +552,26 @@ function stripLegacyRouterIntentsMetadata(
  * concatena com separador).
  */
 /**
+ * Skeleton determinístico mínimo do Tool Runner. Tool Runner é executor —
+ * tools selecionadas já viajam com Description/WhenToUse via
+ * <c>FunctionTool</c> factory; o LLM lê os docs delas direto. Manter o
+ * skeleton enxuto evita duplicar instruções de uso de tool no system
+ * prompt e dá determinismo ao prompt persistido.
+ */
+export function encodeToolRunnerInstructions(name: string): string {
+  const cleanName = (name || '').trim()
+  const role = cleanName
+    ? `Você é ${cleanName}.`
+    : 'Você é um Tool Runner (executor de tarefas via tools).'
+  return [
+    role,
+    'Use as ferramentas disponíveis pra executar a tarefa solicitada.',
+    'Escolha tools com base na descrição de cada uma; valide argumentos antes de chamar.',
+    'Quando a tarefa estiver completa, devolva um resumo curto da execução.',
+  ].join(' ')
+}
+
+/**
  * Skeleton determinístico mínimo do Worker. O domínio (scope) NÃO entra
  * aqui — vive em <c>metadata['x-worker-scope']</c> e é injetado em runtime
  * pelo <c>ChatOptionsBuilder</c> (bloco "# Domínio de análise" anexado ao
@@ -560,6 +607,26 @@ function encodeWorkerScopeMetadata(
     else delete next[WORKER_SCOPE_METADATA_KEY]
   } else {
     delete next[WORKER_SCOPE_METADATA_KEY]
+  }
+  return next
+}
+
+/**
+ * Mantém <c>metadata['x-tool-runner-hitl-required']</c> sincronizado com o
+ * form. Pra Tool Runner grava <c>"true"</c> quando o flag está on (ou
+ * remove a chave quando off); pra outros tipos remove a chave pra evitar
+ * lixo cross-tipo (Custom herdando flag de uma transição anterior).
+ */
+function encodeToolRunnerHitlMetadata(
+  prev: Record<string, string>,
+  form: FormState,
+): Record<string, string> {
+  const next: Record<string, string> = { ...prev }
+  if (form.type === 'ToolRunner') {
+    if (form.toolRunnerHitlRequired) next[TOOL_RUNNER_HITL_METADATA_KEY] = 'true'
+    else delete next[TOOL_RUNNER_HITL_METADATA_KEY]
+  } else {
+    delete next[TOOL_RUNNER_HITL_METADATA_KEY]
   }
   return next
 }

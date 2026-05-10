@@ -9,9 +9,8 @@ namespace EfsAiHub.Core.Agents;
 /// template aplicado, sem validações específicas.
 ///
 /// Persiste como string no jsonb da row (<c>JsonStringEnumConverter</c>
-/// aplicado por attribute, conversão restrita a este enum). Membros
-/// adicionais (ToolRunner, Conversational) entram conforme cada tipo
-/// for refinado.
+/// aplicado por attribute, conversão restrita a este enum). Membro
+/// adicional (Conversational) entra conforme o tipo for refinado.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum AgentType
@@ -27,4 +26,17 @@ public enum AgentType
     /// pelo <c>ChatOptionsBuilder</c> (paralelo ao bloco Router).
     /// </summary>
     Worker = 2,
+
+    /// <summary>
+    /// Function-caller / action agent. Decide qual tool chamar com quais
+    /// argumentos pra cumprir uma tarefa que exige ação no mundo. LLM como
+    /// executor (não como respondedor). Defaults: modelo full, Temperature
+    /// 0–0.3 (determinismo), Tools obrigatório (warning se vazio),
+    /// AccountGuard + SecurityGuardrails recomendados (defaults on no
+    /// wizard). Política de aprovação humana (HITL) declarada em
+    /// <c>metadata['x-tool-runner-hitl-required']</c> — flag declarativo
+    /// usado pra emitir warnings de consistência no save; runtime não
+    /// enforça bloqueio efetivo de invocação.
+    /// </summary>
+    ToolRunner = 3,
 }

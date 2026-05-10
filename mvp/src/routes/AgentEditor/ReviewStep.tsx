@@ -10,6 +10,7 @@ import { encodeInstructions } from './instructionsCodec'
 import {
   buildToolDescriptors,
   encodeRouterInstructions,
+  encodeToolRunnerInstructions,
   encodeWorkerInstructions,
 } from './formCodec'
 import type { FormState } from './types'
@@ -39,7 +40,9 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
         ? encodeRouterInstructions(form.name)
         : form.type === 'Worker'
           ? encodeWorkerInstructions(form.name)
-          : encodeInstructions(form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured),
+          : form.type === 'ToolRunner'
+            ? encodeToolRunnerInstructions(form.name)
+            : encodeInstructions(form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured),
     [
       form.type,
       form.name,
@@ -106,6 +109,10 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
       {form.type === 'Router' && <RouterPreview form={form} />}
 
       {form.type === 'Worker' && <WorkerPreview form={form} />}
+
+      {form.type === 'ToolRunner' && (
+        <ToolRunnerPreview form={form} tools={tools} mcps={mcps} />
+      )}
 
       <SecurityReviewCard
         enabled={form.security.enabled}
@@ -298,6 +305,88 @@ function WorkerPreview({ form }: WorkerPreviewProps) {
           </p>
         </div>
       )}
+    </Card>
+  )
+}
+
+interface ToolRunnerPreviewProps {
+  form: FormState
+  tools: GenericTool[]
+  mcps: McpServer[]
+}
+
+// Preview do Tool Runner no Review: mostra tools/MCPs selecionados (cada
+// um sinaliza requiresApproval=true se aplicável), status do flag HITL e
+// status do middleware AccountGuard (presente no payload.middlewares —
+// avaliado via FormState pra UX, valor real é montado no save).
+// Tool Runner sem tools recebe warning soft no save; aqui é sinalizado.
+function ToolRunnerPreview({ form, tools, mcps }: ToolRunnerPreviewProps) {
+  const selectedTools = tools.filter((t) => form.toolIds.includes(t.id))
+  const selectedMcps = mcps.filter((m) => form.mcpIds.includes(m.id))
+  const noTools = selectedTools.length === 0 && selectedMcps.length === 0
+  const hitlOn = form.toolRunnerHitlRequired
+
+  return (
+    <Card className="space-y-3">
+      <CardHeader
+        title="Política operacional"
+        description="Resumo do que será gravado no Tool Runner: ferramentas disponíveis, exigência declarada de HITL e recomendação de AccountGuard. Avisos soft do template aparecem no log do save."
+      />
+      {noTools ? (
+        <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+          Nenhuma ferramenta selecionada. Tool Runner sem tools não tem o que executar — volte pra etapa Ferramentas e marque ao menos uma.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          <div>
+            <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
+              Ferramentas
+            </p>
+            {selectedTools.length === 0 ? (
+              <p className="text-sm text-fg-muted">Nenhuma function/HTTP selecionada.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {selectedTools.map((t) => (
+                  <Badge key={t.id} tone="accent">
+                    {t.name || t.id}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
+              MCPs
+            </p>
+            {selectedMcps.length === 0 ? (
+              <p className="text-sm text-fg-muted">Nenhum MCP selecionado.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {selectedMcps.map((m) => (
+                  <Badge key={m.id} tone="accent">
+                    {m.name || m.serverLabel || m.id}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-bg-soft px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-fg">
+            Aprovação humana antes de tools com side-effect
+          </p>
+          <p className="mt-0.5 text-[11px] text-fg-muted">
+            {hitlOn
+              ? 'Declarada como exigida — tools com requiresApproval=true devem aguardar confirmação humana.'
+              : 'Não exigida — agente invoca tools direto. Marque no step Identificação se quiser sinalizar a exigência.'}
+          </p>
+        </div>
+        <Badge tone={hitlOn ? 'warning' : 'neutral'}>
+          {hitlOn ? 'Exigida' : 'Não exigida'}
+        </Badge>
+      </div>
     </Card>
   )
 }

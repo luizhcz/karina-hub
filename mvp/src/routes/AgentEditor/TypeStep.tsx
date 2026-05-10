@@ -54,6 +54,17 @@ const TYPE_CARDS: TypeCard[] = [
       'OperationalMemory off — single-shot dentro de pipeline',
     ],
   },
+  {
+    type: 'ToolRunner',
+    title: 'Tool Runner',
+    tagline: 'Function-caller / executor — decide qual tool chamar e com quais argumentos.',
+    bestFor: 'Tarefas que exigem ação no mundo: criar boleta, consultar API, enviar notificação, registrar movimentação. Standalone, embutido em chat ou dentro de pipeline (Worker analisa → Tool Runner executa).',
+    bullets: [
+      'Tools obrigatórias — sem tools o template não faz sentido',
+      'SecurityGuardrails ligado por padrão; AccountGuard recomendado',
+      'Modelo full, Temperature 0–0.3, MaxTokens 2000+ — determinismo prioritário',
+    ],
+  },
 ]
 
 // Defaults idempotentes do template Worker. Aplicados apenas quando o
@@ -100,35 +111,61 @@ export function TypeStep({ form, setForm, readonly }: TypeStepProps) {
   const select = (next: AgentType) => {
     if (readonly || form.type === next) return
     setForm((prev) => {
-      const base: FormState = { ...prev, type: next }
-      if (next !== 'Worker') return base
-
-      // Output structured com schema padrão é a marca registrada do Worker
-      // — só aplica quando o user ainda não tocou em nada. Se ele já
-      // configurou um output (text com descrição custom, ou structured com
-      // schema próprio), preserva.
-      const outputUntouched =
-        prev.output.mode === 'text'
-        && prev.output.description.trim() === ''
-        && prev.output.schema.trim() === ''
-
-      // SecurityGuardrails é recomendação do template — liga só quando
-      // não está explicitamente off com toggle do user. Mesmo critério:
-      // só ativa em estado virgem.
-      const securityUntouched = !prev.security.enabled
-
-      return {
-        ...base,
-        agentMode: outputUntouched ? 'advanced' : prev.agentMode,
-        output: outputUntouched
-          ? {
-              mode: 'structured',
-              description: WORKER_DEFAULT_OUTPUT_DESCRIPTION,
-              schema: WORKER_DEFAULT_OUTPUT_SCHEMA,
-            }
-          : prev.output,
-        security: securityUntouched ? { enabled: true } : prev.security,
+      // Reset de flags type-específicas: ao trocar de tipo, descarta a
+      // declaração HITL do Tool Runner pra evitar shadow state se o user
+      // voltar pra ToolRunner depois (o save já limpa o metadata via
+      // encodeToolRunnerHitlMetadata; aqui mantemos o FormState coerente).
+      const base: FormState = {
+        ...prev,
+        type: next,
+        toolRunnerHitlRequired: next === 'ToolRunner' ? prev.toolRunnerHitlRequired : false,
       }
+
+      if (next === 'Worker') {
+        // Output structured com schema padrão é a marca registrada do Worker
+        // — só aplica quando o user ainda não tocou em nada. Se ele já
+        // configurou um output (text com descrição custom, ou structured com
+        // schema próprio), preserva.
+        const outputUntouched =
+          prev.output.mode === 'text'
+          && prev.output.description.trim() === ''
+          && prev.output.schema.trim() === ''
+
+        // SecurityGuardrails é recomendação do template — liga só quando
+        // não está explicitamente off com toggle do user. Mesmo critério:
+        // só ativa em estado virgem.
+        const securityUntouched = !prev.security.enabled
+
+        return {
+          ...base,
+          agentMode: outputUntouched ? 'advanced' : prev.agentMode,
+          output: outputUntouched
+            ? {
+                mode: 'structured',
+                description: WORKER_DEFAULT_OUTPUT_DESCRIPTION,
+                schema: WORKER_DEFAULT_OUTPUT_SCHEMA,
+              }
+            : prev.output,
+          security: securityUntouched ? { enabled: true } : prev.security,
+        }
+      }
+
+      if (next === 'ToolRunner') {
+        // Tool Runner: SecurityGuardrails on quando user não tocou —
+        // recomendado pra mitigar prompt injection em executores. Modo
+        // wizard fica advanced (steps Tools/Security/Memory/Output são
+        // explícitos pelo template). AccountGuard é avaliado em validação
+        // (warning quando off) e ativado pelo user via SecurityStep ou
+        // edição manual de payload.middlewares.
+        const securityUntouched = !prev.security.enabled
+        return {
+          ...base,
+          agentMode: 'advanced',
+          security: securityUntouched ? { enabled: true } : prev.security,
+        }
+      }
+
+      return base
     })
   }
 

@@ -73,6 +73,17 @@ const TYPE_CHOICES: TypeChoice[] = [
     accent: 'from-sky-500/15 to-sky-500/0 text-sky-600 dark:text-sky-400',
     iconBg: 'bg-sky-500/15 text-sky-600 dark:text-sky-400',
   },
+  {
+    type: 'ToolRunner',
+    defaultMode: 'advanced',
+    title: 'Tool Runner',
+    pitch:
+      'Function-caller / executor. Decide qual tool chamar com quais argumentos pra cumprir uma tarefa que exige ação no mundo. Step próprio de Identificação captura nome e política de aprovação humana (HITL).',
+    steps: ['Tipo', 'Identificação', 'Ferramentas', 'Segurança', 'Memória', 'Output', 'Modelo', 'Revisão'],
+    icon: <BoltIcon className="h-6 w-6" />,
+    accent: 'from-amber-500/15 to-amber-500/0 text-amber-600 dark:text-amber-400',
+    iconBg: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+  },
 ]
 
 export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModalProps) {
@@ -81,13 +92,13 @@ export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModal
       open={open}
       onClose={onClose}
       title="Como você quer começar?"
-      description="Escolha o tipo formal do agente — Custom (livre), Router (classifier) ou Worker (specialist de domínio). Templates abaixo aceleram quando o caso já tem um modelo pronto."
+      description="Escolha o tipo formal do agente — Custom (livre), Router (classifier), Worker (specialist) ou Tool Runner (executor). Templates abaixo aceleram quando o caso já tem um modelo pronto."
       size="lg"
     >
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-fg-dim">
         Tipo do agente
       </p>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {TYPE_CHOICES.map((choice) => (
           <button
             key={choice.type}

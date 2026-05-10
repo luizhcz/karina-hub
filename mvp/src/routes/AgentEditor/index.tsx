@@ -40,6 +40,7 @@ import { TypeStep } from './TypeStep'
 import { ProfileStep } from './ProfileStep'
 import { RouterProfileStep } from './RouterProfileStep'
 import { WorkerProfileStep } from './WorkerProfileStep'
+import { ToolRunnerProfileStep } from './ToolRunnerProfileStep'
 import { ToolsKnowledgeStep } from './ToolsKnowledgeStep'
 import { SecurityStep } from './SecurityStep'
 import { MemoryStep } from './MemoryStep'
@@ -148,9 +149,26 @@ const WORKER_STEPS: StepDescriptor[] = [
   { key: 'review', label: 'Revisão' },
 ]
 
+// Tool Runner substitui o ProfileStep por um step próprio (Identificação +
+// política HITL). Inclui Tools (obrigatório por warning), Segurança
+// (AccountGuard/Guardrails recomendados), Memória (multi-turn possível,
+// diferente do Worker), Output (opcional), Modelo. Sem Input — schema de
+// input é coberto pelas tools (cada uma carrega seu schema).
+const TOOL_RUNNER_STEPS: StepDescriptor[] = [
+  { key: 'type', label: 'Tipo' },
+  { key: 'profile', label: 'Identificação' },
+  { key: 'tools', label: 'Ferramentas' },
+  { key: 'security', label: 'Segurança' },
+  { key: 'memory', label: 'Memória' },
+  { key: 'output', label: 'Output' },
+  { key: 'model', label: 'Modelo' },
+  { key: 'review', label: 'Revisão' },
+]
+
 function stepsFor(mode: AgentMode, type: AgentType): StepDescriptor[] {
   if (type === 'Router') return ROUTER_STEPS
   if (type === 'Worker') return WORKER_STEPS
+  if (type === 'ToolRunner') return TOOL_RUNNER_STEPS
   return mode === 'advanced' ? ADVANCED_STEPS : BASIC_STEPS
 }
 
@@ -174,7 +192,9 @@ export function AgentEditor({ mode }: Props) {
         ? 'Router'
         : searchParams.get('type') === 'Worker'
           ? 'Worker'
-          : 'Custom'
+          : searchParams.get('type') === 'ToolRunner'
+            ? 'ToolRunner'
+            : 'Custom'
       : 'Custom'
   const initialTemplateKey = mode === 'create' ? searchParams.get('template') : null
   const [form, setForm] = useState<FormState>(() => {
@@ -353,6 +373,25 @@ export function AgentEditor({ mode }: Props) {
         if (!trimmed) {
           issues.output = 'Schema do output vazio — defina ou troque pra texto livre.'
         } else {
+          try {
+            const parsed = JSON.parse(trimmed)
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+              issues.output = 'Schema do output precisa ser um objeto JSON.'
+            }
+          } catch {
+            issues.output = 'Schema do output não é JSON válido.'
+          }
+        }
+      }
+    } else if (form.type === 'ToolRunner') {
+      // Tool Runner: nome é hard requirement no wizard; tools/middlewares/
+      // modelo são warnings soft no backend (não bloqueiam "Próximo"). O
+      // toggle HITL é declarativo — sem validação de "obrigatoriedade",
+      // só consistência (avaliada em ValidateToolRunner no save).
+      if (!form.name.trim()) issues.profile = 'Informe um nome'
+      if (form.output.mode === 'structured') {
+        const trimmed = form.output.schema.trim()
+        if (trimmed) {
           try {
             const parsed = JSON.parse(trimmed)
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -732,7 +771,9 @@ export function AgentEditor({ mode }: Props) {
             )}
           </div>
         </div>
-        {form.type !== 'Router' && form.type !== 'Worker' && (
+        {form.type !== 'Router'
+          && form.type !== 'Worker'
+          && form.type !== 'ToolRunner' && (
           <div className="flex shrink-0 flex-col items-end gap-1">
             <Button
               size="sm"
@@ -789,19 +830,25 @@ export function AgentEditor({ mode }: Props) {
                 ? 'Router'
                 : form.type === 'Worker'
                   ? 'Worker'
-                  : 'Tipo de agente'}
+                  : form.type === 'ToolRunner'
+                    ? 'Tool Runner'
+                    : 'Tipo de agente'}
             </p>
             <p className="mt-1 text-xs text-fg-muted">
               {form.type === 'Router'
                 ? 'Classifier de intenções com output estruturado fixo (intent + confidence + rationale). Steps são fixos pelo tipo — sem modo básico/avançado.'
                 : form.type === 'Worker'
                   ? 'Specialist de domínio. Recebe input estruturado e produz análise rica conforme o schema. Steps são fixos pelo tipo — sem modo básico/avançado.'
-                  : form.agentMode === 'basic'
-                    ? 'Configuração rápida com perfil, ferramentas e revisão.'
-                    : 'Inclui input e output estruturados além do básico.'}
+                  : form.type === 'ToolRunner'
+                    ? 'Function-caller / executor. Decide qual tool chamar com quais argumentos pra cumprir uma tarefa que exige ação no mundo. Steps são fixos pelo tipo — sem modo básico/avançado.'
+                    : form.agentMode === 'basic'
+                      ? 'Configuração rápida com perfil, ferramentas e revisão.'
+                      : 'Inclui input e output estruturados além do básico.'}
             </p>
           </div>
-          {form.type !== 'Router' && form.type !== 'Worker' && (
+          {form.type !== 'Router'
+            && form.type !== 'Worker'
+            && form.type !== 'ToolRunner' && (
             <div className="flex rounded-lg border border-border bg-bg-soft p-1">
               <ModeToggleButton
                 active={form.agentMode === 'basic'}
@@ -852,9 +899,15 @@ export function AgentEditor({ mode }: Props) {
         {form.currentStep === 'profile' && form.type === 'Worker' && (
           <WorkerProfileStep form={form} setForm={setForm} readonly={readonly} />
         )}
-        {form.currentStep === 'profile' && form.type !== 'Router' && form.type !== 'Worker' && (
-          <ProfileStep form={form} setForm={setForm} readonly={readonly} />
+        {form.currentStep === 'profile' && form.type === 'ToolRunner' && (
+          <ToolRunnerProfileStep form={form} setForm={setForm} readonly={readonly} />
         )}
+        {form.currentStep === 'profile'
+          && form.type !== 'Router'
+          && form.type !== 'Worker'
+          && form.type !== 'ToolRunner' && (
+            <ProfileStep form={form} setForm={setForm} readonly={readonly} />
+          )}
         {form.currentStep === 'tools' && (
           <ToolsKnowledgeStep
             form={form}
@@ -868,18 +921,25 @@ export function AgentEditor({ mode }: Props) {
             readonly={readonly}
           />
         )}
-        {form.currentStep === 'security' && (form.agentMode === 'advanced' || form.type === 'Worker') && (
-          <SecurityStep form={form} setForm={setForm} readonly={readonly} />
-        )}
-        {form.currentStep === 'memory' && form.agentMode === 'advanced' && (
-          <MemoryStep form={form} setForm={setForm} readonly={readonly} />
-        )}
+        {form.currentStep === 'security'
+          && (form.agentMode === 'advanced'
+            || form.type === 'Worker'
+            || form.type === 'ToolRunner') && (
+            <SecurityStep form={form} setForm={setForm} readonly={readonly} />
+          )}
+        {form.currentStep === 'memory'
+          && (form.agentMode === 'advanced' || form.type === 'ToolRunner') && (
+            <MemoryStep form={form} setForm={setForm} readonly={readonly} />
+          )}
         {form.currentStep === 'input' && form.agentMode === 'advanced' && (
           <InputStep form={form} setForm={setForm} readonly={readonly} />
         )}
-        {form.currentStep === 'output' && (form.agentMode === 'advanced' || form.type === 'Worker') && (
-          <OutputStep form={form} setForm={setForm} readonly={readonly} />
-        )}
+        {form.currentStep === 'output'
+          && (form.agentMode === 'advanced'
+            || form.type === 'Worker'
+            || form.type === 'ToolRunner') && (
+            <OutputStep form={form} setForm={setForm} readonly={readonly} />
+          )}
         {form.currentStep === 'model' && (
           <ModelStep
             form={form}

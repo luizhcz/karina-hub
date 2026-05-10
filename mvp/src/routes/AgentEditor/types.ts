@@ -73,6 +73,14 @@ export interface FormState {
    * em payload.metadata['x-worker-scope']. Vazio quando type !== 'Worker'.
    */
   workerScope: string
+  /**
+   * Flag declarativa pra Tool Runner: o agente exige aprovação humana
+   * antes de invocar tools com side-effect. Persistido em
+   * payload.metadata['x-tool-runner-hitl-required']. Save valida
+   * consistência (warning quando há tool com requiresApproval=true e a
+   * flag está off); runtime de chamada de tool ainda não enforça.
+   */
+  toolRunnerHitlRequired: boolean
   predefinedModelId: string
   profile: ProfileFields
   toolIds: string[]

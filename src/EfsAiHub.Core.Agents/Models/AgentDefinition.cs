@@ -83,6 +83,17 @@ public class AgentDefinition
     public const string WorkerScopeMetadataKey = "x-worker-scope";
 
     /// <summary>
+    /// Chave em <see cref="Metadata"/> que declara, pra Tool Runner, que o
+    /// agente deve aguardar aprovação humana antes de invocar tools com
+    /// side-effect. Valor: <c>"true"</c> ativo / qualquer outro inativo.
+    /// Flag puramente declarativo: <c>AgentService.ValidateToolRunner</c>
+    /// usa pra emitir warning quando há tools com
+    /// <c>RequiresApproval=true</c> e a flag está off. Runtime de chamada
+    /// de tool não checa este flag — apenas a validação de save.
+    /// </summary>
+    public const string ToolRunnerHitlRequiredMetadataKey = "x-tool-runner-hitl-required";
+
+    /// <summary>
     /// "project" (default) — agent visível apenas dentro do projeto dono.
     /// "global" — agent visível a todos os projetos do mesmo tenant; outros projetos
     /// podem referenciá-lo em workflows. Cross-tenant é proibido.
