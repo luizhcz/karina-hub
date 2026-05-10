@@ -131,12 +131,15 @@ public class AgentFactory : IAgentFactory
         _operationalMemoryRepo = operationalMemoryRepo;
     }
 
-    public async Task<ExecutableWorkflow> CreateAgentAsync(AgentDefinition definition, CancellationToken ct = default)
+    public async Task<ExecutableWorkflow> CreateAgentAsync(
+        AgentDefinition definition,
+        CancellationToken ct = default,
+        bool isStandaloneFlow = false)
     {
         _logger.LogInformation(
-            "Creating agent '{AgentName}' (id: {AgentId}, provider: {Provider}/{ClientType})",
+            "Creating agent '{AgentName}' (id: {AgentId}, provider: {Provider}/{ClientType}, standalone: {Standalone})",
             definition.Name, definition.Id,
-            definition.Provider.Type, definition.Provider.ClientType);
+            definition.Provider.Type, definition.Provider.ClientType, isStandaloneFlow);
 
         DelegateExecutor.CurrentLogger.Value = _logger;
 
@@ -147,12 +150,16 @@ public class AgentFactory : IAgentFactory
         await BindGenericToolsAsync(definition, ct);
         await TrackAgentVersionAsync(definition.Id, ct);
         var provider = ResolveProvider(definition);
-        var options = ChatOptionsBuilder.BuildAgentOptions(definition, _functionRegistry, _toolPersistence.Writer, _trackedFnLogger, _logger, _allowFingerprintMismatch, projectId: definition.ProjectId);
+        var options = ChatOptionsBuilder.BuildAgentOptions(
+            definition, _functionRegistry, _toolPersistence.Writer, _trackedFnLogger, _logger,
+            _allowFingerprintMismatch,
+            projectId: definition.ProjectId,
+            isStandaloneFlow: isStandaloneFlow);
 
         if (CanWrapAsChatClient(provider, definition))
         {
             var rawClient = await provider.CreateChatClientAsync(definition, ct);
-            var wrappedClient = await WrapWithTokenTrackingAsync(rawClient, definition, ct);
+            var wrappedClient = await WrapWithTokenTrackingAsync(rawClient, definition, ct, isStandaloneFlow);
             return ExecutableWorkflow.FromAgent(wrappedClient.AsAIAgent(options));
         }
 
@@ -200,6 +207,14 @@ public class AgentFactory : IAgentFactory
         WorkflowDefinition workflow, CancellationToken ct = default)
     {
         var result = new Dictionary<string, ExecutableWorkflow>();
+
+        // Workflow declarado standalone (default em /workflows criados sem
+        // ChatTurnContext) não preserva contexto entre chamadas. Propaga o
+        // sinal pros agentes pra que (a) o ResponseFormat não inclua
+        // operationalMemory e (b) WrapWithOperationalMemory faça bypass.
+        var isStandaloneFlow = string.Equals(
+            workflow.Configuration.InputMode, "Standalone",
+            StringComparison.OrdinalIgnoreCase);
 
         foreach (var agentRef in workflow.Agents)
         {
@@ -347,14 +362,14 @@ public class AgentFactory : IAgentFactory
                 }
             }
 
-            result[agentRef.AgentId] = await CreateAgentAsync(definition, ct);
+            result[agentRef.AgentId] = await CreateAgentAsync(definition, ct, isStandaloneFlow);
         }
 
         return result;
     }
 
     public async Task<Func<string, CancellationToken, Task<string>>> CreateLlmHandlerAsync(
-        string agentId, CancellationToken ct = default)
+        string agentId, CancellationToken ct = default, bool isStandaloneFlow = false)
     {
         var definition = await _agentRepo.GetByIdAsync(agentId, ct)
             ?? throw new InvalidOperationException($"Agent '{agentId}' not found.");
@@ -378,7 +393,10 @@ public class AgentFactory : IAgentFactory
         var agentVersionId = await TrackAgentVersionAsync(agentId, ct);
         var provider = ResolveProvider(definition);
         var rawChatClient = await provider.CreateChatClientAsync(definition, ct);
-        var chatOptions = ChatOptionsBuilder.BuildGraphChatOptions(definition, _functionRegistry, _toolPersistence.Writer, _trackedFnLogger, _logger, _allowFingerprintMismatch, projectId: definition.ProjectId);
+        var chatOptions = ChatOptionsBuilder.BuildGraphChatOptions(
+            definition, _functionRegistry, _toolPersistence.Writer, _trackedFnLogger, _logger,
+            _allowFingerprintMismatch, projectId: definition.ProjectId,
+            isStandaloneFlow: isStandaloneFlow);
 
         // Envolve com FunctionInvokingChatClient para tratar chamadas de ferramentas automaticamente no modo Graph.
         // Sem isso, o handler lê apenas response.Text, que fica vazio quando o modelo retorna uma tool call.
@@ -387,7 +405,7 @@ public class AgentFactory : IAgentFactory
             ? new FunctionInvokingChatClient(rawChatClient) { MaximumIterationsPerRequest = 10 }
             : rawChatClient;
 
-        chatClient = WrapWithMiddlewares(chatClient, definition);
+        chatClient = WrapWithMiddlewares(chatClient, definition, isStandaloneFlow);
 
         var promptResult = await _promptRepo.GetActivePromptWithVersionAsync(definition.Id, ct);
         var instructions = promptResult?.Content ?? definition.Instructions;
@@ -585,7 +603,9 @@ public class AgentFactory : IAgentFactory
         return SkillMerger.ApplySkills(definition, resolved);
     }
 
-    private async Task<IChatClient> WrapWithTokenTrackingAsync(IChatClient inner, AgentDefinition definition, CancellationToken ct)
+    private async Task<IChatClient> WrapWithTokenTrackingAsync(
+        IChatClient inner, AgentDefinition definition, CancellationToken ct,
+        bool isStandaloneFlow = false)
     {
         var modelId = definition.Model.DeploymentName ?? "unknown";
 
@@ -603,7 +623,7 @@ public class AgentFactory : IAgentFactory
         // Memória operacional fica entre TokenTracking e os middlewares opt-in:
         // tokens da injeção pré-call são contabilizados; output strippado é o que
         // os demais middlewares (e o Blocklist) veem.
-        current = WrapWithOperationalMemory(current, definition);
+        current = WrapWithOperationalMemory(current, definition, isStandaloneFlow);
 
         foreach (var mw in definition.Middlewares.Where(m => m.Enabled))
         {
@@ -647,12 +667,13 @@ public class AgentFactory : IAgentFactory
     /// Aplica apenas os middlewares do agente (ex: AccountGuard, StructuredOutputState).
     /// Usado pelo CreateLlmHandlerAsync (Graph mode) que já faz token tracking manual.
     /// </summary>
-    private IChatClient WrapWithMiddlewares(IChatClient inner, AgentDefinition definition)
+    private IChatClient WrapWithMiddlewares(
+        IChatClient inner, AgentDefinition definition, bool isStandaloneFlow = false)
     {
         // Mesma posição do caminho não-Graph: memória operacional fica mais
         // interna que os middlewares opt-in, garantindo que estes vejam o
         // output já strippado e o Blocklist scaneie o texto final.
-        IChatClient current = WrapWithOperationalMemory(inner, definition);
+        IChatClient current = WrapWithOperationalMemory(inner, definition, isStandaloneFlow);
         foreach (var mw in definition.Middlewares.Where(m => m.Enabled))
         {
             if (!_middlewareRegistry.TryCreate(mw.Type, current, definition.Id, mw.Settings, _logger, out var wrapped))
@@ -681,10 +702,24 @@ public class AgentFactory : IAgentFactory
     /// schema de memória e o repo está disponível em DI. No-op silencioso quando
     /// faltar qualquer um dos dois (preserva BC com agentes antigos e testes
     /// que não injetam o repo).
+    ///
+    /// Em workflow standalone (<paramref name="isStandaloneFlow"/> = true) o
+    /// middleware é desligado: sem continuidade entre chamadas, persistir
+    /// memória só polui o DB com rows efêmeras. O ResponseFormat também é
+    /// recomposto sem o campo <c>operationalMemory</c> em <see cref="ChatOptionsBuilder"/>,
+    /// então o LLM nem gera o campo — economiza tokens.
     /// </summary>
-    private IChatClient WrapWithOperationalMemory(IChatClient inner, AgentDefinition definition)
+    private IChatClient WrapWithOperationalMemory(
+        IChatClient inner, AgentDefinition definition, bool isStandaloneFlow = false)
     {
         if (definition.OperationalMemory?.Schema is null) return inner;
+        if (isStandaloneFlow)
+        {
+            _logger.LogDebug(
+                "[AgentFactory] Agent '{AgentId}': workflow standalone — operational memory desligada (bypass middleware + schema).",
+                definition.Id);
+            return inner;
+        }
         if (_operationalMemoryRepo is null)
         {
             _logger.LogWarning(

@@ -9,8 +9,16 @@ public interface IAgentFactory
     /// <summary>
     /// Cria uma instância de agente do framework a partir de uma AgentDefinition.
     /// Retorna object para desacoplar do tipo concreto do framework.
+    ///
+    /// <paramref name="isStandaloneFlow"/> = true sinaliza que o agente roda
+    /// num workflow standalone (sem continuidade entre chamadas) — desliga a
+    /// composição do schema com <c>operationalMemory</c> e o middleware de
+    /// memória correspondente. Default false preserva BC.
     /// </summary>
-    Task<ExecutableWorkflow> CreateAgentAsync(AgentDefinition definition, CancellationToken ct = default);
+    Task<ExecutableWorkflow> CreateAgentAsync(
+        AgentDefinition definition,
+        CancellationToken ct = default,
+        bool isStandaloneFlow = false);
 
     /// <summary>
     /// Cria instâncias de agentes para todas as referências de um workflow.
@@ -24,8 +32,13 @@ public interface IAgentFactory
     /// Cria um handler string→string para uso como DelegateExecutor em Graph mode.
     /// Chama o LLM diretamente via IChatClient sem o overhead do AIAgent.
     /// Necessário porque WorkflowBuilder requer que todos os nós declarem o mesmo tipo (string).
+    ///
+    /// <paramref name="isStandaloneFlow"/> equivalente ao
+    /// <see cref="CreateAgentAsync"/> — usado pelo WorkflowFactory pra
+    /// propagar o <c>InputMode</c> do workflow ao build do handler.
     /// </summary>
     Task<Func<string, CancellationToken, Task<string>>> CreateLlmHandlerAsync(
         string agentId,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        bool isStandaloneFlow = false);
 }

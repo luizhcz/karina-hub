@@ -272,11 +272,19 @@ public partial class WorkflowFactory : IWorkflowFactory
         // Agentes LLM → DelegateExecutor via IChatClient (evita incompatibilidade de tipos com AIAgent)
         var hitlEnabled = definition.Configuration.EnableHumanInTheLoop;
 
+        // Workflow declarado standalone (default) não preserva contexto entre
+        // chamadas — propaga pra que AgentFactory recompose schema sem
+        // operationalMemory e bypasse o middleware. Pareado com a mesma
+        // detecção em CreateAgentsForWorkflowAsync (caminho não-Graph).
+        var isStandaloneFlow = string.Equals(
+            definition.Configuration.InputMode, "Standalone",
+            StringComparison.OrdinalIgnoreCase);
+
         foreach (var agentRef in definition.Agents)
         {
             try
             {
-                var handler = await _agentFactory.CreateLlmHandlerAsync(agentRef.AgentId, ct);
+                var handler = await _agentFactory.CreateLlmHandlerAsync(agentRef.AgentId, ct, isStandaloneFlow);
                 Executor<string, string> executor = new DelegateExecutor(agentRef.AgentId, handler);
 
                 if (hitlEnabled && agentRef.Hitl is not null)
