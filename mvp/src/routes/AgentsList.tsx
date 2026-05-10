@@ -860,7 +860,17 @@ function PublishedAgentCard({ agent, forking, onEdit, onDeploy, onVersions, onHi
           <Button variant="secondary" size="sm" onClick={onEdit} loading={forking}>
             Editar
           </Button>
-          <Button size="sm" onClick={onDeploy} leftIcon={<BoltIcon className="h-3.5 w-3.5" />}>
+          <Button
+            size="sm"
+            onClick={onDeploy}
+            disabled={isConversational}
+            leftIcon={<BoltIcon className="h-3.5 w-3.5" />}
+            title={
+              isConversational
+                ? 'Conversational não suporta implantação Single — use Roteamento por intent ou Pipeline.'
+                : undefined
+            }
+          >
             Implantar
           </Button>
         </div>

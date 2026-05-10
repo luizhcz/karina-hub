@@ -422,7 +422,12 @@ function NewDeploymentModal({ open, onClose, deployedAgentIds, onPick }: NewDepl
     setError(null)
     listAgents()
       .then((list) => {
-        if (!cancelled) setAgents(list.filter((a) => a.enabled !== false))
+        // Single deploy não aceita Conversational — esse tipo precisa de
+        // workflow Chat (InputMode=Chat + chat-message endpoint) que o
+        // AgentDeploy single não monta. Conversational vai pela rota
+        // Roteamento ou Pipeline (com restrições próprias).
+        if (!cancelled)
+          setAgents(list.filter((a) => a.enabled !== false && a.type !== 'Conversational'))
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(friendlyError(err, 'Não foi possível carregar os agentes publicados.'))

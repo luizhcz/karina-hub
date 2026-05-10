@@ -326,10 +326,11 @@ export function RoutingDeployEditor() {
     () => agents.filter((a) => a.type === 'Router'),
     [agents],
   )
-  // Branch agents: qualquer agente publicado que não seja Router (Worker,
-  // ToolRunner, Conversational, Custom são todos OK). User decide o uso.
+  // Branch agents: agentes publicados que NÃO sejam Router (entry node
+  // já é Router) e NÃO sejam Conversational (Conversational exige
+  // workflow Chat dedicado, fora do shape Graph+Switch deste deploy).
   const branchAgents = useMemo(
-    () => agents.filter((a) => a.type !== 'Router'),
+    () => agents.filter((a) => a.type !== 'Router' && a.type !== 'Conversational'),
     [agents],
   )
 
