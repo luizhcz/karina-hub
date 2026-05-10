@@ -31,6 +31,21 @@ import {
   cn,
 } from '../ui'
 
+// Heurística pra escolher InputMode do workflow auto-criado no deploy.
+// Conversational sempre roda em Chat (workflow exige). Router declara
+// uso em chat via metadata['x-router-for-chat']='true'. Demais tipos
+// usam Standalone (default histórico — pipeline batch).
+function inferInputMode(agent: Agent): 'Standalone' | 'Chat' {
+  if (agent.type === 'Conversational') return 'Chat'
+  if (
+    agent.type === 'Router'
+    && agent.metadata?.['x-router-for-chat']?.toLowerCase() === 'true'
+  ) {
+    return 'Chat'
+  }
+  return 'Standalone'
+}
+
 export function AgentDeploy() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -112,7 +127,7 @@ export function AgentDeploy() {
           maxRounds: 1,
           timeoutSeconds: 300,
           checkpointMode: 'InMemory',
-          inputMode: 'Standalone',
+          inputMode: inferInputMode(agent),
           enableHumanInTheLoop: false,
           exposeAsAgent: false,
         },
@@ -161,7 +176,7 @@ export function AgentDeploy() {
           maxRounds: 1,
           timeoutSeconds: 300,
           checkpointMode: 'InMemory',
-          inputMode: 'Standalone',
+          inputMode: inferInputMode(agent),
           enableHumanInTheLoop: false,
           exposeAsAgent: false,
         },
