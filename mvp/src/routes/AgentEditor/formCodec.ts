@@ -297,11 +297,11 @@ export function fromDraft(draft: AgentDraft): FormState {
   const toolRunnerHitlRequired =
     typeof rawHitl === 'string' && rawHitl.toLowerCase() === 'true'
 
-  // Worker grava o schema em payload.structuredOutput (não no instructions
-  // como Custom-advanced). Hidrata o FormState a partir dele pra que o
-  // OutputStep mostre o schema editável ao reabrir.
+  // Worker e Tool Runner gravam o schema em payload.structuredOutput (não
+  // no instructions como Custom-advanced). Hidrata o FormState a partir
+  // dele pra que o OutputStep mostre o schema editável ao reabrir.
   let workerOutput: StructuredSection | null = null
-  if (type === 'Worker') {
+  if (type === 'Worker' || type === 'ToolRunner') {
     const so = payload.structuredOutput
     if (so && so.schema) {
       try {
@@ -468,7 +468,7 @@ function encodeStructuredOutput(
   prev: AgentDraftPayload | undefined,
   form: FormState,
 ): AgentDraftPayload['structuredOutput'] {
-  if (form.type === 'Worker') {
+  if (form.type === 'Worker' || form.type === 'ToolRunner') {
     if (form.output.mode !== 'structured') {
       return null
     }
@@ -488,9 +488,10 @@ function encodeStructuredOutput(
       typeof prev?.structuredOutput?.schemaName === 'string'
         ? prev.structuredOutput.schemaName
         : null
+    const fallbackSchemaName = form.type === 'Worker' ? 'WorkerOutput' : 'ToolRunnerOutput'
     return {
       responseFormat: 'json_schema',
-      schemaName: prevSchemaName || 'WorkerOutput',
+      schemaName: prevSchemaName || fallbackSchemaName,
       schemaDescription: trimmedDesc.length > 0 ? trimmedDesc : null,
       schema: parsed,
     }
