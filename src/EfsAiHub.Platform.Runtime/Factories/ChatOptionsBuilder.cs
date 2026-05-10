@@ -25,9 +25,10 @@ public static class ChatOptionsBuilder
         ILogger<TrackedAIFunction> trackedFnLogger,
         ILogger logger,
         bool allowFingerprintMismatch = true,
-        string? projectId = null)
+        string? projectId = null,
+        bool isStandaloneFlow = false)
     {
-        var chatOptions = BuildCoreOptions(definition, functionRegistry, toolWriter, trackedFnLogger, logger, allowFingerprintMismatch, projectId);
+        var chatOptions = BuildCoreOptions(definition, functionRegistry, toolWriter, trackedFnLogger, logger, allowFingerprintMismatch, projectId, isStandaloneFlow);
 
         return new ChatClientAgentOptions
         {
@@ -49,9 +50,10 @@ public static class ChatOptionsBuilder
         ILogger<TrackedAIFunction> trackedFnLogger,
         ILogger logger,
         bool allowFingerprintMismatch = true,
-        string? projectId = null)
+        string? projectId = null,
+        bool isStandaloneFlow = false)
     {
-        return BuildCoreOptions(definition, functionRegistry, toolWriter, trackedFnLogger, logger, allowFingerprintMismatch, projectId);
+        return BuildCoreOptions(definition, functionRegistry, toolWriter, trackedFnLogger, logger, allowFingerprintMismatch, projectId, isStandaloneFlow);
     }
 
     private static ChatOptions BuildCoreOptions(
@@ -61,7 +63,8 @@ public static class ChatOptionsBuilder
         ILogger<TrackedAIFunction> trackedFnLogger,
         ILogger logger,
         bool allowFingerprintMismatch,
-        string? projectId)
+        string? projectId,
+        bool isStandaloneFlow = false)
     {
         var options = new ChatOptions
         {
@@ -75,7 +78,7 @@ public static class ChatOptionsBuilder
         if (tools.Count > 0)
             options.Tools = tools;
 
-        var responseFormat = BuildResponseFormat(definition, logger);
+        var responseFormat = BuildResponseFormat(definition, logger, isStandaloneFlow);
         if (responseFormat is not null)
             options.ResponseFormat = responseFormat;
 
@@ -216,12 +219,18 @@ public static class ChatOptionsBuilder
 
     private static ChatResponseFormat? BuildResponseFormat(
         AgentDefinition definition,
-        ILogger logger)
+        ILogger logger,
+        bool isStandaloneFlow = false)
     {
         var structuredOutput = definition.StructuredOutput;
         var memory = definition.OperationalMemory;
 
-        if (memory?.Schema is not null)
+        // Workflow standalone não preserva contexto entre chamadas — não há
+        // continuidade pra memória persistir. Pula a composição do schema com
+        // operationalMemory (LLM não emite o campo) e cai no fluxo normal de
+        // structured output. Pareado com bypass do middleware no AgentFactory
+        // pra que pre-call não injete preamble nem state.
+        if (memory?.Schema is not null && !isStandaloneFlow)
             return BuildResponseFormatWithMemory(definition, logger);
 
         if (structuredOutput is null)
