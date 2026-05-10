@@ -127,6 +127,49 @@ export function RouterProfileStep({ form, setForm, readonly }: RouterProfileStep
 
       <Card className="space-y-3">
         <CardHeader
+          title="Uso no chat"
+          description="Marque quando o Router vai rodar em workflow com InputMode=Chat (frontend AG-UI). O codec ativa o middleware StructuredOutputState no save — ele lê o output JSON do classify e dispara STATE_DELTA via SSE pra que o chat consiga renderizar a intent escolhida em tempo real. Routers standalone (pipeline batch) ficam com a flag off."
+        />
+        <div
+          className={cn(
+            'flex items-start justify-between gap-3 rounded-lg border px-3 py-3',
+            form.routerForChat
+              ? 'border-accent/40 bg-accent-subtle'
+              : 'border-border bg-bg-soft',
+          )}
+        >
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-fg">
+              Router usado em chat (workflow InputMode=Chat)
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+              {form.routerForChat
+                ? 'Middleware StructuredOutputState será incluído no save. Output do classify dispara STATE_DELTA pro frontend chat.'
+                : 'Router roda standalone (sem middleware AG-UI). Marque se for usado em chat real.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setForm((prev) => ({ ...prev, routerForChat: !prev.routerForChat }))
+            }
+            disabled={readonly}
+            aria-pressed={form.routerForChat}
+            className={cn(
+              'shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition',
+              form.routerForChat
+                ? 'border-accent bg-accent text-accent-contrast'
+                : 'border-border bg-surface text-fg-muted hover:border-accent/40',
+              readonly && 'cursor-not-allowed opacity-60',
+            )}
+          >
+            {form.routerForChat ? 'Sim' : 'Não'}
+          </button>
+        </div>
+      </Card>
+
+      <Card className="space-y-3">
+        <CardHeader
           title="Intenções atendidas"
           description="Marque quais intenções do pool global este Router classifica. Adicionar uma intenção nova ao pool não inclui automaticamente neste Router — você precisa voltar aqui e marcar."
           actions={

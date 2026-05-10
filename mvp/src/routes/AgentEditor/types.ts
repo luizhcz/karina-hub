@@ -68,6 +68,15 @@ export interface FormState {
    */
   routerIntentIds: string[]
   /**
+   * Flag declarativa: o Router é usado em chat (workflow `InputMode=Chat`).
+   * Quando true, o codec ativa o middleware `StructuredOutputState` no
+   * save — ele lê o output JSON do classify e dispara STATE_DELTA via
+   * SSE pro frontend chat. Persistido em
+   * payload.metadata['x-router-for-chat']. Vazio/false quando o Router é
+   * standalone (pipeline batch, default).
+   */
+  routerForChat: boolean
+  /**
    * Domínio de análise do Worker — texto livre PT-BR injetado em runtime
    * ao final das instructions (bloco "# Domínio de análise"). Persistido
    * em payload.metadata['x-worker-scope']. Vazio quando type !== 'Worker'.

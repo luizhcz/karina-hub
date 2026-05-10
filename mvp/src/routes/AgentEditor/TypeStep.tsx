@@ -153,6 +153,7 @@ export function TypeStep({ form, setForm, readonly }: TypeStepProps) {
         ...prev,
         type: next,
         toolRunnerHitlRequired: next === 'ToolRunner' ? prev.toolRunnerHitlRequired : false,
+        routerForChat: next === 'Router' ? prev.routerForChat : false,
         conversationalUiComponents:
           next === 'Conversational' ? prev.conversationalUiComponents : [],
       }

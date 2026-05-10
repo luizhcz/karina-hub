@@ -94,6 +94,18 @@ public class AgentDefinition
     public const string ToolRunnerHitlRequiredMetadataKey = "x-tool-runner-hitl-required";
 
     /// <summary>
+    /// Chave em <see cref="Metadata"/> que declara, pra Router, que o
+    /// agente roda em workflow <c>InputMode=Chat</c>. Valor: <c>"true"</c>
+    /// ativo / qualquer outro inativo. Quando ativo, o codec do wizard
+    /// ativa o middleware <c>StructuredOutputState</c> no save — ele lê
+    /// o JSON do classify e dispara <c>STATE_DELTA</c> via SSE pra que o
+    /// frontend chat consiga reagir em tempo real à intent escolhida.
+    /// <c>AgentService.ValidateRouter</c> usa pra emitir warning quando a
+    /// flag está on mas o middleware não está presente (ou vice-versa).
+    /// </summary>
+    public const string RouterForChatMetadataKey = "x-router-for-chat";
+
+    /// <summary>
     /// Chave em <see cref="Metadata"/> que carrega, pra Conversational, a
     /// lista canônica de valores válidos de <c>ui_component</c>. Persiste
     /// como JSON array de strings (ex: <c>["text","card","list","form"]</c>).

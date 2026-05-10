@@ -30,6 +30,10 @@ const WORKER_SCOPE_METADATA_KEY = 'x-worker-scope'
 // usado pelo backend (AgentDefinition.ToolRunnerHitlRequiredMetadataKey).
 const TOOL_RUNNER_HITL_METADATA_KEY = 'x-tool-runner-hitl-required'
 
+// Chave em payload.metadata que declara que o Router é usado em chat.
+// Mesmo valor usado pelo backend (AgentDefinition.RouterForChatMetadataKey).
+const ROUTER_FOR_CHAT_METADATA_KEY = 'x-router-for-chat'
+
 // Chave em payload.metadata que carrega a lista canônica de ui_component
 // declarados pelo Conversational. Mesmo valor usado pelo backend
 // (AgentDefinition.ConversationalUiComponentsMetadataKey).
@@ -213,6 +217,7 @@ export function emptyFormState(): FormState {
     name: '',
     type: 'Custom',
     routerIntentIds: [],
+    routerForChat: false,
     workerScope: '',
     toolRunnerHitlRequired: false,
     conversationalUiComponents: [],
@@ -315,6 +320,12 @@ export function fromDraft(draft: AgentDraft): FormState {
   const toolRunnerHitlRequired =
     typeof rawHitl === 'string' && rawHitl.toLowerCase() === 'true'
 
+  // Flag "Router pra chat" vive em metadata['x-router-for-chat']. Quando
+  // true, codec ativa StructuredOutputState no save.
+  const rawRouterForChat = payload.metadata?.[ROUTER_FOR_CHAT_METADATA_KEY]
+  const routerForChat =
+    typeof rawRouterForChat === 'string' && rawRouterForChat.toLowerCase() === 'true'
+
   // Worker e Tool Runner gravam o schema em payload.structuredOutput (não
   // no instructions como Custom-advanced). Hidrata o FormState a partir
   // dele pra que o OutputStep mostre o schema editável ao reabrir.
@@ -384,6 +395,7 @@ export function fromDraft(draft: AgentDraft): FormState {
     name: payload.name ?? draft.name ?? '',
     type,
     routerIntentIds,
+    routerForChat,
     workerScope,
     toolRunnerHitlRequired,
     conversationalUiComponents,
@@ -478,7 +490,12 @@ export function buildPayload(
 
   const mergedTools = mergeTools(prev?.tools ?? null, form.toolIds, form.mcpIds)
   const operationalMemory = encodeOperationalMemory(form.memory)
-  const mergedMiddlewares = mergeMiddlewares(prev?.middlewares, form.security, form.type)
+  const mergedMiddlewares = mergeMiddlewares(
+    prev?.middlewares,
+    form.security,
+    form.type,
+    form.routerForChat,
+  )
   const structuredOutput = encodeStructuredOutput(prev, form)
 
   // Drafts novos não persistem mais 'x-router-intents' no metadata.
@@ -487,10 +504,13 @@ export function buildPayload(
   // Worker grava 'x-worker-scope' aqui (texto livre lido em runtime); pra
   // outros tipos a chave é removida pra evitar lixo cross-tipo. Tool
   // Runner declara HITL em 'x-tool-runner-hitl-required' (mesma higiene).
-  const metadata = encodeConversationalMetadata(
-    encodeToolRunnerHitlMetadata(
-      encodeWorkerScopeMetadata(
-        stripLegacyRouterIntentsMetadata(prev?.metadata),
+  const metadata = encodeRouterForChatMetadata(
+    encodeConversationalMetadata(
+      encodeToolRunnerHitlMetadata(
+        encodeWorkerScopeMetadata(
+          stripLegacyRouterIntentsMetadata(prev?.metadata),
+          form,
+        ),
         form,
       ),
       form,
@@ -714,6 +734,28 @@ export function encodeConversationalInstructions(profile: ProfileFields): string
 }
 
 /**
+ * Mantém <c>metadata['x-router-for-chat']</c> sincronizado com o form.
+ * Pra Router grava "true" quando o flag está on (ou remove quando off);
+ * pra outros tipos remove a chave pra evitar lixo cross-tipo. Quando a
+ * chave está presente, mergeMiddlewares ativa StructuredOutputState
+ * automaticamente — sem ele, o output do classify não dispara
+ * STATE_DELTA via SSE.
+ */
+function encodeRouterForChatMetadata(
+  prev: Record<string, string>,
+  form: FormState,
+): Record<string, string> {
+  const next: Record<string, string> = { ...prev }
+  if (form.type === 'Router') {
+    if (form.routerForChat) next[ROUTER_FOR_CHAT_METADATA_KEY] = 'true'
+    else delete next[ROUTER_FOR_CHAT_METADATA_KEY]
+  } else {
+    delete next[ROUTER_FOR_CHAT_METADATA_KEY]
+  }
+  return next
+}
+
+/**
  * Mantém <c>metadata['x-conversational-ui-components']</c> sincronizado
  * com o form. Pra Conversational grava (ou remove quando vazio); pra
  * outros tipos remove a chave pra evitar lixo cross-tipo. A chave legacy
@@ -856,6 +898,7 @@ function mergeMiddlewares(
   prevMiddlewares: unknown,
   security: FormState['security'],
   type: FormState['type'],
+  routerForChat: boolean,
 ): MiddlewareConfigEntry[] {
   const list: MiddlewareConfigEntry[] = Array.isArray(prevMiddlewares)
     ? (prevMiddlewares as MiddlewareConfigEntry[])
@@ -870,15 +913,17 @@ function mergeMiddlewares(
   if (security.enabled) {
     next.push({ type: SECURITY_MIDDLEWARE_TYPE, enabled: true, settings: {} })
   }
-  // StructuredOutputState é ativado automaticamente pra Conversational —
-  // sem ele, o output estruturado não dispara STATE_DELTA no SSE e o
-  // frontend chat não renderiza componentes em tempo real. Pra outros
-  // tipos, a entry é preservada se vier de prev (filtrada acima e não
-  // re-adicionada — drift consciente: outros templates não dependem dele).
-  if (type === 'Conversational') {
+  // StructuredOutputState é ativado automaticamente pra Conversational e
+  // pra Router quando o flag "Router pra chat" está on — sem ele, o output
+  // estruturado não dispara STATE_DELTA no SSE e o frontend chat não
+  // renderiza componentes em tempo real. Pra outros tipos, a entry é
+  // preservada se vier de prev (filtrada acima e não re-adicionada).
+  const wantsAgUiState =
+    type === 'Conversational' || (type === 'Router' && routerForChat)
+  if (wantsAgUiState) {
     next.push({ type: AG_UI_STATE_MIDDLEWARE_TYPE, enabled: true, settings: {} })
   } else {
-    // Pra não-Conversational, preserva a entry de prev se existia (útil
+    // Pra demais combinações, preserva a entry de prev se existia (útil
     // em agentes Custom legacy que ativaram manualmente).
     const prevAgUi = list.find((m) => m?.type === AG_UI_STATE_MIDDLEWARE_TYPE)
     if (prevAgUi) next.push(prevAgUi)

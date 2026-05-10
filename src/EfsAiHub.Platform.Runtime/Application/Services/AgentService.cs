@@ -534,6 +534,36 @@ public class AgentService : IAgentService
 
         if (definition.OperationalMemory?.Schema is not null)
             warnings.Add("OperationalMemory raramente é útil em Router; pra contexto de chat, prefira workflow com 'InputMode=Chat'.");
+
+        // Consistência declarativa do "Router pra chat": quando a flag
+        // metadata['x-router-for-chat']='true' está ativa, o middleware
+        // 'StructuredOutputState' precisa estar presente pra emitir
+        // STATE_DELTA via SSE — sem ele, o frontend chat não reage à
+        // intent escolhida em tempo real. Vice-versa: middleware presente
+        // sem a flag declarada sinaliza configuração órfã que o wizard
+        // não saberia reconstruir.
+        var routerForChat = definition.Metadata is { } routerMetadata
+            && routerMetadata.TryGetValue(AgentDefinition.RouterForChatMetadataKey, out var rfc)
+            && string.Equals(rfc, "true", StringComparison.OrdinalIgnoreCase);
+
+        var hasAgUiStateMiddleware = definition.Middlewares.Any(m =>
+            string.Equals(m.Type, "StructuredOutputState", StringComparison.OrdinalIgnoreCase)
+            && m.Enabled);
+
+        if (routerForChat && !hasAgUiStateMiddleware)
+        {
+            warnings.Add(
+                "Router declarou uso em chat ('x-router-for-chat'=true), mas o middleware " +
+                "'StructuredOutputState' não está presente. Sem ele, o output do classify não " +
+                "dispara STATE_DELTA via SSE e o frontend chat não reage em tempo real.");
+        }
+        if (!routerForChat && hasAgUiStateMiddleware)
+        {
+            warnings.Add(
+                "Middleware 'StructuredOutputState' presente, mas a flag 'x-router-for-chat' não " +
+                "está marcada. Configuração órfã — marque a flag no step Identificação se o Router " +
+                "for usado em chat, ou remova o middleware.");
+        }
     }
 
     /// <summary>
