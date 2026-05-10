@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import { listAgents, type Agent } from '../../api/agents'
+import { getAgent, listAgents, type Agent } from '../../api/agents'
 import {
   getRouterIntent,
   type RouterIntent,
@@ -259,10 +259,11 @@ export function RoutingDeployEditor() {
     }
   }, [id, isEdit])
 
-  // Quando o user troca de Router, recarrega a lista de intents do Router
-  // selecionado e remonta as branches. Preserva os mapeamentos antigos por
-  // intentName quando coincidirem (útil em casos onde o user trocou de Router
-  // mas mantém algumas intents iguais).
+  // Quando o user troca de Router, faz GET /agents/{id} pra carregar o set
+  // atualizado de routerIntentIds (a listAgents NÃO popula esse campo — só
+  // o getAgent individual). Depois resolve cada intent via getRouterIntent
+  // em batch e remonta as branches. Preserva mapeamentos por intentName
+  // quando coincidirem entre Routers diferentes.
   useEffect(() => {
     if (!form.routerAgentId) {
       if (form.branches.length > 0) {
@@ -270,25 +271,29 @@ export function RoutingDeployEditor() {
       }
       return
     }
-    const router = agents.find((a) => a.id === form.routerAgentId)
-    if (!router) return
-    const intentIds = router.routerIntentIds ?? []
-    if (intentIds.length === 0) {
-      setForm((prev) => ({ ...prev, branches: [] }))
-      return
-    }
-    // Skip refetch se as branches já refletem o set atual (caso edit mode).
-    const currentIds = new Set(form.branches.map((b) => b.intentId))
-    const wanted = new Set(intentIds)
-    const sameSet =
-      currentIds.size === wanted.size && [...currentIds].every((x) => wanted.has(x))
-    if (sameSet && form.branches.every((b) => b.intentName)) return
 
     let cancelled = false
     setIntentsLoading(true)
     setIntentsError(null)
-    Promise.all(intentIds.map((iid) => getRouterIntent(iid).catch(() => null)))
-      .then((results) => {
+    getAgent(form.routerAgentId)
+      .then(async (router) => {
+        if (cancelled) return
+        const intentIds = router.routerIntentIds ?? []
+        if (intentIds.length === 0) {
+          setForm((prev) => ({ ...prev, branches: [] }))
+          return
+        }
+        // Skip refetch se as branches já refletem o set atual (caso edit
+        // mode + Router não mudou) — evita resetar mapeamentos manuais.
+        const currentIds = new Set(form.branches.map((b) => b.intentId))
+        const wanted = new Set(intentIds)
+        const sameSet =
+          currentIds.size === wanted.size && [...currentIds].every((x) => wanted.has(x))
+        if (sameSet && form.branches.every((b) => b.intentName)) return
+
+        const results = await Promise.all(
+          intentIds.map((iid) => getRouterIntent(iid).catch(() => null)),
+        )
         if (cancelled) return
         const resolved: RouterIntent[] = results.filter((r): r is RouterIntent => !!r)
         const prevMappings = new Map(form.branches.map((b) => [b.intentName, b.agentId]))
@@ -315,7 +320,7 @@ export function RoutingDeployEditor() {
     }
     // form.branches intencionalmente fora — re-resolução só quando o Router muda.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.routerAgentId, agents])
+  }, [form.routerAgentId])
 
   const routers = useMemo(
     () => agents.filter((a) => a.type === 'Router'),
