@@ -618,13 +618,16 @@ function DraftCard({ draft, onClick }: DraftCardProps) {
   const isRouter = draft.payload?.type === 'Router'
   const isWorker = draft.payload?.type === 'Worker'
   const isToolRunner = draft.payload?.type === 'ToolRunner'
+  const isConversational = draft.payload?.type === 'Conversational'
   const iconBg = isRouter
     ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
     : isWorker
       ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400'
       : isToolRunner
         ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-        : 'bg-accent-subtle text-accent'
+        : isConversational
+          ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+          : 'bg-accent-subtle text-accent'
 
   return (
     <Card
@@ -692,6 +695,11 @@ function DraftCard({ draft, onClick }: DraftCardProps) {
               Tool Runner
             </span>
           )}
+          {isConversational && (
+            <span className="inline-flex items-center rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+              Conversational
+            </span>
+          )}
           {draft.isEditDraft && <Badge>edição</Badge>}
           <span>atualizado {formatRelative(draft.updatedAt)}</span>
         </div>
@@ -750,13 +758,14 @@ function PublishedAgentCard({ agent, forking, onEdit, onDeploy, onVersions, onHi
   const modelLabel = agent.model?.predefinedModelId || agent.model?.deploymentName || ''
   const toolCount = agent.tools?.length ?? 0
   const enabled = agent.enabled !== false
-  // Router herda o accent roxo, Worker o azul (sky), Tool Runner o âmbar —
-  // espelham os cards de tipo no NewAgentModeModal/TypeStep, mantendo
-  // consistência visual entre seleção e listagem. Custom segue verde do
-  // tom success (default).
+  // Router herda o accent roxo, Worker o azul (sky), Tool Runner o âmbar,
+  // Conversational o rosa — espelham os cards de tipo no NewAgentModeModal/
+  // TypeStep, mantendo consistência visual entre seleção e listagem. Custom
+  // segue verde do tom success (default).
   const isRouter = agent.type === 'Router'
   const isWorker = agent.type === 'Worker'
   const isToolRunner = agent.type === 'ToolRunner'
+  const isConversational = agent.type === 'Conversational'
   const accentBar = !enabled
     ? 'before:bg-warning'
     : isRouter
@@ -765,14 +774,18 @@ function PublishedAgentCard({ agent, forking, onEdit, onDeploy, onVersions, onHi
         ? 'before:bg-sky-500'
         : isToolRunner
           ? 'before:bg-amber-500'
-          : 'before:bg-success'
+          : isConversational
+            ? 'before:bg-rose-500'
+            : 'before:bg-success'
   const iconBg = isRouter
     ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
     : isWorker
       ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400'
       : isToolRunner
         ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-        : 'bg-success/10 text-success'
+        : isConversational
+          ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+          : 'bg-success/10 text-success'
 
   return (
     <Card
@@ -826,6 +839,11 @@ function PublishedAgentCard({ agent, forking, onEdit, onDeploy, onVersions, onHi
           {isToolRunner && (
             <span className="inline-flex items-center rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
               Tool Runner
+            </span>
+          )}
+          {isConversational && (
+            <span className="inline-flex items-center rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+              Conversational
             </span>
           )}
           {toolCount > 0 && <Badge>{toolCount} ferramenta{toolCount === 1 ? '' : 's'}</Badge>}

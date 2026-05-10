@@ -17,6 +17,11 @@ interface MiddlewareConfigEntry {
 
 const SECURITY_MIDDLEWARE_TYPE = 'SecurityGuardrails'
 
+// Middleware AG-UI que dispara STATE_DELTA via SSE quando o output é JSON
+// estruturado. Conversational depende dele pra que o frontend chat
+// renderize componentes em tempo real conforme `ui_component`.
+const AG_UI_STATE_MIDDLEWARE_TYPE = 'StructuredOutputState'
+
 // Chave em payload.metadata que carrega o domínio do Worker. Mesmo valor
 // usado pelo backend (AgentDefinition.WorkerScopeMetadataKey).
 const WORKER_SCOPE_METADATA_KEY = 'x-worker-scope'
@@ -24,6 +29,16 @@ const WORKER_SCOPE_METADATA_KEY = 'x-worker-scope'
 // Chave em payload.metadata que declara HITL pro Tool Runner. Mesmo valor
 // usado pelo backend (AgentDefinition.ToolRunnerHitlRequiredMetadataKey).
 const TOOL_RUNNER_HITL_METADATA_KEY = 'x-tool-runner-hitl-required'
+
+// Chave em payload.metadata que carrega a lista canônica de ui_component
+// declarados pelo Conversational. Mesmo valor usado pelo backend
+// (AgentDefinition.ConversationalUiComponentsMetadataKey).
+const CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY = 'x-conversational-ui-components'
+
+// Chave em payload.metadata que carrega a persona do Conversational
+// (papel/personalidade/estilo). Mesmo valor usado pelo backend
+// (AgentDefinition.ConversationalPersonaMetadataKey).
+const CONVERSATIONAL_PERSONA_METADATA_KEY = 'x-conversational-persona'
 
 export function shortId(): string {
   return Math.random().toString(36).slice(2, 10)
@@ -200,6 +215,8 @@ export function emptyFormState(): FormState {
     routerIntentIds: [],
     workerScope: '',
     toolRunnerHitlRequired: false,
+    conversationalPersona: '',
+    conversationalUiComponents: [],
     predefinedModelId: '',
     profile: {
       role: '',
@@ -265,8 +282,8 @@ export function fromDraft(draft: AgentDraft): FormState {
   const securityEnabled = securityEntry?.enabled === true
 
   // Backend default = Custom quando ausente. Aceita Custom|Router|Worker|
-  // ToolRunner no UI; tipos não-implementados (futuro Conversational) caem
-  // pra Custom — evita travar o wizard com value inválido.
+  // ToolRunner|Conversational no UI; valores fora desse set caem pra
+  // Custom — evita travar o wizard com value inválido.
   const rawType = payload.type
   const type: AgentType =
     rawType === 'Router'
@@ -275,7 +292,9 @@ export function fromDraft(draft: AgentDraft): FormState {
         ? 'Worker'
         : rawType === 'ToolRunner'
           ? 'ToolRunner'
-          : 'Custom'
+          : rawType === 'Conversational'
+            ? 'Conversational'
+            : 'Custom'
 
   // IDs das intents que este Router atende. Source of truth = backend
   // (junction aihub.agent_router_intents); response do agent já traz no
@@ -300,6 +319,9 @@ export function fromDraft(draft: AgentDraft): FormState {
   // Worker e Tool Runner gravam o schema em payload.structuredOutput (não
   // no instructions como Custom-advanced). Hidrata o FormState a partir
   // dele pra que o OutputStep mostre o schema editável ao reabrir.
+  // Conversational tem shape canônico { ui_component, message, output }; o
+  // FormState representa só o subschema do `output` (codec extrai do
+  // payload.structuredOutput.schema.properties.output ao reabrir).
   let workerOutput: StructuredSection | null = null
   if (type === 'Worker' || type === 'ToolRunner') {
     const so = payload.structuredOutput
@@ -315,6 +337,48 @@ export function fromDraft(draft: AgentDraft): FormState {
         workerOutput = null
       }
     }
+  } else if (type === 'Conversational') {
+    const so = payload.structuredOutput
+    const rawSchema = so?.schema
+    if (rawSchema && typeof rawSchema === 'object' && !Array.isArray(rawSchema)) {
+      const schemaObj = rawSchema as Record<string, unknown>
+      const properties = schemaObj.properties as Record<string, unknown> | undefined
+      const outputSubschema = properties?.output
+      if (outputSubschema && typeof outputSubschema === 'object') {
+        try {
+          workerOutput = {
+            mode: 'structured',
+            description: so?.schemaDescription ?? '',
+            schema: JSON.stringify(outputSubschema, null, 2),
+          }
+        } catch {
+          workerOutput = null
+        }
+      }
+    }
+  }
+
+  // Persona livre do Conversational vai pras instructions skeleton.
+  // Backend extrai do prompt; aqui hidratamos a partir de uma chave
+  // metadata dedicada pra evitar reparser do prompt.
+  const rawPersona = payload.metadata?.[CONVERSATIONAL_PERSONA_METADATA_KEY]
+  const conversationalPersona = typeof rawPersona === 'string' ? rawPersona : ''
+
+  // Lista de ui_components vive em metadata['x-conversational-ui-components']
+  // como JSON array. Items não-string ou inválidos são descartados aqui.
+  const rawUiComponents = payload.metadata?.[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY]
+  let conversationalUiComponents: string[] = []
+  if (typeof rawUiComponents === 'string' && rawUiComponents.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(rawUiComponents)
+      if (Array.isArray(parsed)) {
+        conversationalUiComponents = parsed.filter(
+          (item) => typeof item === 'string' && item.trim().length > 0,
+        ) as string[]
+      }
+    } catch {
+      conversationalUiComponents = []
+    }
   }
 
   return {
@@ -323,6 +387,8 @@ export function fromDraft(draft: AgentDraft): FormState {
     routerIntentIds,
     workerScope,
     toolRunnerHitlRequired,
+    conversationalPersona,
+    conversationalUiComponents,
     predefinedModelId: payload.model?.predefinedModelId ?? '',
     profile: decoded.profile,
     toolIds,
@@ -342,12 +408,12 @@ export function fromDraft(draft: AgentDraft): FormState {
       description: decoded.output.description,
       schema: decoded.output.schema,
     },
-    // Worker e Tool Runner são sempre tratados como "advanced" (steps fixos
-    // pelo tipo): força o modo independente do conteúdo do instructions,
-    // pra que toggles e hidratação de visited steps fiquem consistentes ao
-    // reabrir o draft.
+    // Worker, Tool Runner e Conversational são sempre tratados como
+    // "advanced" (steps fixos pelo tipo): força o modo independente do
+    // conteúdo do instructions, pra que toggles e hidratação de visited
+    // steps fiquem consistentes ao reabrir o draft.
     agentMode:
-      type === 'Worker' || type === 'ToolRunner'
+      type === 'Worker' || type === 'ToolRunner' || type === 'Conversational'
         ? 'advanced'
         : decoded.hasStructured || memEnabled
           ? 'advanced'
@@ -380,7 +446,8 @@ export function buildPayload(
   // bloco "# Domínio de análise" lendo metadata['x-worker-scope']. Tool
   // Runner usa skeleton mínimo — tools já carregam Description/WhenToUse
   // pro LLM via FunctionTool factory, sem necessidade de bloco anchor
-  // adicional. Custom segue o encoder genérico do ProfileStep.
+  // adicional. Conversational usa skeleton + persona injetada no prompt.
+  // Custom segue o encoder genérico do ProfileStep.
   const instructions =
     form.type === 'Router'
       ? encodeRouterInstructions(form.name)
@@ -388,13 +455,15 @@ export function buildPayload(
         ? encodeWorkerInstructions(form.name)
         : form.type === 'ToolRunner'
           ? encodeToolRunnerInstructions(form.name)
-          : encodeInstructions(
-              form.profile,
-              inputForCodec,
-              outputForCodec,
-              toolDocs,
-              includeStructured,
-            )
+          : form.type === 'Conversational'
+            ? encodeConversationalInstructions(form.name, form.conversationalPersona)
+            : encodeInstructions(
+                form.profile,
+                inputForCodec,
+                outputForCodec,
+                toolDocs,
+                includeStructured,
+              )
 
   // AgentModelConfig.DeploymentName é `required` no backend (System.Text.Json
   // valida no bind). Cliente envia '' quando só usa preset — o
@@ -411,7 +480,7 @@ export function buildPayload(
 
   const mergedTools = mergeTools(prev?.tools ?? null, form.toolIds, form.mcpIds)
   const operationalMemory = encodeOperationalMemory(form.memory)
-  const mergedMiddlewares = mergeMiddlewares(prev?.middlewares, form.security)
+  const mergedMiddlewares = mergeMiddlewares(prev?.middlewares, form.security, form.type)
   const structuredOutput = encodeStructuredOutput(prev, form)
 
   // Drafts novos não persistem mais 'x-router-intents' no metadata.
@@ -420,9 +489,12 @@ export function buildPayload(
   // Worker grava 'x-worker-scope' aqui (texto livre lido em runtime); pra
   // outros tipos a chave é removida pra evitar lixo cross-tipo. Tool
   // Runner declara HITL em 'x-tool-runner-hitl-required' (mesma higiene).
-  const metadata = encodeToolRunnerHitlMetadata(
-    encodeWorkerScopeMetadata(
-      stripLegacyRouterIntentsMetadata(prev?.metadata),
+  const metadata = encodeConversationalMetadata(
+    encodeToolRunnerHitlMetadata(
+      encodeWorkerScopeMetadata(
+        stripLegacyRouterIntentsMetadata(prev?.metadata),
+        form,
+      ),
       form,
     ),
     form,
@@ -497,6 +569,63 @@ function encodeStructuredOutput(
     }
   }
 
+  if (form.type === 'Conversational') {
+    // Shape canônico: { ui_component (enum), message (string), output
+    // (subschema livre) }. O codec envelopa o subschema editado pelo user
+    // no OutputStep como `properties.output` e injeta o enum
+    // de ui_components no schema dinamicamente.
+    const trimmedSchema = form.output.schema.trim()
+    let outputSubschema: Record<string, unknown> = {
+      type: 'object',
+      properties: {},
+      additionalProperties: true,
+    }
+    if (trimmedSchema) {
+      try {
+        const parsed = JSON.parse(trimmedSchema)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          outputSubschema = parsed as Record<string, unknown>
+        }
+      } catch {
+        // Schema inválido cai pro default vazio — validação no save reporta.
+      }
+    }
+
+    const cleanUiComponents = form.conversationalUiComponents
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
+    const uiComponentProp: Record<string, unknown> = {
+      type: 'string',
+      description:
+        'Identificador do componente UI que o frontend deve renderizar pra esta resposta.',
+    }
+    if (cleanUiComponents.length > 0) {
+      uiComponentProp.enum = cleanUiComponents
+    }
+
+    const trimmedDesc = form.output.description.trim()
+    const fallbackDesc =
+      'Resposta canônica do Conversational: ui_component (renderer), message (texto), output (payload).'
+    return {
+      responseFormat: 'json_schema',
+      schemaName: 'ConversationalTurn',
+      schemaDescription: trimmedDesc.length > 0 ? trimmedDesc : fallbackDesc,
+      schema: {
+        type: 'object',
+        properties: {
+          ui_component: uiComponentProp,
+          message: {
+            type: 'string',
+            description: 'Texto humano em PT-BR pro usuário — curto, claro, direto.',
+          },
+          output: outputSubschema,
+        },
+        required: ['ui_component', 'message', 'output'],
+        additionalProperties: false,
+      },
+    }
+  }
+
   if (form.type !== 'Router') {
     const prevSO = prev?.structuredOutput
     return prevSO === undefined ? null : prevSO
@@ -552,6 +681,65 @@ function stripLegacyRouterIntentsMetadata(
  * output sem quebrar a injeção (não há marker frágil; runtime apenas
  * concatena com separador).
  */
+/**
+ * Skeleton determinístico do Conversational. Inclui persona (texto livre
+ * declarado pelo user) numa seção dedicada, e instruções fixas sobre o
+ * shape canônico { ui_component, message, output } esperado em cada turn.
+ * O middleware StructuredOutputState (ativado por default no save) lê o
+ * JSON da resposta e emite STATE_DELTA via SSE pro frontend chat.
+ */
+export function encodeConversationalInstructions(name: string, persona: string): string {
+  const cleanName = (name || '').trim()
+  const cleanPersona = (persona || '').trim()
+  const intro = cleanName ? `Você é ${cleanName}.` : 'Você é um assistente conversacional.'
+
+  const parts: string[] = ['# Persona', intro]
+  if (cleanPersona.length > 0) {
+    parts.push('', cleanPersona)
+  }
+  parts.push(
+    '',
+    '# Formato de resposta',
+    'Responda SEMPRE em JSON com três campos top-level:',
+    '- `ui_component`: identificador do componente que o frontend deve renderizar (use um dos valores declarados no enum do schema).',
+    '- `message`: texto humano em PT-BR pro usuário — curto, claro, direto.',
+    '- `output`: payload estruturado conforme o subschema definido (pode ser objeto vazio quando não houver dado).',
+    'Não escreva texto fora do JSON; não invente campos top-level extras.',
+  )
+  return parts.join('\n')
+}
+
+/**
+ * Mantém <c>metadata['x-conversational-persona']</c> e
+ * <c>metadata['x-conversational-ui-components']</c> sincronizados com o
+ * form. Pra Conversational grava ambos (ou remove quando vazios); pra
+ * outros tipos remove as duas chaves pra evitar lixo cross-tipo.
+ */
+function encodeConversationalMetadata(
+  prev: Record<string, string>,
+  form: FormState,
+): Record<string, string> {
+  const next: Record<string, string> = { ...prev }
+  if (form.type === 'Conversational') {
+    const persona = form.conversationalPersona.trim()
+    if (persona.length > 0) next[CONVERSATIONAL_PERSONA_METADATA_KEY] = persona
+    else delete next[CONVERSATIONAL_PERSONA_METADATA_KEY]
+
+    const filtered = form.conversationalUiComponents
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
+    if (filtered.length > 0) {
+      next[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY] = JSON.stringify(filtered)
+    } else {
+      delete next[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY]
+    }
+  } else {
+    delete next[CONVERSATIONAL_PERSONA_METADATA_KEY]
+    delete next[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY]
+  }
+  return next
+}
+
 /**
  * Skeleton determinístico mínimo do Tool Runner. Tool Runner é executor —
  * tools selecionadas já viajam com Description/WhenToUse via
@@ -664,13 +852,35 @@ export function encodeRouterInstructions(name: string): string {
 function mergeMiddlewares(
   prevMiddlewares: unknown,
   security: FormState['security'],
+  type: FormState['type'],
 ): MiddlewareConfigEntry[] {
   const list: MiddlewareConfigEntry[] = Array.isArray(prevMiddlewares)
     ? (prevMiddlewares as MiddlewareConfigEntry[])
     : []
-  const others = list.filter((m) => m?.type !== SECURITY_MIDDLEWARE_TYPE)
-  if (!security.enabled) return others
-  return [...others, { type: SECURITY_MIDDLEWARE_TYPE, enabled: true, settings: {} }]
+  // Mantém entries de tipos não-controlados pelo wizard (AccountGuard
+  // manual, etc.) intactas — filtra só os tipos que o wizard gerencia.
+  const others = list.filter((m) =>
+    m?.type !== SECURITY_MIDDLEWARE_TYPE
+    && m?.type !== AG_UI_STATE_MIDDLEWARE_TYPE,
+  )
+  const next: MiddlewareConfigEntry[] = [...others]
+  if (security.enabled) {
+    next.push({ type: SECURITY_MIDDLEWARE_TYPE, enabled: true, settings: {} })
+  }
+  // StructuredOutputState é ativado automaticamente pra Conversational —
+  // sem ele, o output estruturado não dispara STATE_DELTA no SSE e o
+  // frontend chat não renderiza componentes em tempo real. Pra outros
+  // tipos, a entry é preservada se vier de prev (filtrada acima e não
+  // re-adicionada — drift consciente: outros templates não dependem dele).
+  if (type === 'Conversational') {
+    next.push({ type: AG_UI_STATE_MIDDLEWARE_TYPE, enabled: true, settings: {} })
+  } else {
+    // Pra não-Conversational, preserva a entry de prev se existia (útil
+    // em agentes Custom legacy que ativaram manualmente).
+    const prevAgUi = list.find((m) => m?.type === AG_UI_STATE_MIDDLEWARE_TYPE)
+    if (prevAgUi) next.push(prevAgUi)
+  }
+  return next
 }
 
 /**

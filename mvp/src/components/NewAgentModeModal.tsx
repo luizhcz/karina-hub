@@ -84,6 +84,17 @@ const TYPE_CHOICES: TypeChoice[] = [
     accent: 'from-amber-500/15 to-amber-500/0 text-amber-600 dark:text-amber-400',
     iconBg: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
   },
+  {
+    type: 'Conversational',
+    defaultMode: 'advanced',
+    title: 'Conversational',
+    pitch:
+      'Chat / assistant multi-turn. Único tipo que roda em workflow InputMode=Chat. Output canônico { ui_component, message, output } injetado pelo codec; middleware AG-UI dispara STATE_DELTA via SSE pra renderer real-time.',
+    steps: ['Tipo', 'Identificação', 'Ferramentas', 'Segurança', 'Memória', 'Output', 'Modelo', 'Revisão'],
+    icon: <SparklesIcon className="h-6 w-6" />,
+    accent: 'from-rose-500/15 to-rose-500/0 text-rose-600 dark:text-rose-400',
+    iconBg: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
+  },
 ]
 
 export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModalProps) {
@@ -92,13 +103,13 @@ export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModal
       open={open}
       onClose={onClose}
       title="Como você quer começar?"
-      description="Escolha o tipo formal do agente — Custom (livre), Router (classifier), Worker (specialist) ou Tool Runner (executor). Templates abaixo aceleram quando o caso já tem um modelo pronto."
+      description="Escolha o tipo formal do agente — Custom (livre), Router (classifier), Worker (specialist), Tool Runner (executor) ou Conversational (chat). Templates abaixo aceleram quando o caso já tem um modelo pronto."
       size="lg"
     >
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-fg-dim">
         Tipo do agente
       </p>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
         {TYPE_CHOICES.map((choice) => (
           <button
             key={choice.type}

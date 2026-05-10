@@ -41,6 +41,7 @@ import { ProfileStep } from './ProfileStep'
 import { RouterProfileStep } from './RouterProfileStep'
 import { WorkerProfileStep } from './WorkerProfileStep'
 import { ToolRunnerProfileStep } from './ToolRunnerProfileStep'
+import { ConversationalProfileStep } from './ConversationalProfileStep'
 import { ToolsKnowledgeStep } from './ToolsKnowledgeStep'
 import { SecurityStep } from './SecurityStep'
 import { MemoryStep } from './MemoryStep'
@@ -165,10 +166,28 @@ const TOOL_RUNNER_STEPS: StepDescriptor[] = [
   { key: 'review', label: 'Revisão' },
 ]
 
+// Conversational substitui o ProfileStep por um step próprio (Identificação
+// + Persona + UI components). Inclui Tools (opcional — pode chamar tools
+// no contexto da conversa), Segurança (recomendado on), Memória (frequente
+// pra continuidade entre turns), Output (sub-schema do shape canônico),
+// Modelo. Sem Input — chat consome ChatTurnContext, schema de input é
+// implícito.
+const CONVERSATIONAL_STEPS: StepDescriptor[] = [
+  { key: 'type', label: 'Tipo' },
+  { key: 'profile', label: 'Identificação' },
+  { key: 'tools', label: 'Ferramentas' },
+  { key: 'security', label: 'Segurança' },
+  { key: 'memory', label: 'Memória' },
+  { key: 'output', label: 'Output' },
+  { key: 'model', label: 'Modelo' },
+  { key: 'review', label: 'Revisão' },
+]
+
 function stepsFor(mode: AgentMode, type: AgentType): StepDescriptor[] {
   if (type === 'Router') return ROUTER_STEPS
   if (type === 'Worker') return WORKER_STEPS
   if (type === 'ToolRunner') return TOOL_RUNNER_STEPS
+  if (type === 'Conversational') return CONVERSATIONAL_STEPS
   return mode === 'advanced' ? ADVANCED_STEPS : BASIC_STEPS
 }
 
@@ -194,7 +213,9 @@ export function AgentEditor({ mode }: Props) {
           ? 'Worker'
           : searchParams.get('type') === 'ToolRunner'
             ? 'ToolRunner'
-            : 'Custom'
+            : searchParams.get('type') === 'Conversational'
+              ? 'Conversational'
+              : 'Custom'
       : 'Custom'
   const initialTemplateKey = mode === 'create' ? searchParams.get('template') : null
   const [form, setForm] = useState<FormState>(() => {
@@ -400,6 +421,22 @@ export function AgentEditor({ mode }: Props) {
           } catch {
             issues.output = 'Schema do output não é JSON válido.'
           }
+        }
+      }
+    } else if (form.type === 'Conversational') {
+      // Conversational: nome obrigatório. O sub-schema do output deve ser
+      // JSON válido (codec envolve no shape canônico no save; schema
+      // inválido cai pro default vazio e gera warning soft no backend).
+      if (!form.name.trim()) issues.profile = 'Informe um nome'
+      const trimmed = form.output.schema.trim()
+      if (trimmed) {
+        try {
+          const parsed = JSON.parse(trimmed)
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            issues.output = 'Subschema do `output` precisa ser um objeto JSON.'
+          }
+        } catch {
+          issues.output = 'Subschema do `output` não é JSON válido.'
         }
       }
     } else {
@@ -773,7 +810,8 @@ export function AgentEditor({ mode }: Props) {
         </div>
         {form.type !== 'Router'
           && form.type !== 'Worker'
-          && form.type !== 'ToolRunner' && (
+          && form.type !== 'ToolRunner'
+          && form.type !== 'Conversational' && (
           <div className="flex shrink-0 flex-col items-end gap-1">
             <Button
               size="sm"
@@ -832,7 +870,9 @@ export function AgentEditor({ mode }: Props) {
                   ? 'Worker'
                   : form.type === 'ToolRunner'
                     ? 'Tool Runner'
-                    : 'Tipo de agente'}
+                    : form.type === 'Conversational'
+                      ? 'Conversational'
+                      : 'Tipo de agente'}
             </p>
             <p className="mt-1 text-xs text-fg-muted">
               {form.type === 'Router'
@@ -841,14 +881,17 @@ export function AgentEditor({ mode }: Props) {
                   ? 'Specialist de domínio. Recebe input estruturado e produz análise rica conforme o schema. Steps são fixos pelo tipo — sem modo básico/avançado.'
                   : form.type === 'ToolRunner'
                     ? 'Function-caller / executor. Decide qual tool chamar com quais argumentos pra cumprir uma tarefa que exige ação no mundo. Steps são fixos pelo tipo — sem modo básico/avançado.'
-                    : form.agentMode === 'basic'
-                      ? 'Configuração rápida com perfil, ferramentas e revisão.'
-                      : 'Inclui input e output estruturados além do básico.'}
+                    : form.type === 'Conversational'
+                      ? 'Chat / assistant multi-turn. Output canônico { ui_component, message, output } injetado pelo codec; middleware AG-UI dispara STATE_DELTA via SSE. Steps são fixos pelo tipo — sem modo básico/avançado.'
+                      : form.agentMode === 'basic'
+                        ? 'Configuração rápida com perfil, ferramentas e revisão.'
+                        : 'Inclui input e output estruturados além do básico.'}
             </p>
           </div>
           {form.type !== 'Router'
             && form.type !== 'Worker'
-            && form.type !== 'ToolRunner' && (
+            && form.type !== 'ToolRunner'
+            && form.type !== 'Conversational' && (
             <div className="flex rounded-lg border border-border bg-bg-soft p-1">
               <ModeToggleButton
                 active={form.agentMode === 'basic'}
@@ -902,10 +945,14 @@ export function AgentEditor({ mode }: Props) {
         {form.currentStep === 'profile' && form.type === 'ToolRunner' && (
           <ToolRunnerProfileStep form={form} setForm={setForm} readonly={readonly} />
         )}
+        {form.currentStep === 'profile' && form.type === 'Conversational' && (
+          <ConversationalProfileStep form={form} setForm={setForm} readonly={readonly} />
+        )}
         {form.currentStep === 'profile'
           && form.type !== 'Router'
           && form.type !== 'Worker'
-          && form.type !== 'ToolRunner' && (
+          && form.type !== 'ToolRunner'
+          && form.type !== 'Conversational' && (
             <ProfileStep form={form} setForm={setForm} readonly={readonly} />
           )}
         {form.currentStep === 'tools' && (
@@ -924,11 +971,14 @@ export function AgentEditor({ mode }: Props) {
         {form.currentStep === 'security'
           && (form.agentMode === 'advanced'
             || form.type === 'Worker'
-            || form.type === 'ToolRunner') && (
+            || form.type === 'ToolRunner'
+            || form.type === 'Conversational') && (
             <SecurityStep form={form} setForm={setForm} readonly={readonly} />
           )}
         {form.currentStep === 'memory'
-          && (form.agentMode === 'advanced' || form.type === 'ToolRunner') && (
+          && (form.agentMode === 'advanced'
+            || form.type === 'ToolRunner'
+            || form.type === 'Conversational') && (
             <MemoryStep form={form} setForm={setForm} readonly={readonly} />
           )}
         {form.currentStep === 'input' && form.agentMode === 'advanced' && (
@@ -937,7 +987,8 @@ export function AgentEditor({ mode }: Props) {
         {form.currentStep === 'output'
           && (form.agentMode === 'advanced'
             || form.type === 'Worker'
-            || form.type === 'ToolRunner') && (
+            || form.type === 'ToolRunner'
+            || form.type === 'Conversational') && (
             <OutputStep form={form} setForm={setForm} readonly={readonly} />
           )}
         {form.currentStep === 'model' && (

@@ -65,6 +65,17 @@ const TYPE_CARDS: TypeCard[] = [
       'Modelo full, Temperature 0–0.3, MaxTokens 2000+ — determinismo prioritário',
     ],
   },
+  {
+    type: 'Conversational',
+    title: 'Conversational',
+    tagline: 'Chat / assistant multi-turn com persona e contexto entre turns.',
+    bestFor: 'Atendimento conversacional, coleta iterativa de dados (boletas, onboarding), assistentes de refinamento. Único tipo que roda em workflow `InputMode=Chat` e mantém histórico/conversationId entre turns.',
+    bullets: [
+      'Output estruturado fixo: { ui_component, message, output } — schema é injetado',
+      'Middleware StructuredOutputState ativo: dispara STATE_DELTA via SSE',
+      'SecurityGuardrails ligado por padrão; modelo balanced (latência importa)',
+    ],
+  },
 ]
 
 // Defaults idempotentes do template Worker. Aplicados apenas quando o
@@ -107,6 +118,28 @@ const WORKER_DEFAULT_OUTPUT_DESCRIPTION =
   'Saída estruturada com análise, recomendação, riscos e reason. ' +
   'Padrão recomendado pra Worker; ajuste o schema conforme o domínio.'
 
+// Subschema default do `output` no shape canônico do Conversational.
+// O user edita este subschema livremente no OutputStep. O codec envolve
+// como `properties.output` dentro do shape { ui_component, message, output }
+// montado no save. Default vazio com additionalProperties=true permite
+// payload livre até o user formalizar.
+const CONVERSATIONAL_DEFAULT_OUTPUT_SCHEMA = JSON.stringify(
+  {
+    type: 'object',
+    properties: {},
+    additionalProperties: true,
+  },
+  null,
+  2,
+)
+
+const CONVERSATIONAL_DEFAULT_OUTPUT_DESCRIPTION =
+  'Subschema do campo `output` (payload livre). O codec envolve este schema ' +
+  'dentro do shape canônico { ui_component, message, output }; o frontend ' +
+  'renderer lê `output` pra renderizar conforme o `ui_component` escolhido.'
+
+const CONVERSATIONAL_DEFAULT_UI_COMPONENTS = ['text', 'card', 'list']
+
 export function TypeStep({ form, setForm, readonly }: TypeStepProps) {
   const select = (next: AgentType) => {
     if (readonly || form.type === next) return
@@ -115,10 +148,14 @@ export function TypeStep({ form, setForm, readonly }: TypeStepProps) {
       // declaração HITL do Tool Runner pra evitar shadow state se o user
       // voltar pra ToolRunner depois (o save já limpa o metadata via
       // encodeToolRunnerHitlMetadata; aqui mantemos o FormState coerente).
+      // Mesmo princípio pra persona/uiComponents do Conversational.
       const base: FormState = {
         ...prev,
         type: next,
         toolRunnerHitlRequired: next === 'ToolRunner' ? prev.toolRunnerHitlRequired : false,
+        conversationalPersona: next === 'Conversational' ? prev.conversationalPersona : '',
+        conversationalUiComponents:
+          next === 'Conversational' ? prev.conversationalUiComponents : [],
       }
 
       if (next === 'Worker') {
@@ -162,6 +199,38 @@ export function TypeStep({ form, setForm, readonly }: TypeStepProps) {
           ...base,
           agentMode: 'advanced',
           security: securityUntouched ? { enabled: true } : prev.security,
+        }
+      }
+
+      if (next === 'Conversational') {
+        // Conversational: shape canônico { ui_component, message, output }
+        // é injetado pelo codec; OutputStep edita só o subschema do `output`.
+        // Pré-popula o subschema (vazio com additionalProperties=true) e a
+        // lista default de ui_components quando o user ainda não tocou.
+        // SecurityGuardrails on (canal exposto a user externo). Memory NÃO
+        // é ativada por default — user marca explicitamente quando quiser
+        // continuidade entre turns.
+        const outputUntouched =
+          prev.output.mode === 'text'
+          && prev.output.description.trim() === ''
+          && prev.output.schema.trim() === ''
+        const securityUntouched = !prev.security.enabled
+        const uiComponentsEmpty = prev.conversationalUiComponents.length === 0
+
+        return {
+          ...base,
+          agentMode: 'advanced',
+          output: outputUntouched
+            ? {
+                mode: 'structured',
+                description: CONVERSATIONAL_DEFAULT_OUTPUT_DESCRIPTION,
+                schema: CONVERSATIONAL_DEFAULT_OUTPUT_SCHEMA,
+              }
+            : prev.output,
+          security: securityUntouched ? { enabled: true } : prev.security,
+          conversationalUiComponents: uiComponentsEmpty
+            ? [...CONVERSATIONAL_DEFAULT_UI_COMPONENTS]
+            : prev.conversationalUiComponents,
         }
       }
 

@@ -94,6 +94,27 @@ public class AgentDefinition
     public const string ToolRunnerHitlRequiredMetadataKey = "x-tool-runner-hitl-required";
 
     /// <summary>
+    /// Chave em <see cref="Metadata"/> que carrega, pra Conversational, a
+    /// lista canônica de valores válidos de <c>ui_component</c>. Persiste
+    /// como JSON array de strings (ex: <c>["text","card","list","form"]</c>).
+    /// O codec de save usa pra injetar o enum no schema fixo
+    /// <c>{ui_component, message, output}</c> do StructuredOutput; o
+    /// frontend chat consome o enum pra dirigir o renderer (switch ou
+    /// fallback genérico). Lista vazia / chave ausente = enum sem
+    /// restrição (string livre), com warning soft no save.
+    /// </summary>
+    public const string ConversationalUiComponentsMetadataKey = "x-conversational-ui-components";
+
+    /// <summary>
+    /// Chave em <see cref="Metadata"/> que carrega, pra Conversational, o
+    /// texto de persona do agente (papel, personalidade, estilo). Backend
+    /// concatena em <c>Instructions</c> no codec do save. Persiste em
+    /// metadata em vez de campo top-level pra evitar propagação manual nos
+    /// múltiplos paths que reconstroem <see cref="AgentDefinition"/>.
+    /// </summary>
+    public const string ConversationalPersonaMetadataKey = "x-conversational-persona";
+
+    /// <summary>
     /// "project" (default) — agent visível apenas dentro do projeto dono.
     /// "global" — agent visível a todos os projetos do mesmo tenant; outros projetos
     /// podem referenciá-lo em workflows. Cross-tenant é proibido.

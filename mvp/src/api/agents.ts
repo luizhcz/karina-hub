@@ -9,7 +9,7 @@ export type AgentVisibility = 'project' | 'global'
 
 // Espelha EfsAiHub.Core.Agents.AgentType. Custom é o default no backend
 // (agentes legacy sem campo type no jsonb hidratam como Custom).
-export type AgentType = 'Custom' | 'Router' | 'Worker' | 'ToolRunner'
+export type AgentType = 'Custom' | 'Router' | 'Worker' | 'ToolRunner' | 'Conversational'
 
 export interface AgentModel {
   predefinedModelId?: string | null

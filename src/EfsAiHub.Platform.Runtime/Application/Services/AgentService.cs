@@ -480,6 +480,9 @@ public class AgentService : IAgentService
             case AgentType.ToolRunner:
                 ValidateToolRunner(definition, warnings);
                 break;
+            case AgentType.Conversational:
+                ValidateConversational(definition, errors, warnings);
+                break;
         }
 
         return (errors.Count == 0, errors, warnings);
@@ -672,6 +675,157 @@ public class AgentService : IAgentService
                 "Há tools com 'RequiresApproval=true' selecionadas, mas o Tool Runner não declara " +
                 "exigência de HITL. Marque 'Exigir aprovação humana' no step Identificação ou remova " +
                 "a aprovação das tools.");
+        }
+    }
+
+    /// <summary>
+    /// Conversational tem invariante hard: <c>StructuredOutput</c> é
+    /// obrigatório com shape canônico <c>{ ui_component, message, output }</c>.
+    /// O codec de save sempre injeta esse shape; aqui validamos que o
+    /// payload chegou consistente. Demais expectativas (modelo balanced,
+    /// MaxTokens razoável, SecurityGuardrails on, lista de
+    /// <c>ui_component</c> declarada) são warnings soft.
+    /// </summary>
+    private static void ValidateConversational(
+        AgentDefinition definition,
+        List<string> errors,
+        List<string> warnings)
+    {
+        var so = definition.StructuredOutput;
+        if (so is null
+            || !so.ResponseFormat.Equals("json_schema", StringComparison.OrdinalIgnoreCase)
+            || so.Schema is null)
+        {
+            errors.Add(
+                "Conversational exige 'structuredOutput' com responseFormat='json_schema' e schema preenchido. " +
+                "O codec do wizard injeta o shape canônico { ui_component, message, output } automaticamente.");
+        }
+        else
+        {
+            var root = so.Schema.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("properties", out var props)
+                || props.ValueKind != JsonValueKind.Object
+                || !props.TryGetProperty("ui_component", out _)
+                || !props.TryGetProperty("message", out _)
+                || !props.TryGetProperty("output", out _))
+            {
+                errors.Add(
+                    "Schema de Conversational precisa declarar 'ui_component', 'message' e 'output' como " +
+                    "propriedades top-level. Reabra o agente no wizard pra que o codec gere o shape correto.");
+            }
+        }
+
+        var deployment = definition.Model?.DeploymentName ?? string.Empty;
+        var hasPredefined = !string.IsNullOrWhiteSpace(definition.Model?.PredefinedModelId);
+        if (definition.Model?.MaxTokens is { } maxTokens && maxTokens > 4000)
+        {
+            warnings.Add(
+                $"Conversational responde turns curtos a médios — 'model.maxTokens'={maxTokens} é alto. " +
+                "Recomenda 1500–2000 pra latência (TTFT) razoável.");
+        }
+        if (definition.Model?.MaxTokens is { } lowMax && lowMax < 800)
+        {
+            warnings.Add(
+                $"Conversational com 'model.maxTokens'={lowMax} pode truncar respostas naturais. " +
+                "Recomenda 1500–2000.");
+        }
+
+        if (definition.Model?.Temperature is { } temperature
+            && (temperature < 0.3f || temperature > 1.0f))
+        {
+            warnings.Add(
+                $"Conversational recomenda 'model.temperature' entre 0.5 e 0.8 — recebido: {temperature}. " +
+                "Valores muito baixos soam robóticos; muito altos perdem consistência.");
+        }
+
+        var hasGuardrails = definition.Middlewares.Any(m =>
+            string.Equals(m.Type, "SecurityGuardrails", StringComparison.OrdinalIgnoreCase)
+            && m.Enabled);
+        if (!hasGuardrails)
+        {
+            warnings.Add(
+                "Conversational é exposto a user externo — recomenda middleware 'SecurityGuardrails' pra " +
+                "mitigar prompt injection ('esqueça regras', 'finja ser outro agente', etc.).");
+        }
+
+        // Lista de ui_component declarados vive em
+        // metadata['x-conversational-ui-components'] como JSON array. Vazio ou
+        // ausente = enum sem restrição no schema, com warning soft.
+        var uiComponentsRaw = definition.Metadata is { } md
+            && md.TryGetValue(AgentDefinition.ConversationalUiComponentsMetadataKey, out var raw)
+                ? raw
+                : null;
+        var hasUiComponents = false;
+        if (!string.IsNullOrWhiteSpace(uiComponentsRaw))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(uiComponentsRaw);
+                if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                {
+                    warnings.Add(
+                        "Lista 'x-conversational-ui-components' em metadata precisa ser um array JSON " +
+                        "(ex: [\"text\",\"card\"]). Frontend renderer cai pro fallback genérico.");
+                }
+                else if (doc.RootElement.GetArrayLength() == 0)
+                {
+                    // Trata como ausente — segue pro warning padrão abaixo.
+                }
+                else if (doc.RootElement.EnumerateArray()
+                    .Any(item => item.ValueKind != JsonValueKind.String
+                        || string.IsNullOrWhiteSpace(item.GetString())))
+                {
+                    warnings.Add(
+                        "Lista 'x-conversational-ui-components' contém items inválidos — todos precisam " +
+                        "ser strings não-vazias (ex: \"card\"). Itens inválidos são ignorados pelo codec.");
+                }
+                else
+                {
+                    hasUiComponents = true;
+                }
+            }
+            catch
+            {
+                warnings.Add(
+                    "Lista 'x-conversational-ui-components' em metadata não é JSON válido — " +
+                    "o frontend renderer cai pro fallback genérico.");
+            }
+        }
+        if (!hasUiComponents)
+        {
+            warnings.Add(
+                "Conversational sem lista de 'ui_component' declarada. Marque ao menos um valor no step " +
+                "Persona pra dirigir o renderer (ex: 'text', 'card', 'list'). Sem isso, o frontend usa " +
+                "fallback genérico (mostra message + output JSON cru).");
+        }
+
+        // Middleware AG-UI: StructuredOutputState intercepta o output JSON do
+        // turn e dispara STATE_DELTA via SSE. Sem ele, o frontend chat
+        // recebe só TEXT_MESSAGE_CONTENT (texto) e o output estruturado
+        // não chega ao renderer no formato esperado. Pra Conversational é
+        // o middleware que materializa o contrato { ui_component, message,
+        // output } como evento AG-UI.
+        var hasAgUiState = definition.Middlewares.Any(m =>
+            string.Equals(m.Type, "StructuredOutputState", StringComparison.OrdinalIgnoreCase)
+            && m.Enabled);
+        if (!hasAgUiState)
+        {
+            warnings.Add(
+                "Conversational recomenda middleware 'StructuredOutputState' — sem ele, o output " +
+                "estruturado { ui_component, message, output } não dispara STATE_DELTA no SSE e o " +
+                "frontend chat não consegue renderizar componentes em tempo real.");
+        }
+
+        // Modelo: warning quando deployment indica modelo grande/expensive.
+        // Não bloqueia — chat com gpt-5/claude-opus faz sentido em casos
+        // críticos (atendimento premium); só sinaliza custo de latência.
+        if (!hasPredefined && !string.IsNullOrEmpty(deployment)
+            && deployment.IndexOf("opus", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            warnings.Add(
+                $"Conversational com 'model.deploymentName'='{deployment}' (modelo full premium) — " +
+                "TTFT pode ficar acima de 1s. Avalie balanced (mini/sonnet) se latência for crítica.");
         }
     }
 }

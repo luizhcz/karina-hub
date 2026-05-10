@@ -9,6 +9,7 @@ import { listRouterIntents, type RouterIntent } from '../../api/routerIntents'
 import { encodeInstructions } from './instructionsCodec'
 import {
   buildToolDescriptors,
+  encodeConversationalInstructions,
   encodeRouterInstructions,
   encodeToolRunnerInstructions,
   encodeWorkerInstructions,
@@ -42,11 +43,14 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
           ? encodeWorkerInstructions(form.name)
           : form.type === 'ToolRunner'
             ? encodeToolRunnerInstructions(form.name)
-            : encodeInstructions(form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured),
+            : form.type === 'Conversational'
+              ? encodeConversationalInstructions(form.name, form.conversationalPersona)
+              : encodeInstructions(form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured),
     [
       form.type,
       form.name,
       form.profile,
+      form.conversationalPersona,
       inputForCodec,
       outputForCodec,
       toolDocs,
@@ -113,6 +117,8 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
       {form.type === 'ToolRunner' && (
         <ToolRunnerPreview form={form} tools={tools} mcps={mcps} />
       )}
+
+      {form.type === 'Conversational' && <ConversationalPreview form={form} />}
 
       <SecurityReviewCard
         enabled={form.security.enabled}
@@ -387,6 +393,80 @@ function ToolRunnerPreview({ form, tools, mcps }: ToolRunnerPreviewProps) {
           {hitlOn ? 'Exigida' : 'Não exigida'}
         </Badge>
       </div>
+    </Card>
+  )
+}
+
+interface ConversationalPreviewProps {
+  form: FormState
+}
+
+// Preview do Conversational no Review: persona truncada, lista de
+// ui_components declarados (que viram enum no schema canônico) e
+// warning quando algo falta. Não exibe o schema completo — isso vai
+// no card "Prompt do agente" + cards genéricos de output/segurança.
+function ConversationalPreview({ form }: ConversationalPreviewProps) {
+  const persona = form.conversationalPersona.trim()
+  const personaEmpty = persona.length === 0
+  const PERSONA_PREVIEW_MAX = 220
+  const truncated = persona.length > PERSONA_PREVIEW_MAX
+  const [expanded, setExpanded] = useState(false)
+  const visible = !truncated || expanded
+    ? persona
+    : persona.slice(0, PERSONA_PREVIEW_MAX) + '…'
+
+  const uiComponents = form.conversationalUiComponents
+  const noUiComponents = uiComponents.length === 0
+
+  return (
+    <Card className="space-y-3">
+      <CardHeader
+        title="Conversational"
+        description="Resumo do que será gravado: persona injetada no system prompt, valores válidos do enum `ui_component` (consumidos pelo frontend chat) e shape canônico do output (montado pelo codec no save)."
+      />
+      {personaEmpty ? (
+        <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+          Persona vazia. Defina papel, tom e restrições no step Identificação pra orientar o LLM.
+        </p>
+      ) : (
+        <div className="rounded-lg border border-border bg-bg-soft px-3 py-2.5">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{visible}</p>
+          {truncated && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setExpanded((x) => !x)}
+              className="mt-2 -ml-1"
+            >
+              {expanded ? 'Ver menos' : 'Ver mais'}
+            </Button>
+          )}
+          <p className="mt-2 text-[11px] text-fg-dim">
+            {persona.length} caracteres
+          </p>
+        </div>
+      )}
+      <div>
+        <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
+          ui_component (enum no schema)
+        </p>
+        {noUiComponents ? (
+          <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+            Nenhum componente declarado. Frontend renderer cai pro fallback genérico (mostra `message` + JSON cru de `output`).
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {uiComponents.map((value) => (
+              <Badge key={value} tone="accent">
+                <code className="font-mono text-[11px]">{value}</code>
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+      <p className="text-[11px] text-fg-dim">
+        Middleware <code>StructuredOutputState</code> é ativado automaticamente no save — sem ele, o output não dispara STATE_DELTA no SSE.
+      </p>
     </Card>
   )
 }

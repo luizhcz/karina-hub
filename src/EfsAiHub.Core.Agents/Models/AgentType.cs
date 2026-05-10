@@ -9,8 +9,7 @@ namespace EfsAiHub.Core.Agents;
 /// template aplicado, sem validações específicas.
 ///
 /// Persiste como string no jsonb da row (<c>JsonStringEnumConverter</c>
-/// aplicado por attribute, conversão restrita a este enum). Membro
-/// adicional (Conversational) entra conforme o tipo for refinado.
+/// aplicado por attribute, conversão restrita a este enum).
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum AgentType
@@ -39,4 +38,21 @@ public enum AgentType
     /// enforça bloqueio efetivo de invocação.
     /// </summary>
     ToolRunner = 3,
+
+    /// <summary>
+    /// Chat / assistant. Multi-turn com histórico persistente, interage com
+    /// humano em tempo real e mantém contexto entre turns. Sempre roda em
+    /// workflow com <c>Configuration.InputMode=Chat</c>. Output estruturado
+    /// é obrigatório com shape canônico:
+    /// <c>{ ui_component: enum, message: string, output: &lt;subschema livre&gt; }</c>.
+    /// O frontend renderer consome <c>ui_component</c> pra escolher
+    /// componente UI; <c>message</c> é texto humano; <c>output</c> é payload
+    /// customizável pelo agente (subschema declarado pelo user). A lista de
+    /// valores válidos de <c>ui_component</c> vive em
+    /// <c>metadata['x-conversational-ui-components']</c> como JSON array
+    /// e é injetada como enum no schema pelo codec ao montar o payload.
+    /// Defaults: modelo balanced, Temperature 0.5–0.8, MaxTokens 1500–2000,
+    /// SecurityGuardrails recomendado.
+    /// </summary>
+    Conversational = 4,
 }

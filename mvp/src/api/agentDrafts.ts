@@ -58,7 +58,7 @@ export interface AgentDraftOperationalMemory {
 
 // Espelho de EfsAiHub.Core.Agents.AgentType. Custom é o default quando ausente
 // no payload (back-end aplica o default na desserialização).
-export type AgentType = 'Custom' | 'Router' | 'Worker' | 'ToolRunner'
+export type AgentType = 'Custom' | 'Router' | 'Worker' | 'ToolRunner' | 'Conversational'
 
 export interface AgentDraftPayload {
   name?: string | null
