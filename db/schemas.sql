@@ -49,6 +49,13 @@ CREATE TABLE IF NOT EXISTS aihub.projects (
 CREATE INDEX IF NOT EXISTS ix_projects_tenant_id
     ON aihub.projects (tenant_id);
 
+-- Flag de feature por projeto: autoriza criação de implantação tipo Chat
+-- (workflow Graph + Router conversacional + branches Conversational +
+-- InputMode=Chat). Default false; seeds especiais (ex: sales-trader-ai)
+-- são marcados true. Backend valida no save do workflow.
+ALTER TABLE aihub.projects
+    ADD COLUMN IF NOT EXISTS chat_deployment_allowed BOOLEAN NOT NULL DEFAULT false;
+
 -- =============================================================================
 -- 2. DEFINIÇÕES DE AGENTES E WORKFLOWS
 -- =============================================================================

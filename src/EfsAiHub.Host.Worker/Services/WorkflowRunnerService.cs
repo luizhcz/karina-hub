@@ -78,7 +78,7 @@ public class WorkflowRunnerService
         int maxTokensPerExecution,
         decimal? maxCostUsdPerExecution,
         EfsAiHub.Core.Agents.Execution.AccountGuardMode guardMode,
-        IReadOnlyDictionary<string, string>? agentNames,
+        IReadOnlyDictionary<string, AgentNodeInfo>? agentNames,
         OrchestrationMode orchestrationMode,
         IReadOnlyList<EfsAiHub.Core.Agents.Enrichment.EnrichmentRule>? enrichmentRules,
         CancellationToken ct)
@@ -312,7 +312,7 @@ public class WorkflowRunnerService
         int maxTokensPerExecution,
         decimal? maxCostUsdPerExecution,
         EfsAiHub.Core.Agents.Execution.AccountGuardMode guardMode,
-        IReadOnlyDictionary<string, string>? agentNames,
+        IReadOnlyDictionary<string, AgentNodeInfo>? agentNames,
         OrchestrationMode orchestrationMode,
         CancellationToken ct)
     {
@@ -471,7 +471,7 @@ public class WorkflowRunnerService
     private Action<string, bool, string> CreateNodeCallback(
         WorkflowExecution execution,
         NodeStateTracker nodeTracker,
-        IReadOnlyDictionary<string, string>? agentNames)
+        IReadOnlyDictionary<string, AgentNodeInfo>? agentNames)
     {
         // No Graph mode todo node passa pelo DelegateExecutor (mesmo agentes — ver
         // WorkflowFactory.BuildBindingMapAsync). Pra discriminar agente vs executor
@@ -480,7 +480,13 @@ public class WorkflowRunnerService
         // AG-UI) erra e marca agentes como executor, virando bubble fake no chat.
         return (nodeId, isCompleted, data) =>
         {
-            var kind = agentNames is not null && agentNames.ContainsKey(nodeId) ? "agent" : "executor";
+            // Lookup do agente vs executor: agentNames carrega só agentes registrados.
+            // Quando kind="agent", anexamos agentName + agentType no payload pra que
+            // o AgUiEventMapper consiga emitir CUSTOM[agent.lifecycle] sem precisar
+            // de DI no mapper (que é stateless por design).
+            AgentNodeInfo? agentInfo = null;
+            if (agentNames is not null) agentNames.TryGetValue(nodeId, out agentInfo);
+            var kind = agentInfo is not null ? "agent" : "executor";
 
             if (!isCompleted)
             {
@@ -498,7 +504,14 @@ public class WorkflowRunnerService
                     execution.ExecutionId,
                     "node_started",
                     JsonSerializer.Serialize(
-                        new { nodeId, nodeType = kind, timestamp = record.StartedAt },
+                        new
+                        {
+                            nodeId,
+                            nodeType = kind,
+                            agentName = agentInfo?.Name,
+                            agentType = agentInfo?.Type,
+                            timestamp = record.StartedAt
+                        },
                         JsonDefaults.Domain)));
             }
             else
@@ -513,7 +526,15 @@ public class WorkflowRunnerService
                         execution.ExecutionId,
                         "node_completed",
                         JsonSerializer.Serialize(
-                            new { nodeId, nodeType = kind, output = data[..Math.Min(300, data.Length)], timestamp = record.CompletedAt },
+                            new
+                            {
+                                nodeId,
+                                nodeType = kind,
+                                agentName = agentInfo?.Name,
+                                agentType = agentInfo?.Type,
+                                output = data[..Math.Min(300, data.Length)],
+                                timestamp = record.CompletedAt
+                            },
                             JsonDefaults.Domain)));
                 }
             }
@@ -528,7 +549,7 @@ public class WorkflowRunnerService
         OrchestrationMode orchestrationMode,
         int maxAgentInvocations,
         NodeStateTracker nodeTracker,
-        IReadOnlyDictionary<string, string>? agentNames,
+        IReadOnlyDictionary<string, AgentNodeInfo>? agentNames,
         List<string> outputParts,
         CancellationToken token)
     {
@@ -627,7 +648,7 @@ public class WorkflowRunnerService
         WorkflowExecution execution,
         NodeStateTracker nodeTracker,
         List<string> outputParts,
-        IReadOnlyDictionary<string, string>? agentNames)
+        IReadOnlyDictionary<string, AgentNodeInfo>? agentNames)
     {
         var currentAgentId = nodeTracker.CurrentAgentId;
 
@@ -646,14 +667,15 @@ public class WorkflowRunnerService
             nodeTracker.TryEndAgentSpan(currentAgentId, out _);
             nodeTracker.MaterializeOutput(currentAgentId);
             await _nodeRepo.SetNodeAsync(lastAgent);
-            var lastAgentName = agentNames is not null && agentNames.TryGetValue(currentAgentId, out var lan) ? lan : null;
+            var lastAgentInfo = agentNames is not null && agentNames.TryGetValue(currentAgentId, out var lan) ? lan : null;
             await PublishEventAsync(execution.ExecutionId, "node_completed",
                 new
                 {
                     nodeId = currentAgentId,
                     nodeType = "agent",
                     agentId = currentAgentId,
-                    agentName = lastAgentName,
+                    agentName = lastAgentInfo?.Name,
+                    agentType = lastAgentInfo?.Type,
                     timestamp = lastAgent.CompletedAt
                 });
         }
@@ -685,7 +707,7 @@ public class WorkflowRunnerService
         WorkflowEvent evt,
         List<string> outputParts,
         NodeStateTracker nodeTracker,
-        IReadOnlyDictionary<string, string>? agentNames,
+        IReadOnlyDictionary<string, AgentNodeInfo>? agentNames,
         CancellationToken ct)
     {
         switch (evt)

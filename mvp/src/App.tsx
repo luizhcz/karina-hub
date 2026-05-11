@@ -15,6 +15,8 @@ import { AgentDeploy } from './routes/AgentDeploy'
 import { Implantacoes } from './routes/Implantacoes'
 import { PipelineEditor } from './routes/PipelineEditor'
 import { RoutingDeployEditor } from './routes/RoutingDeployEditor'
+import { ChatDeployEditor } from './routes/ChatDeployEditor'
+import { ChatDeploymentSandbox } from './routes/ChatDeploymentSandbox'
 import { DeploymentSandbox } from './routes/DeploymentSandbox'
 import { Aprovacoes } from './routes/Aprovacoes'
 import { Avaliacoes } from './routes/Avaliacoes'
@@ -52,6 +54,9 @@ export function App() {
         <Route path="/implantacoes/avancada/:id" element={<PipelineEditor />} />
         <Route path="/implantacoes/roteamento" element={<RoutingDeployEditor />} />
         <Route path="/implantacoes/roteamento/:id" element={<RoutingDeployEditor />} />
+        <Route path="/implantacoes/chat" element={<ChatDeployEditor />} />
+        <Route path="/implantacoes/chat/:id" element={<ChatDeployEditor />} />
+        <Route path="/implantacoes/chat/:id/sandbox" element={<ChatDeploymentSandbox />} />
         <Route path="/implantacoes/:id/sandbox" element={<DeploymentSandbox />} />
         <Route path="/avaliacoes" element={<Avaliacoes />} />
         <Route path="/aprovacoes" element={<Aprovacoes />} />

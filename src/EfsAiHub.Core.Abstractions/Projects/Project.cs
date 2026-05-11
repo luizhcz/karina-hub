@@ -27,6 +27,15 @@ public class Project
     /// <summary>Orçamento do projeto (custo diário, tokens diários).</summary>
     public JsonDocument? Budget { get; set; }
 
+    /// <summary>
+    /// Permite ao projeto criar implantações tipo Chat (workflows Graph com
+    /// Router conversacional + branches Conversational + InputMode=Chat).
+    /// Default <c>false</c> — só projetos seedados com flag <c>true</c>
+    /// conseguem criar deploys do tipo. Validado no save do workflow
+    /// (defense-in-depth: frontend filtra, backend rejeita).
+    /// </summary>
+    public bool ChatDeploymentAllowed { get; set; } = false;
+
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

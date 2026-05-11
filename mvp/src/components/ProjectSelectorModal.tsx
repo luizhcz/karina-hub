@@ -57,7 +57,11 @@ export function ProjectSelectorModal({ open, onClose }: Props) {
   const current = getIdentity()
 
   const handlePick = (project: Project) => {
-    patchIdentity({ projectId: project.id, projectName: project.name })
+    patchIdentity({
+      projectId: project.id,
+      projectName: project.name,
+      chatDeploymentAllowed: project.chatDeploymentAllowed,
+    })
     onClose()
   }
 

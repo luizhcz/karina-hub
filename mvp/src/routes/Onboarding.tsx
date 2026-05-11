@@ -56,6 +56,7 @@ export function Onboarding() {
         account: trimmedAccount,
         projectId: '',
         projectName: '',
+        chatDeploymentAllowed: false,
       })
 
       listProjects()
@@ -114,6 +115,7 @@ export function Onboarding() {
       account: account.trim(),
       projectId,
       projectName: selected?.name ?? '',
+      chatDeploymentAllowed: selected?.chatDeploymentAllowed ?? false,
     })
   }
 

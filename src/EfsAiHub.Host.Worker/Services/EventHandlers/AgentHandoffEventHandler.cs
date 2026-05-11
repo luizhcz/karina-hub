@@ -47,7 +47,7 @@ public sealed class AgentHandoffEventHandler
         AgentResponseUpdateEvent tokenEvt,
         WorkflowExecution execution,
         NodeStateTracker nodeTracker,
-        IReadOnlyDictionary<string, string>? agentNames,
+        IReadOnlyDictionary<string, AgentNodeInfo>? agentNames,
         CancellationToken ct)
     {
         var agentId = tokenEvt.ExecutorId;
@@ -72,7 +72,7 @@ public sealed class AgentHandoffEventHandler
     private async Task FinalizePreviousAgentAsync(
         WorkflowExecution execution,
         NodeStateTracker nodeTracker,
-        IReadOnlyDictionary<string, string>? agentNames)
+        IReadOnlyDictionary<string, AgentNodeInfo>? agentNames)
     {
         var previousAgentId = nodeTracker.CurrentAgentId;
         if (previousAgentId is null
@@ -96,7 +96,7 @@ public sealed class AgentHandoffEventHandler
         nodeTracker.MaterializeOutput(previousAgentId);
         await _nodeRepo.SetNodeAsync(prev);
 
-        var previousAgentName = agentNames is not null
+        var previousInfo = agentNames is not null
             && agentNames.TryGetValue(previousAgentId, out var pan) ? pan : null;
 
         var output = prev.Output ?? string.Empty;
@@ -105,7 +105,8 @@ public sealed class AgentHandoffEventHandler
             nodeId = previousAgentId,
             nodeType = "agent",
             agentId = previousAgentId,
-            agentName = previousAgentName,
+            agentName = previousInfo?.Name,
+            agentType = previousInfo?.Type,
             output = output[..Math.Min(NodeCompletedOutputPreviewChars, output.Length)],
             timestamp = prev.CompletedAt
         });
@@ -115,19 +116,21 @@ public sealed class AgentHandoffEventHandler
         WorkflowExecution execution,
         string? fromAgentId,
         string toAgentId,
-        IReadOnlyDictionary<string, string>? agentNames)
+        IReadOnlyDictionary<string, AgentNodeInfo>? agentNames)
     {
-        var fromAgentName = fromAgentId is not null && agentNames is not null
+        var fromInfo = fromAgentId is not null && agentNames is not null
             && agentNames.TryGetValue(fromAgentId, out var fan) ? fan : null;
-        var toAgentName = agentNames is not null
+        var toInfo = agentNames is not null
             && agentNames.TryGetValue(toAgentId, out var tan) ? tan : null;
 
         return PublishEventAsync(execution.ExecutionId, "handoff", new
         {
             fromAgentId,
-            fromAgentName,
+            fromAgentName = fromInfo?.Name,
+            fromAgentType = fromInfo?.Type,
             toAgentId,
-            toAgentName,
+            toAgentName = toInfo?.Name,
+            toAgentType = toInfo?.Type,
             timestamp = DateTime.UtcNow
         });
     }
@@ -136,7 +139,7 @@ public sealed class AgentHandoffEventHandler
         WorkflowExecution execution,
         NodeStateTracker nodeTracker,
         string agentId,
-        IReadOnlyDictionary<string, string>? agentNames)
+        IReadOnlyDictionary<string, AgentNodeInfo>? agentNames)
     {
         var record = new NodeExecutionRecord
         {
@@ -149,8 +152,8 @@ public sealed class AgentHandoffEventHandler
         nodeTracker.SetRecord(agentId, record);
         nodeTracker.CurrentAgentId = agentId;
 
-        var agentName = agentNames is not null
-            && agentNames.TryGetValue(agentId, out var nan) ? nan : agentId;
+        var nodeInfo = agentNames is not null && agentNames.TryGetValue(agentId, out var nan) ? nan : null;
+        var agentName = nodeInfo?.Name ?? agentId;
         nodeTracker.StartAgentSpan(agentId, agentName, execution.WorkflowId, execution.ExecutionId);
 
         await _nodeRepo.SetNodeAsync(record);
@@ -158,6 +161,8 @@ public sealed class AgentHandoffEventHandler
         {
             nodeId = agentId,
             nodeType = "agent",
+            agentName = nodeInfo?.Name,
+            agentType = nodeInfo?.Type,
             timestamp = record.StartedAt
         });
     }

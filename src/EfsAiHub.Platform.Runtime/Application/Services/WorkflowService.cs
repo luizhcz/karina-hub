@@ -3,6 +3,7 @@ using EfsAiHub.Core.Orchestration.Enums;
 using EfsAiHub.Core.Orchestration.Coordination;
 using EfsAiHub.Core.Abstractions.Execution;
 using EfsAiHub.Core.Abstractions.Identity;
+using EfsAiHub.Core.Abstractions.Projects;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -22,6 +23,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
     private readonly IWorkflowVersionRepository? _versionRepo;
     private readonly IAgentVersionRepository? _agentVersionRepo;
     private readonly ICrossNodeBus? _crossBus;
+    private readonly IProjectRepository? _projectRepo;
     private readonly ILogger<WorkflowService> _logger;
 
     public WorkflowService(
@@ -37,7 +39,8 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         ILogger<WorkflowService> logger,
         IWorkflowVersionRepository? versionRepo = null,
         IAgentVersionRepository? agentVersionRepo = null,
-        ICrossNodeBus? crossBus = null)
+        ICrossNodeBus? crossBus = null,
+        IProjectRepository? projectRepo = null)
     {
         _definitionRepo = definitionRepo;
         _executionRepo = executionRepo;
@@ -52,6 +55,35 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         _versionRepo = versionRepo;
         _agentVersionRepo = agentVersionRepo;
         _crossBus = crossBus;
+        _projectRepo = projectRepo;
+    }
+
+    /// <summary>
+    /// Defense-in-depth: implantação tipo Chat só pode ser criada/editada por
+    /// projetos com <c>chat_deployment_allowed=true</c>. Frontend já filtra,
+    /// mas validar aqui evita criação via API direta. Detecta deploy Chat
+    /// quando <c>metadata['deploymentKind']='chat'</c> OU
+    /// <c>Configuration.InputMode='Chat'</c> + Graph orchestration.
+    /// </summary>
+    private async Task EnsureChatDeploymentAllowedAsync(
+        WorkflowDefinition definition, CancellationToken ct)
+    {
+        if (_projectRepo is null) return; // backwards-compat com DI antigo
+
+        var isChatDeploy =
+            (definition.Metadata?.TryGetValue("deploymentKind", out var kind) == true
+                && string.Equals(kind, "chat", StringComparison.OrdinalIgnoreCase))
+            || (string.Equals(definition.Configuration?.InputMode, "Chat", StringComparison.OrdinalIgnoreCase)
+                && definition.OrchestrationMode == OrchestrationMode.Graph);
+        if (!isChatDeploy) return;
+
+        var project = await _projectRepo.GetByIdAsync(definition.ProjectId, ct);
+        if (project is null || !project.ChatDeploymentAllowed)
+        {
+            throw new UnauthorizedAccessException(
+                $"Implantação tipo 'chat' é permitida apenas em projetos com chat_deployment_allowed=true. "
+                + $"Projeto '{definition.ProjectId}' não está autorizado.");
+        }
     }
 
     /// <summary>
@@ -73,6 +105,8 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
     public async Task<WorkflowDefinition> CreateAsync(WorkflowDefinition definition, CancellationToken ct = default)
     {
         definition.ProjectId = _projectAccessor.Current.ProjectId;
+
+        await EnsureChatDeploymentAllowedAsync(definition, ct);
 
         await ResolveDefaultPinsAsync(definition, ct);
         var (isValid, errors) = await ValidateAsync(definition, ct);
@@ -121,6 +155,8 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         definition.ProjectId = existing.ProjectId;
         definition.TenantId = existing.TenantId;
         definition.Visibility = existing.Visibility;
+
+        await EnsureChatDeploymentAllowedAsync(definition, ct);
 
         await ResolveDefaultPinsAsync(definition, ct);
         var (isValid, errors) = await ValidateAsync(definition, ct);

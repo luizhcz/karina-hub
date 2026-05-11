@@ -23,6 +23,15 @@ SET search_path TO aihub, public;
 -- ── 1. projects ───────────────────────────────────────────────────────
 INSERT INTO aihub.projects (id, name, tenant_id, description, settings, llm_config, budget, created_at, updated_at) VALUES ('default','Default','default','Projeto padrão do sistema','{}'::jsonb,NULL::jsonb,NULL::jsonb,'2026-04-14 02:15:29.348032+00'::timestamptz,'2026-04-14 02:15:29.348032+00'::timestamptz) ON CONFLICT (id) DO NOTHING;
 
+-- Sales Trader AI: único projeto autorizado a criar implantações tipo Chat
+-- (Router conversacional + branches Conversational + InputMode=Chat).
+-- Demais projetos têm chat_deployment_allowed=false (default da coluna).
+INSERT INTO aihub.projects (id, name, tenant_id, description, settings, llm_config, budget, created_at, updated_at, chat_deployment_allowed)
+VALUES ('sales-trader-ai', 'Sales Trader AI', 'default',
+        'Projeto dedicado a implantações de Chat (Router conversacional + branches Conversational + InputMode=Chat). Único projeto autorizado a criar deploys do tipo chat.',
+        '{}'::jsonb, NULL::jsonb, NULL::jsonb, NOW(), NOW(), true)
+ON CONFLICT (id) DO NOTHING;
+
 -- ── 2. model_catalog (extraído do DB) ─────────────────────────────────
 INSERT INTO aihub.model_catalog (id, provider, display_name, description, context_window, capabilities, is_active, created_at, updated_at) VALUES ('DeepSeek-R1','AZUREFOUNDRY','DeepSeek R1','DeepSeek R1 raciocínio via Azure AI Foundry',64000,'["chat", "reasoning"]'::jsonb,'t','2026-04-13 21:08:28.63572+00'::timestamptz,'2026-04-22 23:55:58.304985+00'::timestamptz) ON CONFLICT (id, provider) DO UPDATE SET display_name=EXCLUDED.display_name, description=EXCLUDED.description, context_window=EXCLUDED.context_window, capabilities=EXCLUDED.capabilities, is_active=EXCLUDED.is_active, updated_at=EXCLUDED.updated_at;
 INSERT INTO aihub.model_catalog (id, provider, display_name, description, context_window, capabilities, is_active, created_at, updated_at) VALUES ('Meta-Llama-3.3-70B-Instruct','AZUREFOUNDRY','Llama 3.3 70B Instruct','Meta Llama 3.3 70B via Azure AI Foundry',128000,'["chat", "function_calling"]'::jsonb,'t','2026-04-13 21:08:28.63572+00'::timestamptz,'2026-04-22 23:55:58.304985+00'::timestamptz) ON CONFLICT (id, provider) DO UPDATE SET display_name=EXCLUDED.display_name, description=EXCLUDED.description, context_window=EXCLUDED.context_window, capabilities=EXCLUDED.capabilities, is_active=EXCLUDED.is_active, updated_at=EXCLUDED.updated_at;

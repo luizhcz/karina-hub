@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from 'react'
+
 // Identidade do PM/PO persistida em localStorage. Campos:
 // - name: display visual no header.
 // - account: vai como header `x-efs-account` em toda chamada — backend trata
@@ -6,6 +8,9 @@
 //   Vai como header `x-efs-project-id`.
 // - projectName: cache do nome humano-legível pra exibir no header sem
 //   precisar buscar a lista de projetos toda vez.
+// - chatDeploymentAllowed: cache da flag do projeto (vem de
+//   ProjectResponse.chatDeploymentAllowed). Usado pra desabilitar o card
+//   "Chat" no modal de nova implantação sem precisar buscar o projeto.
 
 const STORAGE_KEY = 'efs-mvp-identity'
 
@@ -14,6 +19,7 @@ export interface Identity {
   account: string
   projectId: string
   projectName: string
+  chatDeploymentAllowed: boolean
 }
 
 const subscribers = new Set<() => void>()
@@ -32,6 +38,9 @@ function readFromStorage(): Identity | null {
       account: parsed.account,
       projectId: parsed.projectId ?? '',
       projectName: parsed.projectName ?? '',
+      // Identidades antigas (sem o campo) caem em false — fail-safe: user
+      // perde acesso ao card "Chat" até reabrir o ProjectSelector e atualizar.
+      chatDeploymentAllowed: parsed.chatDeploymentAllowed === true,
     }
   } catch {
     return null
@@ -71,4 +80,16 @@ export function clearIdentity() {
 export function subscribeIdentity(cb: () => void): () => void {
   subscribers.add(cb)
   return () => subscribers.delete(cb)
+}
+
+// Snapshot estável pra useSyncExternalStore — `cached` é reatribuído (não
+// mutado in-place), então a referência é estável entre publishes.
+function getSnapshot(): Identity | null {
+  return cached
+}
+
+// Hook React pra componentes reagirem ao trocar de projeto/identidade.
+// Substitui a chamada direta `getIdentity()` que não re-renderiza.
+export function useIdentity(): Identity | null {
+  return useSyncExternalStore(subscribeIdentity, getSnapshot, getSnapshot)
 }

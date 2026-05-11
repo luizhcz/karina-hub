@@ -13,7 +13,8 @@ public sealed record ProjectResponse(
     ProjectLlmConfigResponse? LlmConfig,
     JsonElement? Budget,
     DateTime CreatedAt,
-    DateTime UpdatedAt)
+    DateTime UpdatedAt,
+    bool ChatDeploymentAllowed)
 {
     public static ProjectResponse From(Project p) => new(
         p.Id,
@@ -24,7 +25,8 @@ public sealed record ProjectResponse(
         ProjectLlmConfigResponse.From(p.LlmConfig),
         p.Budget?.RootElement.Clone(),
         p.CreatedAt,
-        p.UpdatedAt);
+        p.UpdatedAt,
+        p.ChatDeploymentAllowed);
 
     // Apenas referências AWS Secrets Manager voltam verbatim. Literais legacy
     // (ainda presentes em registros antigos) retornam null — operador é forçado

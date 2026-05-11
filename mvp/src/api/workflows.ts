@@ -6,9 +6,11 @@ import { get, post, put } from './client'
 // dicionário opaco — esse marcador é só convenção do MVP.
 export const PIPELINE_DEPLOYMENT_KIND = 'pipeline'
 export const ROUTING_DEPLOYMENT_KIND = 'routing'
+export const CHAT_DEPLOYMENT_KIND = 'chat'
 
 export const pipelineWorkflowId = () => `deploy-pipeline-${generateDraftId()}`
 export const routingWorkflowId = () => `deploy-routing-${generateDraftId()}`
+export const chatWorkflowId = () => `deploy-chat-${generateDraftId()}`
 
 export type OrchestrationMode =
   | 'Sequential'
@@ -118,9 +120,20 @@ export function isRoutingDeployment(workflow: Workflow): boolean {
   return md?.deploymentKind === ROUTING_DEPLOYMENT_KIND
 }
 
-export type DeploymentKind = 'single' | 'pipeline' | 'routing'
+// Chat = Router-pra-chat + N branches Conversational + fallback Conversational.
+// Workflow Graph + InputMode=Chat. Restrição cross-project: só projetos com
+// chat_deployment_allowed=true conseguem criar. Reconhecido por
+// `deploy-chat-{guid}` no id ou metadata.deploymentKind === 'chat'.
+export function isChatDeployment(workflow: Workflow): boolean {
+  if (workflow.id.startsWith('deploy-chat-')) return true
+  const md = (workflow as { metadata?: Record<string, string> | null }).metadata
+  return md?.deploymentKind === CHAT_DEPLOYMENT_KIND
+}
+
+export type DeploymentKind = 'single' | 'pipeline' | 'routing' | 'chat'
 
 export function deploymentKindOf(workflow: Workflow): DeploymentKind {
+  if (isChatDeployment(workflow)) return 'chat'
   if (isRoutingDeployment(workflow)) return 'routing'
   if (isPipelineDeployment(workflow)) return 'pipeline'
   return 'single'

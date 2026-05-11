@@ -5,12 +5,15 @@ import {
   deployedAgentId,
   deploymentKindOf,
   isAgentDeployment,
+  isChatDeployment,
   isPipelineDeployment,
+  isRoutingDeployment,
   listWorkflows,
   type DeploymentKind,
   type Workflow,
 } from '../api/workflows'
 import { friendlyError } from '../api/client'
+import { useIdentity } from '../stores/identity'
 import {
   AgentIcon,
   Badge,
@@ -33,11 +36,13 @@ const FILTER_LABELS: Record<FilterKind, string> = {
   single: 'Single',
   pipeline: 'Pipeline',
   routing: 'Roteamento',
+  chat: 'Chat',
 }
 
 export function Implantacoes() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const identity = useIdentity()
 
   const [workflows, setWorkflows] = useState<Workflow[]>([])
   const [loading, setLoading] = useState(true)
@@ -47,11 +52,13 @@ export function Implantacoes() {
   const [chooserOpen, setChooserOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
 
-  // Filtro persistido em query string (?type=pipeline|single|routing|all).
+  // Filtro persistido em query string (?type=pipeline|single|routing|chat|all).
   // Default 'all' mantém comportamento anterior pra quem não usa o filtro.
   const filterKind: FilterKind = (() => {
     const raw = searchParams.get('type')
-    return raw === 'pipeline' || raw === 'single' || raw === 'routing' ? raw : 'all'
+    return raw === 'pipeline' || raw === 'single' || raw === 'routing' || raw === 'chat'
+      ? raw
+      : 'all'
   })()
 
   const setFilterKind = (next: FilterKind) => {
@@ -68,10 +75,18 @@ export function Implantacoes() {
     listWorkflows('project')
       .then((all) => {
         if (cancelled) return
-        // Lista mostra tanto single (legado, deploy-{agentId}) quanto pipelines
-        // (deploy-pipeline-{guid}). Outros workflows criados por admin via API
-        // continuam fora — só o que nasceu dos fluxos de implantação aparece.
-        const deployments = all.filter((w) => isAgentDeployment(w) || isPipelineDeployment(w))
+        // Lista mostra qualquer workflow nascido dos fluxos de implantação:
+        // single (deploy-{agentId}), pipeline (deploy-pipeline-{guid}), routing
+        // (deploy-routing-{guid}) e chat (deploy-chat-{guid}/metadata=chat).
+        // Workflows criados por admin via API direta sem casar nesses padrões
+        // continuam fora.
+        const deployments = all.filter(
+          (w) =>
+            isAgentDeployment(w) ||
+            isPipelineDeployment(w) ||
+            isRoutingDeployment(w) ||
+            isChatDeployment(w),
+        )
         setWorkflows(deployments)
       })
       .catch((err: unknown) => {
@@ -94,13 +109,15 @@ export function Implantacoes() {
     let single = 0
     let pipeline = 0
     let routing = 0
+    let chat = 0
     for (const w of workflows) {
       const kind = deploymentKindOf(w)
       if (kind === 'pipeline') pipeline++
       else if (kind === 'routing') routing++
+      else if (kind === 'chat') chat++
       else single++
     }
-    return { all: workflows.length, single, pipeline, routing }
+    return { all: workflows.length, single, pipeline, routing, chat }
   }, [workflows])
 
   const filtered = useMemo(() => {
@@ -125,6 +142,10 @@ export function Implantacoes() {
       navigate(`/implantacoes/roteamento/${w.id}`)
       return
     }
+    if (kind === 'chat') {
+      navigate(`/implantacoes/chat/${w.id}`)
+      return
+    }
     const aid = deployedAgentId(w)
     if (aid) navigate(`/agentes/${aid}/implantar`)
   }
@@ -145,7 +166,7 @@ export function Implantacoes() {
 
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex rounded-lg border border-border bg-bg-soft p-1">
-          {(['all', 'single', 'pipeline', 'routing'] as const).map((kind) => (
+          {(['all', 'single', 'pipeline', 'routing', 'chat'] as const).map((kind) => (
             <FilterPill
               key={kind}
               active={filterKind === kind}
@@ -191,11 +212,13 @@ export function Implantacoes() {
 
       <KindChooserModal
         open={chooserOpen}
+        chatDeploymentAllowed={identity?.chatDeploymentAllowed ?? false}
         onClose={() => setChooserOpen(false)}
         onChoose={(kind: DeploymentKind) => {
           setChooserOpen(false)
           if (kind === 'single') setPickerOpen(true)
           else if (kind === 'routing') navigate('/implantacoes/roteamento')
+          else if (kind === 'chat') navigate('/implantacoes/chat')
           else navigate('/implantacoes/avancada')
         }}
       />
@@ -267,7 +290,9 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
           ? 'before:bg-accent'
           : kind === 'routing'
             ? 'before:bg-violet-500'
-            : 'before:bg-success',
+            : kind === 'chat'
+              ? 'before:bg-teal-500'
+              : 'before:bg-success',
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -279,7 +304,9 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
                 ? 'bg-accent-subtle text-accent'
                 : kind === 'routing'
                   ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
-                  : 'bg-success/10 text-success',
+                  : kind === 'chat'
+                    ? 'bg-teal-500/15 text-teal-600 dark:text-teal-400'
+                    : 'bg-success/10 text-success',
             )}
           >
             <BoltIcon className="h-5 w-5" />
@@ -294,6 +321,10 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
         {kind === 'routing' ? (
           <span className="inline-flex items-center rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">
             Roteamento
+          </span>
+        ) : kind === 'chat' ? (
+          <span className="inline-flex items-center rounded-md border border-teal-500/40 bg-teal-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-teal-600 dark:text-teal-400">
+            Chat
           </span>
         ) : (
           <Badge tone={kind === 'pipeline' ? 'accent' : 'success'}>
@@ -317,6 +348,11 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
             <AgentIcon className="h-3.5 w-3.5" />
             {agentCount} {agentCount === 1 ? 'agente' : 'agentes (router + branches)'}
           </span>
+        ) : kind === 'chat' ? (
+          <span className="flex items-center gap-1.5">
+            <AgentIcon className="h-3.5 w-3.5" />
+            {agentCount} {agentCount === 1 ? 'agente' : 'agentes (chat router + conversational)'}
+          </span>
         ) : agentId ? (
           <span className="flex items-center gap-1.5">
             <AgentIcon className="h-3.5 w-3.5" />
@@ -333,11 +369,12 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
 
 interface KindChooserModalProps {
   open: boolean
+  chatDeploymentAllowed: boolean
   onClose: () => void
   onChoose: (kind: DeploymentKind) => void
 }
 
-function KindChooserModal({ open, onClose, onChoose }: KindChooserModalProps) {
+function KindChooserModal({ open, chatDeploymentAllowed, onClose, onChoose }: KindChooserModalProps) {
   return (
     <Modal
       open={open}
@@ -346,7 +383,7 @@ function KindChooserModal({ open, onClose, onChoose }: KindChooserModalProps) {
       title="Como você quer implantar?"
       description="Escolha o tipo de implantação. Você pode mudar a qualquer momento criando outra implantação."
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KindChooserCard
           label="Um agente"
           description="Implanta um agente publicado como workflow de chamada única."
@@ -365,6 +402,14 @@ function KindChooserModal({ open, onClose, onChoose }: KindChooserModalProps) {
           tone="violet"
           onClick={() => onChoose('routing')}
         />
+        <KindChooserCard
+          label="Chat"
+          description="Router conversacional + branches Conversational por intent + fallback. Workflow em InputMode=Chat com STATE_DELTA via SSE. Disponível apenas em projetos autorizados."
+          tone="teal"
+          onClick={() => onChoose('chat')}
+          disabled={!chatDeploymentAllowed}
+          disabledTitle="Disponível apenas no projeto Sales Trader AI"
+        />
       </div>
     </Modal>
   )
@@ -373,24 +418,40 @@ function KindChooserModal({ open, onClose, onChoose }: KindChooserModalProps) {
 interface KindChooserCardProps {
   label: string
   description: string
-  tone: 'success' | 'accent' | 'violet'
+  tone: 'success' | 'accent' | 'violet' | 'teal'
   onClick: () => void
+  disabled?: boolean
+  disabledTitle?: string
 }
 
-function KindChooserCard({ label, description, tone, onClick }: KindChooserCardProps) {
+function KindChooserCard({
+  label,
+  description,
+  tone,
+  onClick,
+  disabled,
+  disabledTitle,
+}: KindChooserCardProps) {
   const iconClass =
     tone === 'accent'
       ? 'bg-accent-subtle text-accent'
       : tone === 'violet'
         ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
-        : 'bg-success/10 text-success'
+        : tone === 'teal'
+          ? 'bg-teal-500/15 text-teal-600 dark:text-teal-400'
+          : 'bg-success/10 text-success'
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
+      title={disabled ? disabledTitle : undefined}
       className={cn(
         'flex flex-col gap-2 rounded-xl border border-border bg-surface p-4 text-left transition',
-        'hover:border-accent/60 hover:bg-accent-subtle/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+        disabled
+          ? 'cursor-not-allowed opacity-50'
+          : 'hover:border-accent/60 hover:bg-accent-subtle/30',
       )}
     >
       <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', iconClass)}>

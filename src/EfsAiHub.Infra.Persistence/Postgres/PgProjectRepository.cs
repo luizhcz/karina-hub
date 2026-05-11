@@ -33,7 +33,7 @@ public sealed class PgProjectRepository : IProjectRepository
         await using var conn = await _dataSource.OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT id, name, tenant_id, description, settings, llm_config, budget, created_at, updated_at
+            SELECT id, name, tenant_id, description, settings, llm_config, budget, created_at, updated_at, chat_deployment_allowed
             FROM projects WHERE id = @id
             """;
         cmd.Parameters.AddWithValue("id", projectId);
@@ -47,7 +47,7 @@ public sealed class PgProjectRepository : IProjectRepository
         await using var conn = await _dataSource.OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT id, name, tenant_id, description, settings, llm_config, budget, created_at, updated_at
+            SELECT id, name, tenant_id, description, settings, llm_config, budget, created_at, updated_at, chat_deployment_allowed
             FROM projects WHERE tenant_id = @tenantId ORDER BY name
             """;
         cmd.Parameters.AddWithValue("tenantId", tenantId);
@@ -64,7 +64,7 @@ public sealed class PgProjectRepository : IProjectRepository
         await using var conn = await _dataSource.OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT id, name, tenant_id, description, settings, llm_config, budget, created_at, updated_at
+            SELECT id, name, tenant_id, description, settings, llm_config, budget, created_at, updated_at, chat_deployment_allowed
             FROM projects ORDER BY name
             """;
 
@@ -80,8 +80,8 @@ public sealed class PgProjectRepository : IProjectRepository
         await using var conn = await _dataSource.OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO projects (id, name, tenant_id, description, settings, llm_config, budget, created_at, updated_at)
-            VALUES (@id, @name, @tenantId, @description, @settings::jsonb, @llmConfig::jsonb, @budget::jsonb, @createdAt, @updatedAt)
+            INSERT INTO projects (id, name, tenant_id, description, settings, llm_config, budget, created_at, updated_at, chat_deployment_allowed)
+            VALUES (@id, @name, @tenantId, @description, @settings::jsonb, @llmConfig::jsonb, @budget::jsonb, @createdAt, @updatedAt, @chatDeploymentAllowed)
             """;
         cmd.Parameters.AddWithValue("id", project.Id);
         cmd.Parameters.AddWithValue("name", project.Name);
@@ -93,6 +93,7 @@ public sealed class PgProjectRepository : IProjectRepository
             (object?)project.Budget?.RootElement.GetRawText() ?? DBNull.Value);
         cmd.Parameters.AddWithValue("createdAt", project.CreatedAt);
         cmd.Parameters.AddWithValue("updatedAt", project.UpdatedAt);
+        cmd.Parameters.AddWithValue("chatDeploymentAllowed", project.ChatDeploymentAllowed);
 
         await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -106,7 +107,8 @@ public sealed class PgProjectRepository : IProjectRepository
         cmd.CommandText = """
             UPDATE projects SET name = @name, description = @description,
                 settings = @settings::jsonb, llm_config = @llmConfig::jsonb,
-                budget = @budget::jsonb, updated_at = @updatedAt
+                budget = @budget::jsonb, updated_at = @updatedAt,
+                chat_deployment_allowed = @chatDeploymentAllowed
             WHERE id = @id
             """;
         cmd.Parameters.AddWithValue("id", project.Id);
@@ -117,6 +119,7 @@ public sealed class PgProjectRepository : IProjectRepository
         cmd.Parameters.AddWithValue("budget",
             (object?)project.Budget?.RootElement.GetRawText() ?? DBNull.Value);
         cmd.Parameters.AddWithValue("updatedAt", project.UpdatedAt);
+        cmd.Parameters.AddWithValue("chatDeploymentAllowed", project.ChatDeploymentAllowed);
 
         await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -145,7 +148,8 @@ public sealed class PgProjectRepository : IProjectRepository
             LlmConfig   = reader.IsDBNull(5) ? null : DeserializeLlmConfig(reader.GetString(5)),
             Budget      = reader.IsDBNull(6) ? null : JsonDocument.Parse(reader.GetString(6)),
             CreatedAt   = reader.GetDateTime(7),
-            UpdatedAt   = reader.GetDateTime(8)
+            UpdatedAt   = reader.GetDateTime(8),
+            ChatDeploymentAllowed = reader.GetBoolean(9)
         };
     }
 
