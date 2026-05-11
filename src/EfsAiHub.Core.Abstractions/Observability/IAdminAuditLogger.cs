@@ -237,6 +237,9 @@ public static class AdminAuditResources
 
     /// <summary>Catálogo global de presets de modelo (provider+deployment+defaults).</summary>
     public const string PredefinedModel = "predefined_model";
+
+    /// <summary>Item do pool global de intents (cross-project por tenant) consumido por Router agents.</summary>
+    public const string RouterIntent = "router_intent";
 }
 
 /// <summary>

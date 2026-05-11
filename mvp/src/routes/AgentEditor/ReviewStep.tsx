@@ -1,12 +1,19 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Badge, Button, Card, CardHeader, cn } from '../../ui'
 import type { GenericTool } from '../../api/genericTools'
 import type { McpServer } from '../../api/mcpServers'
 import type { PredefinedModel } from '../../api/predefinedModels'
+import { listRouterIntents, type RouterIntent } from '../../api/routerIntents'
 import { encodeInstructions } from './instructionsCodec'
-import { buildToolDescriptors } from './formCodec'
+import {
+  buildToolDescriptors,
+  encodeConversationalInstructions,
+  encodeRouterInstructions,
+  encodeToolRunnerInstructions,
+  encodeWorkerInstructions,
+} from './formCodec'
 import type { FormState } from './types'
 
 interface ReviewStepProps {
@@ -29,8 +36,25 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
   )
 
   const prompt = useMemo(
-    () => encodeInstructions(form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured),
-    [form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured],
+    () =>
+      form.type === 'Router'
+        ? encodeRouterInstructions(form.name)
+        : form.type === 'Worker'
+          ? encodeWorkerInstructions(form.name)
+          : form.type === 'ToolRunner'
+            ? encodeToolRunnerInstructions(form.name)
+            : form.type === 'Conversational'
+              ? encodeConversationalInstructions(form.profile)
+              : encodeInstructions(form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured),
+    [
+      form.type,
+      form.name,
+      form.profile,
+      inputForCodec,
+      outputForCodec,
+      toolDocs,
+      includeStructured,
+    ],
   )
 
   const selectedModel = models.find((m) => m.id === form.predefinedModelId) ?? null
@@ -54,13 +78,8 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
     })
   }
 
-  const enableSecurity = () =>
-    setForm((prev) => ({ ...prev, security: { ...prev.security, enabled: true } }))
-
   return (
     <div className="space-y-5">
-      <SecurityBanner enabled={form.security.enabled} disabled={readonly} onEnable={enableSecurity} />
-
       <Card className="space-y-3">
         <CardHeader
           title="Identificação"
@@ -74,6 +93,14 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
             </dd>
           </div>
           <div>
+            <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Tipo</dt>
+            <dd className="mt-1 text-sm text-fg">
+              <Badge tone={form.type === 'Router' ? 'accent' : 'neutral'}>
+                {form.type}
+              </Badge>
+            </dd>
+          </div>
+          <div>
             <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Modelo</dt>
             <dd className="mt-1 text-sm text-fg">
               {selectedModel ? selectedModel.displayName : <span className="italic text-fg-dim">não selecionado</span>}
@@ -81,6 +108,28 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
           </div>
         </dl>
       </Card>
+
+      {form.type === 'Router' && <RouterPreview form={form} />}
+
+      {form.type === 'Worker' && <WorkerPreview form={form} />}
+
+      {form.type === 'ToolRunner' && (
+        <ToolRunnerPreview form={form} tools={tools} mcps={mcps} />
+      )}
+
+      {form.type === 'Conversational' && <ConversationalPreview form={form} />}
+
+      <SecurityReviewCard
+        enabled={form.security.enabled}
+        type={form.type}
+        disabled={readonly}
+        onToggle={() =>
+          setForm((prev) => ({
+            ...prev,
+            security: { ...prev.security, enabled: !prev.security.enabled },
+          }))
+        }
+      />
 
       <Card className="space-y-4">
         <CardHeader
@@ -141,43 +190,329 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
   )
 }
 
-interface SecurityBannerProps {
-  enabled: boolean
-  disabled: boolean
-  onEnable: () => void
+interface RouterPreviewProps {
+  form: FormState
 }
 
-// Banner de recomendação na revisão. O step "Segurança" só existe no modo
-// avançado, então o PM/PO que opera no básico nunca veria a feature; este
-// banner garante visibilidade no momento que ele já está prestes a submeter.
-function SecurityBanner({ enabled, disabled, onEnable }: SecurityBannerProps) {
-  if (enabled) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-accent/30 bg-accent-subtle/60 px-4 py-2.5 text-xs text-accent">
-        <span aria-hidden="true" className="text-sm">✓</span>
-        <span>Guardrails de segurança ativos. Resposta limitada ao escopo declarado, sem invenção de dados, sem vazar instruções.</span>
-      </div>
-    )
-  }
+// Preview no Review das intents que este Router atende. Fetch do pool global
+// + filter pelas selecionadas em form.routerIntentIds. Mostra warning quando
+// <2 selecionadas — backend rejeita o save.
+function RouterPreview({ form }: RouterPreviewProps) {
+  const [pool, setPool] = useState<RouterIntent[]>([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let cancelled = false
+    listRouterIntents()
+      .then((items) => {
+        if (!cancelled) setPool(items)
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const selected = pool.filter((i) => form.routerIntentIds.includes(i.id))
+  const tooFew = form.routerIntentIds.length < 2
+
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">
-        <p className="text-sm font-medium text-warning">Esse agente não tem guardrails de segurança ativos.</p>
-        <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-          Recomendado para agentes expostos a usuários finais — adiciona proteção contra prompt
-          injection, respostas fora do escopo e vazamento de instruções. Custo: ~300 tokens por chamada.
+    <Card className="space-y-3">
+      <CardHeader
+        title="Intenções atendidas"
+        description="As categorias que este Router pode escolher. Edits no pool propagam pra próxima chamada — adicionar intenção nova ao pool não inclui automaticamente neste Router."
+      />
+      {loading ? (
+        <p className="text-xs text-fg-muted">Carregando…</p>
+      ) : form.routerIntentIds.length === 0 ? (
+        <p
+          className={cn(
+            'rounded-lg border px-3 py-2 text-xs',
+            'border-warning/40 bg-warning/10 text-warning',
+          )}
+        >
+          Nenhuma intenção marcada. Volte pra etapa Intenções e selecione ao menos 2 antes de submeter.
         </p>
+      ) : (
+        <>
+          <ul className="space-y-2">
+            {selected.map((intent) => (
+              <li
+                key={intent.id}
+                className="rounded-lg border border-border bg-bg-soft px-3 py-2"
+              >
+                <div className="flex items-center gap-2">
+                  <Badge tone="accent">{intent.name}</Badge>
+                </div>
+                {intent.description.trim() && (
+                  <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+                    {intent.description.trim()}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+          {tooFew && (
+            <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+              Pelo menos 2 intenções são obrigatórias. Selecione mais antes de submeter.
+            </p>
+          )}
+        </>
+      )}
+    </Card>
+  )
+}
+
+interface WorkerPreviewProps {
+  form: FormState
+}
+
+// Preview do Worker no Review: mostra o domínio (scope) que será injetado
+// em runtime + warnings soft (scope vazio). Sem fetch — Worker é
+// standalone (sem pool global). Validações hard de Worker são apenas o
+// nome; demais expectativas (modelo full, security on, output structured)
+// são warnings exibidos em outros cards do Review.
+function WorkerPreview({ form }: WorkerPreviewProps) {
+  const scope = form.workerScope.trim()
+  const empty = scope.length === 0
+  const SCOPE_PREVIEW_MAX = 200
+  const truncated = scope.length > SCOPE_PREVIEW_MAX
+  const [expanded, setExpanded] = useState(false)
+  const visible = !truncated || expanded ? scope : scope.slice(0, SCOPE_PREVIEW_MAX) + '…'
+
+  return (
+    <Card className="space-y-3">
+      <CardHeader
+        title="Domínio de análise"
+        description="Texto injetado em runtime ao final do system prompt como bloco '# Domínio de análise'. Edits no scope propagam pra próxima chamada — sem necessidade de re-publish."
+      />
+      {empty ? (
+        <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+          Nenhum domínio definido. O Worker funciona, mas o LLM não recebe orientação de escopo — qualidade pode degradar. Volte pra etapa Domínio.
+        </p>
+      ) : (
+        <div className="rounded-lg border border-border bg-bg-soft px-3 py-2.5">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{visible}</p>
+          {truncated && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setExpanded((x) => !x)}
+              className="mt-2 -ml-1"
+            >
+              {expanded ? 'Ver menos' : 'Ver mais'}
+            </Button>
+          )}
+          <p className="mt-2 text-[11px] text-fg-dim">
+            {scope.length} caracteres
+          </p>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+interface ToolRunnerPreviewProps {
+  form: FormState
+  tools: GenericTool[]
+  mcps: McpServer[]
+}
+
+// Preview do Tool Runner no Review: mostra tools/MCPs selecionados (cada
+// um sinaliza requiresApproval=true se aplicável), status do flag HITL e
+// status do middleware AccountGuard (presente no payload.middlewares —
+// avaliado via FormState pra UX, valor real é montado no save).
+// Tool Runner sem tools recebe warning soft no save; aqui é sinalizado.
+function ToolRunnerPreview({ form, tools, mcps }: ToolRunnerPreviewProps) {
+  const selectedTools = tools.filter((t) => form.toolIds.includes(t.id))
+  const selectedMcps = mcps.filter((m) => form.mcpIds.includes(m.id))
+  const noTools = selectedTools.length === 0 && selectedMcps.length === 0
+  const hitlOn = form.toolRunnerHitlRequired
+
+  return (
+    <Card className="space-y-3">
+      <CardHeader
+        title="Política operacional"
+        description="Resumo do que será gravado no Tool Runner: ferramentas disponíveis, exigência declarada de HITL e recomendação de AccountGuard. Avisos soft do template aparecem no log do save."
+      />
+      {noTools ? (
+        <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+          Nenhuma ferramenta selecionada. Tool Runner sem tools não tem o que executar — volte pra etapa Ferramentas e marque ao menos uma.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          <div>
+            <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
+              Ferramentas
+            </p>
+            {selectedTools.length === 0 ? (
+              <p className="text-sm text-fg-muted">Nenhuma function/HTTP selecionada.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {selectedTools.map((t) => (
+                  <Badge key={t.id} tone="accent">
+                    {t.name || t.id}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
+              MCPs
+            </p>
+            {selectedMcps.length === 0 ? (
+              <p className="text-sm text-fg-muted">Nenhum MCP selecionado.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {selectedMcps.map((m) => (
+                  <Badge key={m.id} tone="accent">
+                    {m.name || m.serverLabel || m.id}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-bg-soft px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-fg">
+            Aprovação humana antes de tools com side-effect
+          </p>
+          <p className="mt-0.5 text-[11px] text-fg-muted">
+            {hitlOn
+              ? 'Declarada como exigida — tools com requiresApproval=true devem aguardar confirmação humana.'
+              : 'Não exigida — agente invoca tools direto. Marque no step Identificação se quiser sinalizar a exigência.'}
+          </p>
+        </div>
+        <Badge tone={hitlOn ? 'warning' : 'neutral'}>
+          {hitlOn ? 'Exigida' : 'Não exigida'}
+        </Badge>
       </div>
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={onEnable}
-        disabled={disabled}
-        className="shrink-0"
-      >
-        Ativar guardrails
-      </Button>
-    </div>
+    </Card>
+  )
+}
+
+interface ConversationalPreviewProps {
+  form: FormState
+}
+
+// Preview do Conversational no Review: papel/objetivo do agente (do
+// profile, mesmo do Custom), lista de ui_components declarados (que
+// viram enum no schema canônico) e warnings quando algo falta. O prompt
+// completo aparece no card "Prompt do agente" abaixo.
+function ConversationalPreview({ form }: ConversationalPreviewProps) {
+  const role = form.profile.role.trim()
+  const goal = form.profile.goal.trim()
+  const profileEmpty = role.length === 0 && goal.length === 0
+
+  const uiComponents = form.conversationalUiComponents
+  const noUiComponents = uiComponents.length === 0
+
+  return (
+    <Card className="space-y-3">
+      <CardHeader
+        title="Conversational"
+        description="Resumo do que será gravado: papel e objetivo do agente (mesma estrutura do Custom), valores válidos do enum `ui_component` (consumidos pelo frontend chat) e shape canônico do output (montado pelo codec no save)."
+      />
+      {profileEmpty ? (
+        <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+          Papel e objetivo vazios. Preencha ao menos um dos campos no step Identificação pra orientar o LLM.
+        </p>
+      ) : (
+        <dl className="space-y-2">
+          {role.length > 0 && (
+            <div className="rounded-lg border border-border bg-bg-soft px-3 py-2">
+              <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Papel</dt>
+              <dd className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-fg">{role}</dd>
+            </div>
+          )}
+          {goal.length > 0 && (
+            <div className="rounded-lg border border-border bg-bg-soft px-3 py-2">
+              <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Objetivo</dt>
+              <dd className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-fg">{goal}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+      <div>
+        <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
+          ui_component (enum no schema)
+        </p>
+        {noUiComponents ? (
+          <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+            Nenhum componente declarado. Frontend renderer cai pro fallback genérico (mostra `message` + JSON cru de `output`).
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {uiComponents.map((value) => (
+              <Badge key={value} tone="accent">
+                <code className="font-mono text-[11px]">{value}</code>
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+      <p className="text-[11px] text-fg-dim">
+        Middleware <code>StructuredOutputState</code> é ativado automaticamente no save — sem ele, o output não dispara STATE_DELTA no SSE.
+      </p>
+    </Card>
+  )
+}
+
+interface SecurityReviewCardProps {
+  enabled: boolean
+  type: FormState['type']
+  disabled: boolean
+  onToggle: () => void
+}
+
+// Card permanente de Segurança no Review. Diferente do SecurityBanner (que é
+// reativo e pode passar despercebido quando ativo), este sempre aparece com
+// estado on/off + toggle inline + hint específico pelo tipo do agente —
+// crítico pro Router que não tem step próprio de Segurança no Stepper.
+function SecurityReviewCard({ enabled, type, disabled, onToggle }: SecurityReviewCardProps) {
+  const description =
+    type === 'Router'
+      ? 'Router classifica e devolve label estruturada — output não vai pro usuário, então o vetor de prompt injection é menor. Ative se o input vem de canal hostil e quer proteção extra; do contrário, manter desligado economiza ~300 tokens/chamada.'
+      : 'Adiciona política de sistema fixa: trata input do usuário como dado (não instrução), bloqueia troca de persona, recusa pedidos fora do escopo e impede vazamento de instruções/identificadores. Custo ~300 tokens por chamada.'
+
+  return (
+    <Card className="space-y-3">
+      <CardHeader
+        title="Guardrails de segurança"
+        description={description}
+        actions={
+          <Badge tone={enabled ? 'success' : 'neutral'}>
+            {enabled ? 'Ativos' : 'Desligados'}
+          </Badge>
+        }
+      />
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-bg-soft px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-fg">
+            {enabled
+              ? 'Guardrails ativos — agente bloqueia prompt injection e respostas fora do escopo.'
+              : 'Sem guardrails — agente segue apenas o perfil declarado.'}
+          </p>
+          <p className="mt-0.5 text-[11px] text-fg-muted">
+            Política fixa da plataforma; texto não é editável.
+          </p>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onToggle}
+          disabled={disabled}
+          className="shrink-0"
+        >
+          {enabled ? 'Desativar' : 'Ativar'}
+        </Button>
+      </div>
+    </Card>
   )
 }
 

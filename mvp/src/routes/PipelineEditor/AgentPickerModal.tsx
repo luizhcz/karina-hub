@@ -45,7 +45,18 @@ export function AgentPickerModal({ open, onClose, excludeIds, onPick }: AgentPic
     setError(null)
     listAgents()
       .then((list) => {
-        if (!cancelled) setAgents(list.filter((a) => a.enabled !== false))
+        // Pipeline Sequential não aceita Router (entrega per-design é
+        // 1→1 e Router precisa de Switch edge pra ramificar) nem
+        // Conversational (exige workflow Chat, fora do escopo Sequential).
+        if (!cancelled)
+          setAgents(
+            list.filter(
+              (a) =>
+                a.enabled !== false
+                && a.type !== 'Router'
+                && a.type !== 'Conversational',
+            ),
+          )
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(friendlyError(err, 'Não foi possível carregar os agentes publicados.'))

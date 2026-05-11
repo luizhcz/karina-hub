@@ -199,8 +199,8 @@ public class AgentDraftServiceTests
 
         var result = await svc.SubmitForApprovalAsync("d-1", "actor-x");
 
-        result.Status.Should().Be(AgentDraftStatus.PendingApproval);
-        result.SubmittedAt.Should().NotBeNull();
+        result.Draft.Status.Should().Be(AgentDraftStatus.PendingApproval);
+        result.Draft.SubmittedAt.Should().NotBeNull();
         await draftRepo.Received(1).SubmitForApprovalAsync("d-1", "actor-x", Arg.Any<CancellationToken>());
     }
 

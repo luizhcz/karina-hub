@@ -108,10 +108,10 @@ public class AgentHandoffEventHandlerTests
     public async Task Handle_AgentNamesResolvidos_EmiteNomesNoPayload()
     {
         var f = new Fixture();
-        var names = new Dictionary<string, string>
+        var names = new Dictionary<string, AgentNodeInfo>
         {
-            ["agent-A"] = "Alpha",
-            ["agent-B"] = "Bravo"
+            ["agent-A"] = new("Alpha", "Custom"),
+            ["agent-B"] = new("Bravo", "Conversational")
         };
         await f.Handler.HandleAsync(BuildTokenEvt("agent-A", "x"), f.Execution, f.Tracker, names, CancellationToken.None);
         f.EventBus.ClearReceivedCalls();

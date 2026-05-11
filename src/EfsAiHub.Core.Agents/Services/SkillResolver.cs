@@ -125,16 +125,27 @@ public static class SkillMerger
             Id = definition.Id,
             Name = definition.Name,
             Description = definition.Description,
+            // Type/RouterIntentIds não são tocados pela resolução de skills,
+            // mas precisam ser propagados pra que ChatOptionsBuilder enxergue
+            // o tipo correto após o merge.
+            Type = definition.Type,
+            RouterIntentIds = definition.RouterIntentIds,
             Model = definition.Model,
             Provider = definition.Provider,
             Instructions = string.Join(AddendumSeparator, addenda),
             Tools = mergedTools,
             StructuredOutput = definition.StructuredOutput,
+            OperationalMemory = definition.OperationalMemory,
             Middlewares = definition.Middlewares,
             Resilience = definition.Resilience,
             CostBudget = definition.CostBudget,
             SkillRefs = definition.SkillRefs,
             Metadata = definition.Metadata,
+            ProjectId = definition.ProjectId,
+            TenantId = definition.TenantId,
+            Visibility = definition.Visibility,
+            AllowedProjectIds = definition.AllowedProjectIds,
+            Enabled = definition.Enabled,
             CreatedAt = definition.CreatedAt,
             UpdatedAt = definition.UpdatedAt
         };

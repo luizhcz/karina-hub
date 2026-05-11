@@ -8,6 +8,13 @@ public class AgentResponse
     public required string Id { get; init; }
     public required string Name { get; init; }
     public string? Description { get; init; }
+
+    /// <summary>
+    /// Tipo formal do agente. Sempre presente no JSON; <c>"Custom"</c> pra
+    /// agentes sem template/tipo declarado.
+    /// </summary>
+    public required AgentType Type { get; init; }
+
     public required AgentModelConfig Model { get; init; }
     public AgentProviderConfig Provider { get; init; } = new();
     public string? Instructions { get; init; }
@@ -47,11 +54,29 @@ public class AgentResponse
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 
-    public static AgentResponse FromDomain(AgentDefinition def) => new()
+    /// <summary>
+    /// Soft warnings da última validação (Router que descaracteriza template,
+    /// MaxTokens alto, modelo full, etc). Null/omitido quando não há warnings.
+    /// Não é estado persistido — é cálculo on-demand do <c>ValidateAsync</c>.
+    /// </summary>
+    public IReadOnlyList<string>? Warnings { get; init; }
+
+    /// <summary>
+    /// IDs das intents do pool que este Router atende. Populado apenas quando
+    /// <c>Type=Router</c>; null/omitido pra Custom. Resolvido on-demand a
+    /// partir de <c>aihub.agent_router_intents</c>.
+    /// </summary>
+    public IReadOnlyList<string>? RouterIntentIds { get; init; }
+
+    public static AgentResponse FromDomain(
+        AgentDefinition def,
+        IReadOnlyList<string>? warnings = null,
+        IReadOnlyList<string>? routerIntentIds = null) => new()
     {
         Id = def.Id,
         Name = def.Name,
         Description = def.Description,
+        Type = def.Type,
         Model = def.Model,
         Provider = def.Provider,
         Instructions = def.Instructions,
@@ -69,6 +94,8 @@ public class AgentResponse
         AllowedProjectIds = def.AllowedProjectIds,
         Enabled = def.Enabled,
         CreatedAt = def.CreatedAt,
-        UpdatedAt = def.UpdatedAt
+        UpdatedAt = def.UpdatedAt,
+        Warnings = warnings is { Count: > 0 } ? warnings : null,
+        RouterIntentIds = routerIntentIds,
     };
 }

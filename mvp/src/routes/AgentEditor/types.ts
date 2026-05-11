@@ -1,4 +1,5 @@
 import type { KvRow } from '../../components/PostmanEditor/KvTable'
+import type { AgentType } from '../../api/agentDrafts'
 
 export const PROFILE_FIELDS = ['role', 'goal', 'backstory', 'rules', 'constraints'] as const
 export type ProfileField = (typeof PROFILE_FIELDS)[number]
@@ -22,7 +23,7 @@ export interface ProfileFields {
 
 export type AgentMode = 'basic' | 'advanced'
 
-export type StepKey = 'profile' | 'tools' | 'security' | 'memory' | 'input' | 'output' | 'model' | 'review'
+export type StepKey = 'type' | 'profile' | 'tools' | 'security' | 'memory' | 'input' | 'output' | 'model' | 'review'
 
 export interface StructuredSection {
   mode: 'text' | 'structured'
@@ -53,6 +54,55 @@ export interface SecuritySection {
 
 export interface FormState {
   name: string
+  /**
+   * Tipo formal do agente. Custom (default) = sem template/validações por tipo;
+   * Router = classifier (intent + enum) com hard validations e soft warnings.
+   * Round-trip via payload.type — apenas selecionado no step "Tipo de agente".
+   */
+  type: AgentType
+  /**
+   * IDs das intents do pool global que este Router atende. Vazio quando
+   * type !== 'Router'. Persistido via aihub.agent_router_intents (junction)
+   * — fonte da verdade no DB. Edits no pool propagam pros Routers via
+   * lookup runtime; só criar intent nova é manual.
+   */
+  routerIntentIds: string[]
+  /**
+   * Flag declarativa: o Router é usado em chat (workflow `InputMode=Chat`).
+   * Quando true, o codec ativa o middleware `StructuredOutputState` no
+   * save — ele lê o output JSON do classify e dispara STATE_DELTA via
+   * SSE pro frontend chat. Persistido em
+   * payload.metadata['x-router-for-chat']. Vazio/false quando o Router é
+   * standalone (pipeline batch, default).
+   */
+  routerForChat: boolean
+  /**
+   * Domínio de análise do Worker — texto livre PT-BR injetado em runtime
+   * ao final das instructions (bloco "# Domínio de análise"). Persistido
+   * em payload.metadata['x-worker-scope']. Vazio quando type !== 'Worker'.
+   */
+  workerScope: string
+  /**
+   * Flag declarativa pra Tool Runner: o agente exige aprovação humana
+   * antes de invocar tools com side-effect. Persistido em
+   * payload.metadata['x-tool-runner-hitl-required']. Save valida
+   * consistência (warning quando há tool com requiresApproval=true e a
+   * flag está off); runtime de chamada de tool ainda não enforça.
+   */
+  toolRunnerHitlRequired: boolean
+  /**
+   * Lista canônica de valores válidos de `ui_component` no schema fixo
+   * do Conversational. Persistido como JSON array em
+   * payload.metadata['x-conversational-ui-components']. O codec injeta
+   * como enum no schema { ui_component, message, output }; frontend
+   * renderer consome pra dirigir o switch (ou cair pra fallback).
+   * Vazio quando type !== 'Conversational'.
+   *
+   * Persona / papel / objetivo / contexto vivem em <c>profile</c>
+   * (mesma estrutura do Custom — role/goal/backstory/rules/constraints
+   * são injetados no instructions skeleton via encodeInstructions).
+   */
+  conversationalUiComponents: string[]
   predefinedModelId: string
   profile: ProfileFields
   toolIds: string[]

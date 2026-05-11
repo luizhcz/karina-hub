@@ -38,13 +38,13 @@ public class WorkflowExecutor : IWorkflowExecutor
             ? definition.Configuration.TimeoutSeconds
             : _options.DefaultTimeoutSeconds;
 
-        var agentNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var agentNames = new Dictionary<string, AgentNodeInfo>(StringComparer.OrdinalIgnoreCase);
         var guardMode = EfsAiHub.Core.Agents.Execution.AccountGuardMode.None;
         foreach (var agentRef in definition.Agents)
         {
             var agentDef = await _agentRepo.GetByIdAsync(agentRef.AgentId, ct);
             if (agentDef is null) continue;
-            agentNames[agentDef.Id] = agentDef.Name;
+            agentNames[agentDef.Id] = new AgentNodeInfo(agentDef.Name, agentDef.Type.ToString());
 
             // Se qualquer agente do workflow tem AccountGuard habilitado → execução é ClientLocked.
             if (guardMode == EfsAiHub.Core.Agents.Execution.AccountGuardMode.None &&

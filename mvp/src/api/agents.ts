@@ -7,6 +7,10 @@ import type { AgentDraft, AgentToolDefinition } from './agentDrafts'
 
 export type AgentVisibility = 'project' | 'global'
 
+// Espelha EfsAiHub.Core.Agents.AgentType. Custom é o default no backend
+// (agentes legacy sem campo type no jsonb hidratam como Custom).
+export type AgentType = 'Custom' | 'Router' | 'Worker' | 'ToolRunner' | 'Conversational'
+
 export interface AgentModel {
   predefinedModelId?: string | null
   deploymentName?: string
@@ -35,6 +39,7 @@ export interface Agent {
   id: string
   name: string
   description?: string | null
+  type?: AgentType
   model?: AgentModel | null
   provider?: AgentProvider | null
   instructions?: string | null
@@ -46,6 +51,17 @@ export interface Agent {
   originTenantId?: string | null
   allowedProjectIds?: string[] | null
   metadata?: Record<string, string> | null
+  /**
+   * Soft warnings da última validação. Presente apenas no response do
+   * Create/Update/Validate — listagens não retornam (cálculo on-demand).
+   */
+  warnings?: string[] | null
+  /**
+   * IDs das intents do pool global (aihub.router_intents) que este Router
+   * atende. Populado apenas quando type='Router'. Resolvido on-demand a
+   * partir da junction aihub.agent_router_intents.
+   */
+  routerIntentIds?: string[] | null
   createdAt: string
   updatedAt: string
 }

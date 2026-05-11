@@ -1,6 +1,7 @@
 using EfsAiHub.Host.Api.Controllers;
 using EfsAiHub.Platform.Runtime.Resilience;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -17,7 +18,8 @@ public class SystemControllerTests
             Options.Create(new CircuitBreakerOptions()),
             NullLogger<LlmCircuitBreaker>.Instance);
 
-        _sut = new SystemController(_circuitBreaker);
+        var emptyConfig = new ConfigurationBuilder().Build();
+        _sut = new SystemController(_circuitBreaker, emptyConfig);
     }
 
     [Fact]

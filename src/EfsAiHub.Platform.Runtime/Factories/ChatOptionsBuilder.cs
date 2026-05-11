@@ -26,9 +26,10 @@ public static class ChatOptionsBuilder
         ILogger logger,
         bool allowFingerprintMismatch = true,
         string? projectId = null,
-        bool isStandaloneFlow = false)
+        bool isStandaloneFlow = false,
+        IReadOnlyList<EfsAiHub.Core.Agents.RouterIntents.RouterIntent>? resolvedRouterIntents = null)
     {
-        var chatOptions = BuildCoreOptions(definition, functionRegistry, toolWriter, trackedFnLogger, logger, allowFingerprintMismatch, projectId, isStandaloneFlow);
+        var chatOptions = BuildCoreOptions(definition, functionRegistry, toolWriter, trackedFnLogger, logger, allowFingerprintMismatch, projectId, isStandaloneFlow, resolvedRouterIntents);
 
         return new ChatClientAgentOptions
         {
@@ -51,9 +52,10 @@ public static class ChatOptionsBuilder
         ILogger logger,
         bool allowFingerprintMismatch = true,
         string? projectId = null,
-        bool isStandaloneFlow = false)
+        bool isStandaloneFlow = false,
+        IReadOnlyList<EfsAiHub.Core.Agents.RouterIntents.RouterIntent>? resolvedRouterIntents = null)
     {
-        return BuildCoreOptions(definition, functionRegistry, toolWriter, trackedFnLogger, logger, allowFingerprintMismatch, projectId, isStandaloneFlow);
+        return BuildCoreOptions(definition, functionRegistry, toolWriter, trackedFnLogger, logger, allowFingerprintMismatch, projectId, isStandaloneFlow, resolvedRouterIntents);
     }
 
     private static ChatOptions BuildCoreOptions(
@@ -64,11 +66,19 @@ public static class ChatOptionsBuilder
         ILogger logger,
         bool allowFingerprintMismatch,
         string? projectId,
-        bool isStandaloneFlow = false)
+        bool isStandaloneFlow = false,
+        IReadOnlyList<EfsAiHub.Core.Agents.RouterIntents.RouterIntent>? resolvedRouterIntents = null)
     {
+        var instructionsAfterRouter = AppendRouterIntentBlockIfApplicable(
+            definition,
+            definition.Instructions,
+            resolvedRouterIntents);
+
         var options = new ChatOptions
         {
-            Instructions = definition.Instructions,
+            Instructions = AppendWorkerScopeBlockIfApplicable(
+                definition,
+                instructionsAfterRouter),
             Temperature = definition.Model.Temperature,
             MaxOutputTokens = definition.Model.MaxTokens,
             ModelId = definition.Model.DeploymentName
@@ -78,11 +88,140 @@ public static class ChatOptionsBuilder
         if (tools.Count > 0)
             options.Tools = tools;
 
-        var responseFormat = BuildResponseFormat(definition, logger, isStandaloneFlow);
+        var responseFormat = BuildResponseFormat(definition, logger, isStandaloneFlow, resolvedRouterIntents);
         if (responseFormat is not null)
             options.ResponseFormat = responseFormat;
 
+        // Log de inspeção: pra Router, dump das intents resolvidas + tamanho
+        // do prompt final pós-injeção. Permite auditar o que o LLM recebe
+        // sem precisar interceptar a chamada.
+        if (definition.Type == AgentType.Router && resolvedRouterIntents is { Count: > 0 })
+        {
+            var enumNames = string.Join(", ", resolvedRouterIntents.Select(i => i.Name));
+            logger.LogInformation(
+                "[ChatOptionsBuilder] Router '{AgentId}' resolved {Count} intents: [{Names}]. " +
+                "Final instructions length={Len} chars (block appended).",
+                definition.Id, resolvedRouterIntents.Count, enumNames,
+                options.Instructions?.Length ?? 0);
+            logger.LogDebug(
+                "[ChatOptionsBuilder] Router '{AgentId}' final instructions:\n{Instructions}",
+                definition.Id, options.Instructions);
+        }
+        else if (definition.Type == AgentType.Worker
+                 && definition.Metadata is { } metadataForLog
+                 && metadataForLog.TryGetValue(AgentDefinition.WorkerScopeMetadataKey, out var scopeForLog)
+                 && !string.IsNullOrWhiteSpace(scopeForLog))
+        {
+            logger.LogInformation(
+                "[ChatOptionsBuilder] Worker '{AgentId}' scope length={ScopeLen} chars. " +
+                "Final instructions length={Len} chars (block appended).",
+                definition.Id, scopeForLog.Length,
+                options.Instructions?.Length ?? 0);
+            logger.LogDebug(
+                "[ChatOptionsBuilder] Worker '{AgentId}' final instructions:\n{Instructions}",
+                definition.Id, options.Instructions);
+        }
+
         return options;
+    }
+
+
+    /// <summary>
+    /// Pra Router com intents resolvidas, anexa bloco markdown
+    /// <c># Intenções disponíveis</c> ao final do <c>Instructions</c> do
+    /// agent. Bloco contém: nome técnico (em backticks) + descrição + exemplos
+    /// inline. Sem marker no instructions persistido — runtime apenas
+    /// concatena com separador, robusto a edits do user no skeleton.
+    ///
+    /// Ordem de impacto pro LLM: role/goal/output (skeleton) → bloco no fim
+    /// (recência atende mais peso). Anti-leak explícito no header do bloco
+    /// reforça "não inventar/combinar/fora do enum".
+    /// </summary>
+    internal static string? AppendRouterIntentBlockIfApplicable(
+        AgentDefinition definition,
+        string? baseInstructions,
+        IReadOnlyList<EfsAiHub.Core.Agents.RouterIntents.RouterIntent>? resolvedRouterIntents)
+    {
+        if (definition.Type != AgentType.Router
+            || resolvedRouterIntents is not { Count: > 0 })
+        {
+            return baseInstructions;
+        }
+
+        var sb = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(baseInstructions))
+        {
+            sb.Append(baseInstructions.TrimEnd());
+            sb.Append("\n\n");
+        }
+
+        sb.Append("# Intenções disponíveis\n\n");
+        sb.Append(
+            "Escolha **exatamente uma** categoria do enum `intent` para cada input. " +
+            "Não invente categorias. Não combine. Se nenhuma encaixar bem, escolha a mais próxima " +
+            "e devolva `confidence < 0.5` para o workflow decidir.\n\n");
+
+        foreach (var intent in resolvedRouterIntents)
+        {
+            var name = (intent.Name ?? string.Empty).Trim();
+            if (name.Length == 0) continue;
+
+            var description = (intent.Description ?? string.Empty).Trim();
+            if (description.Length > 0)
+                sb.Append($"- `{name}` — {description}\n");
+            else
+                sb.Append($"- `{name}`\n");
+
+            var validExamples = intent.Examples?
+                .Select(e => (e ?? string.Empty).Trim())
+                .Where(e => e.Length > 0)
+                .ToList() ?? new List<string>();
+
+            if (validExamples.Count > 0)
+            {
+                sb.Append("  Exemplos:\n");
+                foreach (var example in validExamples)
+                    sb.Append($"  • \"{example}\"\n");
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Pra Worker com <c>metadata['x-worker-scope']</c> preenchido, anexa
+    /// bloco <c># Domínio de análise</c> ao final do <c>Instructions</c>.
+    /// Sem marker no skeleton — runtime concatena com separador. Mesmo
+    /// padrão de recência do Router (bloco no fim → maior peso pro LLM).
+    /// </summary>
+    internal static string? AppendWorkerScopeBlockIfApplicable(
+        AgentDefinition definition,
+        string? baseInstructions)
+    {
+        if (definition.Type != AgentType.Worker)
+            return baseInstructions;
+
+        if (definition.Metadata is not { } metadata
+            || !metadata.TryGetValue(AgentDefinition.WorkerScopeMetadataKey, out var scope)
+            || string.IsNullOrWhiteSpace(scope))
+        {
+            return baseInstructions;
+        }
+
+        var trimmedScope = scope.Trim();
+
+        var sb = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(baseInstructions))
+        {
+            sb.Append(baseInstructions.TrimEnd());
+            sb.Append("\n\n");
+        }
+
+        sb.Append("# Domínio de análise\n\n");
+        sb.Append(trimmedScope);
+        sb.Append("\n\n---");
+
+        return sb.ToString();
     }
 
     private static List<AITool> BuildFunctionTools(
@@ -220,7 +359,8 @@ public static class ChatOptionsBuilder
     private static ChatResponseFormat? BuildResponseFormat(
         AgentDefinition definition,
         ILogger logger,
-        bool isStandaloneFlow = false)
+        bool isStandaloneFlow = false,
+        IReadOnlyList<EfsAiHub.Core.Agents.RouterIntents.RouterIntent>? resolvedRouterIntents = null)
     {
         var structuredOutput = definition.StructuredOutput;
         var memory = definition.OperationalMemory;
@@ -240,15 +380,61 @@ public static class ChatOptionsBuilder
         {
             "json" => ChatResponseFormat.Json,
             "json_schema" when structuredOutput.Schema is not null =>
-                ChatResponseFormat.ForJsonSchema(
-                    structuredOutput.Schema.RootElement.Clone(),
-                    structuredOutput.SchemaName ?? "response",
-                    structuredOutput.SchemaDescription),
+                BuildJsonSchemaFormat(definition, structuredOutput, resolvedRouterIntents, logger),
             "json_schema" =>
                 LogAndReturnNull(logger, definition.Id, "json_schema format requires a Schema definition"),
             "text" => null,
             _ => LogAndReturnNull(logger, definition.Id, $"Unknown responseFormat '{structuredOutput.ResponseFormat}'")
         };
+    }
+
+    /// <summary>
+    /// Materializa o ChatResponseFormat de json_schema. Pra Router com intents
+    /// resolvidas, sobrescreve <c>properties.intent.enum</c> com os nomes do
+    /// pool — assim edits no pool propagam pra próxima chamada do agent sem
+    /// re-publish. Outros tipos usam o schema persistido como-é.
+    /// </summary>
+    private static ChatResponseFormat BuildJsonSchemaFormat(
+        AgentDefinition definition,
+        AgentStructuredOutputDefinition structuredOutput,
+        IReadOnlyList<EfsAiHub.Core.Agents.RouterIntents.RouterIntent>? resolvedRouterIntents,
+        ILogger logger)
+    {
+        JsonElement schemaElement;
+
+        if (definition.Type == AgentType.Router
+            && resolvedRouterIntents is { Count: > 0 })
+        {
+            var raw = structuredOutput.Schema!.RootElement.GetRawText();
+            var node = JsonNode.Parse(raw) as JsonObject;
+            if (node is not null
+                && node["properties"] is JsonObject props
+                && props["intent"] is JsonObject intentNode)
+            {
+                var enumArr = new JsonArray();
+                foreach (var intent in resolvedRouterIntents)
+                    enumArr.Add(intent.Name);
+                intentNode["enum"] = enumArr;
+
+                using var doc = JsonDocument.Parse(node.ToJsonString());
+                schemaElement = doc.RootElement.Clone();
+            }
+            else
+            {
+                // Schema inesperado pra Router (sem properties.intent). Cai no
+                // schema persistido — backend já valida hard count >= 2 no save.
+                schemaElement = structuredOutput.Schema!.RootElement.Clone();
+            }
+        }
+        else
+        {
+            schemaElement = structuredOutput.Schema!.RootElement.Clone();
+        }
+
+        return ChatResponseFormat.ForJsonSchema(
+            schemaElement,
+            structuredOutput.SchemaName ?? "response",
+            structuredOutput.SchemaDescription);
     }
 
     /// <summary>

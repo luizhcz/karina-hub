@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using EfsAiHub.Core.Abstractions.Exceptions;
 using EfsAiHub.Core.Agents.Skills;
 
@@ -10,6 +11,26 @@ public class AgentDefinition
     public required string Id { get; init; }
     public required string Name { get; init; }
     public string? Description { get; init; }
+
+    /// <summary>
+    /// Tipo formal do agente. Custom (default) = agente livre, sem template
+    /// aplicado, sem validações específicas — cobre back-compat de agentes
+    /// criados antes da tipologia. Outros tipos (Router, etc.) habilitam
+    /// validações de invariantes e templates de criação.
+    /// </summary>
+    public AgentType Type { get; set; } = AgentType.Custom;
+
+    /// <summary>
+    /// Set de intents do pool global (<c>aihub.router_intents</c>) que este
+    /// Router atende. Transient — NÃO persiste no jsonb da row do agent;
+    /// fonte da verdade é a junction <c>aihub.agent_router_intents</c>.
+    /// Carregado no GET (lookup do link repo) e enviado no save (controller
+    /// reconcilia o join após o upsert do agent). Aplicável apenas pra
+    /// <c>Type=Router</c>.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<string>? RouterIntentIds { get; set; }
+
     public required AgentModelConfig Model { get; init; }
 
     /// <summary>
@@ -51,6 +72,59 @@ public class AgentDefinition
     public IReadOnlyList<SkillRef> SkillRefs { get; init; } = [];
 
     public IReadOnlyDictionary<string, string> Metadata { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>
+    /// Chave em <see cref="Metadata"/> que carrega o escopo/domínio do
+    /// Worker. Vive em metadata em vez de campo top-level pra evitar
+    /// propagação manual nos múltiplos paths que reconstroem
+    /// <see cref="AgentDefinition"/>. Lida pelo runtime
+    /// (<c>ChatOptionsBuilder</c>) e validação (<c>AgentService</c>).
+    /// </summary>
+    public const string WorkerScopeMetadataKey = "x-worker-scope";
+
+    /// <summary>
+    /// Chave em <see cref="Metadata"/> que declara, pra Tool Runner, que o
+    /// agente deve aguardar aprovação humana antes de invocar tools com
+    /// side-effect. Valor: <c>"true"</c> ativo / qualquer outro inativo.
+    /// Flag puramente declarativo: <c>AgentService.ValidateToolRunner</c>
+    /// usa pra emitir warning quando há tools com
+    /// <c>RequiresApproval=true</c> e a flag está off. Runtime de chamada
+    /// de tool não checa este flag — apenas a validação de save.
+    /// </summary>
+    public const string ToolRunnerHitlRequiredMetadataKey = "x-tool-runner-hitl-required";
+
+    /// <summary>
+    /// Chave em <see cref="Metadata"/> que declara, pra Router, que o
+    /// agente roda em workflow <c>InputMode=Chat</c>. Valor: <c>"true"</c>
+    /// ativo / qualquer outro inativo. Quando ativo, o codec do wizard
+    /// ativa o middleware <c>StructuredOutputState</c> no save — ele lê
+    /// o JSON do classify e dispara <c>STATE_DELTA</c> via SSE pra que o
+    /// frontend chat consiga reagir em tempo real à intent escolhida.
+    /// <c>AgentService.ValidateRouter</c> usa pra emitir warning quando a
+    /// flag está on mas o middleware não está presente (ou vice-versa).
+    /// </summary>
+    public const string RouterForChatMetadataKey = "x-router-for-chat";
+
+    /// <summary>
+    /// Chave em <see cref="Metadata"/> que carrega, pra Conversational, a
+    /// lista canônica de valores válidos de <c>ui_component</c>. Persiste
+    /// como JSON array de strings (ex: <c>["text","card","list","form"]</c>).
+    /// O codec de save usa pra injetar o enum no schema fixo
+    /// <c>{ui_component, message, output}</c> do StructuredOutput; o
+    /// frontend chat consome o enum pra dirigir o renderer (switch ou
+    /// fallback genérico). Lista vazia / chave ausente = enum sem
+    /// restrição (string livre), com warning soft no save.
+    /// </summary>
+    public const string ConversationalUiComponentsMetadataKey = "x-conversational-ui-components";
+
+    /// <summary>
+    /// Chave em <see cref="Metadata"/> que carrega, pra Conversational, o
+    /// texto de persona do agente (papel, personalidade, estilo). Backend
+    /// concatena em <c>Instructions</c> no codec do save. Persiste em
+    /// metadata em vez de campo top-level pra evitar propagação manual nos
+    /// múltiplos paths que reconstroem <see cref="AgentDefinition"/>.
+    /// </summary>
+    public const string ConversationalPersonaMetadataKey = "x-conversational-persona";
 
     /// <summary>
     /// "project" (default) — agent visível apenas dentro do projeto dono.

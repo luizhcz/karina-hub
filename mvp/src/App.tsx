@@ -6,12 +6,17 @@ import { ToolsList } from './routes/ToolsList'
 import { ToolEditor } from './routes/ToolEditor'
 import { McpServersList } from './routes/McpServersList'
 import { McpServerEditor } from './routes/McpServerEditor'
+import { RouterIntentsList } from './routes/RouterIntentsList'
+import { RouterIntentEditor } from './routes/RouterIntentEditor'
 import { AgentsList } from './routes/AgentsList'
 import { AgentEditor } from './routes/AgentEditor'
 import { AgentVersions } from './routes/AgentVersions'
 import { AgentDeploy } from './routes/AgentDeploy'
 import { Implantacoes } from './routes/Implantacoes'
 import { PipelineEditor } from './routes/PipelineEditor'
+import { RoutingDeployEditor } from './routes/RoutingDeployEditor'
+import { ChatDeployEditor } from './routes/ChatDeployEditor'
+import { ChatDeploymentSandbox } from './routes/ChatDeploymentSandbox'
 import { DeploymentSandbox } from './routes/DeploymentSandbox'
 import { Aprovacoes } from './routes/Aprovacoes'
 import { Avaliacoes } from './routes/Avaliacoes'
@@ -47,6 +52,11 @@ export function App() {
         <Route path="/implantacoes" element={<Implantacoes />} />
         <Route path="/implantacoes/avancada" element={<PipelineEditor />} />
         <Route path="/implantacoes/avancada/:id" element={<PipelineEditor />} />
+        <Route path="/implantacoes/roteamento" element={<RoutingDeployEditor />} />
+        <Route path="/implantacoes/roteamento/:id" element={<RoutingDeployEditor />} />
+        <Route path="/implantacoes/chat" element={<ChatDeployEditor />} />
+        <Route path="/implantacoes/chat/:id" element={<ChatDeployEditor />} />
+        <Route path="/implantacoes/chat/:id/sandbox" element={<ChatDeploymentSandbox />} />
         <Route path="/implantacoes/:id/sandbox" element={<DeploymentSandbox />} />
         <Route path="/avaliacoes" element={<Avaliacoes />} />
         <Route path="/aprovacoes" element={<Aprovacoes />} />
@@ -57,6 +67,9 @@ export function App() {
         <Route path="/mcps" element={<McpServersList />} />
         <Route path="/mcps/novo" element={<McpServerEditor mode="create" />} />
         <Route path="/mcps/:id" element={<McpServerEditor mode="edit" />} />
+        <Route path="/intencoes" element={<RouterIntentsList />} />
+        <Route path="/intencoes/nova" element={<RouterIntentEditor mode="create" />} />
+        <Route path="/intencoes/:id" element={<RouterIntentEditor mode="edit" />} />
         <Route path="*" element={<Navigate to="/agentes" replace />} />
       </Route>
     </Routes>

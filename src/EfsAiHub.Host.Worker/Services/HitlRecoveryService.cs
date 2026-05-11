@@ -312,13 +312,13 @@ public sealed class HitlRecoveryService : BackgroundService
                     ? definition.Configuration.TimeoutSeconds
                     : engineOpts.DefaultTimeoutSeconds;
 
-                var agentNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var agentNames = new Dictionary<string, AgentNodeInfo>(StringComparer.OrdinalIgnoreCase);
                 var guardMode = EfsAiHub.Core.Agents.Execution.AccountGuardMode.None;
                 foreach (var agentRef in definition.Agents)
                 {
                     var agentDef = await agentRepo.GetByIdAsync(agentRef.AgentId, ct);
                     if (agentDef is null) continue;
-                    agentNames[agentDef.Id] = agentDef.Name;
+                    agentNames[agentDef.Id] = new AgentNodeInfo(agentDef.Name, agentDef.Type.ToString());
                     if (guardMode == EfsAiHub.Core.Agents.Execution.AccountGuardMode.None &&
                         agentDef.Middlewares.Any(m => m.Enabled &&
                             string.Equals(m.Type, "AccountGuard", StringComparison.OrdinalIgnoreCase)))

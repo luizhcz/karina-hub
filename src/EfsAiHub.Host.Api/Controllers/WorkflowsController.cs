@@ -76,6 +76,7 @@ public class WorkflowsController : ControllerBase
     [SwaggerOperation(Summary = "Cria uma definição de workflow")]
     [ProducesResponseType(typeof(WorkflowResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Create([FromBody] CreateWorkflowRequest request, CancellationToken ct)
     {
         try
@@ -89,6 +90,10 @@ public class WorkflowsController : ControllerBase
                 definition.Id,
                 payloadAfter: AdminAuditContext.Snapshot(response)), ct);
             return CreatedAtAction(nameof(GetById), new { id = definition.Id }, response);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
         }
         catch (EfsAiHub.Core.Orchestration.Validation.WorkflowInvariantViolationException ex)
         {

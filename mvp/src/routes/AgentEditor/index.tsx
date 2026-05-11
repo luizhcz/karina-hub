@@ -36,7 +36,12 @@ import {
   cn,
 } from '../../ui'
 import { Stepper, type StepDescriptor } from './Stepper'
+import { TypeStep } from './TypeStep'
 import { ProfileStep } from './ProfileStep'
+import { RouterProfileStep } from './RouterProfileStep'
+import { WorkerProfileStep } from './WorkerProfileStep'
+import { ToolRunnerProfileStep } from './ToolRunnerProfileStep'
+import { ConversationalProfileStep } from './ConversationalProfileStep'
 import { ToolsKnowledgeStep } from './ToolsKnowledgeStep'
 import { SecurityStep } from './SecurityStep'
 import { MemoryStep } from './MemoryStep'
@@ -48,6 +53,7 @@ import { AssistantDrawer } from './AssistantDrawer'
 import { buildPayload, emptyFormState, fromDraft } from './formCodec'
 import { AGENT_TEMPLATES } from './templates'
 import type { AgentMode, FormState, StepKey } from './types'
+import type { AgentType } from '../../api/agentDrafts'
 
 const COOLDOWN_MS = 10_000
 const MIN_ROLE_CHARS = 20
@@ -99,6 +105,7 @@ const STATUS_LABEL: Record<AgentDraftStatus, string> = {
 }
 
 const BASIC_STEPS: StepDescriptor[] = [
+  { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Perfil' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'model', label: 'Modelo' },
@@ -106,6 +113,7 @@ const BASIC_STEPS: StepDescriptor[] = [
 ]
 
 const ADVANCED_STEPS: StepDescriptor[] = [
+  { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Perfil' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'security', label: 'Segurança' },
@@ -116,7 +124,70 @@ const ADVANCED_STEPS: StepDescriptor[] = [
   { key: 'review', label: 'Revisão' },
 ]
 
-function stepsFor(mode: AgentMode): StepDescriptor[] {
+// Router não compartilha o ProfileStep do Custom — o profile dele É a tabela
+// de intenções (nome + descrição + exemplo). Categorias e Profile genérico
+// foram fundidos num step único; tools/security/memory/input/output não fazem
+// sentido pro template e ficam de fora.
+const ROUTER_STEPS: StepDescriptor[] = [
+  { key: 'type', label: 'Tipo' },
+  { key: 'profile', label: 'Intenções' },
+  { key: 'model', label: 'Modelo' },
+  { key: 'review', label: 'Revisão' },
+]
+
+// Worker substitui o ProfileStep por um step próprio (Domínio) que
+// captura nome + scope. Inclui Tools (opcional), Segurança (recomendado
+// on por default), Output structured (recomendado) e Modelo. Pula
+// Memória e Input — Worker é single-shot, sem multi-turn nem schema de
+// input separado.
+const WORKER_STEPS: StepDescriptor[] = [
+  { key: 'type', label: 'Tipo' },
+  { key: 'profile', label: 'Domínio' },
+  { key: 'tools', label: 'Ferramentas' },
+  { key: 'security', label: 'Segurança' },
+  { key: 'output', label: 'Output' },
+  { key: 'model', label: 'Modelo' },
+  { key: 'review', label: 'Revisão' },
+]
+
+// Tool Runner substitui o ProfileStep por um step próprio (Identificação +
+// política HITL). Inclui Tools (obrigatório por warning), Segurança
+// (AccountGuard/Guardrails recomendados), Memória (multi-turn possível,
+// diferente do Worker), Output (opcional), Modelo. Sem Input — schema de
+// input é coberto pelas tools (cada uma carrega seu schema).
+const TOOL_RUNNER_STEPS: StepDescriptor[] = [
+  { key: 'type', label: 'Tipo' },
+  { key: 'profile', label: 'Identificação' },
+  { key: 'tools', label: 'Ferramentas' },
+  { key: 'security', label: 'Segurança' },
+  { key: 'memory', label: 'Memória' },
+  { key: 'output', label: 'Output' },
+  { key: 'model', label: 'Modelo' },
+  { key: 'review', label: 'Revisão' },
+]
+
+// Conversational substitui o ProfileStep por um step próprio (Identificação
+// + Persona + UI components). Inclui Tools (opcional — pode chamar tools
+// no contexto da conversa), Segurança (recomendado on), Memória (frequente
+// pra continuidade entre turns), Output (sub-schema do shape canônico),
+// Modelo. Sem Input — chat consome ChatTurnContext, schema de input é
+// implícito.
+const CONVERSATIONAL_STEPS: StepDescriptor[] = [
+  { key: 'type', label: 'Tipo' },
+  { key: 'profile', label: 'Identificação' },
+  { key: 'tools', label: 'Ferramentas' },
+  { key: 'security', label: 'Segurança' },
+  { key: 'memory', label: 'Memória' },
+  { key: 'output', label: 'Output' },
+  { key: 'model', label: 'Modelo' },
+  { key: 'review', label: 'Revisão' },
+]
+
+function stepsFor(mode: AgentMode, type: AgentType): StepDescriptor[] {
+  if (type === 'Router') return ROUTER_STEPS
+  if (type === 'Worker') return WORKER_STEPS
+  if (type === 'ToolRunner') return TOOL_RUNNER_STEPS
+  if (type === 'Conversational') return CONVERSATIONAL_STEPS
   return mode === 'advanced' ? ADVANCED_STEPS : BASIC_STEPS
 }
 
@@ -128,14 +199,36 @@ export function AgentEditor({ mode }: Props) {
   // No fluxo de criação, ?mode=advanced (ou ?mode=basic) define o modo inicial
   // — a tela é aberta a partir do modal de "Novo agente" da listagem com esse
   // parâmetro. Em edit, o modo é inferido do conteúdo do draft pelo formCodec.
-  // ?template=<key> hidrata Profile + nome + descrição com um modelo pronto
-  // (ver routes/AgentEditor/templates.ts) — atalho pro time-to-first-agent.
+  // ?type=Router|Custom define o tipo formal e o set de steps. ?template=<key>
+  // hidrata Profile + nome + descrição com um modelo pronto (sempre Custom —
+  // ver routes/AgentEditor/templates.ts) — atalho pro time-to-first-agent.
   const initialMode = mode === 'create' && searchParams.get('mode') === 'advanced'
     ? 'advanced'
     : 'basic'
+  const initialType: AgentType =
+    mode === 'create'
+      ? searchParams.get('type') === 'Router'
+        ? 'Router'
+        : searchParams.get('type') === 'Worker'
+          ? 'Worker'
+          : searchParams.get('type') === 'ToolRunner'
+            ? 'ToolRunner'
+            : searchParams.get('type') === 'Conversational'
+              ? 'Conversational'
+              : 'Custom'
+      : 'Custom'
   const initialTemplateKey = mode === 'create' ? searchParams.get('template') : null
   const [form, setForm] = useState<FormState>(() => {
-    const base: FormState = { ...emptyFormState(), agentMode: initialMode }
+    // Router pula o step de "Tipo" porque já foi escolhido no modal — entra
+    // direto no step próprio (Intenções). Custom também: se já chegou via modal
+    // (com mode definido na query), o step de Tipo é redundante. Quando vem
+    // via template, mesmo raciocínio — pula direto pra Perfil.
+    const base: FormState = {
+      ...emptyFormState(),
+      agentMode: initialMode,
+      type: initialType,
+      currentStep: 'profile',
+    }
     if (!initialTemplateKey) return base
     const tpl = AGENT_TEMPLATES.find((t) => t.key === initialTemplateKey)
     if (!tpl) return base
@@ -269,7 +362,7 @@ export function AgentEditor({ mode }: Props) {
   const canSubmit = status === 'Draft' || status === 'Rejected'
   const readonly = isPending
 
-  const steps = useMemo(() => stepsFor(form.agentMode), [form.agentMode])
+  const steps = useMemo(() => stepsFor(form.agentMode, form.type), [form.agentMode, form.type])
   const currentIndex = Math.max(
     steps.findIndex((s) => s.key === form.currentStep),
     0,
@@ -282,25 +375,99 @@ export function AgentEditor({ mode }: Props) {
   // Critério: o que `validateForSubmit` cobre, replicado por step de origem.
   const stepIssues = useMemo<Partial<Record<StepKey, string>>>(() => {
     const issues: Partial<Record<StepKey, string>> = {}
-    if (!form.name.trim()) issues.profile = 'Informe um nome'
     if (!form.predefinedModelId.trim()) issues.model = 'Selecione um modelo'
-    if (form.memory.enabled) {
-      const trimmed = form.memory.schema.trim()
-      if (!trimmed) {
-        issues.memory = 'Defina a estrutura da memória ou desative.'
-      } else {
+
+    if (form.type === 'Router') {
+      const selectedCount = form.routerIntentIds.length
+      if (!form.name.trim()) {
+        issues.profile = 'Informe um nome'
+      } else if (selectedCount < 2) {
+        issues.profile = 'Selecione ao menos 2 intenções'
+      }
+    } else if (form.type === 'Worker') {
+      // Worker tem validações soft no backend (warnings). No wizard, só o
+      // nome é hard requirement; scope vazio é warning de qualidade exposto
+      // no review (não bloqueia "Próximo" no Stepper).
+      if (!form.name.trim()) issues.profile = 'Informe um nome'
+      if (form.output.mode === 'structured') {
+        const trimmed = form.output.schema.trim()
+        if (!trimmed) {
+          issues.output = 'Schema do output vazio — defina ou troque pra texto livre.'
+        } else {
+          try {
+            const parsed = JSON.parse(trimmed)
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+              issues.output = 'Schema do output precisa ser um objeto JSON.'
+            }
+          } catch {
+            issues.output = 'Schema do output não é JSON válido.'
+          }
+        }
+      }
+    } else if (form.type === 'ToolRunner') {
+      // Tool Runner: nome é hard requirement no wizard; tools/middlewares/
+      // modelo são warnings soft no backend (não bloqueiam "Próximo"). O
+      // toggle HITL é declarativo — sem validação de "obrigatoriedade",
+      // só consistência (avaliada em ValidateToolRunner no save).
+      if (!form.name.trim()) issues.profile = 'Informe um nome'
+      if (form.output.mode === 'structured') {
+        const trimmed = form.output.schema.trim()
+        if (trimmed) {
+          try {
+            const parsed = JSON.parse(trimmed)
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+              issues.output = 'Schema do output precisa ser um objeto JSON.'
+            }
+          } catch {
+            issues.output = 'Schema do output não é JSON válido.'
+          }
+        }
+      }
+    } else if (form.type === 'Conversational') {
+      // Conversational: nome obrigatório. O sub-schema do output deve ser
+      // JSON válido (codec envolve no shape canônico no save; schema
+      // inválido cai pro default vazio e gera warning soft no backend).
+      if (!form.name.trim()) issues.profile = 'Informe um nome'
+      const trimmed = form.output.schema.trim()
+      if (trimmed) {
         try {
           const parsed = JSON.parse(trimmed)
           if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-            issues.memory = 'Schema da memória precisa ser um objeto JSON.'
+            issues.output = 'Subschema do `output` precisa ser um objeto JSON.'
           }
         } catch {
-          issues.memory = 'Schema da memória não é JSON válido.'
+          issues.output = 'Subschema do `output` não é JSON válido.'
+        }
+      }
+    } else {
+      if (!form.name.trim()) issues.profile = 'Informe um nome'
+      if (form.memory.enabled) {
+        const trimmed = form.memory.schema.trim()
+        if (!trimmed) {
+          issues.memory = 'Defina a estrutura da memória ou desative.'
+        } else {
+          try {
+            const parsed = JSON.parse(trimmed)
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+              issues.memory = 'Schema da memória precisa ser um objeto JSON.'
+            }
+          } catch {
+            issues.memory = 'Schema da memória não é JSON válido.'
+          }
         }
       }
     }
     return issues
-  }, [form.name, form.predefinedModelId, form.memory.enabled, form.memory.schema])
+  }, [
+    form.name,
+    form.predefinedModelId,
+    form.type,
+    form.routerIntentIds,
+    form.memory.enabled,
+    form.memory.schema,
+    form.output.mode,
+    form.output.schema,
+  ])
 
   const goTo = (key: StepKey) => setForm((prev) => ({ ...prev, currentStep: key }))
   const goNext = () => {
@@ -317,7 +484,7 @@ export function AgentEditor({ mode }: Props) {
   // que o agente publicado tem todos os steps válidos. Em create, só o step
   // inicial conta como visitado e o set cresce conforme o user avança.
   const [visitedSteps, setVisitedSteps] = useState<Set<StepKey>>(() => {
-    if (mode === 'edit') return new Set(stepsFor(initialMode).map((s) => s.key))
+    if (mode === 'edit') return new Set(stepsFor(initialMode, form.type).map((s) => s.key))
     return new Set([form.currentStep])
   })
 
@@ -333,7 +500,7 @@ export function AgentEditor({ mode }: Props) {
   const setMode = (next: AgentMode) => {
     if (next === form.agentMode) return
     setForm((prev) => {
-      const nextSteps = stepsFor(next)
+      const nextSteps = stepsFor(next, prev.type)
       // Mantém step se ainda existe na nova lista; senão, vai pra "tools"
       // (último step comum entre os dois modos antes da Revisão).
       const stillExists = nextSteps.some((s) => s.key === prev.currentStep)
@@ -514,6 +681,20 @@ export function AgentEditor({ mode }: Props) {
         return 'Schema da memória operacional não é JSON válido.'
       }
     }
+    // Worker grava form.output em payload.structuredOutput (json_schema).
+    // Schema inválido vai pro backend e quebra a chamada — checar antes do
+    // submit pra dar feedback inline.
+    if (form.type === 'Worker' && form.output.mode === 'structured') {
+      const trimmedSchema = form.output.schema.trim()
+      if (!trimmedSchema) return 'Worker com output estruturado exige um schema — defina ou troque pra texto livre.'
+      try {
+        const parsed = JSON.parse(trimmedSchema)
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+          return 'Schema do output do Worker precisa ser um objeto JSON.'
+      } catch {
+        return 'Schema do output do Worker não é JSON válido.'
+      }
+    }
     return null
   }
 
@@ -627,32 +808,37 @@ export function AgentEditor({ mode }: Props) {
             )}
           </div>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <Button
-            size="sm"
-            variant={assistantResult ? 'secondary' : 'primary'}
-            onClick={runAnalysis}
-            disabled={assistantDisabled}
-            loading={assistantLoading}
-            leftIcon={!assistantLoading ? <SparklesIcon className="h-4 w-4" /> : undefined}
-            title={
-              !roleReady
-                ? `Preencha o papel com pelo menos ${MIN_ROLE_CHARS} caracteres pra habilitar.`
+        {form.type !== 'Router'
+          && form.type !== 'Worker'
+          && form.type !== 'ToolRunner'
+          && form.type !== 'Conversational' && (
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <Button
+              size="sm"
+              variant={assistantResult ? 'secondary' : 'primary'}
+              onClick={runAnalysis}
+              disabled={assistantDisabled}
+              loading={assistantLoading}
+              leftIcon={!assistantLoading ? <SparklesIcon className="h-4 w-4" /> : undefined}
+              title={
+                !roleReady
+                  ? `Preencha o papel com pelo menos ${MIN_ROLE_CHARS} caracteres pra habilitar.`
+                  : onCooldown
+                  ? `Aguarde ${cooldownRemaining}s pra rodar de novo.`
+                  : 'Analisa o perfil e devolve sugestões granulares.'
+              }
+            >
+              {assistantLoading
+                ? 'Analisando perfil…'
                 : onCooldown
-                ? `Aguarde ${cooldownRemaining}s pra rodar de novo.`
-                : 'Analisa o perfil e devolve sugestões granulares.'
-            }
-          >
-            {assistantLoading
-              ? 'Analisando perfil…'
-              : onCooldown
-              ? `Aguarde ${cooldownRemaining}s`
-              : assistantResult
-              ? 'Reanalisar perfil'
-              : 'Refinar com IA'}
-          </Button>
-          <span className="text-[10px] text-fg-dim">~$0.001 por análise</span>
-        </div>
+                ? `Aguarde ${cooldownRemaining}s`
+                : assistantResult
+                ? 'Reanalisar perfil'
+                : 'Refinar com IA'}
+            </Button>
+            <span className="text-[10px] text-fg-dim">~$0.001 por análise</span>
+          </div>
+        )}
       </div>
 
       {isPending && (
@@ -678,28 +864,49 @@ export function AgentEditor({ mode }: Props) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-fg-dim">
-              Tipo de agente
+              {form.type === 'Router'
+                ? 'Router'
+                : form.type === 'Worker'
+                  ? 'Worker'
+                  : form.type === 'ToolRunner'
+                    ? 'Tool Runner'
+                    : form.type === 'Conversational'
+                      ? 'Conversational'
+                      : 'Tipo de agente'}
             </p>
             <p className="mt-1 text-xs text-fg-muted">
-              {form.agentMode === 'basic'
-                ? 'Configuração rápida com perfil, ferramentas e revisão.'
-                : 'Inclui input e output estruturados além do básico.'}
+              {form.type === 'Router'
+                ? 'Classifier de intenções com output estruturado fixo (intent + confidence + rationale). Steps são fixos pelo tipo — sem modo básico/avançado.'
+                : form.type === 'Worker'
+                  ? 'Specialist de domínio. Recebe input estruturado e produz análise rica conforme o schema. Steps são fixos pelo tipo — sem modo básico/avançado.'
+                  : form.type === 'ToolRunner'
+                    ? 'Function-caller / executor. Decide qual tool chamar com quais argumentos pra cumprir uma tarefa que exige ação no mundo. Steps são fixos pelo tipo — sem modo básico/avançado.'
+                    : form.type === 'Conversational'
+                      ? 'Chat / assistant multi-turn. Output canônico { ui_component, message, output } injetado pelo codec; middleware AG-UI dispara STATE_DELTA via SSE. Steps são fixos pelo tipo — sem modo básico/avançado.'
+                      : form.agentMode === 'basic'
+                        ? 'Configuração rápida com perfil, ferramentas e revisão.'
+                        : 'Inclui input e output estruturados além do básico.'}
             </p>
           </div>
-          <div className="flex rounded-lg border border-border bg-bg-soft p-1">
-            <ModeToggleButton
-              active={form.agentMode === 'basic'}
-              label="Básico"
-              onClick={() => setMode('basic')}
-              disabled={readonly}
-            />
-            <ModeToggleButton
-              active={form.agentMode === 'advanced'}
-              label="Avançado"
-              onClick={() => setMode('advanced')}
-              disabled={readonly}
-            />
-          </div>
+          {form.type !== 'Router'
+            && form.type !== 'Worker'
+            && form.type !== 'ToolRunner'
+            && form.type !== 'Conversational' && (
+            <div className="flex rounded-lg border border-border bg-bg-soft p-1">
+              <ModeToggleButton
+                active={form.agentMode === 'basic'}
+                label="Básico"
+                onClick={() => setMode('basic')}
+                disabled={readonly}
+              />
+              <ModeToggleButton
+                active={form.agentMode === 'advanced'}
+                label="Avançado"
+                onClick={() => setMode('advanced')}
+                disabled={readonly}
+              />
+            </div>
+          )}
         </div>
         <Stepper
           steps={steps}
@@ -726,9 +933,28 @@ export function AgentEditor({ mode }: Props) {
       </Card>
 
       <div className="mb-5">
-        {form.currentStep === 'profile' && (
-          <ProfileStep form={form} setForm={setForm} readonly={readonly} />
+        {form.currentStep === 'type' && (
+          <TypeStep form={form} setForm={setForm} readonly={readonly} />
         )}
+        {form.currentStep === 'profile' && form.type === 'Router' && (
+          <RouterProfileStep form={form} setForm={setForm} readonly={readonly} />
+        )}
+        {form.currentStep === 'profile' && form.type === 'Worker' && (
+          <WorkerProfileStep form={form} setForm={setForm} readonly={readonly} />
+        )}
+        {form.currentStep === 'profile' && form.type === 'ToolRunner' && (
+          <ToolRunnerProfileStep form={form} setForm={setForm} readonly={readonly} />
+        )}
+        {form.currentStep === 'profile' && form.type === 'Conversational' && (
+          <ConversationalProfileStep form={form} setForm={setForm} readonly={readonly} />
+        )}
+        {form.currentStep === 'profile'
+          && form.type !== 'Router'
+          && form.type !== 'Worker'
+          && form.type !== 'ToolRunner'
+          && form.type !== 'Conversational' && (
+            <ProfileStep form={form} setForm={setForm} readonly={readonly} />
+          )}
         {form.currentStep === 'tools' && (
           <ToolsKnowledgeStep
             form={form}
@@ -742,18 +968,29 @@ export function AgentEditor({ mode }: Props) {
             readonly={readonly}
           />
         )}
-        {form.currentStep === 'security' && form.agentMode === 'advanced' && (
-          <SecurityStep form={form} setForm={setForm} readonly={readonly} />
-        )}
-        {form.currentStep === 'memory' && form.agentMode === 'advanced' && (
-          <MemoryStep form={form} setForm={setForm} readonly={readonly} />
-        )}
+        {form.currentStep === 'security'
+          && (form.agentMode === 'advanced'
+            || form.type === 'Worker'
+            || form.type === 'ToolRunner'
+            || form.type === 'Conversational') && (
+            <SecurityStep form={form} setForm={setForm} readonly={readonly} />
+          )}
+        {form.currentStep === 'memory'
+          && (form.agentMode === 'advanced'
+            || form.type === 'ToolRunner'
+            || form.type === 'Conversational') && (
+            <MemoryStep form={form} setForm={setForm} readonly={readonly} />
+          )}
         {form.currentStep === 'input' && form.agentMode === 'advanced' && (
           <InputStep form={form} setForm={setForm} readonly={readonly} />
         )}
-        {form.currentStep === 'output' && form.agentMode === 'advanced' && (
-          <OutputStep form={form} setForm={setForm} readonly={readonly} />
-        )}
+        {form.currentStep === 'output'
+          && (form.agentMode === 'advanced'
+            || form.type === 'Worker'
+            || form.type === 'ToolRunner'
+            || form.type === 'Conversational') && (
+            <OutputStep form={form} setForm={setForm} readonly={readonly} />
+          )}
         {form.currentStep === 'model' && (
           <ModelStep
             form={form}

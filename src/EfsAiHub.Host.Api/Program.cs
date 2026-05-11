@@ -128,6 +128,12 @@ builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolT
     EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolTester>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Interfaces.IGenericToolService,
     EfsAiHub.Platform.Runtime.Services.GenericToolService>();
+builder.Services.AddScoped<EfsAiHub.Core.Agents.IRouterIntentRepository,
+    EfsAiHub.Infra.Persistence.Postgres.PgRouterIntentRepository>();
+builder.Services.AddScoped<EfsAiHub.Core.Agents.IAgentRouterIntentLinkRepository,
+    EfsAiHub.Infra.Persistence.Postgres.PgAgentRouterIntentLinkRepository>();
+builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Interfaces.IRouterIntentService,
+    EfsAiHub.Platform.Runtime.Services.RouterIntentService>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolBinder,
     EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolBinder>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IPredefinedModelRepository,

@@ -35,13 +35,15 @@ public class AgentApprovalServiceTests
             Name = "X",
             Model = new AgentModelConfig { DeploymentName = "gpt-4o" },
         };
-        draftRepo.ApproveAsync("d-1", "actor-y", "razão", Arg.Any<CancellationToken>())
+        draftRepo.ApproveAsync("d-1", "actor-y", "razão",
+                Arg.Any<AgentApprovalAction>(), Arg.Any<AgentChangeTier?>(), Arg.Any<CancellationToken>())
             .Returns(publishedAgent);
 
         var result = await svc.ApproveAsync("d-1", "actor-y", "razão");
 
         result.Should().Be(publishedAgent);
-        await draftRepo.Received(1).ApproveAsync("d-1", "actor-y", "razão", Arg.Any<CancellationToken>());
+        await draftRepo.Received(1).ApproveAsync("d-1", "actor-y", "razão",
+            Arg.Any<AgentApprovalAction>(), Arg.Any<AgentChangeTier?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -71,7 +73,8 @@ public class AgentApprovalServiceTests
     public async Task ApproveAsync_PropagaDraftRePublishRaceException()
     {
         var (svc, draftRepo) = Build();
-        draftRepo.ApproveAsync("d-1", "actor", null, Arg.Any<CancellationToken>())
+        draftRepo.ApproveAsync("d-1", "actor", null,
+                Arg.Any<AgentApprovalAction>(), Arg.Any<AgentChangeTier?>(), Arg.Any<CancellationToken>())
             .Returns<AgentDefinition>(_ => throw new DraftRePublishRaceException("d-1", 3, 5));
 
         Func<Task> act = () => svc.ApproveAsync("d-1", "actor", null);
@@ -84,7 +87,8 @@ public class AgentApprovalServiceTests
     public async Task ApproveAsync_PropagaDraftStatusTransitionException()
     {
         var (svc, draftRepo) = Build();
-        draftRepo.ApproveAsync("d-1", "actor", null, Arg.Any<CancellationToken>())
+        draftRepo.ApproveAsync("d-1", "actor", null,
+                Arg.Any<AgentApprovalAction>(), Arg.Any<AgentChangeTier?>(), Arg.Any<CancellationToken>())
             .Returns<AgentDefinition>(_ =>
                 throw new DraftStatusTransitionException("d-1", AgentDraftStatus.Draft, "approve"));
 

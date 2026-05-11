@@ -23,6 +23,15 @@ SET search_path TO aihub, public;
 -- ── 1. projects ───────────────────────────────────────────────────────
 INSERT INTO aihub.projects (id, name, tenant_id, description, settings, llm_config, budget, created_at, updated_at) VALUES ('default','Default','default','Projeto padrão do sistema','{}'::jsonb,NULL::jsonb,NULL::jsonb,'2026-04-14 02:15:29.348032+00'::timestamptz,'2026-04-14 02:15:29.348032+00'::timestamptz) ON CONFLICT (id) DO NOTHING;
 
+-- Sales Trader AI: único projeto autorizado a criar implantações tipo Chat
+-- (Router conversacional + branches Conversational + InputMode=Chat).
+-- Demais projetos têm chat_deployment_allowed=false (default da coluna).
+INSERT INTO aihub.projects (id, name, tenant_id, description, settings, llm_config, budget, created_at, updated_at, chat_deployment_allowed)
+VALUES ('sales-trader-ai', 'Sales Trader AI', 'default',
+        'Projeto dedicado a implantações de Chat (Router conversacional + branches Conversational + InputMode=Chat). Único projeto autorizado a criar deploys do tipo chat.',
+        '{}'::jsonb, NULL::jsonb, NULL::jsonb, NOW(), NOW(), true)
+ON CONFLICT (id) DO NOTHING;
+
 -- ── 2. model_catalog (extraído do DB) ─────────────────────────────────
 INSERT INTO aihub.model_catalog (id, provider, display_name, description, context_window, capabilities, is_active, created_at, updated_at) VALUES ('DeepSeek-R1','AZUREFOUNDRY','DeepSeek R1','DeepSeek R1 raciocínio via Azure AI Foundry',64000,'["chat", "reasoning"]'::jsonb,'t','2026-04-13 21:08:28.63572+00'::timestamptz,'2026-04-22 23:55:58.304985+00'::timestamptz) ON CONFLICT (id, provider) DO UPDATE SET display_name=EXCLUDED.display_name, description=EXCLUDED.description, context_window=EXCLUDED.context_window, capabilities=EXCLUDED.capabilities, is_active=EXCLUDED.is_active, updated_at=EXCLUDED.updated_at;
 INSERT INTO aihub.model_catalog (id, provider, display_name, description, context_window, capabilities, is_active, created_at, updated_at) VALUES ('Meta-Llama-3.3-70B-Instruct','AZUREFOUNDRY','Llama 3.3 70B Instruct','Meta Llama 3.3 70B via Azure AI Foundry',128000,'["chat", "function_calling"]'::jsonb,'t','2026-04-13 21:08:28.63572+00'::timestamptz,'2026-04-22 23:55:58.304985+00'::timestamptz) ON CONFLICT (id, provider) DO UPDATE SET display_name=EXCLUDED.display_name, description=EXCLUDED.description, context_window=EXCLUDED.context_window, capabilities=EXCLUDED.capabilities, is_active=EXCLUDED.is_active, updated_at=EXCLUDED.updated_at;
@@ -506,6 +515,90 @@ VALUES (
   'geral',
   'global',
   'default',
+  NOW(),
+  NOW()
+)
+ON CONFLICT ("Id") DO NOTHING;
+
+-- ── 14. Analyzer de Router Intents (projeto Geral) ────────────────────
+-- Agente IA interno disparado por POST /api/aihub/router-intents/analyze.
+-- Recebe a candidate intent + a lista corrente do pool e devolve detecção
+-- de conflito + sugestões canônicas de Name (snake_case) e ProjectId
+-- (categoria). Vive em "geral" com Visibility=global; qualquer projeto do
+-- tenant dispara o workflow sem cópia local.
+
+INSERT INTO aihub.agent_definitions ("Id","Name","Data","ProjectId","Visibility","TenantId","AllowedProjectIds","CreatedAt","UpdatedAt")
+VALUES (
+  'router-intent-analyzer',
+  'Analyzer de Router Intents',
+  $json${"ProjectId":"geral","Id":"router-intent-analyzer","Name":"Analyzer de Router Intents","Description":"Analisa candidate intent: detecta conflito, sugere name canônico (snake_case) + displayName (PT-BR humano) + projectId (categoria) + qualityChecks da descrição.","Type":"Custom","Model":{"DeploymentName":"","PredefinedModelId":"foundry-cerquela","Temperature":0.1,"MaxTokens":1500},"Provider":{"Type":"AzureFoundry","ClientType":"ChatCompletion","Endpoint":null,"ApiKey":null},"Instructions":"Você é o Analyzer de Router Intents do EfsAiHub. Recebe a candidate intent (descrição/exemplos/hints) e a lista atual do pool global de intents. Retorna análise estruturada conforme o schema RouterIntentAnalyzerOutput.\n\n## Tarefas (uma chamada cobre todas)\n\n1. conflictFound (boolean): true se a candidate é semanticamente redundante com alguma existing (cobre o mesmo caso de uso, mesmo que o nome seja diferente).\n\n2. conflictsWith (array de names canônicos): names das existing que conflitam. Vazio quando false.\n\n3. details (string em PT-BR, 1-3 frases): explica o conflito (se houver) ou por que a candidate é distinta.\n\n4. suggestedName (string snake_case ASCII): name técnico canônico derivado da descrição. Use displayNameHint/nameHint do caller como dica mas padronize: snake_case ASCII, lowercase, sem acento, verbo+objeto curto. Em conflito, sugira variação não-conflitante.\n\n5. suggestedDisplayName (string PT-BR): texto humano limpo derivado da descrição. Inicia com verbo de ação no infinitivo. Max 60 chars. Use displayNameHint do caller como base se boa; senão, reescreva.\n\n6. suggestedProjectId (string): projectId existing que melhor categoriza, ou eco do projectIdHint. Se pool vazio e sem hint, retornar string vazia (caller usa contexto).\n\n7. qualityChecks (objeto com 3 booleans):\n   - contextoUsuario: true se a description menciona QUEM/EM QUE SITUAÇÃO o user faz (ex: 'cliente já pagou', 'usuário logado', 'PJ de até 50 funcionários').\n   - foraDeEscopo: true se a description menciona EXPLICITAMENTE o que NÃO faz parte (ex: 'não inclui', 'não envolve', 'exceto', 'sem cobrir').\n   - resultadoEsperado: true se a description deixa claro O QUE O ROTEADOR DEVE FAZER ou QUAL É A AÇÃO/INTENÇÃO (ex: 'baixar fatura', 'transferir valor', 'consultar saldo').\n\n## Critérios de conflito\n\n- Mesma ação + mesmo objeto = conflito (ex: 'pix_transferir' vs 'enviar_pix').\n- Mesma ação + objetos diferentes = NÃO conflita (ex: 'consultar_saldo' vs 'consultar_extrato').\n- Sinônimos/paráfrases que cobrem o mesmo fluxo = conflito.\n- Subcaso vs caso geral = NÃO conflita; mencione em details.\n\n## Output\n\nEXCLUSIVAMENTE via schema RouterIntentAnalyzerOutput. Sem markdown, prefácio ou eco do input. PT-BR em description/details/suggestedDisplayName; ASCII snake_case em suggestedName.","Tools":[],"StructuredOutput":{"ResponseFormat":"json_schema","SchemaName":"RouterIntentAnalyzerOutput","SchemaDescription":"Resultado da análise de candidate intent.","Schema":{"type":"object","properties":{"conflictFound":{"type":"boolean"},"conflictsWith":{"type":"array","items":{"type":"string"}},"details":{"type":"string"},"suggestedName":{"type":"string","description":"snake_case ASCII"},"suggestedDisplayName":{"type":"string","description":"PT-BR humano, max 60 chars"},"suggestedProjectId":{"type":"string"},"qualityChecks":{"type":"object","properties":{"contextoUsuario":{"type":"boolean"},"foraDeEscopo":{"type":"boolean"},"resultadoEsperado":{"type":"boolean"}},"required":["contextoUsuario","foraDeEscopo","resultadoEsperado"],"additionalProperties":false}},"required":["conflictFound","conflictsWith","details","suggestedName","suggestedDisplayName","suggestedProjectId","qualityChecks"],"additionalProperties":false}},"Middlewares":[],"FallbackProvider":null,"Resilience":{"MaxRetries":2,"InitialDelayMs":800,"BackoffMultiplier":2,"RetriableHttpStatusCodes":null},"CostBudget":null,"SkillRefs":[],"Metadata":{"purpose":"router-intent-analysis","tier":"internal"},"Enabled":true}$json$,
+  'geral',
+  'global',
+  'default',
+  NULL,
+  NOW(),
+  NOW()
+)
+ON CONFLICT ("Id") DO NOTHING;
+
+INSERT INTO aihub.workflow_definitions ("Id","Name","Data","ProjectId","Visibility","TenantId","CreatedAt","UpdatedAt")
+VALUES (
+  'wf-router-intent-analyzer',
+  'Analyzer de Router Intents',
+  $json${"ProjectId":"geral","Id":"wf-router-intent-analyzer","Name":"Analyzer de Router Intents","Description":"Workflow single-agent que expõe o agente router-intent-analyzer. Chamado pelo RouterIntentService.AnalyzeAsync.","Version":"1.0.0","OrchestrationMode":"Graph","Agents":[{"AgentId":"router-intent-analyzer","Role":"Analyzer"}],"Executors":[],"Edges":[],"RoutingRules":[],"Trigger":null,"Configuration":{"MaxRounds":1,"TimeoutSeconds":30,"EnableHumanInTheLoop":false,"CheckpointMode":"InMemory","ExposeAsAgent":false,"ExposedAgentDescription":null,"InputMode":"Standalone","MaxHistoryMessages":4,"MaxAgentInvocations":1,"MaxTokensPerExecution":4000,"MaxCostUsdPerExecution":null,"OutputNodes":null,"MaxConcurrentExecutions":null},"Metadata":{"purpose":"router-intent-analysis"},"Visibility":"global"}$json$,
+  'geral',
+  'global',
+  'default',
+  NOW(),
+  NOW()
+)
+ON CONFLICT ("Id") DO NOTHING;
+
+-- =================================================================
+-- Workers exemplares (Type=Worker, Visibility=project)
+-- =================================================================
+-- Demonstram o template Worker: modelo full (foundry-cerquela), MaxTokens
+-- alto, StructuredOutput rico, Middlewares.SecurityGuardrails on,
+-- metadata['x-worker-scope'] declarando o domínio injetado em runtime.
+-- ProjectId=default; cada agente é standalone (sem pool global).
+
+INSERT INTO aihub.agent_definitions ("Id","Name","Data","ProjectId","Visibility","TenantId","AllowedProjectIds","CreatedAt","UpdatedAt")
+VALUES (
+  'wk-analista-de-credito',
+  'Analista de Crédito (template Worker)',
+  $json${"ProjectId":"default","Id":"wk-analista-de-credito","Name":"Analista de Crédito (template Worker)","Description":"Worker de análise de risco de crédito empresarial. Recebe perfil + produto solicitado + política e produz parecer técnico estruturado.","Type":"Worker","Model":{"DeploymentName":"","PredefinedModelId":"foundry-cerquela","Temperature":0.4,"MaxTokens":3000},"Provider":{"Type":"AzureFoundry","ClientType":"ChatCompletion","Endpoint":null,"ApiKey":null},"Instructions":"Você é Analista de Crédito. Produza análise estruturada conforme o schema fornecido. Mantenha-se dentro do domínio declarado.","Tools":[],"StructuredOutput":{"ResponseFormat":"json_schema","SchemaName":"AnaliseCreditoOutput","SchemaDescription":"Parecer técnico de crédito.","Schema":{"type":"object","properties":{"analise":{"type":"string","description":"Análise multifator do pedido (capacidade de pagamento, exposição agregada, aderência à política)."},"recomendacao":{"type":"string","enum":["aprovar","aprovar_com_ressalvas","reprovar","encaminhar_a_comite"]},"riscos":{"type":"array","items":{"type":"string"},"description":"Lista de riscos identificados (ex.: inadimplência recente, renda comprovada insuficiente, concentração setorial)."},"confidence":{"type":"number","minimum":0,"maximum":1},"reason":{"type":"string","description":"Pensamento que levou à recomendação — chain-of-thought visível."}},"required":["analise","recomendacao","riscos","confidence","reason"],"additionalProperties":false}},"Middlewares":[{"Type":"SecurityGuardrails","Enabled":true,"Settings":{}}],"FallbackProvider":null,"Resilience":null,"CostBudget":null,"SkillRefs":[],"Metadata":{"x-worker-scope":"Análise de risco de crédito empresarial. Recebe perfil do solicitante (porte, segmento, faturamento, histórico de pagamentos, garantias), produto solicitado e política aplicável. Avalia capacidade de pagamento, exposição agregada do tomador, aderência ao apetite de risco da política, e produz parecer estruturado. Não toma decisão final — recomenda; comitê delibera. Não consulta bureaus em tempo real (esses dados chegam no input). Mantém análise sóbria, sem otimismo de venda."},"Enabled":true}$json$,
+  'default',
+  'project',
+  'default',
+  NULL,
+  NOW(),
+  NOW()
+)
+ON CONFLICT ("Id") DO NOTHING;
+
+INSERT INTO aihub.agent_definitions ("Id","Name","Data","ProjectId","Visibility","TenantId","AllowedProjectIds","CreatedAt","UpdatedAt")
+VALUES (
+  'wk-economista-chefe',
+  'Economista Chefe (template Worker)',
+  $json${"ProjectId":"default","Id":"wk-economista-chefe","Name":"Economista Chefe (template Worker)","Description":"Worker de análise macroeconômica. Recebe indicadores correntes e produz outlook estruturado com tendências e cenários.","Type":"Worker","Model":{"DeploymentName":"","PredefinedModelId":"foundry-cerquela","Temperature":0.5,"MaxTokens":3500},"Provider":{"Type":"AzureFoundry","ClientType":"ChatCompletion","Endpoint":null,"ApiKey":null},"Instructions":"Você é Economista Chefe. Produza análise estruturada conforme o schema fornecido. Mantenha-se dentro do domínio declarado.","Tools":[],"StructuredOutput":{"ResponseFormat":"json_schema","SchemaName":"OutlookMacroOutput","SchemaDescription":"Outlook macroeconômico estruturado.","Schema":{"type":"object","properties":{"outlook":{"type":"string","description":"Outlook macro consolidado (3-5 frases)."},"indicadores":{"type":"array","items":{"type":"object","properties":{"nome":{"type":"string"},"tendencia":{"type":"string","enum":["alta","baixa","estavel"]},"comentario":{"type":"string"}},"required":["nome","tendencia","comentario"],"additionalProperties":false}},"cenarios":{"type":"array","items":{"type":"object","properties":{"nome":{"type":"string"},"probabilidade":{"type":"string","enum":["baixa","media","alta"]},"descricao":{"type":"string"}},"required":["nome","probabilidade","descricao"],"additionalProperties":false}},"reason":{"type":"string","description":"Pensamento que levou ao outlook — chain-of-thought visível."}},"required":["outlook","indicadores","cenarios","reason"],"additionalProperties":false}},"Middlewares":[{"Type":"SecurityGuardrails","Enabled":true,"Settings":{}}],"FallbackProvider":null,"Resilience":null,"CostBudget":null,"SkillRefs":[],"Metadata":{"x-worker-scope":"Análise macroeconômica para outlook de mercado. Recebe indicadores correntes (PIB, IPCA, taxa de juros, câmbio, balança comercial, atividade industrial, confiança do consumidor). Produz outlook consolidado de curto prazo (3-6 meses), tendências por indicador e cenários alternativos com probabilidade. Foco no Brasil; menciona contexto global apenas quando relevante para a leitura local. Não emite recomendação de investimento — só leitura macro."},"Enabled":true}$json$,
+  'default',
+  'project',
+  'default',
+  NULL,
+  NOW(),
+  NOW()
+)
+ON CONFLICT ("Id") DO NOTHING;
+
+INSERT INTO aihub.agent_definitions ("Id","Name","Data","ProjectId","Visibility","TenantId","AllowedProjectIds","CreatedAt","UpdatedAt")
+VALUES (
+  'wk-escritor-setor-descricao',
+  'Escritor de Descrição Setorial (template Worker)',
+  $json${"ProjectId":"default","Id":"wk-escritor-setor-descricao","Name":"Escritor de Descrição Setorial (template Worker)","Description":"Worker de redação descritiva padronizada de setores econômicos. Recebe nome do setor e produz texto explicativo estruturado.","Type":"Worker","Model":{"DeploymentName":"","PredefinedModelId":"foundry-cerquela","Temperature":0.6,"MaxTokens":2000},"Provider":{"Type":"AzureFoundry","ClientType":"ChatCompletion","Endpoint":null,"ApiKey":null},"Instructions":"Você é Escritor de Descrição Setorial. Produza texto descritivo padronizado conforme o schema fornecido. Mantenha-se dentro do domínio declarado.","Tools":[],"StructuredOutput":{"ResponseFormat":"json_schema","SchemaName":"DescricaoSetorOutput","SchemaDescription":"Descrição padronizada de setor econômico.","Schema":{"type":"object","properties":{"descricao":{"type":"string","description":"Texto descritivo do setor (200-400 palavras): cadeia de valor, players por porte, drivers, ciclos, regulação."},"palavras_chave":{"type":"array","items":{"type":"string"},"description":"5-10 palavras-chave que caracterizam o setor."}},"required":["descricao","palavras_chave"],"additionalProperties":false}},"Middlewares":[{"Type":"SecurityGuardrails","Enabled":true,"Settings":{}}],"FallbackProvider":null,"Resilience":null,"CostBudget":null,"SkillRefs":[],"Metadata":{"x-worker-scope":"Redação descritiva padronizada de setores econômicos. Recebe nome do setor (ex.: Saneamento básico, Logística rodoviária, Educação básica privada). Produz texto explicativo entre 200-400 palavras com: cadeia de valor, players principais por porte, drivers de receita, ciclos típicos, regulação aplicável. Tom neutro e expositivo. Sem juízo de valor, sem recomendação, sem dados sensíveis específicos de empresas. Foco no Brasil quando possível, contexto global quando pertinente."},"Enabled":true}$json$,
+  'default',
+  'project',
+  'default',
+  NULL,
   NOW(),
   NOW()
 )

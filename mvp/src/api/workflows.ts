@@ -5,8 +5,12 @@ import { get, post, put } from './client'
 // distinguir de single-agent deploys na listagem. Backend trata metadata como
 // dicionário opaco — esse marcador é só convenção do MVP.
 export const PIPELINE_DEPLOYMENT_KIND = 'pipeline'
+export const ROUTING_DEPLOYMENT_KIND = 'routing'
+export const CHAT_DEPLOYMENT_KIND = 'chat'
 
 export const pipelineWorkflowId = () => `deploy-pipeline-${generateDraftId()}`
+export const routingWorkflowId = () => `deploy-routing-${generateDraftId()}`
+export const chatWorkflowId = () => `deploy-chat-${generateDraftId()}`
 
 export type OrchestrationMode =
   | 'Sequential'
@@ -107,10 +111,32 @@ export function isPipelineDeployment(workflow: Workflow): boolean {
   return md?.deploymentKind === PIPELINE_DEPLOYMENT_KIND
 }
 
-export type DeploymentKind = 'single' | 'pipeline'
+// Routing = Router + N branches (1 agente por intent) + fallback. Workflow
+// Graph mode com Switch edge. Reconhecido pela convenção `deploy-routing-{guid}`
+// no id ou pelo marcador metadata.deploymentKind === 'routing'.
+export function isRoutingDeployment(workflow: Workflow): boolean {
+  if (workflow.id.startsWith('deploy-routing-')) return true
+  const md = (workflow as { metadata?: Record<string, string> | null }).metadata
+  return md?.deploymentKind === ROUTING_DEPLOYMENT_KIND
+}
+
+// Chat = Router-pra-chat + N branches Conversational + fallback Conversational.
+// Workflow Graph + InputMode=Chat. Restrição cross-project: só projetos com
+// chat_deployment_allowed=true conseguem criar. Reconhecido por
+// `deploy-chat-{guid}` no id ou metadata.deploymentKind === 'chat'.
+export function isChatDeployment(workflow: Workflow): boolean {
+  if (workflow.id.startsWith('deploy-chat-')) return true
+  const md = (workflow as { metadata?: Record<string, string> | null }).metadata
+  return md?.deploymentKind === CHAT_DEPLOYMENT_KIND
+}
+
+export type DeploymentKind = 'single' | 'pipeline' | 'routing' | 'chat'
 
 export function deploymentKindOf(workflow: Workflow): DeploymentKind {
-  return isPipelineDeployment(workflow) ? 'pipeline' : 'single'
+  if (isChatDeployment(workflow)) return 'chat'
+  if (isRoutingDeployment(workflow)) return 'routing'
+  if (isPipelineDeployment(workflow)) return 'pipeline'
+  return 'single'
 }
 
 export interface WorkflowVersion {
@@ -168,14 +194,33 @@ export interface TriggerWorkflowResponse {
   statusUrl?: string
 }
 
-export const triggerWorkflow = (workflowId: string, body: TriggerWorkflowBody) =>
-  post<TriggerWorkflowResponse>(`/workflows/${workflowId}/trigger`, body)
+// Quando `workflowVersionId` é informado, propaga via header `x-version` —
+// backend pina a execução numa versão específica (canary/A-B/teste de
+// versão antiga sem rollback). Ausente = comportamento legado (current).
+export const triggerWorkflow = (
+  workflowId: string,
+  body: TriggerWorkflowBody,
+  workflowVersionId?: string | null,
+) =>
+  post<TriggerWorkflowResponse>(
+    `/workflows/${workflowId}/trigger`,
+    body,
+    workflowVersionId ? { 'x-version': workflowVersionId } : undefined,
+  )
 
 // Mesmo shape do trigger mas com `mode=Sandbox` no backend: tools mockadas,
 // métricas tagueadas, sem persistência de chat. Usado pelo sandbox de
 // implantação (single ou pipeline) — execução é sempre standalone.
-export const sandboxWorkflow = (workflowId: string, body: TriggerWorkflowBody) =>
-  post<TriggerWorkflowResponse>(`/workflows/${workflowId}/sandbox`, body)
+export const sandboxWorkflow = (
+  workflowId: string,
+  body: TriggerWorkflowBody,
+  workflowVersionId?: string | null,
+) =>
+  post<TriggerWorkflowResponse>(
+    `/workflows/${workflowId}/sandbox`,
+    body,
+    workflowVersionId ? { 'x-version': workflowVersionId } : undefined,
+  )
 
 export type ExecutionStatus =
   | 'Pending'
