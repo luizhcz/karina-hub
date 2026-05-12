@@ -8,9 +8,9 @@
 
 Pré-F4, o repo tinha dois conceitos de identidade de cliente em paralelo:
 
-1. **`TenantContext`** (populado por `TenantMiddleware` via header `x-efs-tenant-id`). Presente na infra, mas **não** usado em `HasQueryFilter` de nenhuma entidade. `admin_audit_log` guardava `TenantId` só pra analytics.
+1. **`TenantContext`** (populado por `TenantMiddleware` via header `x-tenant-id`). Presente na infra, mas **não** usado em `HasQueryFilter` de nenhuma entidade. `admin_audit_log` guardava `TenantId` só pra analytics.
 
-2. **`ProjectContext`** (populado por `ProjectMiddleware` via header `x-efs-project-id`). Já usado em `HasQueryFilter` de 6 entidades: `ConversationSession`, `WorkflowDefinitionRow`, `AgentDefinitionRow`, `SkillRow`, `WorkflowExecutionRow`, `McpServerRow`.
+2. **`ProjectContext`** (populado por `ProjectMiddleware` via header `x-project-id`). Já usado em `HasQueryFilter` de 6 entidades: `ConversationSession`, `WorkflowDefinitionRow`, `AgentDefinitionRow`, `SkillRow`, `WorkflowExecutionRow`, `McpServerRow`.
 
 O plano original da F4 era adicionar um **segundo nível de isolamento** via `TenantId` paralelo, com `HasQueryFilter` composto (`ProjectId AND TenantId`) em 3 tabelas adicionais (`conversations`, `node_executions`, `llm_token_usage`) e scope de persona com prefix `tenant:{tid}:`.
 
@@ -21,8 +21,8 @@ Durante a implementação, descobrimos via inspeção dos dados reais
   sempre pertence a um único tenant.
 - O valor de `admin_audit_log.TenantId` em runtime sempre reflete o
   tenant do project corrente; nunca há dissociação.
-- Frontend **não envia** `x-efs-tenant-id` hoje; em dev/prod o
-  isolamento efetivo vem do `x-efs-project-id`.
+- Frontend **não envia** `x-tenant-id` hoje; em dev/prod o
+  isolamento efetivo vem do `x-project-id`.
 
 Logo, `ProjectId` já é o boundary natural de isolamento, e adicionar
 `TenantId` paralelo seria **defense-in-depth redundante** — +1 coluna,

@@ -12,7 +12,7 @@ export function getIdentityHeaders(): Record<string, string> {
     else headers['x-efs-user-profile-id'] = userId
   }
   if (projectId && projectId !== 'default') {
-    headers['x-efs-project-id'] = projectId
+    headers['x-project-id'] = projectId
   }
   return headers
 }

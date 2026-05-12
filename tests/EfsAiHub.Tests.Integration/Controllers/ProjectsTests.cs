@@ -104,7 +104,7 @@ public class ProjectsTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task ProjetoDefault_SemProjectHeader_ComGateAtivo_Retorna403()
     {
-        // Gate ativo com admin configurado; cliente sem x-efs-project-id → ProjectId = "default"
+        // Gate ativo com admin configurado; cliente sem x-project-id → ProjectId = "default"
         var client = factory.CreateClientWithAdminGate("admin-proj-test");
 
         var response = await client.GetAsync("/api/aihub/agents");

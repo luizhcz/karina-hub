@@ -152,8 +152,8 @@ O chat funciona com streaming SSE usando o protocolo AG-UI:
 
 | Header | Finalidade |
 |---|---|
-| `x-efs-tenant-id` | Identifica o tenant (organização) |
-| `x-efs-project-id` | Identifica o projeto (ou "default") |
+| `x-tenant-id` | Identifica o tenant (organização) |
+| `x-project-id` | Identifica o projeto (ou "default") |
 | `x-efs-account` | Identifica a conta do usuário |
 
 - Cada projeto pode ter LLM config própria, budget e rate limits

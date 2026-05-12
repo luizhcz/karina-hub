@@ -206,8 +206,8 @@ public static class HttpClientProjectExtensions
 {
     public static HttpClient WithProject(this HttpClient client, string projectId)
     {
-        client.DefaultRequestHeaders.Remove("x-efs-project-id");
-        client.DefaultRequestHeaders.Add("x-efs-project-id", projectId);
+        client.DefaultRequestHeaders.Remove("x-project-id");
+        client.DefaultRequestHeaders.Add("x-project-id", projectId);
         return client;
     }
 

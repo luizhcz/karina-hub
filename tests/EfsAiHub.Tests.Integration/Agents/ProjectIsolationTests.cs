@@ -168,7 +168,7 @@ public class ProjectIsolationTests(IntegrationWebApplicationFactory factory)
     public async Task ProjetoDefault_SemProjectHeader_ComGateAtivo_Retorna403()
     {
         var client = factory.CreateClientWithAdminGate("test-admin-999");
-        // Sem x-efs-project-id → ProjectId resolve para "default" → 403 para não-admin
+        // Sem x-project-id → ProjectId resolve para "default" → 403 para não-admin
 
         var response = await client.GetAsync("/api/aihub/agents");
 

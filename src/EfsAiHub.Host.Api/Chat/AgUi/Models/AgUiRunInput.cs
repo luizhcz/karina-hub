@@ -12,8 +12,8 @@ public sealed record AgUiRunInput
     public string? ThreadId { get; init; }
 
     /// <summary>
-    /// ID do workflow a executar. Null = usa header <c>x-efs-workflow-id</c> ou workflow padrão do projeto.
-    /// Prefira enviar via header <c>x-efs-workflow-id</c> para manter o body alinhado ao schema AG-UI padrão.
+    /// ID do workflow a executar. Null = usa header <c>x-workflow-id</c> ou workflow padrão do projeto.
+    /// Prefira enviar via header <c>x-workflow-id</c> para manter o body alinhado ao schema AG-UI padrão.
     /// </summary>
     public string? WorkflowId { get; init; }
 

@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react'
 // - account: vai como header `x-efs-account` em toda chamada — backend trata
 //   como userType=cliente.
 // - projectId: define o scope das chamadas project-scoped (ex: generic-tools).
-//   Vai como header `x-efs-project-id`.
+//   Vai como header `x-project-id`.
 // - projectName: cache do nome humano-legível pra exibir no header sem
 //   precisar buscar a lista de projetos toda vez.
 // - chatDeploymentAllowed: cache da flag do projeto (vem de

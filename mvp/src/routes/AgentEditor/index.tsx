@@ -42,10 +42,10 @@ import { RouterProfileStep } from './RouterProfileStep'
 import { WorkerProfileStep } from './WorkerProfileStep'
 import { ToolRunnerProfileStep } from './ToolRunnerProfileStep'
 import { ConversationalProfileStep } from './ConversationalProfileStep'
+import { ConversationalComponentStep } from './ConversationalComponentStep'
 import { ToolsKnowledgeStep } from './ToolsKnowledgeStep'
 import { SecurityStep } from './SecurityStep'
 import { MemoryStep } from './MemoryStep'
-import { InputStep } from './InputStep'
 import { OutputStep } from './OutputStep'
 import { ModelStep } from './ModelStep'
 import { ReviewStep } from './ReviewStep'
@@ -118,7 +118,6 @@ const ADVANCED_STEPS: StepDescriptor[] = [
   { key: 'tools', label: 'Ferramentas' },
   { key: 'security', label: 'Segurança' },
   { key: 'memory', label: 'Memória' },
-  { key: 'input', label: 'Input' },
   { key: 'output', label: 'Output' },
   { key: 'model', label: 'Modelo' },
   { key: 'review', label: 'Revisão' },
@@ -175,6 +174,7 @@ const TOOL_RUNNER_STEPS: StepDescriptor[] = [
 const CONVERSATIONAL_STEPS: StepDescriptor[] = [
   { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Identificação' },
+  { key: 'component', label: 'Componente' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'security', label: 'Segurança' },
   { key: 'memory', label: 'Memória' },
@@ -802,7 +802,33 @@ export function AgentEditor({ mode }: Props) {
             Voltar
           </Button>
           <div className="flex items-center gap-3">
-            <h1 className="truncate text-2xl font-semibold tracking-tight">{titleText}</h1>
+            {/* Nome do agente editável inline. Obrigatório — placeholder mostra
+                titleText como hint e o asterisco rubro sinaliza o user quando
+                vazio. A validation real continua no submit (stepIssues). */}
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+              placeholder={titleText}
+              disabled={readonly}
+              aria-label="Nome do agente"
+              aria-required="true"
+              required
+              className={cn(
+                'min-w-0 flex-1 truncate border-0 bg-transparent px-0 text-2xl font-semibold tracking-tight',
+                'text-fg placeholder:text-fg-dim focus:outline-none focus:ring-0',
+                'disabled:cursor-not-allowed disabled:opacity-60',
+              )}
+            />
+            {form.name.trim().length === 0 && (
+              <span
+                className="text-base font-semibold text-rose-500"
+                aria-hidden="true"
+                title="Nome é obrigatório"
+              >
+                *
+              </span>
+            )}
             {mode === 'edit' && (
               <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>
             )}
@@ -940,7 +966,19 @@ export function AgentEditor({ mode }: Props) {
           <RouterProfileStep form={form} setForm={setForm} readonly={readonly} />
         )}
         {form.currentStep === 'profile' && form.type === 'Worker' && (
-          <WorkerProfileStep form={form} setForm={setForm} readonly={readonly} />
+          // Mesmo padrão do Custom ProfileStep: key força re-mount quando o
+          // GET em edit mode termina, garantindo que o BlockNote inicialize
+          // a partir do workerScope carregado.
+          <WorkerProfileStep
+            key={
+              id
+                ? `worker-edit-${form.name.trim().length > 0 ? 'loaded' : 'empty'}`
+                : 'worker-new'
+            }
+            form={form}
+            setForm={setForm}
+            readonly={readonly}
+          />
         )}
         {form.currentStep === 'profile' && form.type === 'ToolRunner' && (
           <ToolRunnerProfileStep form={form} setForm={setForm} readonly={readonly} />
@@ -948,12 +986,29 @@ export function AgentEditor({ mode }: Props) {
         {form.currentStep === 'profile' && form.type === 'Conversational' && (
           <ConversationalProfileStep form={form} setForm={setForm} readonly={readonly} />
         )}
+        {form.currentStep === 'component' && form.type === 'Conversational' && (
+          <ConversationalComponentStep form={form} setForm={setForm} readonly={readonly} />
+        )}
         {form.currentStep === 'profile'
           && form.type !== 'Router'
           && form.type !== 'Worker'
           && form.type !== 'ToolRunner'
           && form.type !== 'Conversational' && (
-            <ProfileStep form={form} setForm={setForm} readonly={readonly} />
+            // `key` muda quando o draft chega do GET (form.name vazio →
+            // populado). Força re-mount do ProfileStep com BlockNote já
+            // inicializado a partir do profile decodificado. Sem isso o
+            // editor monta com template e a re-hidratação reativa pelo
+            // useEffect não reflete consistentemente em WYSIWYG.
+            <ProfileStep
+              key={
+                id
+                  ? `profile-edit-${form.name.trim().length > 0 ? 'loaded' : 'empty'}`
+                  : 'profile-new'
+              }
+              form={form}
+              setForm={setForm}
+              readonly={readonly}
+            />
           )}
         {form.currentStep === 'tools' && (
           <ToolsKnowledgeStep
@@ -981,9 +1036,6 @@ export function AgentEditor({ mode }: Props) {
             || form.type === 'Conversational') && (
             <MemoryStep form={form} setForm={setForm} readonly={readonly} />
           )}
-        {form.currentStep === 'input' && form.agentMode === 'advanced' && (
-          <InputStep form={form} setForm={setForm} readonly={readonly} />
-        )}
         {form.currentStep === 'output'
           && (form.agentMode === 'advanced'
             || form.type === 'Worker'

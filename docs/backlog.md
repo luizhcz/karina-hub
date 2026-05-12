@@ -179,7 +179,7 @@ não vê). Incidente de vazamento passaria no CI.
 
 **Trabalho:** em `tests/EfsAiHub.Tests.Integration/`, spinar
 `WebApplicationFactory` com 2 headers diferentes + asserts cross-read.
-Fixture precisa aceitar override de `x-efs-project-id`.
+Fixture precisa aceitar override de `x-project-id`.
 
 **Esforço estimado:** 3h.
 

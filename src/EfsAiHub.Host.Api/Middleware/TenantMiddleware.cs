@@ -3,7 +3,7 @@ using EfsAiHub.Core.Abstractions.Identity;
 namespace EfsAiHub.Host.Api.Middleware;
 
 /// <summary>
-/// Phase 9 — Resolve o tenant da request a partir do header <c>x-efs-tenant-id</c>
+/// Phase 9 — Resolve o tenant da request a partir do header <c>x-tenant-id</c>
 /// e popula o <see cref="ITenantContextAccessor"/> scoped. Se ausente, mantém
 /// <see cref="TenantContext.Default"/>.
 ///
@@ -13,7 +13,7 @@ namespace EfsAiHub.Host.Api.Middleware;
 /// </summary>
 public sealed class TenantMiddleware
 {
-    public const string TenantHeader = "x-efs-tenant-id";
+    public const string TenantHeader = "x-tenant-id";
     private readonly RequestDelegate _next;
 
     public TenantMiddleware(RequestDelegate next) => _next = next;

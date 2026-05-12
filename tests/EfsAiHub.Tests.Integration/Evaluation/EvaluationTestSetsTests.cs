@@ -7,14 +7,14 @@ public sealed class EvaluationTestSetsTests(IntegrationWebApplicationFactory fac
     private readonly HttpClient _client = factory.CreateClient();
 
     /// <summary>
-    /// Cliente per-projeto — `x-efs-project-id` é necessário pra <c>HasQueryFilter</c>
+    /// Cliente per-projeto — `x-project-id` é necessário pra <c>HasQueryFilter</c>
     /// do DbContext deixar o testset criado fora do projeto "default" passar.
     /// </summary>
     private HttpClient ClientFor(string projectId)
     {
         var c = factory.CreateClient();
-        c.DefaultRequestHeaders.Remove("x-efs-project-id");
-        c.DefaultRequestHeaders.Add("x-efs-project-id", projectId);
+        c.DefaultRequestHeaders.Remove("x-project-id");
+        c.DefaultRequestHeaders.Add("x-project-id", projectId);
         return c;
     }
 

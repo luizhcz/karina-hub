@@ -94,7 +94,7 @@ src/EfsAiHub.Host.Api/Chat/AgUi/AgUiEndpoints.cs
 public sealed record AgUiRunInput
 {
     public string? ThreadId { get; init; }                        // Conversa; null = criar nova
-    public string? WorkflowId { get; init; }                      // Workflow; null = header x-efs-workflow-id
+    public string? WorkflowId { get; init; }                      // Workflow; null = header x-workflow-id
     public string? RunId { get; init; }                           // ID do run (propagado nos eventos)
     public IReadOnlyList<AgUiInputMessage>? Messages { get; init; } // Histórico + aprovações HITL
     public AgUiFrontendTool[]? Tools { get; init; }               // Tools do frontend

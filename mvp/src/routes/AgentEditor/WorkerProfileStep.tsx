@@ -1,4 +1,12 @@
-import { Card, CardHeader, Input } from '../../ui'
+import { useEffect, useRef } from 'react'
+import { BlockNoteSchema, defaultBlockSpecs } from '@blocknote/core'
+import type { Block } from '@blocknote/core'
+import { useCreateBlockNote } from '@blocknote/react'
+import { BlockNoteView } from '@blocknote/mantine'
+import '@blocknote/core/fonts/inter.css'
+import '@blocknote/mantine/style.css'
+import { useTheme } from '../../theme/ThemeProvider'
+import { cn } from '../../ui'
 import type { FormState } from './types'
 
 interface WorkerProfileStepProps {
@@ -10,86 +18,125 @@ interface WorkerProfileStepProps {
 const SCOPE_MIN = 40
 const SCOPE_MAX = 4000
 
-// Step próprio do Worker. Captura nome + domínio de análise (texto livre
-// PT-BR). O domínio NÃO entra no instructions persistido — vai pro
-// metadata['x-worker-scope'] e o runtime injeta como bloco "# Domínio de
-// análise" ao final das instructions. Sem fetch externo, sem dependência
-// de pool — Worker é standalone.
+// Template "Domínio de análise" pré-preenchido pra Worker novo. Estrutura
+// guia: o que o Worker faz, dados que recebe, o que NÃO faz. Cada bloco
+// vem com frase em itálico — user seleciona e escreve por cima.
+const NEW_WORKER_TEMPLATE = [
+  '## Escopo',
+  '',
+  '*Em 1-2 frases: que análise o Worker faz e em que domínio atua (ex: risco de crédito empresarial, classificação de fato relevante).*',
+  '',
+  '## Entradas esperadas',
+  '',
+  '*Quais dados chegam no input — campos, formato, granularidade. Ex: perfil do solicitante (porte, segmento, faturamento, histórico).*',
+  '',
+  '## Fora do escopo',
+  '',
+  '*O que o Worker NÃO faz — decisões finais, consultas externas em tempo real, recomendações de produto.*',
+  '',
+].join('\n')
+
+const schema = BlockNoteSchema.create({ blockSpecs: defaultBlockSpecs })
+
 export function WorkerProfileStep({ form, setForm, readonly }: WorkerProfileStepProps) {
-  const scope = form.workerScope
-  const trimmedLength = scope.trim().length
+  const { theme } = useTheme()
+  const editor = useCreateBlockNote({ schema })
+
+  // Mesmo padrão do ProfileStep (Custom): guard contra loop de
+  // hidratação ↔ onChange. userEditedRef vira true só após edição real;
+  // enquanto false, useEffect re-hidrata livremente (cobre mount + GET
+  // tardio do edit mode).
+  const userEditedRef = useRef(false)
+
+  useEffect(() => {
+    if (userEditedRef.current) return
+    const md = form.workerScope.trim().length === 0
+      ? NEW_WORKER_TEMPLATE
+      : form.workerScope
+    void (async () => {
+      const blocks = await editor.tryParseMarkdownToBlocks(md)
+      editor.replaceBlocks(editor.document, blocks as Block[])
+    })()
+  }, [editor, form.workerScope])
+
+  const handleChange = async () => {
+    const md = await editor.blocksToMarkdownLossy(editor.document)
+    setForm((prev) => {
+      if (prev.workerScope === md) return prev
+      userEditedRef.current = true
+      return { ...prev, workerScope: md.slice(0, SCOPE_MAX) }
+    })
+  }
+
+  const trimmedLength = form.workerScope.trim().length
   const tooShort = trimmedLength > 0 && trimmedLength < SCOPE_MIN
   const empty = trimmedLength === 0
 
-  const setName = (value: string) =>
-    setForm((prev) => ({ ...prev, name: value }))
-
-  const setScope = (value: string) =>
-    setForm((prev) => ({ ...prev, workerScope: value.slice(0, SCOPE_MAX) }))
-
   return (
     <div className="space-y-5">
-      <Card className="space-y-3">
-        <CardHeader
-          title="Identificação"
-          description="Como o Worker aparece na listagem e no chamador downstream."
+      <WorkerHelpCard />
+      <div
+        className={cn(
+          'rounded-lg border border-border bg-surface py-6',
+          'profile-blocknote-host',
+        )}
+      >
+        <BlockNoteView
+          editor={editor}
+          editable={!readonly}
+          theme={theme === 'dark' ? 'dark' : 'light'}
+          onChange={handleChange}
         />
-        <div>
-          <label
-            htmlFor="worker-name"
-            className="text-[11px] uppercase tracking-wider text-fg-dim"
-          >
-            Nome do Worker
-          </label>
-          <Input
-            id="worker-name"
-            value={form.name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Ex.: Analista de Crédito"
-            disabled={readonly}
-            className="mt-1"
-          />
-        </div>
-      </Card>
+      </div>
+      <div className="flex items-center justify-between px-1 text-[11px]">
+        <span className="text-fg-muted">
+          {empty
+            ? 'Defina o domínio antes de salvar para o Worker funcionar bem em runtime.'
+            : tooShort
+              ? 'Domínio muito curto — descreva o escopo com mais detalhe pra orientar o LLM.'
+              : 'Injetado como bloco anchor no system prompt; edits propagam pra próxima chamada.'}
+        </span>
+        <span className="text-fg-dim">
+          {trimmedLength}/{SCOPE_MAX}
+        </span>
+      </div>
+    </div>
+  )
+}
 
-      <Card className="space-y-3">
-        <CardHeader
-          title="Domínio de análise"
-          description="Texto livre injetado em runtime ao final do system prompt — bloco '# Domínio de análise'. Use linguagem natural pra delimitar escopo, dados de entrada esperados, política aplicável e o que está fora do escopo."
-        />
-        <div>
-          <label
-            htmlFor="worker-scope"
-            className="text-[11px] uppercase tracking-wider text-fg-dim"
-          >
-            Escopo
-          </label>
-          <textarea
-            id="worker-scope"
-            value={scope}
-            onChange={(e) => setScope(e.target.value)}
-            placeholder="Ex.: Análise de risco de crédito empresarial. Recebe perfil do solicitante (porte, segmento, faturamento, histórico, garantias) e produto solicitado. Avalia capacidade de pagamento, exposição agregada, aderência ao apetite de risco. Não consulta bureaus em tempo real (esses dados chegam no input). Não toma decisão final — recomenda; comitê delibera."
-            disabled={readonly}
-            aria-describedby="worker-scope-help"
-            className="mt-1 block min-h-[180px] w-full resize-y rounded-lg border border-border bg-surface px-3 py-2 text-sm leading-relaxed text-fg shadow-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
-          />
-          <div
-            id="worker-scope-help"
-            className="mt-1.5 flex items-center justify-between text-[11px]"
-          >
-            <span className="text-fg-muted">
-              {empty
-                ? 'Defina o domínio antes de salvar para o Worker funcionar bem em runtime.'
-                : tooShort
-                  ? 'Domínio muito curto — descreva o escopo com mais detalhe pra orientar o LLM.'
-                  : 'Será injetado como bloco anchor no system prompt; edits propagam pra próxima chamada.'}
-            </span>
-            <span className="text-fg-dim">
-              {trimmedLength}/{SCOPE_MAX}
-            </span>
-          </div>
-        </div>
-      </Card>
+// Mini-guia voltado pra PM/PO criando Worker. Tom acessível, sem termos
+// técnicos (workerScope, anchor, etc) — foco no PROPÓSITO.
+function WorkerHelpCard() {
+  return (
+    <div className="rounded-lg border border-accent/20 bg-accent/[0.04] p-4 text-sm">
+      <h3 className="text-[13px] font-semibold text-fg">Como descrever o domínio do Worker</h3>
+      <p className="mt-1 text-[12px] leading-relaxed text-fg-muted">
+        Worker é um especialista de domínio — recebe dados estruturados e produz uma
+        análise. Descreva em texto comum: <strong className="text-fg">Escopo</strong>{' '}
+        (que análise ele faz), <strong className="text-fg">Entradas esperadas</strong>{' '}
+        (dados que chegam no input) e{' '}
+        <strong className="text-fg">Fora do escopo</strong> (o que ele não faz).
+        As frases <em className="text-fg">em itálico</em> no editor são só guias —
+        selecione e escreva por cima.
+      </p>
+      <ul className="mt-3 space-y-1.5 text-[12px] text-fg-muted">
+        <li>
+          <span className="font-mono text-fg-dim">/</span> &nbsp;abre um menu com tipos de
+          bloco (título, lista, citação, código, etc).
+        </li>
+        <li>
+          <span className="font-mono text-fg-dim">##</span> + espaço &nbsp;cria um título de
+          seção, como “Escopo”.
+        </li>
+        <li>
+          <span className="font-mono text-fg-dim">-</span> + espaço &nbsp;começa uma lista
+          com bolinhas.
+        </li>
+        <li>
+          Selecione um trecho pra abrir um <strong className="text-fg">menu flutuante</strong>{' '}
+          com negrito, itálico e link.
+        </li>
+      </ul>
     </div>
   )
 }
