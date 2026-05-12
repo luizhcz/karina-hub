@@ -11,12 +11,12 @@ export class ApiError extends Error {
 }
 
 // Headers obrigatórios pra cada request — backend escora identidade via
-// `x-efs-account` (userType=cliente) e scope de projeto via `x-efs-project-id`.
+// `x-efs-account` (userType=cliente) e scope de projeto via `x-project-id`.
 function identityHeaders(): Record<string, string> {
   const id = getIdentity()
   const headers: Record<string, string> = {}
   if (id?.account) headers['x-efs-account'] = id.account
-  if (id?.projectId) headers['x-efs-project-id'] = id.projectId
+  if (id?.projectId) headers['x-project-id'] = id.projectId
   return headers
 }
 

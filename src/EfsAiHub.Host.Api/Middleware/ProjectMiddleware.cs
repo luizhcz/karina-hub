@@ -3,7 +3,7 @@ using EfsAiHub.Core.Abstractions.Identity;
 namespace EfsAiHub.Host.Api.Middleware;
 
 /// <summary>
-/// Resolve o projeto da request a partir do header <c>x-efs-project-id</c>,
+/// Resolve o projeto da request a partir do header <c>x-project-id</c>,
 /// JWT claim <c>project_id</c> ou route param. Popula o <see cref="IProjectContextAccessor"/>
 /// scoped. Se ausente, mantém <see cref="ProjectContext.Default"/>.
 ///
@@ -11,7 +11,7 @@ namespace EfsAiHub.Host.Api.Middleware;
 /// </summary>
 public sealed class ProjectMiddleware
 {
-    public const string ProjectHeader = "x-efs-project-id";
+    public const string ProjectHeader = "x-project-id";
     private readonly RequestDelegate _next;
 
     public ProjectMiddleware(RequestDelegate next) => _next = next;

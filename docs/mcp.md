@@ -94,7 +94,7 @@ Motivação: health check síncrono no caminho de create bloqueava usuários em 
 
 | Sintoma | Causa provável | Resolução |
 |---|---|---|
-| "MCP não aparece no dropdown do agent" | Registro está em outro projeto | Use o projeto correto no header `x-efs-project-id` ou recadastre. |
+| "MCP não aparece no dropdown do agent" | Registro está em outro projeto | Use o projeto correto no header `x-project-id` ou recadastre. |
 | "Tool MCP sumiu do agent em runtime" | MCP foi deletado (dangling) | Recriar o registro com o mesmo Id OU atualizar o agent para usar outro. |
 | "Mudei a URL e a execução usa a antiga" | Pod com cache stale — improvável porque é resolução live | Verifique se não há proxy/CDN intermediário cacheando. |
 | "Headers Authorization não estão sendo enviados" | Limitação do SDK Azure Foundry — `MCPToolDefinition` ainda não recebe headers | Backlog `BC-MCP-HEADERS`; por ora use MCPs que aceitam auth via query/URL. |

@@ -129,7 +129,7 @@ export function ChatWindowPage() {
   const makeHeaders = (workflowId?: string | null): Record<string, string> => ({
     'Content-Type': 'application/json',
     ...getIdentityHeaders(),
-    ...(workflowId ? { 'x-efs-workflow-id': workflowId } : {}),
+    ...(workflowId ? { 'x-workflow-id': workflowId } : {}),
     ...(selectedVersionId !== 'current' ? { 'x-version': selectedVersionId } : {}),
   })
 

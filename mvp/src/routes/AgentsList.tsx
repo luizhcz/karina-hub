@@ -180,11 +180,28 @@ export function AgentsList() {
     setForkingId(agentId)
     setForkError(null)
     try {
+      // GET prévio: se já existe edit-draft pra esse agentId, navega direto
+      // pra ele em vez de tentar criar e cair no 409. Evita o ruído vermelho
+      // no console do DevTools sem mudar a UX.
+      try {
+        const all = await listAgentDrafts()
+        const existing = all.find(
+          (d) => d.isEditDraft && d.baseAgentId === agentId,
+        )
+        if (existing) {
+          navigate(`/agentes/${existing.id}`)
+          return
+        }
+      } catch {
+        // Falha do GET é silenciosa — caímos no fluxo de POST + tratamento
+        // do 409 (caminho legacy) pra não bloquear o user.
+      }
+
       const draft = await createEditDraft(agentId)
       navigate(`/agentes/${draft.id}`)
     } catch (err) {
-      // 409 = já existe rascunho de edição aberto. Em vez de pedir pro user
-      // navegar até a aba Rascunhos, abrimos o rascunho existente direto.
+      // Race condition: outro tab criou o draft entre o GET e o POST. Tenta
+      // recuperar como antes.
       if (err instanceof ApiError && err.status === 409) {
         try {
           const all = await listAgentDrafts()

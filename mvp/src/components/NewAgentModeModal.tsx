@@ -104,12 +104,12 @@ export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModal
       onClose={onClose}
       title="Como você quer começar?"
       description="Escolha o tipo formal do agente — Custom (livre), Router (classifier), Worker (specialist), Tool Runner (executor) ou Conversational (chat). Templates abaixo aceleram quando o caso já tem um modelo pronto."
-      size="lg"
+      size="2xl"
     >
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-fg-dim">
         Tipo do agente
       </p>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {TYPE_CHOICES.map((choice) => (
           <button
             key={choice.type}

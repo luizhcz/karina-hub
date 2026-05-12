@@ -142,8 +142,8 @@ public class ModelCatalog
 ### Hierarquia de Contexto
 
 ```
-Tenant (x-efs-tenant-id)
-  └─ Project (x-efs-project-id)
+Tenant (x-tenant-id)
+  └─ Project (x-project-id)
        └─ User (x-efs-account | x-efs-user-profile-id)
 ```
 
@@ -162,7 +162,7 @@ public sealed class TenantContext
 }
 ```
 
-Resolvido pelo `TenantMiddleware` a partir do header `x-efs-tenant-id`. Se ausente, usa `"default"`.
+Resolvido pelo `TenantMiddleware` a partir do header `x-tenant-id`. Se ausente, usa `"default"`.
 
 ### ProjectContext
 
@@ -180,7 +180,7 @@ public sealed class ProjectContext
 ```
 
 Resolvido pelo `ProjectMiddleware` com prioridade:
-1. Header `x-efs-project-id`
+1. Header `x-project-id`
 2. JWT claim `project_id`
 3. Route parameter `projectId`
 4. Fallback: `"default"`
@@ -222,7 +222,7 @@ Controla acesso a endpoints administrativos:
 O sistema é projetado para rodar **atrás de um API Gateway** (Azure APIM, Kong, AWS API Gateway, etc.) que funciona como ponto de autenticação e autorização. A cadeia de confiança:
 
 1. **API Gateway** valida JWT/OAuth2 do usuário final
-2. **Gateway injeta headers** `x-efs-account`, `x-efs-user-profile-id`, `x-efs-tenant-id`, `x-efs-project-id` na requisição
+2. **Gateway injeta headers** `x-efs-account`, `x-efs-user-profile-id`, `x-tenant-id`, `x-project-id` na requisição
 3. **Backend confia nos headers** — não re-valida o JWT (evita duplicação de lógica e latência)
 4. **AdminGateMiddleware** funciona como segunda camada de autorização (valida se o userId é admin)
 
@@ -397,9 +397,9 @@ CORS
     ↓
 SecurityHeadersMiddleware         — Headers de segurança
     ↓
-TenantMiddleware                  — Resolve x-efs-tenant-id
+TenantMiddleware                  — Resolve x-tenant-id
     ↓
-ProjectMiddleware                 — Resolve x-efs-project-id (header → JWT → route → default)
+ProjectMiddleware                 — Resolve x-project-id (header → JWT → route → default)
     ↓
 DefaultProjectGuard               — Bloqueia não-admin no projeto "default"
     ↓

@@ -56,7 +56,7 @@ Robot **bypassa todos os rate limiters** (per-user, per-conversation, project, c
 
 - Wire AG-UI puro: `messages[].actor` é aditivo, compatível com clientes da spec sem mudança.
 - Custo de implementação mínimo (~300 linhas no backend, ~50 no frontend).
-- Simetria com `x-efs-account`/`x-efs-project-id` — modelo mental único de trust no projeto.
+- Simetria com `x-efs-account`/`x-project-id` — modelo mental único de trust no projeto.
 - `BuildChatMessage` corrige bug pré-existente que mapeava `role=robot → assistant` — histórico passa a refletir verdade (robot como `user` + `Actor=Robot`).
 
 ### Negativas (aceitas)

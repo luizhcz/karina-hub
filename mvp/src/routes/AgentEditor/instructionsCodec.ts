@@ -124,9 +124,15 @@ export function decodeInstructions(
   const blockRegex = /^##\s+(.+?)\s*$/gm
   const matches = Array.from(text.matchAll(blockRegex))
 
-  if (matches.length === 0) {
-    // Drafts legacy ou texto livre: tudo cai em "Papel" pra que o usuário
-    // re-organize visualmente sem perder conteúdo.
+  // Drafts legacy ou texto livre: tudo cai em "Papel" pra que o usuário
+  // re-organize visualmente sem perder conteúdo. Cobre dois casos:
+  // 1. Sem header algum (matches vazio).
+  // 2. Headers presentes mas NENHUM é canônico (agentes legados com
+  //    estrutura custom tipo `## Shared State`, `## Tom`, etc). Sem este
+  //    fallback, o iter descartaria tudo e devolveria profile vazio —
+  //    UI mostraria template em cima de instructions populadas.
+  const hasKnownHeader = matches.some((m) => ALL_HEADERS.has(m[1].trim()))
+  if (matches.length === 0 || !hasKnownHeader) {
     return {
       ...empty,
       profile: { ...EMPTY_PROFILE(), role: text.trim() },

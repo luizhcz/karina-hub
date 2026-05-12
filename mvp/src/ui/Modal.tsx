@@ -11,13 +11,15 @@ interface ModalProps {
   children: React.ReactNode
   footer?: React.ReactNode
   /** controla largura máxima do modal */
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
 }
 
 const sizeClasses: Record<NonNullable<ModalProps['size']>, string> = {
   sm: 'max-w-sm',
   md: 'max-w-md',
   lg: 'max-w-2xl',
+  xl: 'max-w-5xl',
+  '2xl': 'max-w-7xl',
 }
 
 export function Modal({ open, onClose, title, description, children, footer, size = 'md' }: ModalProps) {

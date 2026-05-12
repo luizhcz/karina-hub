@@ -32,10 +32,10 @@ public class AgUiStreamTests(IntegrationWebApplicationFactory factory)
     [Fact]
     public async Task Post_WorkflowIdViaHeader_Aceita()
     {
-        // This test just verifies the endpoint accepts x-efs-workflow-id header
+        // This test just verifies the endpoint accepts x-workflow-id header
         // without returning 400 (full execution would require a real LLM)
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/aihub/chat/ag-ui/stream");
-        request.Headers.Add("x-efs-workflow-id", "wf-test");
+        request.Headers.Add("x-workflow-id", "wf-test");
         request.Content = JsonContent.Create(new
         {
             messages = new[] { new { role = "user", content = "Olá" } }

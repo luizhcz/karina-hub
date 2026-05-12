@@ -36,7 +36,7 @@ export function HowToConsumeWorkflow({
   const headers: Array<{ key: string; value: string }> = [
     { key: 'Content-Type', value: 'application/json' },
     { key: 'x-efs-account', value: account },
-    { key: 'x-efs-project-id', value: projectId },
+    { key: 'x-project-id', value: projectId },
   ]
 
   const bodyExample = JSON.stringify(

@@ -98,9 +98,9 @@ public static class AgUiEndpoints
         var effectiveTools           = input.Tools;
         var effectiveState           = input.State;
         var clientRunId              = input.RunId;
-        // workflowId: body tem prioridade; header x-efs-workflow-id como fallback (clientes AG-UI padrão)
+        // workflowId: body tem prioridade; header x-workflow-id como fallback (clientes AG-UI padrão)
         var effectiveWorkflowId      = input.WorkflowId
-                                    ?? context.Request.Headers["x-efs-workflow-id"].FirstOrDefault();
+                                    ?? context.Request.Headers["x-workflow-id"].FirstOrDefault();
         var effectivePredictiveState = input.PredictiveState;
 
         // 1. Resolver/criar conversa

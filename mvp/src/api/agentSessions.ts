@@ -46,7 +46,7 @@ export async function* streamRun(
   const id = getIdentity()
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (id?.account) headers['x-efs-account'] = id.account
-  if (id?.projectId) headers['x-efs-project-id'] = id.projectId
+  if (id?.projectId) headers['x-project-id'] = id.projectId
 
   const response = await fetch(`/api/aihub/agents/${agentId}/sessions/${sessionId}/stream`, {
     method: 'POST',

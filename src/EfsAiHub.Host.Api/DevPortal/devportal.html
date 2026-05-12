@@ -504,8 +504,8 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
         <table>
           <thead><tr><th>Header</th><th>Descrição</th></tr></thead>
           <tbody>
-            <tr><td><code>x-efs-project-id</code></td><td>Projeto do tenant. Default: <code>"default"</code></td></tr>
-            <tr><td><code>x-efs-workflow-id</code></td><td>Workflow a executar. Default: padrão do projeto/userType</td></tr>
+            <tr><td><code>x-project-id</code></td><td>Projeto do tenant. Default: <code>"default"</code></td></tr>
+            <tr><td><code>x-workflow-id</code></td><td>Workflow a executar. Default: padrão do projeto/userType</td></tr>
             <tr><td><code>x-version</code></td><td>Pinna a execução numa <code>WorkflowVersion</code> específica (snapshot append-only). Útil pra canary/A/B sem alterar o estado canônico. Sem header → roda contra a versão atual. Validações: <span class="badge badge-yellow">404</span> se versionId não existe, <span class="badge badge-yellow">400</span> se a versão pertence a outro workflow.</td></tr>
           </tbody>
         </table>
@@ -525,7 +525,7 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
           <tbody>
             <tr><td><code>messages[]</code></td><td>array</td><td>Histórico; o último <code>role=user</code> é a mensagem efetiva</td></tr>
             <tr><td><code>threadId</code></td><td>string | null</td><td>ID da conversa. <code>null</code> = criar nova; reuse o <code>threadId</code> recebido em <code>RUN_STARTED</code> pra continuar a mesma conversa.</td></tr>
-            <tr><td><code>workflowId</code></td><td>string | null</td><td>Alternativo ao header <code>x-efs-workflow-id</code>; body tem prioridade</td></tr>
+            <tr><td><code>workflowId</code></td><td>string | null</td><td>Alternativo ao header <code>x-workflow-id</code>; body tem prioridade</td></tr>
             <tr><td><code>runId</code></td><td>string</td><td>Run ID fornecido pelo cliente</td></tr>
             <tr><td><code>tools[]</code></td><td>array</td><td>Definição de tools client-side que a UI sabe executar (ex: chamar API local, abrir modal). O backend pode invocá-las via <code>TOOL_CALL_*</code>.</td></tr>
             <tr><td><code>state</code></td><td>object</td><td>Estado inicial compartilhado UI ↔ agente (form, posição, contexto). O backend devolve <code>STATE_SNAPSHOT</code>/<code>STATE_DELTA</code> conforme atualiza.</td></tr>
@@ -745,7 +745,7 @@ data: {"executionId":"exec-xyz","status":"Completed"}
         <p>
           <code>EventSource</code> do browser não envia headers customizados. Como fallback, este
           endpoint aceita <code>?projectId=&lt;id&gt;</code> na query string como substituto do
-          header <code>x-efs-project-id</code>. Use isso quando consumir do frontend via
+          header <code>x-project-id</code>. Use isso quando consumir do frontend via
           <code>EventSource</code>.
         </p>
         <h3>Eventos</h3>
@@ -884,17 +884,17 @@ es.addEventListener('done', (ev) => {
         <p><code>agent_started</code>, <code>step_completed</code>, <code>tool_invocation</code>, <code>hitl_required</code>, <code>workflow_completed</code> <span class="badge badge-red">terminal</span>, <code>error</code> <span class="badge badge-red">terminal</span></p>
         <h3>Exemplo</h3>
         <pre class="language-bash"><code class="language-bash">EXEC=$(curl -s -X POST .../api/aihub/workflows/wf-x/trigger \
-  -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo' \
+  -H 'x-efs-account: pm-luiza' -H 'x-project-id: demo' \
   -d '{"input":"hello"}' | jq -r .executionId)
 
 # Pinar uma WorkflowVersion específica (canary/A/B):
 EXEC=$(curl -s -X POST .../api/aihub/workflows/wf-x/trigger \
-  -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo' \
+  -H 'x-efs-account: pm-luiza' -H 'x-project-id: demo' \
   -H 'x-version: 7c9a2e1f-c3d4-...' \
   -d '{"input":"hello"}' | jq -r .executionId)
 
 curl ".../api/aihub/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
-  -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo'
+  -H 'x-efs-account: pm-luiza' -H 'x-project-id: demo'
 # → { "events": [...], "nextSince": 42, "terminal": false }
 # A version pinada aparece em GET /api/aihub/executions/{id}.workflowVersionId</code></pre>
         <h3>Códigos HTTP</h3>
@@ -906,7 +906,7 @@ curl ".../api/aihub/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
           </tbody>
         </table>
         <h3>Auth</h3>
-        <p>Headers padrão: <code>x-efs-account</code>, <code>x-efs-project-id</code>. Project scope via <code>HasQueryFilter</code> em <code>WorkflowExecution</code>.</p>
+        <p>Headers padrão: <code>x-efs-account</code>, <code>x-project-id</code>. Project scope via <code>HasQueryFilter</code> em <code>WorkflowExecution</code>.</p>
       </div>
     </div>
 
@@ -1028,7 +1028,7 @@ curl ".../api/aihub/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
             <tr><td><code>since</code></td><td>cursor em <code>UtcTicks</code> (long). Default 0.</td></tr>
             <tr><td><code>limit</code></td><td>1..500, default 100.</td></tr>
             <tr><td><code>waitMs</code></td><td>long-poll opcional 0..25000, default 0.</td></tr>
-            <tr><td><code>projectId</code></td><td><strong>Fallback opcional</strong> — substitui <code>x-efs-project-id</code> quando o cliente não conseguir setar headers (parity com o <code>/stream</code>).</td></tr>
+            <tr><td><code>projectId</code></td><td><strong>Fallback opcional</strong> — substitui <code>x-project-id</code> quando o cliente não conseguir setar headers (parity com o <code>/stream</code>).</td></tr>
           </tbody>
         </table>
         <h3>Tipos de evento</h3>
@@ -1054,13 +1054,13 @@ curl ".../api/aihub/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
     <h3>Exemplo curl genérico</h3>
     <pre class="language-bash"><code class="language-bash"># 1. dispara
 EXEC=$(curl -s -X POST http://localhost:5189/api/aihub/workflows/wf-x/trigger \
-  -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo' \
+  -H 'x-efs-account: pm-luiza' -H 'x-project-id: demo' \
   -H 'Content-Type: application/json' \
   -d '{"input":"hello"}' | jq -r .executionId)
 
 # 2. polla com long-poll 10s
 curl "http://localhost:5189/api/aihub/executions/$EXEC/events?since=0&waitMs=10000&limit=100" \
-  -H 'x-efs-account: pm-luiza' -H 'x-efs-project-id: demo'
+  -H 'x-efs-account: pm-luiza' -H 'x-project-id: demo'
 # → { "events": [...], "nextSince": 42, "terminal": false }
 
 # 3. próxima chamada usa nextSince (idempotente — sem perder evento)
@@ -1083,7 +1083,7 @@ curl "http://localhost:5189/api/aihub/executions/$EXEC/events?since=42&waitMs=10
 
     <h3>Auth</h3>
     <p>
-      Identidade vai por <strong>headers padrão</strong> (<code>x-efs-account</code>, <code>x-efs-project-id</code>) — diferente do
+      Identidade vai por <strong>headers padrão</strong> (<code>x-efs-account</code>, <code>x-project-id</code>) — diferente do
       <code>/stream</code> que aceita query param porque <code>EventSource</code> não envia headers customizados.
       Clients de polling usam <code>fetch</code> que suporta headers nativamente.
       Exceção: <code>GET /api/aihub/evaluations/runs/{id}/events</code> ainda aceita <code>?projectId=</code> como fallback (parity com o <code>/stream</code>).
@@ -1890,7 +1890,7 @@ while (true) {
     </p>
     <div class="callout callout-blue">
       <strong>Isolamento por projeto</strong> — Todos os agentes pertencem a um <code>projectId</code>.
-      Envie o header <code>x-efs-project-id: &lt;id&gt;</code> para isolar recursos por projeto.
+      Envie o header <code>x-project-id: &lt;id&gt;</code> para isolar recursos por projeto.
       O valor padrão é <code>"default"</code> quando o header é omitido.
     </div>
 
@@ -1905,12 +1905,12 @@ while (true) {
         <span class="chevron">▾</span>
       </div>
       <div class="endpoint-body open">
-        <p>Retorna todos os agentes do projeto ativo (definido pelo header <code>x-efs-project-id</code>).
+        <p>Retorna todos os agentes do projeto ativo (definido pelo header <code>x-project-id</code>).
         Resposta é um array de <a href="#agents-response"><code>AgentResponse</code></a>.</p>
         <pre class="language-bash"><code class="language-bash">curl http://localhost:5189/api/aihub/agents \
   -H "x-efs-account: 123456789"</code></pre>
         <div class="callout callout-blue">
-          Para buscar agentes de um projeto específico: <code>-H "x-efs-project-id: meu-projeto"</code>
+          Para buscar agentes de um projeto específico: <code>-H "x-project-id: meu-projeto"</code>
         </div>
         <table>
           <thead><tr><th>Código</th><th>Situação</th></tr></thead>
@@ -2026,7 +2026,7 @@ while (true) {
     </p>
     <div class="callout callout-blue">
       <strong>Isolamento por projeto</strong> — Workflows pertencem a um <code>projectId</code>
-      (header <code>x-efs-project-id</code>). Workflows com <code>visibility: "global"</code> aparecem em todos
+      (header <code>x-project-id</code>). Workflows com <code>visibility: "global"</code> aparecem em todos
       os projetos via <code>GET /api/aihub/workflows/visible</code>.
     </div>
 
@@ -2144,22 +2144,22 @@ while (true) {
     <h3>Exemplo — canary de duas versões</h3>
     <pre class="language-bash"><code class="language-bash"># Lista versões do workflow
 curl -s ".../api/aihub/workflows/wf-x/versions" \
-  -H 'x-efs-account: admin' -H 'x-efs-project-id: demo' | jq
+  -H 'x-efs-account: admin' -H 'x-project-id: demo' | jq
 
 # Dispara contra a última versão (sem header)
 curl -s -X POST ".../api/aihub/workflows/wf-x/trigger" \
-  -H 'x-efs-account: pm' -H 'x-efs-project-id: demo' \
+  -H 'x-efs-account: pm' -H 'x-project-id: demo' \
   -d '{"input":"qual o saldo?"}' | jq
 
 # Mesma chamada, dispara contra revisão antiga (canary)
 curl -s -X POST ".../api/aihub/workflows/wf-x/trigger" \
-  -H 'x-efs-account: pm' -H 'x-efs-project-id: demo' \
+  -H 'x-efs-account: pm' -H 'x-project-id: demo' \
   -H 'x-version: 7c9a2e1f-c3d4-...' \
   -d '{"input":"qual o saldo?"}' | jq
 
 # Inspeciona qual versão rodou
 curl -s ".../api/aihub/executions/04bf...?" \
-  -H 'x-efs-account: pm' -H 'x-efs-project-id: demo' | jq .workflowVersionId
+  -H 'x-efs-account: pm' -H 'x-project-id: demo' | jq .workflowVersionId
 # → "7c9a2e1f-c3d4-..." (ou null pra execução sem pin)</code></pre>
 
     <h3>Notas operacionais</h3>

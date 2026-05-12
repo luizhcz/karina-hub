@@ -236,7 +236,7 @@ public sealed class AgentEvaluationsController : ControllerBase
     public async Task StreamRun(string runId, [FromQuery] string? projectId, CancellationToken ct)
     {
         // EventSource do browser não envia headers customizados; projectId via
-        // query param substitui `x-efs-project-id` quando middleware caiu no
+        // query param substitui `x-project-id` quando middleware caiu no
         // Default sentinel.
         if (!string.IsNullOrEmpty(projectId) && !_projectAccessor.Current.IsExplicit)
         {
@@ -314,7 +314,7 @@ public sealed class AgentEvaluationsController : ControllerBase
         if (err is not null) return BadRequest(new { error = err });
 
         // Mesmo fallback do /stream pra projeto via query string (parity com clientes
-        // que não passam x-efs-project-id no header).
+        // que não passam x-project-id no header).
         if (!string.IsNullOrEmpty(projectId) && !_projectAccessor.Current.IsExplicit)
         {
             _projectAccessor.Current = new ProjectContext(projectId);

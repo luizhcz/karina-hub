@@ -72,7 +72,7 @@ outras camadas (TokenTracking, Circuit, provider LLM).
 **Ações corretivas (oncall)**:
 
 1. Identificar o caller pelo stack trace no log de erro (linha do throw em `AgentSessionService.cs:192` ou `BlocklistChatClient.cs:258`).
-2. Verificar se cliente está enviando header `x-efs-project-id` ou JWT claim `project_id`.
+2. Verificar se cliente está enviando header `x-project-id` ou JWT claim `project_id`.
    - **Sim e funciona pra outras requests**: 1 request específica com problema → coletar request-id e abrir issue em `#efs-platform` com payload + headers.
    - **Não envia mas era pra estar enviando**: alinhar com cliente sobre fix no integrador.
 3. Se for caminho não-HTTP recém-introduzido (job, scheduler, listener): autor do código novo precisa popular `IProjectContextAccessor.Current` ou `WorkflowExecution.Metadata["projectId"]`. **Não é fix de runtime — é fix de código + redeploy.**

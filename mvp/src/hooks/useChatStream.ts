@@ -571,8 +571,8 @@ export function useChatStream({
         Accept: 'text/event-stream',
       }
       if (identity?.account) headers['x-efs-account'] = identity.account
-      if (identity?.projectId) headers['x-efs-project-id'] = identity.projectId
-      headers['x-efs-workflow-id'] = workflowId
+      if (identity?.projectId) headers['x-project-id'] = identity.projectId
+      headers['x-workflow-id'] = workflowId
       // Header `x-version` pina a execução numa WorkflowVersion específica.
       // Empty/whitespace = backend lê o estado mutável atual.
       if (workflowVersionId && workflowVersionId.trim().length > 0) {
@@ -621,7 +621,7 @@ export function useChatStream({
     const identity = getIdentity()
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (identity?.account) headers['x-efs-account'] = identity.account
-    if (identity?.projectId) headers['x-efs-project-id'] = identity.projectId
+    if (identity?.projectId) headers['x-project-id'] = identity.projectId
     try {
       await fetch(`${BASE}/chat/ag-ui/cancel`, {
         method: 'POST',
@@ -637,7 +637,7 @@ export function useChatStream({
     const identity = getIdentity()
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (identity?.account) headers['x-efs-account'] = identity.account
-    if (identity?.projectId) headers['x-efs-project-id'] = identity.projectId
+    if (identity?.projectId) headers['x-project-id'] = identity.projectId
     await fetch(`${BASE}/chat/ag-ui/resolve-hitl`, {
       method: 'POST',
       headers,

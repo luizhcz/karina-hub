@@ -194,7 +194,7 @@ public class AgUiActorRobotTests : IAsyncLifetime
         // Arrange — actor=human explícito é spec-compat. Não dispara short-circuit;
         // entra no caminho normal de workflow trigger. Verificação: response não é 400.
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/aihub/chat/ag-ui/stream");
-        request.Headers.Add("x-efs-workflow-id", TestWorkflowId);
+        request.Headers.Add("x-workflow-id", TestWorkflowId);
         request.Content = JsonContent.Create(new
         {
             messages = new[]

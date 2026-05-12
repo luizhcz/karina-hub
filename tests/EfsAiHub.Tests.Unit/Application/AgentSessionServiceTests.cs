@@ -92,7 +92,7 @@ public class AgentSessionServiceTests
     [Fact]
     public void EnsureExecutionContext_FallbackHttp_ProjectIdDefaultMasIsExplicitTrue_NaoLanca()
     {
-        // Cenário legítimo: HTTP request sem header x-efs-project-id. ProjectMiddleware caiu no fallback,
+        // Cenário legítimo: HTTP request sem header x-project-id. ProjectMiddleware caiu no fallback,
         // setou accessor.Current = new ProjectContext("default", isExplicit: true). Não deve lançar.
         var ctx = new ProjectContext("default", projectName: "Default", isExplicit: true);
         var svc = Build(MakeAccessor(ctx));

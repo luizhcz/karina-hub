@@ -68,7 +68,7 @@ public sealed class DefaultProjectGuard
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
         await context.Response.WriteAsJsonAsync(new
         {
-            error = "O projeto 'default' requer permissão de administrador. Envie o header x-efs-project-id com um projeto válido."
+            error = "O projeto 'default' requer permissão de administrador. Envie o header x-project-id com um projeto válido."
         });
     }
 
