@@ -1,9 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Card, CloseIcon, IconButton, cn } from '../../ui'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { Card, cn } from '../../ui'
 import { PROFILE_HEADERS } from './instructionsCodec'
-import { shortId } from './formCodec'
 import type {
   FormState,
+  ProfileFields,
   ProfileListField,
   ProfileTextField,
 } from './types'
@@ -14,41 +16,160 @@ interface ProfileStepProps {
   readonly: boolean
 }
 
+// Ordem canônica das seções no markdown. Espelha o que o `encodeInstructions`
+// global produz no prompt final — assim "o que o user vê" no editor é
+// byte-by-byte o que vai pro LLM (sem traduções implícitas).
 const TEXT_FIELDS: ProfileTextField[] = ['role', 'goal', 'backstory']
 const LIST_FIELDS: ProfileListField[] = ['rules', 'constraints']
 
-const TEXT_SUBTITLES: Record<ProfileTextField, string> = {
-  role: 'Quem é o agente — a personagem ou função que ele ocupa em cada conversa.',
-  goal: 'O resultado que ele precisa entregar e por que isso importa pro usuário.',
-  backstory: 'Pano de fundo que o agente assume como verdade — empresa, produto, público-alvo.',
+// Template "Papel / Objetivo / Contexto" que aparece quando o user cria um
+// agente novo (profile inteiramente vazio). Rules e constraints ficam fora do
+// template inicial — são opcionais e o user pode adicionar `## Regras` no
+// editor depois. O decoder reconhece esses headers se aparecerem.
+const NEW_AGENT_TEMPLATE = [
+  `## ${PROFILE_HEADERS.role}`,
+  '',
+  '',
+  `## ${PROFILE_HEADERS.goal}`,
+  '',
+  '',
+  `## ${PROFILE_HEADERS.backstory}`,
+  '',
+  '',
+].join('\n')
+
+// Mapas header→field e field→header (cobrem text + list). Mantemos local pra
+// não acoplar com `instructionsCodec` (que cuida do prompt completo, incluindo
+// tools/structured blocks que NÃO devem aparecer aqui).
+const HEADER_TO_FIELD: Record<string, ProfileTextField | ProfileListField> = {}
+const FIELD_IS_LIST = new Set<string>()
+for (const field of [...TEXT_FIELDS, ...LIST_FIELDS]) {
+  const header = PROFILE_HEADERS[field]
+  HEADER_TO_FIELD[header] = field
+}
+for (const field of LIST_FIELDS) FIELD_IS_LIST.add(field)
+
+function isEmptyProfile(p: ProfileFields): boolean {
+  return (
+    p.role.trim() === ''
+    && p.goal.trim() === ''
+    && p.backstory.trim() === ''
+    && p.rules.length === 0
+    && p.constraints.length === 0
+  )
 }
 
-const LIST_SUBTITLES: Record<ProfileListField, string> = {
-  rules: 'Comportamentos que o agente sempre deve seguir. Cada item vira um bullet no prompt.',
-  constraints: 'O que o agente nunca pode fazer ou compartilhar. Cada item vira um bullet no prompt.',
+// Produz o markdown que vai pro textarea a partir do profile. Sempre emite
+// os 3 headers texto (Papel/Objetivo/Contexto) mesmo vazios pra que o user
+// veja a estrutura. Rules e constraints só aparecem quando têm itens.
+function profileToMarkdown(p: ProfileFields): string {
+  const blocks: string[] = []
+  for (const field of TEXT_FIELDS) {
+    blocks.push(`## ${PROFILE_HEADERS[field]}`)
+    blocks.push('')
+    if (p[field]) blocks.push(p[field])
+    blocks.push('')
+  }
+  for (const field of LIST_FIELDS) {
+    const items = p[field]
+    if (items.length === 0) continue
+    blocks.push(`## ${PROFILE_HEADERS[field]}`)
+    blocks.push('')
+    for (const item of items) blocks.push(`- ${item}`)
+    blocks.push('')
+  }
+  return blocks.join('\n').replace(/\n{3,}/g, '\n\n')
 }
 
-const TEXT_PLACEHOLDER: Record<ProfileTextField, string> = {
-  role: 'Você é um atendente especializado em pós-venda da Acme Corp.',
-  goal: 'Resolver dúvidas sobre pedidos, prazos e trocas com empatia e clareza.',
-  backstory: 'A Acme vende eletrônicos online. Clientes acessam pelo site/app.',
+// Parser dual de listas: aceita `- item`, `* item`, `• item`. Vazias filtradas.
+function parseListLines(body: string): string[] {
+  return body
+    .split('\n')
+    .map((line) => line.replace(/^[\s]*[-•*][\s]+/, '').trim())
+    .filter((line) => line.length > 0)
 }
 
-const LIST_ITEM_PLACEHOLDER: Record<ProfileListField, string> = {
-  rules: 'Sempre confirme o pedido pelo número antes de orientar',
-  constraints: 'Nunca compartilhar dados de outros clientes',
+// Decoder inverso ao `profileToMarkdown`. Splita por linhas que começam com
+// `## <header conhecido>` e atribui o body de cada seção ao campo certo.
+// Headers desconhecidos são descartados — não corrompem o estado.
+function markdownToProfile(text: string): ProfileFields {
+  const next: ProfileFields = {
+    role: '',
+    goal: '',
+    backstory: '',
+    rules: [],
+    constraints: [],
+  }
+  const normalized = text.replace(/\r\n/g, '\n')
+  const matches = Array.from(normalized.matchAll(/^##\s+(.+?)\s*$/gm))
+  if (matches.length === 0) {
+    // Texto livre sem headers: tudo vai pra Papel (mantém conteúdo sem
+    // perder dados quando o user destrói a estrutura).
+    next.role = normalized.trim()
+    return next
+  }
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i]
+    const header = m[1].trim()
+    const field = HEADER_TO_FIELD[header]
+    const start = (m.index ?? 0) + m[0].length
+    const end = i + 1 < matches.length ? (matches[i + 1].index ?? normalized.length) : normalized.length
+    const body = normalized.slice(start, end).trim()
+    if (!field) continue
+    if (FIELD_IS_LIST.has(field)) {
+      next[field as ProfileListField] = parseListLines(body)
+    } else {
+      next[field as ProfileTextField] = body
+    }
+  }
+  return next
 }
 
 export function ProfileStep({ form, setForm, readonly }: ProfileStepProps) {
+  // Estado local do texto do editor. Hidrata do form.profile no mount; depois
+  // o fluxo é editor → form via debounce no onChange (evita re-renderizar o
+  // textarea em cada keystroke por causa do round-trip encode→decode).
+  const [editorText, setEditorText] = useState<string>(() => {
+    if (isEmptyProfile(form.profile)) return NEW_AGENT_TEMPLATE
+    return profileToMarkdown(form.profile)
+  })
+
+  // Sincroniza editor↔form quando o user carrega um agente existente
+  // (form.profile chega populado depois do mount inicial). Só re-hidrata se
+  // o texto ainda é o template — preserva edição em andamento.
+  const lastHydratedRef = useRef<string>('')
+  useEffect(() => {
+    if (isEmptyProfile(form.profile)) return
+    const encoded = profileToMarkdown(form.profile)
+    if (encoded === lastHydratedRef.current) return
+    if (editorText === NEW_AGENT_TEMPLATE || editorText === '') {
+      lastHydratedRef.current = encoded
+      setEditorText(encoded)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.profile])
+
   const setName = (name: string) => setForm((prev) => ({ ...prev, name }))
-  const setProfileText = (field: ProfileTextField, value: string) =>
-    setForm((prev) => ({ ...prev, profile: { ...prev.profile, [field]: value } }))
-  const setProfileList = (field: ProfileListField, value: string[]) =>
-    setForm((prev) => ({ ...prev, profile: { ...prev.profile, [field]: value } }))
+
+  const onEditorChange = (next: string) => {
+    setEditorText(next)
+    // Decode imediato — preview live precisa refletir a estrutura assim que
+    // o user escreve `## Heading` ou `- item`. Sem debounce por enquanto;
+    // se o parse virar gargalo num doc grande, fácil adicionar throttle.
+    const parsed = markdownToProfile(next)
+    setForm((prev) => ({ ...prev, profile: parsed }))
+  }
+
+  // Preview live — mesma stack que o ChatDeploymentSandbox e o ReviewStep
+  // (react-markdown + remark-gfm). `editorText` é a fonte direta — não passa
+  // pelo round-trip do form pra evitar inconsistência transitória durante a
+  // digitação (ex: usuário digita `## ` e o cursor já mostraria como heading
+  // antes do form ser atualizado).
+  const previewSource = useMemo(() => editorText, [editorText])
 
   return (
     <Card padded={false} className="px-8 py-8 sm:px-10 sm:py-10">
-      <EditableBlock className="-mx-3 px-3 py-1.5">
+      <div className="-mx-3 px-3 py-1.5">
         <input
           type="text"
           value={form.name}
@@ -62,232 +183,80 @@ export function ProfileStep({ form, setForm, readonly }: ProfileStepProps) {
             'disabled:cursor-not-allowed disabled:opacity-60',
           )}
         />
-      </EditableBlock>
+      </div>
 
-      <div className="mt-10">
-        {TEXT_FIELDS.map((field) => (
-          <Section
-            key={field}
-            label={PROFILE_HEADERS[field]}
-            subtitle={TEXT_SUBTITLES[field]}
-          >
-            <EditableBlock>
-              <AutoTextarea
-                value={form.profile[field]}
-                onChange={(value) => setProfileText(field, value)}
-                placeholder={TEXT_PLACEHOLDER[field]}
-                disabled={readonly}
-              />
-            </EditableBlock>
-          </Section>
-        ))}
+      <div className="mt-8">
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-fg">Perfil em Markdown</h2>
+            <p className="mt-1 text-xs text-fg-muted">
+              Edite à esquerda — pré-visualização à direita atualiza em tempo real. Use{' '}
+              <code className="rounded bg-bg-soft px-1 py-px font-mono text-[11px]">## Papel</code>,
+              {' '}
+              <code className="rounded bg-bg-soft px-1 py-px font-mono text-[11px]">## Objetivo</code>,
+              {' '}
+              <code className="rounded bg-bg-soft px-1 py-px font-mono text-[11px]">## Contexto</code>
+              {' '}pros blocos canônicos. <code className="rounded bg-bg-soft px-1 py-px font-mono text-[11px]">## Regras</code> e{' '}
+              <code className="rounded bg-bg-soft px-1 py-px font-mono text-[11px]">## Restrições</code> aceitam listas com{' '}
+              <code className="rounded bg-bg-soft px-1 py-px font-mono text-[11px]">- item</code>.
+            </p>
+          </div>
+        </div>
 
-        {LIST_FIELDS.map((field) => (
-          <Section
-            key={field}
-            label={PROFILE_HEADERS[field]}
-            subtitle={LIST_SUBTITLES[field]}
-          >
-            <BulletListField
-              values={form.profile[field]}
-              onChange={(values) => setProfileList(field, values)}
-              placeholder={LIST_ITEM_PLACEHOLDER[field]}
-              disabled={readonly}
-            />
-          </Section>
-        ))}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <MarkdownEditor
+            value={editorText}
+            onChange={onEditorChange}
+            disabled={readonly}
+          />
+          <MarkdownPreview source={previewSource} />
+        </div>
       </div>
     </Card>
   )
 }
 
-interface SectionProps {
-  label: string
-  subtitle: string
-  children: React.ReactNode
+interface MarkdownEditorProps {
+  value: string
+  onChange: (next: string) => void
+  disabled?: boolean
 }
 
-function Section({ label, subtitle, children }: SectionProps) {
+function MarkdownEditor({ value, onChange, disabled }: MarkdownEditorProps) {
   return (
-    <section className="border-t border-border pt-7 pb-7 last:pb-0">
-      <div className="mb-3">
-        <h2 className="text-base font-bold text-fg">{label}</h2>
-        <p className="mt-1 text-xs text-fg-muted">{subtitle}</p>
+    <div className="flex min-h-[480px] flex-col rounded-lg border border-border bg-surface">
+      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-[10px] uppercase tracking-wider text-fg-dim">
+        <span>Editor</span>
+        <span className="font-mono">markdown</span>
       </div>
-      {children}
-    </section>
-  )
-}
-
-interface EditableBlockProps {
-  children: React.ReactNode
-  className?: string
-}
-
-// Wrapper que adiciona affordance de "isso é editável": hover mostra fundo
-// suave, focus-within reforça com ring accent. Margem negativa expande o bg
-// pra fora do conteúdo, parecendo um bloco de doc estilo Notion.
-function EditableBlock({ children, className }: EditableBlockProps) {
-  return (
-    <div
-      className={cn(
-        'rounded-md transition-colors -mx-2 px-2 py-1.5',
-        'cursor-text hover:bg-bg-soft/70',
-        'focus-within:bg-bg-soft focus-within:ring-1 focus-within:ring-accent/30',
-        className,
-      )}
-    >
-      {children}
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        spellCheck
+        className={cn(
+          'flex-1 resize-none bg-transparent p-4 font-mono text-[13px] leading-relaxed text-fg',
+          'placeholder:text-fg-dim focus:outline-none',
+          'disabled:cursor-not-allowed disabled:opacity-60',
+        )}
+        placeholder={NEW_AGENT_TEMPLATE}
+      />
     </div>
   )
 }
 
-interface AutoTextareaProps {
-  value: string
-  onChange: (value: string) => void
-  placeholder: string
-  disabled?: boolean
-}
-
-// Textarea que cresce com o conteúdo (sem scroll). Reseta height pra 'auto'
-// antes de medir scrollHeight pra que diminua quando texto é apagado.
-// useLayoutEffect evita flicker entre "old height + new content" e o ajuste.
-function AutoTextarea({ value, onChange, placeholder, disabled }: AutoTextareaProps) {
-  const ref = useRef<HTMLTextAreaElement>(null)
-
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
-  }, [value])
-
-  // Recalcula em resize do viewport — line wrap muda altura quando largura muda.
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const recompute = () => {
-      el.style.height = 'auto'
-      el.style.height = `${el.scrollHeight}px`
-    }
-    window.addEventListener('resize', recompute)
-    return () => window.removeEventListener('resize', recompute)
-  }, [])
-
+function MarkdownPreview({ source }: { source: string }) {
   return (
-    <textarea
-      ref={ref}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-      rows={1}
-      className={cn(
-        'block w-full resize-none overflow-hidden border-0 bg-transparent px-0 text-[15px] leading-relaxed text-fg',
-        'placeholder:text-fg-dim focus:outline-none focus:ring-0',
-        'disabled:cursor-not-allowed disabled:opacity-60',
-      )}
-    />
-  )
-}
-
-interface BulletListFieldProps {
-  values: string[]
-  onChange: (values: string[]) => void
-  placeholder: string
-  disabled?: boolean
-}
-
-interface BulletRow {
-  id: string
-  value: string
-}
-
-// Lista inline de bullets editáveis. Cada item ganha o mesmo affordance de
-// hover/focus do EditableBlock (bg soft + ring accent quando focado). Mantém
-// ids estáveis pra que React não confunda linhas em remoção/adição.
-function BulletListField({ values, onChange, placeholder, disabled }: BulletListFieldProps) {
-  const [rows, setRows] = useState<BulletRow[]>(() =>
-    values.length === 0
-      ? [{ id: shortId(), value: '' }]
-      : values.map((value) => ({ id: shortId(), value })),
-  )
-
-  const project = (next: BulletRow[]) =>
-    next.map((r) => r.value.trim()).filter((v) => v.length > 0)
-
-  const sync = (next: BulletRow[]) => {
-    setRows(next)
-    onChange(project(next))
-  }
-
-  const update = (id: string, value: string) => {
-    sync(rows.map((r) => (r.id === id ? { ...r, value } : r)))
-  }
-
-  const remove = (id: string) => {
-    const next = rows.filter((r) => r.id !== id)
-    sync(next.length === 0 ? [{ id: shortId(), value: '' }] : next)
-  }
-
-  const add = () => {
-    sync([...rows, { id: shortId(), value: '' }])
-  }
-
-  return (
-    <ul>
-      {rows.map((row) => (
-        <li
-          key={row.id}
-          className={cn(
-            'group flex items-center gap-3 rounded-md transition-colors -mx-2 px-2 py-1.5',
-            'cursor-text hover:bg-bg-soft/70',
-            'focus-within:bg-bg-soft focus-within:ring-1 focus-within:ring-accent/30',
-          )}
-        >
-          <span aria-hidden="true" className="select-none text-base text-fg-dim">
-            •
-          </span>
-          <input
-            type="text"
-            value={row.value}
-            onChange={(e) => update(row.id, e.target.value)}
-            placeholder={placeholder}
-            disabled={disabled}
-            className={cn(
-              'flex-1 border-0 bg-transparent px-0 text-[15px] leading-relaxed text-fg',
-              'placeholder:text-fg-dim focus:outline-none focus:ring-0',
-              'disabled:cursor-not-allowed disabled:opacity-60',
-            )}
-          />
-          <IconButton
-            aria-label="Remover item"
-            variant="ghost"
-            size="sm"
-            onClick={() => remove(row.id)}
-            disabled={disabled}
-            className="opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
-          >
-            <CloseIcon className="h-3.5 w-3.5" />
-          </IconButton>
-        </li>
-      ))}
-      <li className="pl-2 pt-2">
-        <button
-          type="button"
-          onClick={add}
-          disabled={disabled}
-          className={cn(
-            'flex items-center gap-2 text-xs font-medium text-fg-muted transition hover:text-accent',
-            'disabled:cursor-not-allowed disabled:opacity-60',
-          )}
-        >
-          <span aria-hidden="true" className="font-mono text-sm">
-            +
-          </span>
-          Adicionar
-        </button>
-      </li>
-    </ul>
+    <div className="flex min-h-[480px] flex-col rounded-lg border border-border bg-bg-soft/40">
+      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-[10px] uppercase tracking-wider text-fg-dim">
+        <span>Pré-visualização</span>
+        <span className="font-mono">live</span>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="prose prose-sm dark:prose-invert max-w-none">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{source || ' '}</ReactMarkdown>
+        </div>
+      </div>
+    </div>
   )
 }
