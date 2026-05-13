@@ -45,7 +45,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
             : "";
         var llmExtraWhere = ownedOnly ? @" AND ad.""ProjectId"" = {0}" : "";
 
-        var llmStats = await db.Database.SqlQueryRaw<LlmAggRaw>($@"
+        string sql = $@"
             SELECT
                 COALESCE(SUM(c.""EstimatedCostUsd""), 0)::numeric AS ""CostUsd"",
                 COALESCE(SUM(c.""TotalTokens""), 0)::bigint        AS ""Tokens"",
@@ -56,7 +56,9 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
             WHERE we.""ProjectId"" = {{0}}
               AND c.""CreatedAt"" BETWEEN {{1}} AND {{2}}
               {llmExtraWhere}
-            ", projectId, from, to)
+            "; 
+
+        var llmStats = await db.Database.SqlQueryRaw<LlmAggRaw>(sql, projectId, from, to)
             .ToListAsync(ct);
 
         // Stats execução (total/completed/failed) — direto de workflow_executions.
@@ -79,7 +81,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
             : "";
         var topAgentExtraWhere = ownedOnly ? @" AND ad.""ProjectId"" = {0}" : "";
 
-        var topAgentRows = await db.Database.SqlQueryRaw<AgentMiniRaw>($@"
+        var topAgentSql = $@"
             SELECT
                 ltu.""AgentId""                                AS ""AgentId"",
                 COALESCE(SUM(c.""EstimatedCostUsd""), 0)::numeric AS ""CostUsd"",
@@ -95,7 +97,9 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
             GROUP BY ltu.""AgentId""
             ORDER BY SUM(c.""EstimatedCostUsd"") DESC
             LIMIT 3
-            ", projectId, from, to)
+            ";
+
+        var topAgentRows = await db.Database.SqlQueryRaw<AgentMiniRaw>(topAgentSql, projectId, from, to)
             .ToListAsync(ct);
 
         var llm = llmStats.FirstOrDefault() ?? new LlmAggRaw();
@@ -250,7 +254,8 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
         // agente) e agent_error_rate (% de execuções distintas envolvendo o
         // agente que terminaram em Failed). LEFT JOIN garante 0 quando não
         // há execução resolvida.
-        var rows = await db.Database.SqlQueryRaw<AgentBreakdownRaw>($@"
+
+        var sql = $@"
             WITH agent_calls AS (
                 SELECT ltu.""AgentId"", ltu.""ModelId"", ltu.""ExecutionId"",
                        ltu.""DurationMs"", c.""EstimatedCostUsd"", c.""TotalTokens""
@@ -292,7 +297,9 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
             GROUP BY ac.""AgentId""
             ORDER BY SUM(ac.""EstimatedCostUsd"") DESC
             LIMIT {{3}}
-            ", projectId, from, to, top)
+            ";
+
+        var rows = await db.Database.SqlQueryRaw<AgentBreakdownRaw>(sql, projectId, from, to, top)
             .ToListAsync(ct);
 
         return rows.Select(r => new ProjectAgentBreakdown

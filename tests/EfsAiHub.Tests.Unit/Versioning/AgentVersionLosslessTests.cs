@@ -71,7 +71,7 @@ public class AgentVersionLosslessTests
 
         version.Metadata.Should().NotBeNull();
         version.Metadata!.Should().HaveCount(2);
-        version.Metadata["env"].Should().Be("prod");
+        version.Metadata!["env"].Should().Be("prod");
         version.Metadata["team"].Should().Be("platform");
     }
 

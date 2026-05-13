@@ -45,7 +45,7 @@ public class AgentVersionSnapshotTests
 
         version.Tools.Should().NotBeNull();
         version.Tools!.Should().HaveCount(1);
-        version.Tools[0].Name.Should().Be("search_asset");
+        version.Tools![0].Name.Should().Be("search_asset");
     }
 
     [Fact]

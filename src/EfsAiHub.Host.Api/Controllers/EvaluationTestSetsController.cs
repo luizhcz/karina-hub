@@ -137,7 +137,7 @@ public sealed class EvaluationTestSetsController : ControllerBase
         if (request.Cases is null || request.Cases.Count == 0)
             return BadRequest(new { error = "Cases não pode ser vazio." });
 
-        var revision = await _testSetVersionRepo.GetNextRevisionAsync(testSet.Id, ct);
+        var revision = await _testSetVersionRepo.GetNextRevisionAsync(testSet!.Id, ct);
 
         var temp = new List<EvaluationTestCase>(request.Cases.Count);
         for (int i = 0; i < request.Cases.Count; i++)
@@ -211,7 +211,7 @@ public sealed class EvaluationTestSetsController : ControllerBase
             return BadRequest(new { error = ex.Message });
         }
 
-        var revision = await _testSetVersionRepo.GetNextRevisionAsync(testSet.Id, ct);
+        var revision = await _testSetVersionRepo.GetNextRevisionAsync(testSet!.Id, ct);
         var draft = EvaluationTestSetVersion.Build(
             testSetId: testSet.Id,
             revision: revision,

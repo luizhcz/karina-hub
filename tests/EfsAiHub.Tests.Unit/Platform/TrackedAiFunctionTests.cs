@@ -86,7 +86,7 @@ public class TrackedAiFunctionTests
     public async Task InvokeAsync_InnerLancaException_RetornaFriendlyError()
     {
         var inner = AIFunctionFactory.Create(
-            (string param) => { throw new InvalidOperationException("API indisponível"); return ""; },
+            (string param) => { throw new InvalidOperationException("API indisponível"); },
             new AIFunctionFactoryOptions { Name = "fail-func" });
 
         var (tracked, _) = Build(inner);
@@ -101,7 +101,7 @@ public class TrackedAiFunctionTests
     public async Task InvokeAsync_InnerLancaException_NaoRelancaException()
     {
         var inner = AIFunctionFactory.Create(
-            (string param) => { throw new InvalidOperationException("DB error"); return ""; },
+            (string param) => { throw new InvalidOperationException("DB error"); },
             new AIFunctionFactoryOptions { Name = "db-func" });
 
         var (tracked, _) = Build(inner);

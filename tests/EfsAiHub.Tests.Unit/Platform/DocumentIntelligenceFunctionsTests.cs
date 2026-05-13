@@ -89,8 +89,8 @@ public class DocumentIntelligenceFunctionsTests
     {
         pdfBytes ??= MinimalPdf();
         var source = sourceType == "bytes"
-            ? new { type = "bytes", bytes = Convert.ToBase64String(pdfBytes), url = (string?)null }
-            : new { type = sourceType, bytes = (string?)null, url = "https://blob.test/doc.pdf" };
+            ? new { type = "bytes", bytes = Convert.ToBase64String(pdfBytes), url = string.Empty }
+            : new { type = sourceType, bytes = string.Empty, url = "https://blob.test/doc.pdf" };
 
         return JsonSerializer.Serialize(new
         {

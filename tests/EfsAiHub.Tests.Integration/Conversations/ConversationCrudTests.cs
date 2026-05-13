@@ -6,7 +6,6 @@ public class ConversationCrudTests(IntegrationWebApplicationFactory factory)
 {
     private readonly HttpClient _client = factory.CreateClient();
 
-    private static readonly string AccountHeader = "x-efs-account";
     private static readonly string UserId = "test-user-conv";
 
     [Fact]

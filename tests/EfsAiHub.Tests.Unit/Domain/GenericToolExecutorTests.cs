@@ -275,7 +275,7 @@ public class GenericToolExecutorTests
         var rows = result.Data as List<Dictionary<string, string>>;
         rows.Should().NotBeNull();
         rows!.Should().HaveCount(2);
-        rows[0].Should().Contain(new KeyValuePair<string, string>("id", "1"));
+        rows![0].Should().Contain(new KeyValuePair<string, string>("id", "1"));
         rows[0].Should().Contain(new KeyValuePair<string, string>("name", "foo"));
         rows[1]["id"].Should().Be("2");
     }

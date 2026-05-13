@@ -227,7 +227,7 @@ public class CachedPersonaProviderTests
         handler.CallCount.Should().Be(1);
 
         await cache.InvalidateAsync("u1", "cliente");
-        redis.GetStringAsync("persona:cliente:u1").Result.Should().BeNull();
+        (redis.GetStringAsync("persona:cliente:u1")).Should().BeNull();
 
         await cache.ResolveAsync("u1", "cliente");
         handler.CallCount.Should().Be(2); // cache vazio → segunda chamada HTTP
