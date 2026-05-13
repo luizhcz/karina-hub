@@ -7,13 +7,7 @@ import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import { useTheme } from '../../theme/ThemeProvider'
 import { cn } from '../../ui'
-import { PROFILE_HEADERS } from './instructionsCodec'
-import type {
-  FormState,
-  ProfileFields,
-  ProfileListField,
-  ProfileTextField,
-} from './types'
+import type { FormState } from './types'
 
 interface ProfileStepProps {
   form: FormState
@@ -21,132 +15,33 @@ interface ProfileStepProps {
   readonly: boolean
 }
 
-const TEXT_FIELDS: ProfileTextField[] = ['role', 'goal', 'backstory']
-const LIST_FIELDS: ProfileListField[] = ['rules', 'constraints']
-
 // Template pré-preenchido pra agente novo. Cada heading vem com uma frase-guia
 // em itálico — o user lê, seleciona o trecho em itálico e escreve por cima
 // (mais rápido que partir de página em branco). Regras/Restrições incluem um
-// bullet de exemplo pra mostrar o formato esperado.
+// bullet de exemplo pra mostrar o formato esperado. As seções são apenas
+// sugestões — o usuário pode reorganizar, renomear ou criar novas livremente.
 const NEW_AGENT_TEMPLATE = [
-  `## ${PROFILE_HEADERS.role}`,
+  '## Papel',
   '',
   '*Em 1-2 frases: quem é o agente e que personagem ele assume na conversa.*',
   '',
-  `## ${PROFILE_HEADERS.goal}`,
+  '## Objetivo',
   '',
   '*O resultado concreto que ele precisa entregar e por que isso importa pro usuário.*',
   '',
-  `## ${PROFILE_HEADERS.backstory}`,
+  '## Contexto',
   '',
   '*Pano de fundo que ele assume como verdade — empresa, produto, público-alvo, dados disponíveis.*',
   '',
-  `## ${PROFILE_HEADERS.rules}`,
+  '## Regras de atuação',
   '',
   '- *Um comportamento que o agente sempre deve seguir (ex: confirmar dados antes de agir).*',
   '',
-  `## ${PROFILE_HEADERS.constraints}`,
+  '## Restrições',
   '',
   '- *O que o agente nunca pode fazer ou compartilhar (ex: não dar conselho jurídico).*',
   '',
 ].join('\n')
-
-const HEADER_TO_FIELD: Record<string, ProfileTextField | ProfileListField> = {}
-const FIELD_IS_LIST = new Set<string>()
-for (const field of [...TEXT_FIELDS, ...LIST_FIELDS]) {
-  HEADER_TO_FIELD[PROFILE_HEADERS[field]] = field
-}
-for (const field of LIST_FIELDS) FIELD_IS_LIST.add(field)
-
-function isEmptyProfile(p: ProfileFields): boolean {
-  return (
-    p.role.trim() === ''
-    && p.goal.trim() === ''
-    && p.backstory.trim() === ''
-    && p.rules.length === 0
-    && p.constraints.length === 0
-  )
-}
-
-function profileToMarkdown(p: ProfileFields): string {
-  // Caso especial: agentes com instructions livres (sem headers canônicos)
-  // caem todo o conteúdo em `role` via decodeInstructions fallback. Se role
-  // já contém markdown estruturado (qualquer `## Header`), emite direto sem
-  // wrap em `## Papel` — preserva a estrutura original do user e evita
-  // duplicar headers no editor (`## Papel\n## Shared State`).
-  const onlyRolePopulated =
-    p.role.trim().length > 0
-    && p.goal.trim().length === 0
-    && p.backstory.trim().length === 0
-    && p.rules.length === 0
-    && p.constraints.length === 0
-  if (onlyRolePopulated && /^##\s+/m.test(p.role)) {
-    return p.role
-  }
-
-  const blocks: string[] = []
-  for (const field of TEXT_FIELDS) {
-    blocks.push(`## ${PROFILE_HEADERS[field]}`)
-    blocks.push('')
-    if (p[field]) blocks.push(p[field])
-    blocks.push('')
-  }
-  for (const field of LIST_FIELDS) {
-    const items = p[field]
-    if (items.length === 0) continue
-    blocks.push(`## ${PROFILE_HEADERS[field]}`)
-    blocks.push('')
-    for (const item of items) blocks.push(`- ${item}`)
-    blocks.push('')
-  }
-  return blocks.join('\n').replace(/\n{3,}/g, '\n\n')
-}
-
-function parseListLines(body: string): string[] {
-  return body
-    .split('\n')
-    .map((line) => line.replace(/^[\s]*[-•*][\s]+/, '').trim())
-    .filter((line) => line.length > 0)
-}
-
-function markdownToProfile(text: string): ProfileFields {
-  const next: ProfileFields = {
-    role: '',
-    goal: '',
-    backstory: '',
-    rules: [],
-    constraints: [],
-  }
-  const normalized = text.replace(/\r\n/g, '\n')
-  const matches = Array.from(normalized.matchAll(/^##\s+(.+?)\s*$/gm))
-
-  // Fallback "tudo em role" cobre dois casos:
-  // 1. Sem header algum (texto livre).
-  // 2. Headers presentes mas NENHUM é canônico — usuário tem markdown
-  //    custom (## Shared State, ## Tom, etc). Sem isso, o iter descartaria
-  //    tudo e devolveria profile vazio.
-  const hasKnownHeader = matches.some((m) => HEADER_TO_FIELD[m[1].trim()])
-  if (matches.length === 0 || !hasKnownHeader) {
-    next.role = normalized.trim()
-    return next
-  }
-
-  for (let i = 0; i < matches.length; i++) {
-    const m = matches[i]
-    const header = m[1].trim()
-    const field = HEADER_TO_FIELD[header]
-    const start = (m.index ?? 0) + m[0].length
-    const end = i + 1 < matches.length ? (matches[i + 1].index ?? normalized.length) : normalized.length
-    const body = normalized.slice(start, end).trim()
-    if (!field) continue
-    if (FIELD_IS_LIST.has(field)) {
-      next[field as ProfileListField] = parseListLines(body)
-    } else {
-      next[field as ProfileTextField] = body
-    }
-  }
-  return next
-}
 
 // Schema do BlockNote. defaultBlockSpecs cobre os blocos que o nosso markdown
 // usa hoje (heading, bullet/numbered list, paragraph, code block, quote).
@@ -160,20 +55,18 @@ export function ProfileStep({ form, setForm, readonly }: ProfileStepProps) {
 
   // Quebra-loop de hidratação ↔ onChange:
   // - userEditedRef: vira true no primeiro edit REAL do user (i.e. onChange
-  //   onde o markdown encodado mudou). Enquanto false, o useEffect re-hidrata
+  //   onde o markdown mudou de fato). Enquanto false, o useEffect re-hidrata
   //   livremente — cobre mount inicial (CREATE com template) E chegada tardia
   //   do GET em edit mode (profile vazio → populado depois do mount).
-  // - Guard no setForm: comparamos profileToMarkdown(parsed) vs profileToMarkdown(prev)
-  //   pra absorver o eco do onChange disparado por replaceBlocks. Sem isso,
-  //   o ciclo é: replaceBlocks → onChange → setForm → useEffect → replaceBlocks…
+  // - Guard no setForm: compara o markdown atual do form com o produzido pelo
+  //   onChange pra absorver o eco do replaceBlocks. Sem isso, o ciclo é:
+  //   replaceBlocks → onChange → setForm → useEffect → replaceBlocks…
   //   (Maximum update depth, React error #185).
   const userEditedRef = useRef(false)
 
   useEffect(() => {
     if (userEditedRef.current) return
-    const md = isEmptyProfile(form.profile)
-      ? NEW_AGENT_TEMPLATE
-      : profileToMarkdown(form.profile)
+    const md = form.profile.trim().length === 0 ? NEW_AGENT_TEMPLATE : form.profile
     void (async () => {
       const blocks = await editor.tryParseMarkdownToBlocks(md)
       editor.replaceBlocks(editor.document, blocks as Block[])
@@ -182,15 +75,10 @@ export function ProfileStep({ form, setForm, readonly }: ProfileStepProps) {
 
   const handleChange = async () => {
     const md = await editor.blocksToMarkdownLossy(editor.document)
-    const parsed = markdownToProfile(md)
     setForm((prev) => {
-      // Comparação por markdown encodado: estrutura idêntica → sem mudança.
-      // Ignora variações de whitespace/ordem que profileToMarkdown normaliza.
-      if (profileToMarkdown(prev.profile) === profileToMarkdown(parsed)) {
-        return prev
-      }
+      if (prev.profile === md) return prev
       userEditedRef.current = true
-      return { ...prev, profile: parsed }
+      return { ...prev, profile: md }
     })
   }
 
@@ -231,7 +119,7 @@ function EditorHelpCard() {
         <strong className="text-fg">Contexto</strong> (pano de fundo do produto/cliente).
         {' '}
         As frases <em className="text-fg">em itálico</em> no editor são só guias —
-        selecione e escreva por cima.
+        selecione e escreva por cima. Você pode renomear seções e criar novas conforme precisar.
       </p>
       <ul className="mt-3 space-y-1.5 text-[12px] text-fg-muted">
         <li>

@@ -8,16 +8,16 @@ import {
   cn,
 } from '../../ui'
 import {
-  type CampoPerfil,
   type RefinamentoPerfilOutput,
   type Severidade,
   type Sugestao,
   type SugestaoTipo,
   countCriticas,
-  groupByCampo,
+  groupBySecao,
   severityRank,
 } from '../../api/profileAssistant'
 import { AssistantDiff } from './AssistantDiff'
+import { findSection, type AssistantOperacao } from './instructionsCodec'
 
 interface AssistantDrawerProps {
   open: boolean
@@ -26,18 +26,12 @@ interface AssistantDrawerProps {
   result: RefinamentoPerfilOutput | null
   error: string | null
   onRetry: () => void
-  onApply: (campo: CampoPerfil, value: string) => void
-  fieldValues: Record<CampoPerfil, string>
-}
-
-const FIELD_LABELS: Record<CampoPerfil, string> = {
-  name: 'Nome',
-  description: 'Descrição',
-  role: 'Papel',
-  goal: 'Objetivo',
-  backstory: 'Contexto',
-  rules: 'Regras de atuação',
-  constraints: 'Restrições',
+  /** Aplica uma sugestão no markdown do profile. O drawer já decidiu a
+   *  operação (Substituir/Mesclar) com o user via AssistantDiff. */
+  onApply: (op: AssistantOperacao, secao: string | null, conteudo: string) => void
+  /** Markdown atual do perfil — usado pra: 1) localizar a seção alvo de cada
+   *  sugestão; 2) decidir defaults do AssistantDiff; 3) preview "Atual". */
+  currentMarkdown: string
 }
 
 const SEVERITY_LABELS: Record<Severidade, string> = {
@@ -65,8 +59,13 @@ const SEV_DOT_CLASS: Record<Severidade, string> = {
 }
 
 type Filter = 'all' | Severidade
+type GroupKey = string | null
 
 const DISCLAIMER_KEY = 'efs.assistant.disclaimer.dismissed'
+
+function groupLabel(key: GroupKey): string {
+  return key === null ? 'Geral' : key
+}
 
 export function AssistantDrawer({
   open,
@@ -76,11 +75,11 @@ export function AssistantDrawer({
   error,
   onRetry,
   onApply,
-  fieldValues,
+  currentMarkdown,
 }: AssistantDrawerProps) {
   const [filter, setFilter] = useState<Filter>('all')
-  const [openCampos, setOpenCampos] = useState<Set<CampoPerfil>>(new Set())
-  const [diffFor, setDiffFor] = useState<{ campo: CampoPerfil; sugestao: Sugestao } | null>(null)
+  const [openGroups, setOpenGroups] = useState<Set<GroupKey>>(new Set())
+  const [diffFor, setDiffFor] = useState<{ key: GroupKey; sugestao: Sugestao } | null>(null)
   const [disclaimerOpen, setDisclaimerOpen] = useState(false)
 
   useEffect(() => {
@@ -104,23 +103,30 @@ export function AssistantDrawer({
     return [...list].sort((a, b) => severityRank(a.severidade) - severityRank(b.severidade))
   }, [result, filter])
 
-  const grouped = useMemo(() => groupByCampo(filtered), [filtered])
+  const grouped = useMemo(
+    () => groupBySecao(filtered, currentMarkdown),
+    [filtered, currentMarkdown],
+  )
 
-  // Auto-expande campos com sugestões críticas no primeiro render do resultado.
+  // Auto-expande grupos com sugestões críticas no primeiro render do
+  // resultado. Aplica a mesma lógica do drawer anterior — só dispara quando
+  // result muda, não toda vez que o markdown muda.
   useEffect(() => {
     if (!result) return
-    const next = new Set<CampoPerfil>()
-    for (const s of result.sugestoes) {
-      if (s.severidade === 'alta') next.add(s.campo)
+    const next = new Set<GroupKey>()
+    const localGroups = groupBySecao(result.sugestoes, currentMarkdown)
+    for (const [key, sugestoes] of localGroups) {
+      if (sugestoes.some((s) => s.severidade === 'alta')) next.add(key)
     }
-    setOpenCampos(next)
+    setOpenGroups(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result])
 
-  const toggleCampo = (campo: CampoPerfil) => {
-    setOpenCampos((prev) => {
+  const toggleGroup = (key: GroupKey) => {
+    setOpenGroups((prev) => {
       const next = new Set(prev)
-      if (next.has(campo)) next.delete(campo)
-      else next.add(campo)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
@@ -130,7 +136,7 @@ export function AssistantDrawer({
   return (
     <div className="fixed inset-0 z-40 flex" role="dialog" aria-label="Assistente de Refinamento de Perfil">
       <div className="flex-1 bg-fg/20 backdrop-blur-[1px]" onClick={onClose} />
-      <aside className="flex h-full w-[420px] max-w-[100vw] flex-col border-l border-border bg-surface shadow-2xl">
+      <aside className="flex h-full w-[460px] max-w-[100vw] flex-col border-l border-border bg-surface shadow-2xl">
         <DrawerHeader result={result} loading={loading} onClose={onClose} />
 
         {disclaimerOpen && (
@@ -181,22 +187,22 @@ export function AssistantDrawer({
               )}
 
               <div className="divide-y divide-border">
-                {Array.from(grouped.entries()).map(([campo, sugestoes]) => (
-                  <CampoGroup
-                    key={campo}
-                    campo={campo}
+                {Array.from(grouped.entries()).map(([key, sugestoes]) => (
+                  <SecaoGroup
+                    key={key === null ? '__null__' : key}
+                    groupKey={key}
                     sugestoes={sugestoes}
-                    open={openCampos.has(campo)}
-                    onToggle={() => toggleCampo(campo)}
-                    onUseAsBase={(sugestao) => setDiffFor({ campo, sugestao })}
+                    open={openGroups.has(key)}
+                    onToggle={() => toggleGroup(key)}
+                    onUseAsBase={(sugestao) => setDiffFor({ key, sugestao })}
                     diffFor={diffFor}
-                    onDiffApply={(value) => {
+                    onDiffApply={(op, value) => {
                       if (!diffFor) return
-                      onApply(diffFor.campo, value)
+                      onApply(op, diffFor.sugestao.secao, value)
                       setDiffFor(null)
                     }}
                     onDiffCancel={() => setDiffFor(null)}
-                    fieldValues={fieldValues}
+                    currentMarkdown={currentMarkdown}
                   />
                 ))}
               </div>
@@ -297,20 +303,20 @@ function FilterChips({ filter, onChange, counts, total }: FilterChipsProps) {
   )
 }
 
-interface CampoGroupProps {
-  campo: CampoPerfil
+interface SecaoGroupProps {
+  groupKey: GroupKey
   sugestoes: Sugestao[]
   open: boolean
   onToggle: () => void
   onUseAsBase: (sugestao: Sugestao) => void
-  diffFor: { campo: CampoPerfil; sugestao: Sugestao } | null
-  onDiffApply: (value: string) => void
+  diffFor: { key: GroupKey; sugestao: Sugestao } | null
+  onDiffApply: (op: AssistantOperacao, value: string) => void
   onDiffCancel: () => void
-  fieldValues: Record<CampoPerfil, string>
+  currentMarkdown: string
 }
 
-function CampoGroup({
-  campo,
+function SecaoGroup({
+  groupKey,
   sugestoes,
   open,
   onToggle,
@@ -318,9 +324,17 @@ function CampoGroup({
   diffFor,
   onDiffApply,
   onDiffCancel,
-  fieldValues,
-}: CampoGroupProps) {
-  const fieldEmpty = !fieldValues[campo]?.trim()
+  currentMarkdown,
+}: SecaoGroupProps) {
+  // Localiza a seção alvo (uma vez por grupo) pra que cada SugestaoCard saiba
+  // se o header existe e qual o conteúdo atual a exibir no AssistantDiff.
+  const secaoIsNull = groupKey === null
+  const location = secaoIsNull
+    ? { exists: false, content: '' }
+    : findSection(currentMarkdown, groupKey!)
+  const secaoExists = !secaoIsNull && location.exists
+  const currentContent = location.content
+  const groupEmpty = !secaoIsNull && (!secaoExists || currentContent.trim() === '')
   const topSeverity = sugestoes[0]?.severidade ?? 'baixa'
 
   return (
@@ -331,8 +345,14 @@ function CampoGroup({
       >
         <span className={cn('h-2 w-2 shrink-0 rounded-full', SEV_DOT_CLASS[topSeverity])} />
         <span className="flex-1">
-          <span className="text-sm font-semibold text-fg">{FIELD_LABELS[campo]}</span>
-          {fieldEmpty && (
+          <span className="text-sm font-semibold text-fg">{groupLabel(groupKey)}</span>
+          {secaoIsNull && (
+            <span className="ml-2 text-[10px] uppercase tracking-wider text-fg-dim">global</span>
+          )}
+          {!secaoIsNull && !secaoExists && (
+            <span className="ml-2 text-[10px] uppercase tracking-wider text-warning">seção nova</span>
+          )}
+          {groupEmpty && secaoExists && (
             <span className="ml-2 text-[10px] uppercase tracking-wider text-fg-dim">vazio</span>
           )}
         </span>
@@ -345,11 +365,13 @@ function CampoGroup({
         <div className="space-y-2 px-4 pb-3">
           {sugestoes.map((s, idx) => (
             <SugestaoCard
-              key={`${campo}-${idx}`}
+              key={`${String(groupKey)}-${idx}`}
               sugestao={s}
-              currentValue={fieldValues[campo] ?? ''}
+              currentContent={currentContent}
+              secaoExists={secaoExists}
+              secaoIsNull={secaoIsNull}
               onUseAsBase={() => onUseAsBase(s)}
-              showDiff={diffFor?.campo === campo && diffFor.sugestao === s}
+              showDiff={diffFor?.key === groupKey && diffFor.sugestao === s}
               onDiffApply={onDiffApply}
               onDiffCancel={onDiffCancel}
             />
@@ -362,16 +384,20 @@ function CampoGroup({
 
 interface SugestaoCardProps {
   sugestao: Sugestao
-  currentValue: string
+  currentContent: string
+  secaoExists: boolean
+  secaoIsNull: boolean
   onUseAsBase: () => void
   showDiff: boolean
-  onDiffApply: (value: string) => void
+  onDiffApply: (op: AssistantOperacao, value: string) => void
   onDiffCancel: () => void
 }
 
 function SugestaoCard({
   sugestao,
-  currentValue,
+  currentContent,
+  secaoExists,
+  secaoIsNull,
   onUseAsBase,
   showDiff,
   onDiffApply,
@@ -420,8 +446,10 @@ function SugestaoCard({
       {showDiff && sugestao.exemplo && (
         <div className="mt-2">
           <AssistantDiff
-            current={currentValue}
+            current={currentContent}
             suggested={sugestao.exemplo}
+            secaoExists={secaoExists}
+            secaoIsNull={secaoIsNull}
             onApply={onDiffApply}
             onCancel={onDiffCancel}
           />
@@ -434,11 +462,11 @@ function SugestaoCard({
 function DrawerSkeleton() {
   const [stage, setStage] = useState(0)
   useEffect(() => {
-    const labels = ['Lendo papel', 'Avaliando contexto', 'Gerando sugestões']
+    const labels = ['Lendo perfil', 'Avaliando estrutura', 'Gerando sugestões']
     const t = setInterval(() => setStage((s) => Math.min(s + 1, labels.length - 1)), 2200)
     return () => clearInterval(t)
   }, [])
-  const labels = ['Lendo papel', 'Avaliando contexto', 'Gerando sugestões']
+  const labels = ['Lendo perfil', 'Avaliando estrutura', 'Gerando sugestões']
 
   return (
     <div className="space-y-3 px-4 py-4">

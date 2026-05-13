@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ApiError, friendlyError } from '../api/client'
 import { listProjects, type Project } from '../api/projects'
+import { useIsAdmin } from '../stores/me'
 import {
   deleteRouterIntent,
   getRouterIntentUsage,
@@ -30,6 +31,7 @@ const PAGE_SIZE = 20
 export function RouterIntentsList() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const isAdmin = useIsAdmin()
 
   const [intents, setIntents] = useState<RouterIntent[]>([])
   const [projects, setProjects] = useState<Project[]>([])
@@ -45,6 +47,19 @@ export function RouterIntentsList() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
+    // Short-circuit pra non-admin: evita os 2 GETs que retornariam 403 (lista
+    // de intents e lista de projetos pra lookup de categoria). Backend ainda
+    // enforça em qualquer operação real (delete/edit).
+    if (isAdmin === false) {
+      setLoading(false)
+      setError(
+        'Esta tela é restrita a administradores. Se você precisa criar ou editar intenções, fale com o time de governança.',
+      )
+      setIntents([])
+      setProjects([])
+      return
+    }
+    if (isAdmin === null) return
     let cancelled = false
     setLoading(true)
     Promise.all([listRouterIntents(), listProjects()])
@@ -56,6 +71,17 @@ export function RouterIntentsList() {
       })
       .catch((err) => {
         if (cancelled) return
+        // Espelha o tratamento da tela de Aprovações: 403 é restrição
+        // administrativa (o pool global de intents só edita via admin),
+        // então deixamos uma mensagem clara em vez do friendlyError genérico.
+        if (err instanceof ApiError && err.status === 403) {
+          setError(
+            'Esta tela é restrita a administradores. Se você precisa criar ou editar intenções, fale com o time de governança.',
+          )
+          setIntents([])
+          setProjects([])
+          return
+        }
         setError(friendlyError(err, 'Não foi possível carregar as intenções.'))
       })
       .finally(() => {
@@ -64,7 +90,7 @@ export function RouterIntentsList() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [isAdmin])
 
   const projectNameById = useMemo(() => {
     const map = new Map<string, string>()

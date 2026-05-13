@@ -27,6 +27,7 @@ public class AgentService : IAgentService
     private readonly IAgentDefinitionRepository _repository;
     private readonly IAgentPromptRepository _promptRepo;
     private readonly IProjectContextAccessor _projectAccessor;
+    private readonly IAgentTemplateService _templateService;
     private readonly IAgentVersionRepository? _versionRepo;
     private readonly IAdminAuditLogger? _auditLogger;
     private readonly IAgentRouterIntentLinkRepository? _intentLinkRepo;
@@ -36,6 +37,7 @@ public class AgentService : IAgentService
         IAgentDefinitionRepository repository,
         IAgentPromptRepository promptRepo,
         IProjectContextAccessor projectAccessor,
+        IAgentTemplateService templateService,
         ILogger<AgentService> logger,
         IAgentVersionRepository? versionRepo = null,
         IAdminAuditLogger? auditLogger = null,
@@ -44,6 +46,7 @@ public class AgentService : IAgentService
         _repository = repository;
         _promptRepo = promptRepo;
         _projectAccessor = projectAccessor;
+        _templateService = templateService;
         _versionRepo = versionRepo;
         _auditLogger = auditLogger;
         _intentLinkRepo = intentLinkRepo;
@@ -58,6 +61,12 @@ public class AgentService : IAgentService
         string? createdBy = null)
     {
         definition.ProjectId = _projectAccessor.Current.ProjectId;
+
+        // Template preenche campos auto-gerados por tipo (ex.: wrap canônico
+        // do Conversational, middleware StructuredOutputState, bloco fixo
+        // nas instructions). Roda antes da validação pra que o validator
+        // verifique o resultado final, não o input cru do caller.
+        definition = _templateService.Apply(definition);
 
         var (isValid, errors, _) = await ValidateAsync(definition, ct);
         if (!isValid)
@@ -122,6 +131,11 @@ public class AgentService : IAgentService
         // ambiguidade, PATCH /visibility é o único caminho de mudar AllowedProjectIds).
         if (definition.AllowedProjectIds is null)
             definition.AllowedProjectIds = existing.AllowedProjectIds;
+
+        // Mesmo template do create — chamada idempotente garante que o
+        // resultado é o mesmo independente de o caller ter enviado o payload
+        // já normalizado (re-publish, admin override) ou no formato slim.
+        definition = _templateService.Apply(definition);
 
         var (isValid, errors, _) = await ValidateAsync(definition, ct);
         if (!isValid)
@@ -727,22 +741,26 @@ public class AgentService : IAgentService
             || so.Schema is null)
         {
             errors.Add(
-                "Conversational exige 'structuredOutput' com responseFormat='json_schema' e schema preenchido. " +
-                "O codec do wizard injeta o shape canônico { ui_component, message, output } automaticamente.");
+                "Conversational precisa de 'structuredOutput' com responseFormat='json_schema' e schema " +
+                "preenchido — o agente responde sempre em JSON com 'ui_component' e 'message' top-level.");
         }
         else
         {
+            // O template do tipo Conversational é a fonte da verdade do shape
+            // canônico — `ui_component` e `message` são sempre exigidos;
+            // `output` é opcional e só aparece quando o caller declara o
+            // sub-schema (modo estruturado). Sem o sub-schema o turn é texto
+            // livre acompanhado do identificador do componente UI.
             var root = so.Schema.RootElement;
             if (root.ValueKind != JsonValueKind.Object
                 || !root.TryGetProperty("properties", out var props)
                 || props.ValueKind != JsonValueKind.Object
                 || !props.TryGetProperty("ui_component", out _)
-                || !props.TryGetProperty("message", out _)
-                || !props.TryGetProperty("output", out _))
+                || !props.TryGetProperty("message", out _))
             {
                 errors.Add(
-                    "Schema de Conversational precisa declarar 'ui_component', 'message' e 'output' como " +
-                    "propriedades top-level. Reabra o agente no wizard pra que o codec gere o shape correto.");
+                    "Schema de Conversational precisa declarar 'ui_component' e 'message' como " +
+                    "propriedades top-level. Reabra o agente no wizard pra regenerar o shape canônico.");
             }
         }
 
@@ -828,23 +846,6 @@ public class AgentService : IAgentService
                 "Conversational sem lista de 'ui_component' declarada. Marque ao menos um valor no step " +
                 "Persona pra dirigir o renderer (ex: 'text', 'card', 'list'). Sem isso, o frontend usa " +
                 "fallback genérico (mostra message + output JSON cru).");
-        }
-
-        // Middleware AG-UI: StructuredOutputState intercepta o output JSON do
-        // turn e dispara STATE_DELTA via SSE. Sem ele, o frontend chat
-        // recebe só TEXT_MESSAGE_CONTENT (texto) e o output estruturado
-        // não chega ao renderer no formato esperado. Pra Conversational é
-        // o middleware que materializa o contrato { ui_component, message,
-        // output } como evento AG-UI.
-        var hasAgUiState = definition.Middlewares.Any(m =>
-            string.Equals(m.Type, "StructuredOutputState", StringComparison.OrdinalIgnoreCase)
-            && m.Enabled);
-        if (!hasAgUiState)
-        {
-            warnings.Add(
-                "Conversational recomenda middleware 'StructuredOutputState' — sem ele, o output " +
-                "estruturado { ui_component, message, output } não dispara STATE_DELTA no SSE e o " +
-                "frontend chat não consegue renderizar componentes em tempo real.");
         }
 
         // Modelo: warning quando deployment indica modelo grande/expensive.

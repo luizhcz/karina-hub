@@ -262,6 +262,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Core.Agents.Skills.ISkillVersionRepository, PgSkillVersionRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.Skills.ISkillRepository, PgSkillRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.Services.ISkillResolver, EfsAiHub.Core.Agents.Services.SkillResolver>();
+        services.AddSingleton<EfsAiHub.Core.Agents.Services.IAgentTemplateService, EfsAiHub.Core.Agents.Services.AgentTemplateService>();
         services.AddSingleton<EfsAiHub.Core.Agents.Responses.IBackgroundResponseRepository, PgBackgroundResponseRepository>();
         services.AddSingleton<IAgentDefinitionRepository, PgAgentDefinitionRepository>();
         services.AddSingleton<IAgentDraftRepository, PgAgentDraftRepository>();

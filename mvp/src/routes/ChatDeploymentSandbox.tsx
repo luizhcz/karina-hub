@@ -55,6 +55,10 @@ export function ChatDeploymentSandbox() {
   // Carregamos a lista de agents 1x e indexamos por id pra rotular cada step
   // com o tipo (Router, Conversational, Worker, ToolRunner, Custom).
   const [agentTypeById, setAgentTypeById] = useState<Map<string, AgentType>>(new Map())
+  // Subset dos agents que têm operational memory configurada — evita chamar
+  // /operational-memory pra Router/agents sem schema (que retornam 404 e
+  // poluem o console).
+  const [agentsWithMemoryRef, setAgentsWithMemoryRef] = useState<Set<string>>(new Set())
 
   const stream = useChatStream({
     workflowId: id ?? '',
@@ -87,14 +91,19 @@ export function ChatDeploymentSandbox() {
       })
       .catch(() => undefined)
     // Carrega tipos dos agents do projeto pra rotular cada step do stream.
+    // Aproveita pra indexar o subset que tem operational memory configurada
+    // — fetch posterior só dispara pros agents desse subset.
     listAgents()
       .then((agents: Agent[]) => {
         if (cancelled) return
         const map = new Map<string, AgentType>()
+        const withMemory = new Set<string>()
         for (const a of agents) {
           if (a.type) map.set(a.id, a.type)
+          if (a.operationalMemory?.schema) withMemory.add(a.id)
         }
         setAgentTypeById(map)
+        setAgentsWithMemoryRef(withMemory)
       })
       .catch(() => undefined)
     return () => {
@@ -105,6 +114,9 @@ export function ChatDeploymentSandbox() {
   // Quando um step novo aparece + threadId está populado, busca a memória
   // operacional desse agente pra esse escopo. Idempotente via fetchedKeysRef
   // (chave = agentId+threadId) — recarrega só se o user clicar em "atualizar".
+  // Agents sem memória configurada (Router classifier, Conversational sem
+  // schema declarado) são puláveis — o endpoint retorna 404 e o browser
+  // loga ruído no DevTools sem nenhum ganho funcional.
   useEffect(() => {
     const tid = stream.threadId
     if (!tid) return
@@ -113,6 +125,14 @@ export function ChatDeploymentSandbox() {
       const key = `${agentId}::${tid}`
       if (fetchedKeysRef.current.has(key)) continue
       fetchedKeysRef.current.add(key)
+      if (!agentsWithMemoryRef.has(agentId)) {
+        setMemories((prev) => {
+          const next = new Map(prev)
+          next.set(agentId, { status: 'empty', data: null, error: null })
+          return next
+        })
+        continue
+      }
       setMemories((prev) => {
         const next = new Map(prev)
         next.set(agentId, { status: 'loading', data: null, error: null })
@@ -142,7 +162,7 @@ export function ChatDeploymentSandbox() {
           })
         })
     }
-  }, [stream.steps, stream.threadId])
+  }, [stream.steps, stream.threadId, agentsWithMemoryRef])
 
   // Reset limpa também o cache de memórias pra próxima conversa começar limpa.
   function handleReset() {

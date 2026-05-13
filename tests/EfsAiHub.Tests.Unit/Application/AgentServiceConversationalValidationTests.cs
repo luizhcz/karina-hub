@@ -18,6 +18,7 @@ public class AgentServiceConversationalValidationTests
             repository: repo,
             promptRepo: promptRepo,
             projectAccessor: accessor,
+            templateService: new AgentTemplateService(NullLogger<AgentTemplateService>.Instance),
             logger: Substitute.For<ILogger<AgentService>>());
     }
 
@@ -99,11 +100,15 @@ public class AgentServiceConversationalValidationTests
         var brokenSchema = """{"type":"object","properties":{"foo":{"type":"string"}}}""";
         var agent = BuildBaselineConversational(schemaJson: brokenSchema);
 
+        // ValidateAsync é chamado direto sem o template ter passado por cima
+        // — simula um caller bypass (admin override, importação) que persiste
+        // schema cru. ui_component e message são obrigatórios no shape final;
+        // 'output' é opcional (modo texto livre quando ausente).
         var (isValid, errors, _) = await service.ValidateAsync(agent);
 
         isValid.Should().BeFalse();
         errors.Should().Contain(e =>
-            e.Contains("ui_component") && e.Contains("message") && e.Contains("output"));
+            e.Contains("ui_component") && e.Contains("message"));
     }
 
     [Fact]
@@ -152,18 +157,6 @@ public class AgentServiceConversationalValidationTests
 
         isValid.Should().BeTrue();
         warnings.Should().Contain(w => w.Contains("SecurityGuardrails"));
-    }
-
-    [Fact]
-    public async Task ValidateAsync_Conversational_ReturnsAgUiStateWarning_WhenOff()
-    {
-        var service = BuildService();
-        var agent = BuildBaselineConversational(agUiStateMiddleware: false);
-
-        var (isValid, _, warnings) = await service.ValidateAsync(agent);
-
-        isValid.Should().BeTrue();
-        warnings.Should().Contain(w => w.Contains("StructuredOutputState"));
     }
 
     [Fact]

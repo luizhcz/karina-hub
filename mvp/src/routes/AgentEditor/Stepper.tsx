@@ -24,9 +24,10 @@ export function Stepper({ steps, current, onSelect, disabled, issues, visited }:
   return (
     <nav
       // overflow-x-auto + min-w-0 evita que a fila de pílulas estoure o card
-      // pai quando o número de etapas cresce (ex.: modo avançado com Memória).
-      // -mx-1 px-1 dá folga visual pro foco/sombra das pílulas no scroll.
-      className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1"
+      // pai quando o número de etapas cresce. `pb-3` cria respiro entre as
+      // pílulas e a scrollbar nativa horizontal — sem isso o scrollbar fica
+      // colado nas pílulas (visualmente sujo, principalmente no dark mode).
+      className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-3"
       aria-label="Progresso"
     >
       {steps.map((step, idx) => {

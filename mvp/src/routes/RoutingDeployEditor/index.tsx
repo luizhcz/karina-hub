@@ -16,6 +16,7 @@ import {
 } from '../../api/workflows'
 import { ApiError, friendlyError } from '../../api/client'
 import { getSystemInfo } from '../../api/system'
+import { useIsAdmin } from '../../stores/me'
 import { HowToConsumeWorkflow } from '../../components/HowToConsumeWorkflow'
 import {
   ArrowLeftIcon,
@@ -193,6 +194,7 @@ function validateForm(form: FormState): Validation {
 export function RoutingDeployEditor() {
   const { id } = useParams<{ id?: string }>()
   const navigate = useNavigate()
+  const isAdmin = useIsAdmin()
   const isEdit = !!id
 
   const [form, setForm] = useState<FormState>(emptyForm)
@@ -368,6 +370,26 @@ export function RoutingDeployEditor() {
     }
   }
 
+  // Routing por intent é admin-only: o card no modal de "Nova implantação"
+  // e o filtro pill já escondem o caminho na UI, mas a rota direta
+  // (/implantacoes/roteamento[/:id]) ainda era acessível digitando a URL.
+  // null = probe de /me ainda em vôo; renderiza spinner pra evitar flash
+  // da tela de restrição antes da resolução.
+  if (isAdmin === null) {
+    return (
+      <Card className="mx-auto max-w-4xl flex items-center justify-center py-12">
+        <Spinner className="h-6 w-6 text-fg-muted" />
+      </Card>
+    )
+  }
+  if (isAdmin === false) {
+    return (
+      <ErrorMessage
+        message="Esta tela é restrita a administradores. Se você precisa implantar um roteamento por intent, fale com o time de governança."
+        className="mx-auto max-w-4xl"
+      />
+    )
+  }
   if (loading) {
     return (
       <Card className="mx-auto max-w-4xl flex items-center justify-center py-12">

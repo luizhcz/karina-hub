@@ -13,6 +13,7 @@ import {
   type Workflow,
 } from '../api/workflows'
 import { friendlyError } from '../api/client'
+import { useIsAdmin } from '../stores/me'
 import { useIdentity } from '../stores/identity'
 import {
   AgentIcon,
@@ -29,6 +30,9 @@ import {
   cn,
 } from '../ui'
 
+// Routing e Chat são admin-only no MVP — visíveis (no modal, no filtro pill,
+// na listagem) apenas pra accounts que passem no probe de `/agent-approvals`.
+// Non-admins só veem Single + Pipeline.
 type FilterKind = 'all' | DeploymentKind
 
 const FILTER_LABELS: Record<FilterKind, string> = {
@@ -51,6 +55,10 @@ export function Implantacoes() {
   const [search, setSearch] = useState('')
   const [chooserOpen, setChooserOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
+  // Hook compartilhado — cache singleton de `/api/aihub/me` em stores/me.ts.
+  // Mesma chamada usada em Aprovações/Intenções; resolvido 1x por carregamento
+  // de página, sem ruído de 403 no console.
+  const isAdmin = useIsAdmin()
 
   // Filtro persistido em query string (?type=pipeline|single|routing|chat|all).
   // Default 'all' mantém comportamento anterior pra quem não usa o filtro.
@@ -76,16 +84,15 @@ export function Implantacoes() {
       .then((all) => {
         if (cancelled) return
         // Lista mostra qualquer workflow nascido dos fluxos de implantação:
-        // single (deploy-{agentId}), pipeline (deploy-pipeline-{guid}), routing
-        // (deploy-routing-{guid}) e chat (deploy-chat-{guid}/metadata=chat).
-        // Workflows criados por admin via API direta sem casar nesses padrões
-        // continuam fora.
+        // single, pipeline, routing, chat. Filtragem por isAdmin (esconde
+        // routing/chat pra non-admin) acontece no useMemo `filtered` abaixo —
+        // mantemos todos em workflows[] pra que o contador mostre o real.
         const deployments = all.filter(
           (w) =>
-            isAgentDeployment(w) ||
-            isPipelineDeployment(w) ||
-            isRoutingDeployment(w) ||
-            isChatDeployment(w),
+            isAgentDeployment(w)
+            || isPipelineDeployment(w)
+            || isRoutingDeployment(w)
+            || isChatDeployment(w),
         )
         setWorkflows(deployments)
       })
@@ -95,6 +102,8 @@ export function Implantacoes() {
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
+    // isAdmin agora vem do hook `useIsAdmin()` no topo do componente —
+    // cache singleton em stores/me.ts evita refetch entre telas.
     return () => {
       cancelled = true
     }
@@ -105,24 +114,37 @@ export function Implantacoes() {
     [workflows],
   )
 
+  // Non-admin não vê deploys routing nem chat — fica restrito ao próprio
+  // bucket. workflows[] continua com todos pra que counts mostre 0 quando
+  // o tipo está oculto (em vez de mascarar — admin esperando ver tudo).
+  const visibleWorkflows = useMemo(() => {
+    if (isAdmin !== false) return workflows
+    return workflows.filter((w) => {
+      const kind = deploymentKindOf(w)
+      return kind !== 'routing' && kind !== 'chat'
+    })
+  }, [workflows, isAdmin])
+
   const counts = useMemo(() => {
     let single = 0
     let pipeline = 0
     let routing = 0
     let chat = 0
-    for (const w of workflows) {
+    for (const w of visibleWorkflows) {
       const kind = deploymentKindOf(w)
       if (kind === 'pipeline') pipeline++
       else if (kind === 'routing') routing++
       else if (kind === 'chat') chat++
       else single++
     }
-    return { all: workflows.length, single, pipeline, routing, chat }
-  }, [workflows])
+    return { all: visibleWorkflows.length, single, pipeline, routing, chat }
+  }, [visibleWorkflows])
 
   const filtered = useMemo(() => {
     const byKind =
-      filterKind === 'all' ? workflows : workflows.filter((w) => deploymentKindOf(w) === filterKind)
+      filterKind === 'all'
+        ? visibleWorkflows
+        : visibleWorkflows.filter((w) => deploymentKindOf(w) === filterKind)
     const q = search.trim().toLowerCase()
     if (!q) return byKind
     return byKind.filter((w) => {
@@ -130,7 +152,7 @@ export function Implantacoes() {
       const desc = (w.description ?? '').toLowerCase()
       return name.includes(q) || desc.includes(q) || w.id.toLowerCase().includes(q)
     })
-  }, [workflows, search, filterKind])
+  }, [visibleWorkflows, search, filterKind])
 
   const handleCardClick = (w: Workflow) => {
     const kind = deploymentKindOf(w)
@@ -166,7 +188,13 @@ export function Implantacoes() {
 
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex rounded-lg border border-border bg-bg-soft p-1">
-          {(['all', 'single', 'pipeline', 'routing', 'chat'] as const).map((kind) => (
+          {(
+            // Routing e Chat só aparecem como pill quando o user é admin —
+            // mesma restrição aplicada ao modal de "Nova implantação".
+            isAdmin === true
+              ? (['all', 'single', 'pipeline', 'routing', 'chat'] as const)
+              : (['all', 'single', 'pipeline'] as const)
+          ).map((kind) => (
             <FilterPill
               key={kind}
               active={filterKind === kind}
@@ -213,6 +241,7 @@ export function Implantacoes() {
       <KindChooserModal
         open={chooserOpen}
         chatDeploymentAllowed={identity?.chatDeploymentAllowed ?? false}
+        isAdmin={isAdmin === true}
         onClose={() => setChooserOpen(false)}
         onChoose={(kind: DeploymentKind) => {
           setChooserOpen(false)
@@ -370,20 +399,33 @@ function DeploymentCard({ workflow, onClick }: DeploymentCardProps) {
 interface KindChooserModalProps {
   open: boolean
   chatDeploymentAllowed: boolean
+  /** Chat deploy é admin-only no MVP. Quando false, o card "Chat" é
+   *  omitido (não fica disabled visível). Junto com chatDeploymentAllowed
+   *  cobre as 2 dimensões: identidade (admin) + projeto (Sales Trader AI). */
+  isAdmin: boolean
   onClose: () => void
   onChoose: (kind: DeploymentKind) => void
 }
 
-function KindChooserModal({ open, chatDeploymentAllowed, onClose, onChoose }: KindChooserModalProps) {
+function KindChooserModal({
+  open,
+  chatDeploymentAllowed,
+  isAdmin,
+  onClose,
+  onChoose,
+}: KindChooserModalProps) {
   return (
     <Modal
       open={open}
       onClose={onClose}
-      size="md"
+      size="xl"
       title="Como você quer implantar?"
       description="Escolha o tipo de implantação. Você pode mudar a qualquer momento criando outra implantação."
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* Grid responsivo: 1 col em mobile, 2 em tablet, 3 em laptop, 4 em
+          desktop largo. O número de cards é dinâmico (2 pra non-admin, 4 pra
+          admin) — o grid se adapta sem quebrar. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <KindChooserCard
           label="Um agente"
           description="Implanta um agente publicado como workflow de chamada única."
@@ -396,20 +438,24 @@ function KindChooserModal({ open, chatDeploymentAllowed, onClose, onChoose }: Ki
           tone="accent"
           onClick={() => onChoose('pipeline')}
         />
-        <KindChooserCard
-          label="Roteamento por intent"
-          description="Router como entry node + 1 agente por intent + fallback. Switch edge encaminha o input pra branch que a intent escolhida indica."
-          tone="violet"
-          onClick={() => onChoose('routing')}
-        />
-        <KindChooserCard
-          label="Chat"
-          description="Router conversacional + branches Conversational por intent + fallback. Workflow em InputMode=Chat com STATE_DELTA via SSE. Disponível apenas em projetos autorizados."
-          tone="teal"
-          onClick={() => onChoose('chat')}
-          disabled={!chatDeploymentAllowed}
-          disabledTitle="Disponível apenas no projeto Sales Trader AI"
-        />
+        {isAdmin && (
+          <KindChooserCard
+            label="Roteamento por intent"
+            description="Router como entry node + 1 agente por intent + fallback. Switch edge encaminha o input pra branch que a intent escolhida indica."
+            tone="violet"
+            onClick={() => onChoose('routing')}
+          />
+        )}
+        {isAdmin && (
+          <KindChooserCard
+            label="Chat"
+            description="Router conversacional + branches Conversational por intent + fallback. Workflow em InputMode=Chat com STATE_DELTA via SSE. Disponível apenas em projetos autorizados."
+            tone="teal"
+            onClick={() => onChoose('chat')}
+            disabled={!chatDeploymentAllowed}
+            disabledTitle="Disponível apenas no projeto Sales Trader AI"
+          />
+        )}
       </div>
     </Modal>
   )
@@ -447,14 +493,14 @@ function KindChooserCard({
       disabled={disabled}
       title={disabled ? disabledTitle : undefined}
       className={cn(
-        'flex flex-col gap-2 rounded-xl border border-border bg-surface p-4 text-left transition',
+        'flex h-full flex-col gap-3 rounded-xl border border-border bg-surface p-4 text-left transition sm:p-5',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
         disabled
           ? 'cursor-not-allowed opacity-50'
           : 'hover:border-accent/60 hover:bg-accent-subtle/30',
       )}
     >
-      <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', iconClass)}>
+      <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg', iconClass)}>
         <BoltIcon className="h-5 w-5" />
       </div>
       <div className="text-sm font-semibold text-fg">{label}</div>

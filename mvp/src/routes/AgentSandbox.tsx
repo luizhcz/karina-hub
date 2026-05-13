@@ -14,8 +14,9 @@ import {
   ArrowRightIcon,
   Button,
   Card,
+  CloseIcon,
   ErrorMessage,
-  Modal,
+  IconButton,
   PlusIcon,
   Spinner,
   cn,
@@ -63,7 +64,10 @@ export function AgentSandbox() {
   const [sending, setSending] = useState(false)
   const [turnError, setTurnError] = useState<string | null>(null)
 
-  const [memoryOpen, setMemoryOpen] = useState(false)
+  // Painel lateral fica `false` por default — só abre quando o user clica
+  // em "Memória". Não abrir automático pra preservar layout single-column
+  // de quem não usa memória operacional.
+  const [memoryPanelOpen, setMemoryPanelOpen] = useState(false)
   const [memoryRecord, setMemoryRecord] = useState<OperationalMemory | null>(null)
   const [memoryLoading, setMemoryLoading] = useState(false)
   const [memoryError, setMemoryError] = useState<string | null>(null)
@@ -143,13 +147,31 @@ export function AgentSandbox() {
 
   const hasOperationalMemory = !!agent?.operationalMemory?.schema
 
-  const openMemoryDrawer = async () => {
-    if (!id || !session) return
-    setMemoryOpen(true)
+  // Auto-fetch da memória: dispara quando o painel está aberto e o turn
+  // atual terminou (streaming=false na última mensagem assistant). Cobre
+  // tanto o trigger inicial de abertura quanto refresh entre turns, sem
+  // polling — o middleware grava antes do stream encerrar, então qualquer
+  // fetch pós-streaming captura o estado atualizado.
+  useEffect(() => {
+    if (!memoryPanelOpen || !session || sending) return
+    const lastAssistant = [...messages]
+      .reverse()
+      .find((m): m is AssistantMsg => m.kind === 'assistant')
+    if (lastAssistant && lastAssistant.streaming) return
+    void fetchMemorySnapshot(session.sessionId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memoryPanelOpen, session, sending, messages])
+
+  // Lê o snapshot atual da memória do agente nesta sessão. Chamado pelo
+  // useEffect de auto-refresh após cada turn e ao abrir o painel pela
+  // primeira vez. Idempotente: re-chamar com mesmo state apenas atualiza
+  // o record (sem efeito colateral no servidor).
+  const fetchMemorySnapshot = async (sid: string) => {
+    if (!id) return
     setMemoryError(null)
     setMemoryLoading(true)
     try {
-      const record = await getOperationalMemory(id, session.sessionId, 'session')
+      const record = await getOperationalMemory(id, sid, 'session')
       setMemoryRecord(record)
     } catch (err) {
       setMemoryError(friendlyError(err, 'Não foi possível carregar a memória.'))
@@ -158,10 +180,8 @@ export function AgentSandbox() {
     }
   }
 
-  const closeMemoryDrawer = () => {
-    setMemoryOpen(false)
-    setMemoryRecord(null)
-    setMemoryError(null)
+  const toggleMemoryPanel = () => {
+    setMemoryPanelOpen((open) => !open)
   }
 
   const resetMemory = async () => {
@@ -252,8 +272,14 @@ export function AgentSandbox() {
     return <ErrorMessage message={agentError ?? 'Agente não encontrado.'} className="mx-auto max-w-4xl" />
   }
 
+  // Largura máxima do container expande quando o painel de memória está
+  // aberto pra dar espaço à coluna lateral sem comprimir o chat. Em
+  // viewports < lg o painel ocupa largura total (stack vertical) — limite
+  // aceitável pra V1, layout principal é desktop.
+  const rootMaxWidth = memoryPanelOpen ? 'max-w-6xl' : 'max-w-4xl'
+
   return (
-    <div className="mx-auto flex h-[calc(100vh-9rem)] max-w-4xl flex-col">
+    <div className={cn('mx-auto flex h-[calc(100vh-9rem)] flex-col', rootMaxWidth)}>
       <div className="mb-4 flex items-center justify-between gap-4">
         <div className="min-w-0">
           <Button
@@ -282,9 +308,9 @@ export function AgentSandbox() {
         <div className="flex items-center gap-2">
           {hasOperationalMemory && (
             <Button
-              variant="ghost"
+              variant={memoryPanelOpen ? 'primary' : 'ghost'}
               size="sm"
-              onClick={openMemoryDrawer}
+              onClick={toggleMemoryPanel}
               disabled={!session}
             >
               Memória
@@ -311,108 +337,154 @@ export function AgentSandbox() {
         </Card>
       )}
 
-      <Card padded={false} className="flex flex-1 flex-col overflow-hidden">
-        <div ref={scrollerRef} className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
-          {messages.length === 0 ? (
-            <EmptyState />
-          ) : (
-            messages.map((msg) =>
-              msg.kind === 'user' ? (
-                <UserBubble key={msg.id} msg={msg} />
-              ) : (
-                <AssistantBubble key={msg.id} msg={msg} />
-              ),
-            )
+      {/* Split row: a conversa fica flex-1 e o painel lateral ocupa ~420px
+          quando aberto. min-h-0 essencial pra que o overflow interno do
+          scroller do chat seja delimitado pelo flex parent — sem isso o
+          chat empurra o footer pra fora da viewport. */}
+      <div className="flex min-h-0 flex-1 gap-4">
+        <Card padded={false} className="flex flex-1 flex-col overflow-hidden">
+          <div ref={scrollerRef} className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+            {messages.length === 0 ? (
+              <EmptyState />
+            ) : (
+              messages.map((msg) =>
+                msg.kind === 'user' ? (
+                  <UserBubble key={msg.id} msg={msg} />
+                ) : (
+                  <AssistantBubble key={msg.id} msg={msg} />
+                ),
+              )
+            )}
+          </div>
+
+          {turnError && (
+            <div className="border-t border-border px-5 py-2">
+              <p className="text-xs text-danger">{turnError}</p>
+            </div>
           )}
-        </div>
 
-        {turnError && (
-          <div className="border-t border-border px-5 py-2">
-            <p className="text-xs text-danger">{turnError}</p>
-          </div>
-        )}
-
-        <div className="border-t border-border bg-bg-soft/50 px-4 py-3">
-          <div className="flex items-end gap-2">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Pergunte algo ao agente…"
-              rows={1}
-              disabled={sending}
-              className={cn(
-                // leading-5 fixa o line-height pro auto-grow ler valor previsível.
-                // Altura é controlada via style.height no useLayoutEffect (cap = 5 linhas).
-                'block flex-1 resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm leading-5 text-fg placeholder:text-fg-dim',
-                'focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent',
-                'disabled:cursor-not-allowed disabled:opacity-60',
-              )}
-            />
-            <Button
-              aria-label="Enviar mensagem"
-              onClick={handleSend}
-              disabled={!input.trim() || sending}
-              loading={sending}
-              rightIcon={!sending ? <ArrowRightIcon className="h-4 w-4" /> : undefined}
-              className="shrink-0"
-            >
-              Enviar
-            </Button>
-          </div>
-          <p className="mt-1.5 text-[11px] text-fg-dim">
-            Enter pra enviar · Shift+Enter pra quebrar linha
-          </p>
-        </div>
-      </Card>
-
-      <Modal
-        open={memoryOpen}
-        onClose={closeMemoryDrawer}
-        title="Memória operacional"
-        description="Estado canônico que o agente atualiza a cada turno. Replace puro — cada turn sobrescreve o documento inteiro."
-        size="lg"
-        footer={
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[11px] text-fg-dim">
-              {memoryRecord ? `Versão ${memoryRecord.version} · atualizada em ${formatMemoryTimestamp(memoryRecord.updatedAt)}` : 'Sem registros pra esta sessão.'}
-            </span>
-            <div className="flex items-center gap-2">
-              {memoryRecord && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={resetMemory}
-                  loading={memoryResetting}
-                >
-                  Resetar
-                </Button>
-              )}
-              <Button variant="secondary" size="sm" onClick={closeMemoryDrawer}>
-                Fechar
+          <div className="border-t border-border bg-bg-soft/50 px-4 py-3">
+            <div className="flex items-end gap-2">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Pergunte algo ao agente…"
+                rows={1}
+                disabled={sending}
+                className={cn(
+                  // leading-5 fixa o line-height pro auto-grow ler valor previsível.
+                  // Altura é controlada via style.height no useLayoutEffect (cap = 5 linhas).
+                  'block flex-1 resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm leading-5 text-fg placeholder:text-fg-dim',
+                  'focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent',
+                  'disabled:cursor-not-allowed disabled:opacity-60',
+                )}
+              />
+              <Button
+                aria-label="Enviar mensagem"
+                onClick={handleSend}
+                disabled={!input.trim() || sending}
+                loading={sending}
+                rightIcon={!sending ? <ArrowRightIcon className="h-4 w-4" /> : undefined}
+                className="shrink-0"
+              >
+                Enviar
               </Button>
             </div>
+            <p className="mt-1.5 text-[11px] text-fg-dim">
+              Enter pra enviar · Shift+Enter pra quebrar linha
+            </p>
           </div>
-        }
-      >
-        {memoryLoading ? (
+        </Card>
+
+        {memoryPanelOpen && (
+          <OperationalMemoryPanel
+            record={memoryRecord}
+            loading={memoryLoading}
+            error={memoryError}
+            resetting={memoryResetting}
+            onReset={resetMemory}
+            onClose={() => setMemoryPanelOpen(false)}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+interface OperationalMemoryPanelProps {
+  record: OperationalMemory | null
+  loading: boolean
+  error: string | null
+  resetting: boolean
+  onReset: () => void
+  onClose: () => void
+}
+
+// Painel lateral persistente que mostra o estado atual da memória operacional.
+// Atualiza automaticamente após cada turn (via useEffect no parent) — o user
+// vê o agente preenchendo o bloco em tempo real, sem precisar abrir/fechar
+// nada. Layout segue o pattern do `MemoryPanel` do ChatDeploymentSandbox.
+function OperationalMemoryPanel({
+  record,
+  loading,
+  error,
+  resetting,
+  onReset,
+  onClose,
+}: OperationalMemoryPanelProps) {
+  return (
+    <aside className="flex w-[420px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface">
+      <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-fg">Memória operacional</h2>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-fg-muted">
+            O agente guarda anotações entre as mensagens. Aqui você vê o estado atual desse bloco — atualiza sozinho a cada resposta.
+          </p>
+        </div>
+        <IconButton aria-label="Fechar painel de memória" onClick={onClose} size="sm">
+          <CloseIcon className="h-4 w-4" />
+        </IconButton>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-bg-soft/40 px-4 py-2">
+        <span className="text-[11px] text-fg-dim">
+          {record
+            ? `v${record.version} · atualizada em ${formatMemoryTimestamp(record.updatedAt)}`
+            : 'Sem registros pra esta sessão.'}
+        </span>
+        {record && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onReset}
+            loading={resetting}
+            className="-mr-1"
+          >
+            Resetar
+          </Button>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {loading && !record ? (
           <div className="flex items-center justify-center py-10">
-            <Spinner className="h-6 w-6 text-fg-muted" />
+            <Spinner className="h-5 w-5 text-fg-muted" />
           </div>
-        ) : memoryError ? (
-          <ErrorMessage message={memoryError} />
-        ) : memoryRecord ? (
-          <pre className="max-h-[60vh] overflow-auto rounded-lg border border-border bg-bg-soft p-4 font-mono text-[12px] leading-5 text-fg">
-            {JSON.stringify(memoryRecord.payload, null, 2)}
+        ) : error ? (
+          <ErrorMessage message={error} />
+        ) : record ? (
+          <pre className="overflow-auto rounded-md border border-border bg-bg-soft p-3 font-mono text-[11px] leading-5 text-fg">
+            {JSON.stringify(record.payload, null, 2)}
           </pre>
         ) : (
-          <p className="py-8 text-center text-sm text-fg-muted">
+          <p className="py-8 text-center text-xs text-fg-muted">
             Memória vazia pra esta sessão. O próximo turno do agente cria a primeira versão.
           </p>
         )}
-      </Modal>
-    </div>
+      </div>
+    </aside>
   )
 }
 

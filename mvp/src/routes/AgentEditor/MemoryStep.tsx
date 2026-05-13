@@ -19,44 +19,35 @@ export function MemoryStep({ form, setForm, readonly }: MemoryStepProps) {
     <div className="space-y-5">
       <Card className="space-y-3">
         <CardHeader
-          title="Memória operacional"
-          description="Estado canônico que o agente atualiza a cada turno. Substitui ler todo o histórico — o middleware lê do banco e injeta no prompt antes da chamada, e persiste o que o LLM emite no campo `operationalMemory` ao final."
+          title="Memória do agente"
+          description="Quando ligada, o agente guarda um “bloco de anotações” entre as conversas — preferências do usuário, dados já confirmados, próximo passo. Em vez de reler todo o histórico a cada mensagem, ele atualiza esse bloco a cada turno."
         />
         <ToggleRow
           checked={form.memory.enabled}
           disabled={readonly}
           onChange={toggle}
-          label="Ativar memória operacional"
+          label="Ligar memória do agente"
           hint={
             form.memory.enabled
-              ? 'Quando ativa, o LLM passa a emitir um campo `operationalMemory` em todo turno (replace puro). O caller só recebe a resposta normal — o middleware faz strip antes de devolver.'
-              : 'Sem memória, cada turno relê todo o histórico pra reconstruir estado.'
+              ? 'O agente vai manter um resumo do que aprendeu sobre o usuário entre as mensagens. O usuário não vê esse resumo — ele fica nos bastidores.'
+              : 'Sem memória, cada mensagem é tratada do zero — o agente não lembra o que aconteceu antes na conversa.'
           }
         />
       </Card>
 
       {form.memory.enabled && (
-        <>
-          <Card className="space-y-3">
-            <CardHeader
-              title="Estrutura da memória"
-              description="JSON Schema do payload que o agente vai manter. O schema é mergeado ao output estruturado do agente — não pode ter chave 'operationalMemory' colidindo no schema do output."
-            />
-            <JsonSchemaBuilder
-              value={form.memory.schema}
-              onChange={(schema) => updateMemory((prev) => ({ ...prev, schema }))}
-              emptyHint="Adicione os campos canônicos do estado mental do agente (preferências, fatos confirmados, próximo passo, etc.)."
-            />
-          </Card>
-
-          <div className="rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 text-xs leading-relaxed text-warning">
-            <strong>Streaming:</strong> quando memória está ativa, o middleware bufferiza
-            todo o stream pra fazer o strip do campo no fim. O TTFT (tempo até o primeiro
-            token visível ao caller) iguala o de uma chamada não-streaming.
-          </div>
-        </>
+        <Card className="space-y-3">
+          <CardHeader
+            title="O que o agente vai lembrar"
+            description="Defina os campos que o agente vai manter na memória — ex.: nome do usuário, preferências, etapa atual da tarefa. Cada campo vai virar uma anotação que o agente atualiza a cada mensagem."
+          />
+          <JsonSchemaBuilder
+            value={form.memory.schema}
+            onChange={(schema) => updateMemory((prev) => ({ ...prev, schema }))}
+            emptyHint="Adicione os campos que o agente precisa lembrar entre as mensagens (preferências, fatos confirmados, próximo passo, etc.)."
+          />
+        </Card>
       )}
     </div>
   )
 }
-

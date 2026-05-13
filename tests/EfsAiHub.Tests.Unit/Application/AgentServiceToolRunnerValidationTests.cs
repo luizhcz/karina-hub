@@ -17,6 +17,7 @@ public class AgentServiceToolRunnerValidationTests
             repository: repo,
             promptRepo: promptRepo,
             projectAccessor: accessor,
+            templateService: new AgentTemplateService(NullLogger<AgentTemplateService>.Instance),
             logger: Substitute.For<ILogger<AgentService>>());
     }
 

@@ -19,7 +19,6 @@ import {
   analisarPerfil,
   countCriticas,
   hashInput,
-  type CampoPerfil,
   type ProfileInput,
   type RefinamentoPerfilOutput,
 } from '../../api/profileAssistant'
@@ -35,6 +34,7 @@ import {
   Spinner,
   cn,
 } from '../../ui'
+import { applyOperationToMarkdown, type AssistantOperacao } from './instructionsCodec'
 import { Stepper, type StepDescriptor } from './Stepper'
 import { TypeStep } from './TypeStep'
 import { ProfileStep } from './ProfileStep'
@@ -42,7 +42,6 @@ import { RouterProfileStep } from './RouterProfileStep'
 import { WorkerProfileStep } from './WorkerProfileStep'
 import { ToolRunnerProfileStep } from './ToolRunnerProfileStep'
 import { ConversationalProfileStep } from './ConversationalProfileStep'
-import { ConversationalComponentStep } from './ConversationalComponentStep'
 import { ToolsKnowledgeStep } from './ToolsKnowledgeStep'
 import { SecurityStep } from './SecurityStep'
 import { MemoryStep } from './MemoryStep'
@@ -55,37 +54,27 @@ import { AGENT_TEMPLATES } from './templates'
 import type { AgentMode, FormState, StepKey } from './types'
 import type { AgentType } from '../../api/agentDrafts'
 
-const COOLDOWN_MS = 10_000
-const MIN_ROLE_CHARS = 20
+// Cooldown longo (10 min) — análise de perfil é cara (Foundry Responses
+// estruturado) e o resultado raramente muda entre edits curtos. Força o
+// PO a iterar no markdown antes de re-pedir refinamento.
+const COOLDOWN_MS = 10 * 60 * 1000
+const MIN_PROFILE_CHARS = 20
+
+// Formata um countdown em segundos pra display compacto: <60s usa "Xs";
+// >=60s usa "Xm Ys" (e omite o "Ys" quando bate em minutos cheios). Reduz
+// ruído visual no botão durante cooldowns longos.
+function formatCooldown(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return s === 0 ? `${m}m` : `${m}m ${s}s`
+}
 
 function profileInputFrom(form: FormState): ProfileInput {
   return {
     name: form.name,
-    role: form.profile.role,
-    goal: form.profile.goal,
-    backstory: form.profile.backstory,
-    rules: form.profile.rules.join('\n'),
-    constraints: form.profile.constraints.join('\n'),
+    profile: form.profile,
   }
-}
-
-function fieldValuesFrom(form: FormState): Record<CampoPerfil, string> {
-  return {
-    name: form.name,
-    description: '',
-    role: form.profile.role,
-    goal: form.profile.goal,
-    backstory: form.profile.backstory,
-    rules: form.profile.rules.join('\n'),
-    constraints: form.profile.constraints.join('\n'),
-  }
-}
-
-function splitListField(value: string): string[] {
-  return value
-    .split('\n')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
 }
 
 interface Props {
@@ -166,15 +155,14 @@ const TOOL_RUNNER_STEPS: StepDescriptor[] = [
 ]
 
 // Conversational substitui o ProfileStep por um step próprio (Identificação
-// + Persona + UI components). Inclui Tools (opcional — pode chamar tools
-// no contexto da conversa), Segurança (recomendado on), Memória (frequente
-// pra continuidade entre turns), Output (sub-schema do shape canônico),
-// Modelo. Sem Input — chat consome ChatTurnContext, schema de input é
-// implícito.
+// + Persona). Inclui Tools (opcional), Segurança (recomendado on), Memória
+// (frequente pra continuidade entre turns), Output (combina componente UI +
+// sub-schema do shape canônico — output é SEMPRE structured pro Conversational
+// porque o frontend chat exige `ui_component`), Modelo. Sem Input — chat
+// consome ChatTurnContext, schema de input é implícito.
 const CONVERSATIONAL_STEPS: StepDescriptor[] = [
   { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Identificação' },
-  { key: 'component', label: 'Componente' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'security', label: 'Segurança' },
   { key: 'memory', label: 'Memória' },
@@ -183,12 +171,29 @@ const CONVERSATIONAL_STEPS: StepDescriptor[] = [
   { key: 'review', label: 'Revisão' },
 ]
 
+// Labels visíveis dos tipos no Stepper. Espelha PT-BR amigável quando faz
+// sentido (Tool Runner com espaço), mantém English nos demais.
+const TYPE_STEP_LABEL: Record<AgentType, string> = {
+  Custom: 'Custom',
+  Router: 'Router',
+  Worker: 'Worker',
+  ToolRunner: 'Tool Runner',
+  Conversational: 'Conversational',
+}
+
 function stepsFor(mode: AgentMode, type: AgentType): StepDescriptor[] {
-  if (type === 'Router') return ROUTER_STEPS
-  if (type === 'Worker') return WORKER_STEPS
-  if (type === 'ToolRunner') return TOOL_RUNNER_STEPS
-  if (type === 'Conversational') return CONVERSATIONAL_STEPS
-  return mode === 'advanced' ? ADVANCED_STEPS : BASIC_STEPS
+  const raw = ((): StepDescriptor[] => {
+    if (type === 'Router') return ROUTER_STEPS
+    if (type === 'Worker') return WORKER_STEPS
+    if (type === 'ToolRunner') return TOOL_RUNNER_STEPS
+    if (type === 'Conversational') return CONVERSATIONAL_STEPS
+    return mode === 'advanced' ? ADVANCED_STEPS : BASIC_STEPS
+  })()
+  // Substitui o label genérico "Tipo" pelo tipo selecionado (ex: "Custom",
+  // "Conversational") — fica explícito no stepper qual fluxo o user escolheu.
+  return raw.map((s) =>
+    s.key === 'type' ? { ...s, label: TYPE_STEP_LABEL[type] ?? 'Tipo' } : s,
+  )
 }
 
 export function AgentEditor({ mode }: Props) {
@@ -232,10 +237,21 @@ export function AgentEditor({ mode }: Props) {
     if (!initialTemplateKey) return base
     const tpl = AGENT_TEMPLATES.find((t) => t.key === initialTemplateKey)
     if (!tpl) return base
+    // Template pode override o tipo (ex.: Conversational templates trazem
+    // `type: 'Conversational'`). Sem `type` no template, herda o tipo da
+    // URL (default Custom).
+    const tplType = tpl.type ?? base.type
     return {
       ...base,
+      type: tplType,
       name: tpl.defaults.name,
-      profile: { ...tpl.defaults.profile },
+      profile: tpl.defaults.profile,
+      // Conversational template pode pré-popular o componente único de UI.
+      // Mantém compat com FormState (array de 1) — o input do step Output
+      // lê o primeiro item e escreve de volta como array de 1 elemento.
+      conversationalUiComponents: tpl.defaults.conversationalUiComponent
+        ? [tpl.defaults.conversationalUiComponent]
+        : base.conversationalUiComponents,
     }
   })
   const [draft, setDraft] = useState<AgentDraft | null>(null)
@@ -259,7 +275,6 @@ export function AgentEditor({ mode }: Props) {
   const [now, setNow] = useState(() => Date.now())
   const lastInputRef = useRef<{ hash: string; result: RefinamentoPerfilOutput; ts: number } | null>(null)
   const analysisHashRef = useRef<string | null>(null)
-  const fieldsTouchedRef = useRef<Set<CampoPerfil>>(new Set())
   const abortRef = useRef<AbortController | null>(null)
   const [confirmFrustration, setConfirmFrustration] = useState(false)
   const frustrationDismissedRef = useRef(false)
@@ -531,37 +546,17 @@ export function AgentEditor({ mode }: Props) {
   // ── Assistente de Refinamento ────────────────────────────────────────
   const cooldownRemaining = Math.max(0, Math.ceil((cooldownUntil - now) / 1000))
   const onCooldown = cooldownRemaining > 0
-  const roleReady = form.profile.role.trim().length >= MIN_ROLE_CHARS
-  const assistantDisabled = readonly || !roleReady || onCooldown || assistantLoading
+  const profileReady = form.profile.trim().length >= MIN_PROFILE_CHARS
+  const assistantDisabled = readonly || !profileReady || onCooldown || assistantLoading
 
-  const onAssistantApply = (campo: CampoPerfil, value: string) => {
-    setForm((prev) => {
-      const next = { ...prev }
-      switch (campo) {
-        case 'name':
-          next.name = value
-          break
-        case 'role':
-          next.profile = { ...prev.profile, role: value }
-          break
-        case 'goal':
-          next.profile = { ...prev.profile, goal: value }
-          break
-        case 'backstory':
-          next.profile = { ...prev.profile, backstory: value }
-          break
-        case 'rules':
-          next.profile = { ...prev.profile, rules: splitListField(value) }
-          break
-        case 'constraints':
-          next.profile = { ...prev.profile, constraints: splitListField(value) }
-          break
-        // 'description' não tem campo no wizard — sugestões para esse campo
-        // são filtradas no AssistantDrawer via groupByCampo (não rendem grupo).
-      }
-      return next
-    })
-    fieldsTouchedRef.current.add(campo)
+  // Aplica uma sugestão do assistente direto no markdown do profile. O usuário
+  // já decidiu a operação (substituir/mesclar) no toggle do AssistantDiff;
+  // aqui só delegamos pro helper canônico do codec.
+  const onAssistantApply = (op: AssistantOperacao, secao: string | null, conteudo: string) => {
+    setForm((prev) => ({
+      ...prev,
+      profile: applyOperationToMarkdown(prev.profile, op, secao, conteudo),
+    }))
   }
 
   const runAnalysis = async () => {
@@ -577,7 +572,6 @@ export function AgentEditor({ mode }: Props) {
       setAssistantError(null)
       setAssistantOpen(true)
       analysisHashRef.current = h
-      fieldsTouchedRef.current = new Set()
       return
     }
 
@@ -594,7 +588,6 @@ export function AgentEditor({ mode }: Props) {
       setAssistantResult(result)
       lastInputRef.current = { hash: h, result, ts: Date.now() }
       analysisHashRef.current = h
-      fieldsTouchedRef.current = new Set()
       const until = Date.now() + COOLDOWN_MS
       setCooldownUntil(until)
       setNow(Date.now())
@@ -815,8 +808,9 @@ export function AgentEditor({ mode }: Props) {
               aria-required="true"
               required
               className={cn(
-                'min-w-0 flex-1 truncate border-0 bg-transparent px-0 text-2xl font-semibold tracking-tight',
-                'text-fg placeholder:text-fg-dim focus:outline-none focus:ring-0',
+                'min-w-0 flex-1 truncate rounded-lg border border-border bg-surface px-3 py-2 text-2xl font-semibold tracking-tight',
+                'text-fg placeholder:text-fg-dim transition-colors',
+                'hover:border-border-strong focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20',
                 'disabled:cursor-not-allowed disabled:opacity-60',
               )}
             />
@@ -836,8 +830,7 @@ export function AgentEditor({ mode }: Props) {
         </div>
         {form.type !== 'Router'
           && form.type !== 'Worker'
-          && form.type !== 'ToolRunner'
-          && form.type !== 'Conversational' && (
+          && form.type !== 'ToolRunner' && (
           <div className="flex shrink-0 flex-col items-end gap-1">
             <Button
               size="sm"
@@ -847,22 +840,21 @@ export function AgentEditor({ mode }: Props) {
               loading={assistantLoading}
               leftIcon={!assistantLoading ? <SparklesIcon className="h-4 w-4" /> : undefined}
               title={
-                !roleReady
-                  ? `Preencha o papel com pelo menos ${MIN_ROLE_CHARS} caracteres pra habilitar.`
+                !profileReady
+                  ? `Preencha o perfil com pelo menos ${MIN_PROFILE_CHARS} caracteres pra habilitar.`
                   : onCooldown
-                  ? `Aguarde ${cooldownRemaining}s pra rodar de novo.`
+                  ? `Aguarde ${formatCooldown(cooldownRemaining)} pra rodar de novo.`
                   : 'Analisa o perfil e devolve sugestões granulares.'
               }
             >
               {assistantLoading
                 ? 'Analisando perfil…'
                 : onCooldown
-                ? `Aguarde ${cooldownRemaining}s`
+                ? `Aguarde ${formatCooldown(cooldownRemaining)}`
                 : assistantResult
                 ? 'Reanalisar perfil'
                 : 'Refinar com IA'}
             </Button>
-            <span className="text-[10px] text-fg-dim">~$0.001 por análise</span>
           </div>
         )}
       </div>
@@ -887,31 +879,13 @@ export function AgentEditor({ mode }: Props) {
       )}
 
       <Card className="mb-5 space-y-4" padded>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* min-h-9 reserva a altura do toggle Básico/Avançado mesmo quando
+            ele não está visível (tipos diferentes de Custom). Sem isso o
+            Stepper "pula" verticalmente ao trocar de tipo. */}
+        <div className="flex min-h-9 flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-fg-dim">
-              {form.type === 'Router'
-                ? 'Router'
-                : form.type === 'Worker'
-                  ? 'Worker'
-                  : form.type === 'ToolRunner'
-                    ? 'Tool Runner'
-                    : form.type === 'Conversational'
-                      ? 'Conversational'
-                      : 'Tipo de agente'}
-            </p>
-            <p className="mt-1 text-xs text-fg-muted">
-              {form.type === 'Router'
-                ? 'Classifier de intenções com output estruturado fixo (intent + confidence + rationale). Steps são fixos pelo tipo — sem modo básico/avançado.'
-                : form.type === 'Worker'
-                  ? 'Specialist de domínio. Recebe input estruturado e produz análise rica conforme o schema. Steps são fixos pelo tipo — sem modo básico/avançado.'
-                  : form.type === 'ToolRunner'
-                    ? 'Function-caller / executor. Decide qual tool chamar com quais argumentos pra cumprir uma tarefa que exige ação no mundo. Steps são fixos pelo tipo — sem modo básico/avançado.'
-                    : form.type === 'Conversational'
-                      ? 'Chat / assistant multi-turn. Output canônico { ui_component, message, output } injetado pelo codec; middleware AG-UI dispara STATE_DELTA via SSE. Steps são fixos pelo tipo — sem modo básico/avançado.'
-                      : form.agentMode === 'basic'
-                        ? 'Configuração rápida com perfil, ferramentas e revisão.'
-                        : 'Inclui input e output estruturados além do básico.'}
+              Tipo do agente
             </p>
           </div>
           {form.type !== 'Router'
@@ -985,9 +959,6 @@ export function AgentEditor({ mode }: Props) {
         )}
         {form.currentStep === 'profile' && form.type === 'Conversational' && (
           <ConversationalProfileStep form={form} setForm={setForm} readonly={readonly} />
-        )}
-        {form.currentStep === 'component' && form.type === 'Conversational' && (
-          <ConversationalComponentStep form={form} setForm={setForm} readonly={readonly} />
         )}
         {form.currentStep === 'profile'
           && form.type !== 'Router'
@@ -1183,7 +1154,7 @@ export function AgentEditor({ mode }: Props) {
         error={assistantError}
         onRetry={runAnalysis}
         onApply={onAssistantApply}
-        fieldValues={fieldValuesFrom(form)}
+        currentMarkdown={form.profile}
       />
     </div>
   )

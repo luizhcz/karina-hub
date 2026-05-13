@@ -1,5 +1,6 @@
 import type { AgentType } from '../../api/agentDrafts'
 import { Card, CardHeader, cn } from '../../ui'
+import { useIsAdmin } from '../../stores/me'
 import type { FormState } from './types'
 
 interface TypeStepProps {
@@ -14,66 +15,52 @@ interface TypeCard {
   tagline: string
   bestFor: string
   bullets: string[]
+  /** Quando true, card aparece grayed-out e não-clicável. Usado pra tipos
+   *  presentes no domínio mas indisponíveis na fase atual do MVP. */
+  disabled?: boolean
 }
 
 // Cards descrevem o que cada tipo *é* e quando faz sentido escolher. O wizard
-// adapta os steps subsequentes a partir desta seleção (Router troca Profile
-// por seletor de intents; Worker adiciona step de Domínio). Custom mantém o
-// fluxo livre — nenhuma validação por tipo, nenhum campo derivado.
+// adapta os steps subsequentes a partir desta seleção. Worker e ToolRunner
+// existem no domínio mas estão fora do escopo atual do MVP — omitidos daqui
+// até serem habilitados. Router fica visível mas `disabled: true` enquanto
+// não há demanda de produto pra criar Router via UI.
 const TYPE_CARDS: TypeCard[] = [
   {
     type: 'Custom',
     title: 'Custom',
-    tagline: 'Construa do zero — sem template aplicado.',
-    bestFor: 'Quando o agente não cabe num arquétipo: orquestrador, conversacional aberto, agregador, ou qualquer combinação fora dos tipos formais.',
+    tagline: 'Agente de uso geral, configurado por você.',
+    bestFor:
+      'Quando o caso não é um chat e não é roteamento — análises, agregação de dados, atendimento single-shot ou qualquer combinação que você queira montar do zero.',
     bullets: [
-      'Sem validações por tipo no save',
-      'Você define perfil, output, memória e tools livremente',
-      'Cobre back-compat de agentes criados antes da tipologia',
+      'Você descreve quem é o agente, o que ele entrega e em que contexto',
+      'Sem regras fixas — escolhe livremente ferramentas e formato de saída',
+      'Cobre a maioria dos casos que aparecem no dia a dia',
     ],
   },
   {
     type: 'Router',
     title: 'Router',
-    tagline: 'Classifica input em uma categoria fechada (intent).',
-    bestFor: 'Decisão de switch no início de um workflow, triagem de intenção em chat, roteamento de canais — sempre que a saída precisa ser uma label discreta.',
+    tagline: 'Identifica a intenção da mensagem do usuário.',
+    bestFor:
+      'Quando você precisa decidir qual agente especialista vai responder a uma pergunta. O Router lê a mensagem e devolve uma intenção fechada (ex.: “consultar cotação”, “executar ordem”).',
     bullets: [
-      'Output estruturado com property `intent` + enum (obrigatório)',
-      'Modelo mini, MaxTokens baixo, sem tools — recomendados',
-      'Histórico de chat via workflow `InputMode=Chat`, não memória operacional',
+      'Você cadastra as intenções possíveis com nome e descrição',
+      'A saída é sempre uma das intenções declaradas — sem texto livre',
+      'Costuma ser a primeira peça num fluxo de chat com múltiplos agentes',
     ],
-  },
-  {
-    type: 'Worker',
-    title: 'Worker',
-    tagline: 'Raciocínio profundo em domínio específico — análise rica e estruturada.',
-    bestFor: 'Step do meio em pipeline (depois do Router) ou standalone quando a análise sozinha é a resposta. Casos: parecer técnico, outlook macro, recomendação contextualizada, descrição padronizada.',
-    bullets: [
-      'StructuredOutput, modelo full, MaxTokens 2000–4000 — recomendados',
-      'SecurityGuardrails recomendado pra manter escopo declarado',
-      'OperationalMemory off — single-shot dentro de pipeline',
-    ],
-  },
-  {
-    type: 'ToolRunner',
-    title: 'Tool Runner',
-    tagline: 'Function-caller / executor — decide qual tool chamar e com quais argumentos.',
-    bestFor: 'Tarefas que exigem ação no mundo: criar boleta, consultar API, enviar notificação, registrar movimentação. Standalone, embutido em chat ou dentro de pipeline (Worker analisa → Tool Runner executa).',
-    bullets: [
-      'Tools obrigatórias — sem tools o template não faz sentido',
-      'SecurityGuardrails ligado por padrão; AccountGuard recomendado',
-      'Modelo full, Temperature 0–0.3, MaxTokens 2000+ — determinismo prioritário',
-    ],
+    disabled: true,
   },
   {
     type: 'Conversational',
     title: 'Conversational',
-    tagline: 'Chat / assistant multi-turn com persona e contexto entre turns.',
-    bestFor: 'Atendimento conversacional, coleta iterativa de dados (boletas, onboarding), assistentes de refinamento. Único tipo que roda em workflow `InputMode=Chat` e mantém histórico/conversationId entre turns.',
+    tagline: 'Chat com memória entre mensagens.',
+    bestFor:
+      'Quando o usuário precisa conversar em múltiplos turnos com o agente — atendimento, coleta de dados passo a passo, assistente que acompanha uma tarefa.',
     bullets: [
-      'Output estruturado fixo: { ui_component, message, output } — schema é injetado',
-      'Middleware StructuredOutputState ativo: dispara STATE_DELTA via SSE',
-      'SecurityGuardrails ligado por padrão; modelo balanced (latência importa)',
+      'O agente lembra o contexto da conversa entre mensagens',
+      'Saída em formato que o front sabe renderizar (cards, listas, texto)',
+      'Recomendado pra fluxos que precisam de interação humana iterativa',
     ],
   },
 ]
@@ -141,6 +128,12 @@ const CONVERSATIONAL_DEFAULT_OUTPUT_DESCRIPTION =
 const CONVERSATIONAL_DEFAULT_UI_COMPONENTS = ['text', 'card', 'list']
 
 export function TypeStep({ form, setForm, readonly }: TypeStepProps) {
+  const isAdmin = useIsAdmin()
+  // Router é admin-only no MVP — non-admin vê "Em breve" como antes;
+  // admin pode selecionar e seguir o fluxo. Resto dos cards inalterado.
+  const cards = TYPE_CARDS.map((c) =>
+    c.type === 'Router' ? { ...c, disabled: !isAdmin } : c,
+  )
   const select = (next: AgentType) => {
     if (readonly || form.type === next) return
     setForm((prev) => {
@@ -246,19 +239,21 @@ export function TypeStep({ form, setForm, readonly }: TypeStepProps) {
           description="Define o template aplicado e as validações de save. Custom é o default — sem template, sem validações por tipo. Router habilita validações de classifier (intent + enum)."
         />
         <div className="grid gap-3 sm:grid-cols-2">
-          {TYPE_CARDS.map((card) => {
+          {cards.map((card) => {
             const selected = form.type === card.type
+            const isDisabled = readonly || card.disabled === true
             return (
               <button
                 key={card.type}
                 type="button"
                 onClick={() => select(card.type)}
-                disabled={readonly}
+                disabled={isDisabled}
                 aria-pressed={selected}
+                title={card.disabled ? 'Em breve — desabilitado nesta fase do MVP.' : undefined}
                 className={cn(
                   'flex flex-col gap-3 rounded-2xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30',
-                  readonly && 'cursor-not-allowed opacity-70',
-                  !readonly && 'hover:border-accent/40',
+                  isDisabled && 'cursor-not-allowed opacity-60',
+                  !isDisabled && 'hover:border-accent/40',
                   selected
                     ? 'border-accent bg-accent/5 shadow-soft'
                     : 'border-border bg-surface',
@@ -269,12 +264,14 @@ export function TypeStep({ form, setForm, readonly }: TypeStepProps) {
                   <span
                     className={cn(
                       'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                      selected
-                        ? 'bg-accent text-accent-contrast'
-                        : 'bg-bg-soft text-fg-dim',
+                      card.disabled
+                        ? 'bg-bg-soft text-fg-dim'
+                        : selected
+                          ? 'bg-accent text-accent-contrast'
+                          : 'bg-bg-soft text-fg-dim',
                     )}
                   >
-                    {selected ? 'Selecionado' : 'Selecionar'}
+                    {card.disabled ? 'Em breve' : selected ? 'Selecionado' : 'Selecionar'}
                   </span>
                 </div>
                 <p className="text-xs leading-relaxed text-fg-muted">{card.tagline}</p>

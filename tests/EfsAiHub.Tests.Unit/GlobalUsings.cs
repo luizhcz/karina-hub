@@ -8,5 +8,6 @@ global using EfsAiHub.Core.Orchestration.Workflows;
 global using EfsAiHub.Platform.Runtime.Interfaces;
 global using EfsAiHub.Platform.Runtime.Services;
 global using FluentAssertions;
+global using Microsoft.Extensions.Logging.Abstractions;
 global using NSubstitute;
 global using Xunit;

@@ -247,6 +247,12 @@ public sealed class AdminGateMiddleware
         if (path.StartsWith("/api/aihub/chat/ag-ui", StringComparison.OrdinalIgnoreCase))
             return true;
 
+        // /api/aihub/me — endpoint público que devolve identidade + flag isAdmin.
+        // Frontend usa pra esconder UI admin-only sem precisar bater num endpoint
+        // protegido e receber 403 (que polui o console do navegador).
+        if (path.Equals("/api/aihub/me", StringComparison.OrdinalIgnoreCase))
+            return true;
+
         // Workflow: apenas criar (POST) e editar (PUT /{id})
         if (method.Equals("POST", StringComparison.OrdinalIgnoreCase)
             && path.TrimEnd('/').Equals("/api/aihub/workflows", StringComparison.OrdinalIgnoreCase))

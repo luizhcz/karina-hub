@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { ApiError, friendlyError, get } from '../api/client'
+import { useIsAdmin } from '../stores/me'
 import {
   analyzeRouterIntent,
   createRouterIntent,
@@ -76,6 +77,7 @@ type ActionState =
 export function RouterIntentEditor({ mode }: RouterIntentEditorProps) {
   const navigate = useNavigate()
   const { id } = useParams<{ id?: string }>()
+  const isAdmin = useIsAdmin()
 
   const [original, setOriginal] = useState<RouterIntent | null>(null)
   const [loading, setLoading] = useState(mode === 'edit')
@@ -94,6 +96,16 @@ export function RouterIntentEditor({ mode }: RouterIntentEditorProps) {
 
   useEffect(() => {
     if (mode !== 'edit' || !id) return
+    // Short-circuit pra non-admin: mostra a mensagem direto sem disparar
+    // o GET que retornaria 403 (e poluiria o console).
+    if (isAdmin === false) {
+      setLoading(false)
+      setLoadError(
+        'Esta tela é restrita a administradores. Se você precisa editar intenções, fale com o time de governança.',
+      )
+      return
+    }
+    if (isAdmin === null) return
     let cancelled = false
     setLoading(true)
     getRouterIntent(id)
@@ -109,6 +121,12 @@ export function RouterIntentEditor({ mode }: RouterIntentEditorProps) {
         if (cancelled) return
         if (err instanceof ApiError && err.status === 404) {
           setLoadError('Intenção não encontrada.')
+        } else if (err instanceof ApiError && err.status === 403) {
+          // Mesma restrição de governança da tela de Aprovações — pool global
+          // de intents é admin-only. Mensagem alinhada pra coerência.
+          setLoadError(
+            'Esta tela é restrita a administradores. Se você precisa editar intenções, fale com o time de governança.',
+          )
         } else {
           setLoadError(friendlyError(err, 'Falha ao carregar a intenção.'))
         }
@@ -119,7 +137,7 @@ export function RouterIntentEditor({ mode }: RouterIntentEditorProps) {
     return () => {
       cancelled = true
     }
-  }, [mode, id])
+  }, [mode, id, isAdmin])
 
   // Cicla as 3 mensagens enquanto o analyzer corre.
   useEffect(() => {
@@ -239,6 +257,10 @@ export function RouterIntentEditor({ mode }: RouterIntentEditorProps) {
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setSaveError('Já existe uma intenção com esse nome no tenant. Edite o nome e tente novamente.')
+      } else if (err instanceof ApiError && err.status === 403) {
+        setSaveError(
+          'Esta operação é restrita a administradores. Se você precisa criar ou editar intenções, fale com o time de governança.',
+        )
       } else {
         setSaveError(friendlyError(err, 'Falha ao salvar.'))
       }

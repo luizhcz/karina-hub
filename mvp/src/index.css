@@ -42,26 +42,26 @@
 }
 
 :root.dark {
-  /* superfícies (dark) — navy BTG #05132A como base, escalas levemente
-     mais claras pra criar elevação de cards. */
-  --color-bg: 5 19 42;
-  --color-bg-soft: 10 26 56;
-  --color-surface: 15 35 73;
-  --color-surface-hover: 21 42 85;
-  --color-border: 31 50 88;
-  --color-border-strong: 46 69 113;
+  /* superfícies (dark) — paleta extraída direto do BlockNote dark theme
+     (@blocknote/react/src/editor/styles.css) pra match exato com o editor
+     WYSIWYG. Cinzas neutros: 161616 → 1F1F1F → 2A2A2A → 363636. */
+  --color-bg: 31 31 31;                  /* #1F1F1F — bg do editor */
+  --color-bg-soft: 22 22 22;             /* #161616 — bg do tooltip/border */
+  --color-surface: 31 31 31;             /* #1F1F1F — bg do menu */
+  --color-surface-hover: 42 42 42;       /* #2A2A2A — hover level */
+  --color-border: 22 22 22;              /* #161616 — alinha c/ bn border */
+  --color-border-strong: 54 54 54;       /* #363636 */
 
-  /* texto — branco e variações dessaturadas pra muted/dim */
-  --color-fg: 255 255 255;
-  --color-fg-muted: 168 181 204;
-  --color-fg-dim: 110 126 156;
+  /* texto — exato do BlockNote (#cfcfcf editor-text). */
+  --color-fg: 207 207 207;               /* #CFCFCF — editor text */
+  --color-fg-muted: 144 144 144;         /* #909090 */
+  --color-fg-dim: 102 102 102;           /* #666666 */
 
-  /* branco como accent (inversão BTG) — botões primários ficam stark e
-     legíveis sobre o fundo navy. */
+  /* branco como accent — botões primários stark sobre #1F1F1F. */
   --color-accent: 255 255 255;
   --color-accent-soft: 226 232 240;
-  --color-accent-contrast: 5 19 42;
-  --color-accent-subtle: 21 42 85;
+  --color-accent-contrast: 31 31 31;
+  --color-accent-subtle: 42 42 42;
 
   /* feedback ajustado pra dark */
   --color-success: 74 222 128;

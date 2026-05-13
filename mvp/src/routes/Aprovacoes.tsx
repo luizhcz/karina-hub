@@ -9,6 +9,7 @@ import {
 } from '../api/agentApprovals'
 import type { AgentDraft } from '../api/agentDrafts'
 import { ApiError, friendlyError } from '../api/client'
+import { useIsAdmin } from '../stores/me'
 import {
   AgentIcon,
   Badge,
@@ -33,6 +34,7 @@ const TAB_FILTER: Record<Tab, AgentApprovalsStatusFilter> = {
 }
 
 export function Aprovacoes() {
+  const isAdmin = useIsAdmin()
   const [activeTab, setActiveTab] = useState<Tab>('pending')
   const [drafts, setDrafts] = useState<AgentDraft[]>([])
   const [loading, setLoading] = useState(true)
@@ -62,8 +64,20 @@ export function Aprovacoes() {
   }
 
   useEffect(() => {
+    // Non-admin: mostra a mensagem direto, sem disparar o GET que retornaria
+    // 403 (e poluiria o console). Admin/desconhecido: carrega normalmente —
+    // backend ainda valida e o catch de 403 acima cobre race no roleset.
+    if (isAdmin === false) {
+      setLoading(false)
+      setError(
+        'Esta tela é restrita a administradores. Se você precisa revisar agentes, fale com o time de governança.',
+      )
+      setDrafts([])
+      return
+    }
+    if (isAdmin === null) return
     void reload(activeTab)
-  }, [activeTab])
+  }, [activeTab, isAdmin])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()

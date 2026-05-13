@@ -10,6 +10,7 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
     private readonly IDbContextFactory<AgentFwDbContext> _factory;
     private readonly IAgentDefinitionRepository _definitionRepo;
     private readonly IAgentVersionRepository _versionRepo;
+    private readonly EfsAiHub.Core.Agents.Services.IAgentTemplateService _templateService;
     private readonly EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor _tenantAccessor;
     private readonly ILogger<PgAgentDraftRepository> _logger;
 
@@ -17,12 +18,14 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
         IDbContextFactory<AgentFwDbContext> factory,
         IAgentDefinitionRepository definitionRepo,
         IAgentVersionRepository versionRepo,
+        EfsAiHub.Core.Agents.Services.IAgentTemplateService templateService,
         EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor tenantAccessor,
         ILogger<PgAgentDraftRepository> logger)
     {
         _factory = factory;
         _definitionRepo = definitionRepo;
         _versionRepo = versionRepo;
+        _templateService = templateService;
         _tenantAccessor = tenantAccessor;
         _logger = logger;
     }
@@ -253,6 +256,13 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
             projectId: draft.ProjectId,
             tenantId: draft.TenantId,
             createdAt: draft.CreatedAt);
+
+        // Aplica template do tipo antes do upsert pra garantir que o agente
+        // publicado tenha os campos auto-gerados (wrap canônico, middlewares
+        // default, blocos fixos do prompt) mesmo quando o draft foi salvo
+        // antes da centralização do template — round-trip via approve
+        // normaliza o estado persistido.
+        definition = _templateService.Apply(definition);
 
         // UpsertAsync no IAgentDefinitionRepository roda fora do escopo de project
         // do caller — agent recém-aprovado fica visível pro owner project sem

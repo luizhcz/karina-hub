@@ -1,29 +1,9 @@
 import type { KvRow } from '../../components/PostmanEditor/KvTable'
 import type { AgentType } from '../../api/agentDrafts'
 
-export const PROFILE_FIELDS = ['role', 'goal', 'backstory', 'rules', 'constraints'] as const
-export type ProfileField = (typeof PROFILE_FIELDS)[number]
-
-// Rules e constraints são listas (cada item vira um bullet no prompt final);
-// os demais são texto livre.
-export type ProfileTextField = 'role' | 'goal' | 'backstory'
-export type ProfileListField = 'rules' | 'constraints'
-export const PROFILE_LIST_FIELDS: ReadonlySet<ProfileField> = new Set<ProfileField>([
-  'rules',
-  'constraints',
-])
-
-export interface ProfileFields {
-  role: string
-  goal: string
-  backstory: string
-  rules: string[]
-  constraints: string[]
-}
-
 export type AgentMode = 'basic' | 'advanced'
 
-export type StepKey = 'type' | 'profile' | 'component' | 'tools' | 'security' | 'memory' | 'input' | 'output' | 'model' | 'review'
+export type StepKey = 'type' | 'profile' | 'tools' | 'security' | 'memory' | 'input' | 'output' | 'model' | 'review'
 
 export interface StructuredSection {
   mode: 'text' | 'structured'
@@ -98,13 +78,19 @@ export interface FormState {
    * renderer consome pra dirigir o switch (ou cair pra fallback).
    * Vazio quando type !== 'Conversational'.
    *
-   * Persona / papel / objetivo / contexto vivem em <c>profile</c>
-   * (mesma estrutura do Custom — role/goal/backstory/rules/constraints
-   * são injetados no instructions skeleton via encodeInstructions).
+   * Persona / papel / objetivo / contexto vivem em <c>profile</c> como
+   * markdown integral — o codec apenas anexa blocos auto-gerados
+   * (tools/structured/formato) sem decompor o profile.
    */
   conversationalUiComponents: string[]
   predefinedModelId: string
-  profile: ProfileFields
+  /**
+   * Perfil do agente em markdown raw. O usuário escreve livremente no
+   * BlockNote WYSIWYG do ProfileStep; o codec preserva a string como
+   * está e apenas anexa blocos auto-gerados no save. Vazio = template
+   * inicial será exibido pelo ProfileStep ao montar.
+   */
+  profile: string
   toolIds: string[]
   mcpIds: string[]
   security: SecuritySection

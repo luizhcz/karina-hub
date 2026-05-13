@@ -12,6 +12,7 @@ public class AgentValidationTests
             repository: Substitute.For<IAgentDefinitionRepository>(),
             promptRepo: Substitute.For<IAgentPromptRepository>(),
             projectAccessor: Substitute.For<IProjectContextAccessor>(),
+            templateService: new AgentTemplateService(NullLogger<AgentTemplateService>.Instance),
             logger: Substitute.For<ILogger<AgentService>>());
     }
 

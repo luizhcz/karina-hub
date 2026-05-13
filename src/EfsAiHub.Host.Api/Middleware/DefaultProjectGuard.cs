@@ -86,6 +86,9 @@ public sealed class DefaultProjectGuard
             return true;
         if (path.StartsWith("/api/aihub/chat/ag-ui", StringComparison.OrdinalIgnoreCase))
             return true;
+        // /me é público — non-admin sem projeto ainda precisa descobrir isAdmin.
+        if (path.Equals("/api/aihub/me", StringComparison.OrdinalIgnoreCase))
+            return true;
         if (path.StartsWith("/api/aihub/notifications", StringComparison.OrdinalIgnoreCase))
             return true;
         // Catálogo público de presets — recurso global cross-tenant.

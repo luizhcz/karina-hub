@@ -9,6 +9,7 @@ import {
 } from '../ui'
 import { AGENT_TEMPLATES, type TemplateKey } from '../routes/AgentEditor/templates'
 import type { AgentType } from '../api/agentDrafts'
+import { useIsAdmin } from '../stores/me'
 
 export interface NewAgentSelection {
   type: AgentType
@@ -37,15 +38,22 @@ interface TypeChoice {
   icon: React.ReactNode
   accent: string
   iconBg: string
+  /** Tipo aparece grayed-out e não-clicável. Usado pra MVP atual onde
+   *  Router ainda não tem fluxo de criação via UI completo. */
+  disabled?: boolean
 }
 
+// Worker e ToolRunner existem no domínio mas estão fora do escopo atual do
+// MVP — omitidos daqui até serem habilitados via produto. Router segue
+// visível mas `disabled: true` enquanto não há demanda de criar Router
+// pela UI (o pool global de intents + lookup runtime cobrem o caso por ora).
 const TYPE_CHOICES: TypeChoice[] = [
   {
     type: 'Custom',
     defaultMode: 'basic',
     title: 'Custom',
     pitch:
-      'Agente livre, sem template aplicado. Cobre conversação, orquestração, agregação — qualquer caso fora dos arquétipos formais. Modo avançado (com I/O estruturado) é toggle dentro do wizard.',
+      'Agente de uso geral. Você define o perfil em texto livre — quem ele é, o que precisa entregar e em que contexto. Cobre a maioria dos casos: análise, orquestração, atendimento sem chat.',
     steps: ['Tipo', 'Perfil', 'Ferramentas', 'Modelo', 'Revisão'],
     icon: <BoltIcon className="h-6 w-6" />,
     accent: 'from-emerald-500/15 to-emerald-500/0 text-emerald-600 dark:text-emerald-400',
@@ -56,41 +64,21 @@ const TYPE_CHOICES: TypeChoice[] = [
     defaultMode: 'basic',
     title: 'Router',
     pitch:
-      'Classifier de intenções. Recebe input em texto livre e devolve uma label discreta (intent + confidence). Perfil próprio: tabela de intenções com nome, descrição e exemplo — sem prompt cru.',
+      'Classifica a mensagem do usuário em uma intenção (ex.: “consultar cotação”, “executar ordem”). Usado pra decidir qual agente especialista vai responder.',
     steps: ['Tipo', 'Intenções', 'Modelo', 'Revisão'],
     icon: <SparklesIcon className="h-6 w-6" />,
     accent: 'from-violet-500/15 to-violet-500/0 text-violet-600 dark:text-violet-400',
     iconBg: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
-  },
-  {
-    type: 'Worker',
-    defaultMode: 'advanced',
-    title: 'Worker',
-    pitch:
-      'Specialist de domínio. Recebe input estruturado e produz análise rica (texto + recomendação + riscos). Step próprio de Domínio captura o escopo de análise — injetado no system prompt em runtime.',
-    steps: ['Tipo', 'Domínio', 'Ferramentas', 'Segurança', 'Output', 'Modelo', 'Revisão'],
-    icon: <SparklesIcon className="h-6 w-6" />,
-    accent: 'from-sky-500/15 to-sky-500/0 text-sky-600 dark:text-sky-400',
-    iconBg: 'bg-sky-500/15 text-sky-600 dark:text-sky-400',
-  },
-  {
-    type: 'ToolRunner',
-    defaultMode: 'advanced',
-    title: 'Tool Runner',
-    pitch:
-      'Function-caller / executor. Decide qual tool chamar com quais argumentos pra cumprir uma tarefa que exige ação no mundo. Step próprio de Identificação captura nome e política de aprovação humana (HITL).',
-    steps: ['Tipo', 'Identificação', 'Ferramentas', 'Segurança', 'Memória', 'Output', 'Modelo', 'Revisão'],
-    icon: <BoltIcon className="h-6 w-6" />,
-    accent: 'from-amber-500/15 to-amber-500/0 text-amber-600 dark:text-amber-400',
-    iconBg: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+    // `disabled` é decidido em runtime via useIsAdmin() — non-admin vê
+    // "Em breve" (mantém UX atual), admin vê habilitado e pode criar Router.
   },
   {
     type: 'Conversational',
     defaultMode: 'advanced',
     title: 'Conversational',
     pitch:
-      'Chat / assistant multi-turn. Único tipo que roda em workflow InputMode=Chat. Output canônico { ui_component, message, output } injetado pelo codec; middleware AG-UI dispara STATE_DELTA via SSE pra renderer real-time.',
-    steps: ['Tipo', 'Identificação', 'Ferramentas', 'Segurança', 'Memória', 'Output', 'Modelo', 'Revisão'],
+      'Chat com memória entre mensagens. O agente conversa com o usuário em múltiplos turnos, mantém contexto e responde em formato que o front sabe renderizar (cards, listas, texto).',
+    steps: ['Tipo', 'Identificação', 'Componente', 'Ferramentas', 'Segurança', 'Memória', 'Output', 'Modelo', 'Revisão'],
     icon: <SparklesIcon className="h-6 w-6" />,
     accent: 'from-rose-500/15 to-rose-500/0 text-rose-600 dark:text-rose-400',
     iconBg: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
@@ -98,26 +86,41 @@ const TYPE_CHOICES: TypeChoice[] = [
 ]
 
 export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModalProps) {
+  const isAdmin = useIsAdmin()
+  // Router é admin-only no MVP — non-admin vê o card desabilitado com badge
+  // "Em breve"; admin pode clicar e abrir o fluxo de criação.
+  const choices: TypeChoice[] = TYPE_CHOICES.map((c) =>
+    c.type === 'Router' ? { ...c, disabled: !isAdmin } : c,
+  )
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="Como você quer começar?"
-      description="Escolha o tipo formal do agente — Custom (livre), Router (classifier), Worker (specialist), Tool Runner (executor) ou Conversational (chat). Templates abaixo aceleram quando o caso já tem um modelo pronto."
-      size="2xl"
+      description={
+        isAdmin
+          ? 'Escolha o tipo formal do agente — Custom (livre), Router (classifier) ou Conversational (chat). Templates abaixo aceleram quando o caso já tem um modelo pronto.'
+          : 'Escolha o tipo formal do agente — Custom (livre) ou Conversational (chat). Router fica indisponível nesta fase do MVP. Templates abaixo aceleram quando o caso já tem um modelo pronto.'
+      }
+      size="xl"
     >
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-fg-dim">
         Tipo do agente
       </p>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        {TYPE_CHOICES.map((choice) => (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {choices.map((choice) => (
           <button
             key={choice.type}
             type="button"
             onClick={() => onSelect({ type: choice.type, mode: choice.defaultMode })}
+            disabled={choice.disabled}
+            title={choice.disabled ? 'Em breve — desabilitado nesta fase do MVP.' : undefined}
             className={cn(
               'group relative flex flex-col items-start gap-4 overflow-hidden rounded-xl border border-border bg-surface p-5 text-left transition',
-              'hover:border-accent/40 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+              choice.disabled
+                ? 'cursor-not-allowed opacity-60'
+                : 'hover:border-accent/40 hover:shadow-soft',
             )}
           >
             <div className={cn('absolute inset-x-0 top-0 h-20 bg-gradient-to-b', choice.accent)} aria-hidden="true" />
@@ -126,7 +129,13 @@ export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModal
               <div className={cn('flex h-11 w-11 items-center justify-center rounded-xl', choice.iconBg)}>
                 {choice.icon}
               </div>
-              <ArrowRightIcon className="h-4 w-4 -translate-x-1 text-fg-dim transition group-hover:translate-x-0 group-hover:text-accent" />
+              {choice.disabled ? (
+                <span className="rounded-full border border-border bg-bg-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-fg-dim">
+                  Em breve
+                </span>
+              ) : (
+                <ArrowRightIcon className="h-4 w-4 -translate-x-1 text-fg-dim transition group-hover:translate-x-0 group-hover:text-accent" />
+              )}
             </div>
 
             <div className="relative space-y-1">
@@ -168,36 +177,44 @@ export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModal
           step de Perfil (skip do step de Tipo, já que o template é Custom). */}
       <div className="mt-6 space-y-3">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-dim">
-          Templates Custom
+          Templates — Renda Variável
         </p>
         <p className="text-[11px] leading-relaxed text-fg-dim">
-          Pré-fills de Perfil pra casos comuns. Todos abrem como Custom — você pode editar tudo, inclusive trocar pra modo avançado pelo toggle do wizard.
+          Pré-fills de Perfil voltados pra mesa de renda variável (B3, ações, FIIs, ETFs).
+          Você pode editar tudo no wizard, inclusive trocar o tipo.
         </p>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-          {AGENT_TEMPLATES.map((tpl) => (
-            <button
-              key={tpl.key}
-              type="button"
-              onClick={() =>
-                onSelect({ type: 'Custom', mode: tpl.defaultMode, template: tpl.key })
-              }
-              className={cn(
-                'group flex flex-col items-start gap-2 rounded-xl border border-border bg-surface p-3 text-left transition',
-                'hover:border-accent/40 hover:bg-accent-subtle/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
-              )}
-            >
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-subtle text-accent">
-                <AgentIcon className="h-4 w-4" />
-              </div>
-              <div className="min-w-0">
-                <h4 className="text-sm font-semibold text-fg">{tpl.title}</h4>
-                <p className="mt-0.5 line-clamp-2 text-[11px] text-fg-muted">{tpl.pitch}</p>
-                <p className="mt-1 text-[10px] uppercase tracking-wide text-fg-dim">
-                  {tpl.defaultMode === 'advanced' ? 'Custom · avançado' : 'Custom · básico'}
-                </p>
-              </div>
-            </button>
-          ))}
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          {AGENT_TEMPLATES.map((tpl) => {
+            const tplType = tpl.type ?? 'Custom'
+            const typeLabel = tplType === 'Conversational' ? 'Conversational' : 'Custom'
+            const modeLabel = tplType === 'Conversational'
+              ? null
+              : tpl.defaultMode === 'advanced' ? ' · avançado' : ' · básico'
+            return (
+              <button
+                key={tpl.key}
+                type="button"
+                onClick={() =>
+                  onSelect({ type: tplType, mode: tpl.defaultMode, template: tpl.key })
+                }
+                className={cn(
+                  'group flex flex-col items-start gap-2 rounded-xl border border-border bg-surface p-3 text-left transition',
+                  'hover:border-accent/40 hover:bg-accent-subtle/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+                )}
+              >
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-subtle text-accent">
+                  <AgentIcon className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <h4 className="text-sm font-semibold text-fg">{tpl.title}</h4>
+                  <p className="mt-0.5 line-clamp-2 text-[11px] text-fg-muted">{tpl.pitch}</p>
+                  <p className="mt-1 text-[10px] uppercase tracking-wide text-fg-dim">
+                    {typeLabel}{modeLabel}
+                  </p>
+                </div>
+              </button>
+            )
+          })}
         </div>
       </div>
     </Modal>

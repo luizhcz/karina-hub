@@ -3,7 +3,7 @@ import type { GenericTool, ParamDefinition } from '../../api/genericTools'
 import type { McpServer } from '../../api/mcpServers'
 import type { KvRow } from '../../components/PostmanEditor/KvTable'
 import { decodeInstructions, encodeInstructions, type ToolDescriptor } from './instructionsCodec'
-import type { FormState, ProfileFields, StructuredSection } from './types'
+import type { FormState, StructuredSection } from './types'
 
 // Type discriminante de uma entry de payload.middlewares[]. Espelha
 // EfsAiHub.Core.Agents.AgentMiddlewareConfig — só os campos que mexemos. Demais
@@ -222,13 +222,7 @@ export function emptyFormState(): FormState {
     toolRunnerHitlRequired: false,
     conversationalUiComponents: [],
     predefinedModelId: '',
-    profile: {
-      role: '',
-      goal: '',
-      backstory: '',
-      rules: [],
-      constraints: [],
-    },
+    profile: '',
     toolIds: [],
     mcpIds: [],
     security: { enabled: false },
@@ -347,19 +341,75 @@ export function fromDraft(draft: AgentDraft): FormState {
         workerOutput = null
       }
     }
+  } else if (type === 'Custom') {
+    // Custom geralmente embute output rico no instructions (## Output
+    // estruturado, decodificado pelo decodeInstructions). Mas drafts antigos
+    // ou agentes seedados podem ter o schema gravado em payload.structuredOutput
+    // direto, sem o bloco no markdown — nesse caso hidrata daqui como fallback,
+    // pra que o OutputStep mostre o schema editável ao reabrir.
+    const so = payload.structuredOutput
+    const decodedHasOutput = decoded.output.description.length > 0 || decoded.output.schema.length > 0
+    if (!decodedHasOutput && so && so.schema) {
+      try {
+        workerOutput = {
+          mode: 'structured',
+          description: so.schemaDescription ?? '',
+          schema: JSON.stringify(so.schema, null, 2),
+        }
+      } catch {
+        workerOutput = null
+      }
+    }
   } else if (type === 'Conversational') {
+    // O backend persiste sempre o shape canônico {ui_component, message,
+    // output?} no agent_definitions, mas o agent_drafts pode estar em três
+    // formas:
+    //  - Wrapped legado: schema.properties tem ui_component, message E
+    //    output → unwrap; mode='structured'.
+    //  - Wrapped texto livre: schema.properties tem ui_component, message
+    //    sem output → mode='text' (nada pra editar visualmente).
+    //  - Sub-schema puro (drafts salvos via UI atual): documento inteiro é
+    //    o sub-schema do user → mode='structured', schema usa direto.
     const so = payload.structuredOutput
     const rawSchema = so?.schema
     if (rawSchema && typeof rawSchema === 'object' && !Array.isArray(rawSchema)) {
       const schemaObj = rawSchema as Record<string, unknown>
       const properties = schemaObj.properties as Record<string, unknown> | undefined
-      const outputSubschema = properties?.output
-      if (outputSubschema && typeof outputSubschema === 'object') {
+      const hasCanonicalWrap =
+        properties !== undefined
+        && typeof properties === 'object'
+        && 'ui_component' in properties
+        && 'message' in properties
+      if (hasCanonicalWrap) {
+        const outputSubschema = properties.output
+        if (outputSubschema && typeof outputSubschema === 'object') {
+          try {
+            workerOutput = {
+              mode: 'structured',
+              description: so?.schemaDescription ?? '',
+              schema: JSON.stringify(outputSubschema, null, 2),
+            }
+          } catch {
+            workerOutput = null
+          }
+        } else {
+          // Wrap canônico sem `output` = texto livre. Setamos explicitamente
+          // pra evitar cair no fallback genérico (mode='text' via heurística
+          // de decoded.output do markdown), que daria o mesmo resultado por
+          // acidente — preferimos o sinal direto vindo do schema canônico.
+          workerOutput = {
+            mode: 'text',
+            description: so?.schemaDescription ?? '',
+            schema: '',
+          }
+        }
+      } else {
+        // Sub-schema puro — documento inteiro é o que o user vai editar.
         try {
           workerOutput = {
             mode: 'structured',
             description: so?.schemaDescription ?? '',
-            schema: JSON.stringify(outputSubschema, null, 2),
+            schema: JSON.stringify(rawSchema, null, 2),
           }
         } catch {
           workerOutput = null
@@ -421,11 +471,14 @@ export function fromDraft(draft: AgentDraft): FormState {
     // Worker, Tool Runner e Conversational são sempre tratados como
     // "advanced" (steps fixos pelo tipo): força o modo independente do
     // conteúdo do instructions, pra que toggles e hidratação de visited
-    // steps fiquem consistentes ao reabrir o draft.
+    // steps fiquem consistentes ao reabrir o draft. Custom vai pra advanced
+    // quando há sinal de configuração avançada — hasStructured (markdown
+    // com `## Output estruturado`), memória ligada, OU structuredOutput
+    // gravado no payload (caminho de drafts antigos / agentes seedados).
     agentMode:
       type === 'Worker' || type === 'ToolRunner' || type === 'Conversational'
         ? 'advanced'
-        : decoded.hasStructured || memEnabled
+        : decoded.hasStructured || memEnabled || workerOutput !== null
           ? 'advanced'
           : 'basic',
     currentStep: 'profile',
@@ -588,59 +641,34 @@ function encodeStructuredOutput(
   }
 
   if (form.type === 'Conversational') {
-    // Shape canônico: { ui_component (enum), message (string), output
-    // (subschema livre) }. O codec envelopa o subschema editado pelo user
-    // no OutputStep como `properties.output` e injeta o enum
-    // de ui_components no schema dinamicamente.
+    // Conversational envia apenas o sub-schema do payload `output` (igual
+    // Custom envia o schema cru do output). O backend é responsável pelo
+    // wrap canônico { ui_component, message, output } via template do tipo;
+    // emitir o wrap aqui colidiria com o template (round-trip de re-saves
+    // já passa pelo desempacotador defensivo, mas mantemos o envio limpo
+    // pra que o frontend não duplique regra de domínio).
+    //
+    // Modo texto livre (mode='text' OU schema vazio) → `null`: backend
+    // gera `{ui_component, message}` (sem `output`). Modo estruturado →
+    // o JSON do user no `form.output.schema` viaja como-é.
+    if (form.output.mode !== 'structured') return null
     const trimmedSchema = form.output.schema.trim()
-    let outputSubschema: Record<string, unknown> = {
-      type: 'object',
-      properties: {},
-      additionalProperties: true,
+    if (!trimmedSchema) return null
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(trimmedSchema)
+    } catch {
+      return prev?.structuredOutput ?? null
     }
-    if (trimmedSchema) {
-      try {
-        const parsed = JSON.parse(trimmedSchema)
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          outputSubschema = parsed as Record<string, unknown>
-        }
-      } catch {
-        // Schema inválido cai pro default vazio — validação no save reporta.
-      }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return prev?.structuredOutput ?? null
     }
-
-    const cleanUiComponents = form.conversationalUiComponents
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0)
-    const uiComponentProp: Record<string, unknown> = {
-      type: 'string',
-      description:
-        'Identificador do componente UI que o frontend deve renderizar pra esta resposta.',
-    }
-    if (cleanUiComponents.length > 0) {
-      uiComponentProp.enum = cleanUiComponents
-    }
-
     const trimmedDesc = form.output.description.trim()
-    const fallbackDesc =
-      'Resposta canônica do Conversational: ui_component (renderer), message (texto), output (payload).'
     return {
       responseFormat: 'json_schema',
       schemaName: 'ConversationalTurn',
-      schemaDescription: trimmedDesc.length > 0 ? trimmedDesc : fallbackDesc,
-      schema: {
-        type: 'object',
-        properties: {
-          ui_component: uiComponentProp,
-          message: {
-            type: 'string',
-            description: 'Texto humano em PT-BR pro usuário — curto, claro, direto.',
-          },
-          output: outputSubschema,
-        },
-        required: ['ui_component', 'message', 'output'],
-        additionalProperties: false,
-      },
+      schemaDescription: trimmedDesc.length > 0 ? trimmedDesc : null,
+      schema: parsed as Record<string, unknown>,
     }
   }
 
@@ -700,37 +728,20 @@ function stripLegacyRouterIntentsMetadata(
  * concatena com separador).
  */
 /**
- * Skeleton do Conversational. Reusa o encoder genérico do Custom (mesmo
- * dos 5 campos role/goal/backstory/rules/constraints) e anexa o bloco
- * '# Formato de resposta' com o contrato do shape canônico
- * { ui_component, message, output } — o middleware StructuredOutputState
- * (ativado por default no save) lê o JSON da resposta e emite STATE_DELTA
- * via SSE. Input/output structured e tool docs ficam fora do prompt — o
- * schema canônico viaja em payload.structuredOutput e as tools carregam
- * sua própria descrição via FunctionTool factory.
+ * Skeleton do Conversational — apenas o markdown integral do profile que
+ * o user escreveu. O bloco "## Formato da resposta" é anexado pelo
+ * backend no template do tipo; emiti-lo aqui duplicaria a regra no
+ * frontend (template é idempotente, mas o ponto de verdade único é
+ * o backend).
  */
-export function encodeConversationalInstructions(profile: ProfileFields): string {
-  const base = encodeInstructions(
+export function encodeConversationalInstructions(profile: string): string {
+  return encodeInstructions(
     profile,
     { description: '', schema: '' },
     { description: '', schema: '' },
     [],
     false,
   )
-  const responseFormatBlock = [
-    '# Formato de resposta',
-    '',
-    'Responda SEMPRE em JSON com três campos top-level:',
-    '- `ui_component`: identificador do componente UI a renderizar (use um dos valores declarados no enum do schema).',
-    '- `message`: texto humano em PT-BR pro usuário — curto, claro, direto.',
-    '- `output`: payload estruturado conforme o subschema definido (pode ser objeto vazio quando não houver dado).',
-    '',
-    'Não escreva texto fora do JSON; não invente campos top-level extras.',
-  ].join('\n')
-
-  return base.trim().length > 0
-    ? `${base.trimEnd()}\n\n${responseFormatBlock}`
-    : responseFormatBlock
 }
 
 /**
@@ -913,18 +924,18 @@ function mergeMiddlewares(
   if (security.enabled) {
     next.push({ type: SECURITY_MIDDLEWARE_TYPE, enabled: true, settings: {} })
   }
-  // StructuredOutputState é ativado automaticamente pra Conversational e
-  // pra Router quando o flag "Router pra chat" está on — sem ele, o output
-  // estruturado não dispara STATE_DELTA no SSE e o frontend chat não
-  // renderiza componentes em tempo real. Pra outros tipos, a entry é
-  // preservada se vier de prev (filtrada acima e não re-adicionada).
-  const wantsAgUiState =
-    type === 'Conversational' || (type === 'Router' && routerForChat)
+  // StructuredOutputState pra Conversational vive como template do tipo no
+  // backend — não emitimos do frontend pra evitar duplicar a regra. Drafts
+  // legados que tinham a entry vão perdê-la no save aqui; o backend a re-
+  // injeta via template ao receber o payload. Router com flag "Router pra
+  // chat" não tem template service correspondente — frontend continua
+  // responsável por injetar o middleware nesse caminho.
+  const wantsAgUiState = type === 'Router' && routerForChat
   if (wantsAgUiState) {
     next.push({ type: AG_UI_STATE_MIDDLEWARE_TYPE, enabled: true, settings: {} })
-  } else {
-    // Pra demais combinações, preserva a entry de prev se existia (útil
-    // em agentes Custom legacy que ativaram manualmente).
+  } else if (type !== 'Conversational') {
+    // Preserva entry herdada pra agentes Custom que ativaram o middleware
+    // manualmente — sem caminho UI pra ativar, mas válido em produção.
     const prevAgUi = list.find((m) => m?.type === AG_UI_STATE_MIDDLEWARE_TYPE)
     if (prevAgUi) next.push(prevAgUi)
   }

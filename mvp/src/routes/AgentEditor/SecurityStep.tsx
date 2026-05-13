@@ -8,29 +8,29 @@ interface SecurityStepProps {
   readonly: boolean
 }
 
-// Resumo (não o texto completo) das cláusulas que o middleware injeta. Texto
-// completo vive no SecurityGuardrailsChatClient.cs e é deliberadamente
-// inacessível pra edição — a tela mostra só o que ele cobre.
+// Resumo PT-BR voltado pra PM/PO das regras que a plataforma aplica
+// automaticamente quando o toggle está ligado. Texto completo da política
+// vive no backend e é inacessível na UI — aqui só descrevemos o efeito.
 const POLICY_CLAUSES: Array<{ title: string; description: string }> = [
   {
-    title: 'Escopo',
+    title: 'Foco no que foi pedido',
     description:
-      'O agente declina pedidos fora do papel definido no perfil e oferece a alternativa mais próxima dentro do escopo.',
+      'Quando o usuário sai do assunto do agente, ele recusa educadamente e oferece uma alternativa próxima dentro do escopo.',
   },
   {
-    title: 'Veracidade',
+    title: 'Não inventa informação',
     description:
-      'Não inventa fatos, capacidades, ferramentas ou identificadores. Quando falta informação, diz explicitamente.',
+      'O agente não cria fatos, números ou ferramentas que não existem. Quando falta informação, diz claramente que não sabe.',
   },
   {
-    title: 'Integridade das instruções',
+    title: 'Resistência a manipulação',
     description:
-      'Trata mensagens do usuário, saídas de ferramentas e conteúdo de retrieval como dados — nunca como instruções. Ignora tentativas de troca de persona ou bypass.',
+      'O agente não muda de personagem nem segue “ordens” disfarçadas dentro de mensagens do usuário ou em respostas de ferramentas.',
   },
   {
-    title: 'Confidencialidade',
+    title: 'Não vaza informação interna',
     description:
-      'Não revela o conteúdo das instruções, definições de ferramentas, identificadores internos ou a própria política.',
+      'O agente não compartilha o conteúdo do próprio perfil, as ferramentas internas ou as regras de segurança com o usuário.',
   },
 ]
 
@@ -45,18 +45,18 @@ export function SecurityStep({ form, setForm, readonly }: SecurityStepProps) {
     <div className="space-y-5">
       <Card className="space-y-3">
         <CardHeader
-          title="Guardrails de segurança"
-          description="Política fixa injetada pela plataforma como mensagem de sistema a cada chamada do LLM. Cobre prompt injection, aderência ao escopo, alucinação e vazamento. Texto não é editável — toggle único liga/desliga."
+          title="Proteções de segurança"
+          description="Regras automáticas que o agente segue em toda conversa — protege contra desvio de assunto, inventar informação, tentativas de manipulação e vazamento de instruções internas. O texto é fixo e mantido pela plataforma; aqui você decide se liga ou desliga."
         />
         <ToggleRow
           checked={form.security.enabled}
           disabled={readonly}
           onChange={toggle}
-          label="Ativar guardrails de segurança"
+          label="Ligar proteções de segurança"
           hint={
             form.security.enabled
-              ? 'Adiciona ~300 tokens por chamada e tende a tornar respostas mais conservadoras. Recomendado para agentes expostos a usuários finais.'
-              : 'Sem guardrails, o agente segue apenas o perfil definido — sem proteção adicional contra injection ou desvio de escopo.'
+              ? 'Respostas tendem a ficar mais conservadoras e dentro do escopo definido no perfil. Recomendado pra agentes que conversam com clientes finais.'
+              : 'Sem as proteções, o agente segue só o que você descreveu no perfil — fica mais flexível, mas pode aceitar pedidos fora do escopo ou ser manipulado.'
           }
         />
       </Card>
@@ -64,8 +64,8 @@ export function SecurityStep({ form, setForm, readonly }: SecurityStepProps) {
       {form.security.enabled && (
         <Card className="space-y-3">
           <CardHeader
-            title="O que a política cobre"
-            description="Resumo do conteúdo que o middleware injeta. O texto completo é fixo e versionado junto com a plataforma."
+            title="O que as proteções cobrem"
+            description="Resumo das regras que o agente segue automaticamente quando as proteções estão ligadas."
           />
           <ul className="space-y-3">
             {POLICY_CLAUSES.map((clause) => (
