@@ -273,6 +273,14 @@ public static class AdminAuditActions
     public const string UserAdminFlagChanged = "user.admin_flag_changed";
 
     /// <summary>
+    /// Substituição do set de projetos vinculados a um usuário. Emitido por
+    /// PUT /api/aihub/admin/users/{id}/projects. PayloadBefore/After incluem
+    /// projectIds (antes e depois) — vínculos novos = After - Before; removidos
+    /// = Before - After.
+    /// </summary>
+    public const string UserProjectsAssigned = "user.projects_assigned";
+
+    /// <summary>
     /// Edição do nome humano de um usuário. Emitido por
     /// PATCH /api/aihub/admin/users/{id}. PayloadBefore/After incluem
     /// userId, displayName (before/after).

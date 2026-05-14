@@ -1774,3 +1774,27 @@ CREATE INDEX IF NOT EXISTS "IX_users_TenantId"
 CREATE INDEX IF NOT EXISTS "IX_users_TenantId_IsAdmin"
     ON aihub.users ("TenantId")
     WHERE "IsAdmin" = TRUE;
+
+-- =============================================================================
+-- USER_PROJECTS — vínculo N:N entre usuário e projetos visíveis
+-- =============================================================================
+-- Non-admin só enxerga projetos onde tem um vínculo aqui. Admin tem bypass
+-- total (sem precisar de vínculo). ON DELETE CASCADE remove o vínculo
+-- automaticamente quando o usuário ou o projeto é deletado — vinculação
+-- órfã não tem semântica.
+CREATE TABLE IF NOT EXISTS aihub.user_projects (
+    "UserId"     UUID         NOT NULL,
+    "ProjectId"  VARCHAR(128) NOT NULL,
+    "GrantedAt"  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    "GrantedBy"  VARCHAR(128) NULL,
+    CONSTRAINT "PK_user_projects" PRIMARY KEY ("UserId", "ProjectId"),
+    CONSTRAINT "FK_user_projects_UserId"
+        FOREIGN KEY ("UserId") REFERENCES aihub.users("Id") ON DELETE CASCADE,
+    CONSTRAINT "FK_user_projects_ProjectId"
+        FOREIGN KEY ("ProjectId") REFERENCES aihub.projects(id) ON DELETE CASCADE
+);
+
+-- Lookup reverso "quais usuários veem este projeto" — alimenta UI admin
+-- de gestão de projeto + checagem de impacto antes de deletar.
+CREATE INDEX IF NOT EXISTS "IX_user_projects_ProjectId"
+    ON aihub.user_projects ("ProjectId");

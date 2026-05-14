@@ -23,6 +23,7 @@ public class ProjectsController : ControllerBase
     private readonly IProjectRepository _repo;
     private readonly ITenantContextAccessor _tenantAccessor;
     private readonly IUserContextAccessor _userAccessor;
+    private readonly IUserMembershipService _membership;
     private readonly bool _gateEnabled;
     private readonly IAdminAuditLogger _audit;
     private readonly AdminAuditContext _auditContext;
@@ -32,12 +33,14 @@ public class ProjectsController : ControllerBase
         ITenantContextAccessor tenantAccessor,
         IOptions<AdminOptions> adminOptions,
         IUserContextAccessor userAccessor,
+        IUserMembershipService membership,
         IAdminAuditLogger audit,
         AdminAuditContext auditContext)
     {
         _repo = repo;
         _tenantAccessor = tenantAccessor;
         _userAccessor = userAccessor;
+        _membership = membership;
         _gateEnabled = adminOptions.Value.GateEnabled;
         _audit = audit;
         _auditContext = auditContext;
@@ -85,7 +88,7 @@ public class ProjectsController : ControllerBase
     }
 
     [HttpGet]
-    [SwaggerOperation(Summary = "Lista projetos do tenant")]
+    [SwaggerOperation(Summary = "Lista projetos visíveis ao usuário. Admin vê todos do tenant; non-admin vê só os vinculados em user_projects.")]
     [ProducesResponseType(typeof(IReadOnlyList<ProjectResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List(CancellationToken ct)
     {
@@ -94,19 +97,39 @@ public class ProjectsController : ControllerBase
 
         var result = projects.AsEnumerable();
         if (!IsAdmin())
-            result = result.Where(p => !p.Id.Equals("default", StringComparison.OrdinalIgnoreCase));
+        {
+            var user = _userAccessor.Current;
+            var visible = user is null
+                ? Array.Empty<string>()
+                : await _membership.GetVisibleProjectIdsAsync(user.ExternalUserId, tenantId, ct)
+                  ?? Array.Empty<string>();
+            var visibleSet = new HashSet<string>(visible, StringComparer.Ordinal);
+            result = result.Where(p =>
+                !p.Id.Equals("default", StringComparison.OrdinalIgnoreCase)
+                && visibleSet.Contains(p.Id));
+        }
 
         return Ok(result.Select(ProjectResponse.From));
     }
 
     [HttpGet("{id}")]
-    [SwaggerOperation(Summary = "Busca um projeto por ID")]
+    [SwaggerOperation(Summary = "Busca um projeto por ID. Non-admin precisa do vínculo em user_projects.")]
     [ProducesResponseType(typeof(ProjectResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(string id, CancellationToken ct)
     {
-        if (id.Equals("default", StringComparison.OrdinalIgnoreCase) && !IsAdmin())
-            return NotFound();
+        if (!IsAdmin())
+        {
+            if (id.Equals("default", StringComparison.OrdinalIgnoreCase))
+                return NotFound();
+
+            var user = _userAccessor.Current;
+            if (user is null) return NotFound();
+
+            var authorized = await _membership.IsAuthorizedAsync(
+                user.ExternalUserId, _tenantAccessor.Current.TenantId, id, ct);
+            if (!authorized) return NotFound();
+        }
 
         var project = await _repo.GetByIdAsync(id, ct);
         if (project is null) return NotFound();

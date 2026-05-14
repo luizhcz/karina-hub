@@ -1,4 +1,5 @@
 using EfsAiHub.Core.Abstractions.Identity;
+using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Abstractions.Users;
 using EfsAiHub.Host.Api.Services;
 using Microsoft.Extensions.Caching.Memory;
@@ -35,6 +36,7 @@ public sealed class UserProvisioningMiddleware
         IUserContextAccessor userAccessor,
         ITenantContextAccessor tenantAccessor,
         IMemoryCache cache,
+        IAdminAuditLogger audit,
         ILogger<UserProvisioningMiddleware> logger)
     {
         var identity = identityProvider.Resolve(context, out _);
@@ -53,12 +55,46 @@ public sealed class UserProvisioningMiddleware
             user = await cache.GetOrCreateAsync(cacheKey, async entry =>
             {
                 entry.AbsoluteExpirationRelativeToNow = CacheTtl;
-                return await directory.UpsertAsync(
+                var result = await directory.UpsertAsync(
                     identity.ExternalUserId,
                     identity.UserType,
                     tenantId,
                     displayName: null,
                     context.RequestAborted);
+
+                // Audit apenas no INSERT real — re-upserts (LastSeenAt bump) silenciam.
+                if (result.Created)
+                {
+                    try
+                    {
+                        await audit.RecordAsync(new AdminAuditEntry
+                        {
+                            TenantId = tenantId,
+                            ProjectId = null,
+                            ActorUserId = "system:provisioning",
+                            ActorUserType = AdminAuditActorTypes.System,
+                            Action = AdminAuditActions.UserAutoProvisioned,
+                            ResourceType = AdminAuditResources.User,
+                            ResourceId = result.User.Id.ToString(),
+                            PayloadAfter = AdminAuditContext.Snapshot(new
+                            {
+                                userId = result.User.Id,
+                                externalUserId = result.User.ExternalUserId,
+                                userType = result.User.UserType,
+                                tenantId = result.User.TenantId,
+                            }),
+                            Timestamp = DateTime.UtcNow,
+                        }, context.RequestAborted);
+                    }
+                    catch (Exception auditEx)
+                    {
+                        // Falha de audit não pode bloquear provisioning — segue.
+                        logger.LogWarning(auditEx,
+                            "Audit user.auto_provisioned falhou para userId={UserId}",
+                            result.User.Id);
+                    }
+                }
+                return result.User;
             });
         }
         catch (Exception ex)

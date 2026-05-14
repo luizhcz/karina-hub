@@ -49,10 +49,10 @@ public sealed class UserBootstrapHostedService : IHostedService
             if (string.IsNullOrWhiteSpace(externalId)) continue;
             try
             {
-                var user = await _directory.UpsertAsync(externalId, userType, tenantId, displayName: null, ct);
-                if (!user.IsAdmin)
+                var result = await _directory.UpsertAsync(externalId, userType, tenantId, displayName: null, ct);
+                if (!result.User.IsAdmin)
                 {
-                    await _directory.SetAdminAsync(user.Id, isAdmin: true, ct);
+                    await _directory.SetAdminAsync(result.User.Id, isAdmin: true, ct);
                     _logger.LogInformation(
                         "UserBootstrap: promovido externalUserId={ExternalUserId} tenant={TenantId} (estava IsAdmin=false).",
                         externalId, tenantId);

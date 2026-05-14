@@ -12,9 +12,11 @@ public interface IUserDirectory
     /// <summary>
     /// Cria a row se ainda não existe, ou atualiza LastSeenAt+UserType+DisplayName
     /// se já existe. IsAdmin existente é preservado (não é tocado aqui — vide
-    /// <see cref="SetAdminAsync"/>).
+    /// <see cref="SetAdminAsync"/>). Retorna o User + flag <c>created</c> indicando
+    /// se foi INSERT (true) ou UPDATE (false) — usado pro audit emitir
+    /// <c>user.auto_provisioned</c> apenas na criação inicial.
     /// </summary>
-    Task<User> UpsertAsync(
+    Task<UpsertResult> UpsertAsync(
         string externalUserId,
         string userType,
         string tenantId,
@@ -26,6 +28,18 @@ public interface IUserDirectory
     Task<User?> GetByIdAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>
+    /// Listagem paginada de usuários do tenant. <paramref name="search"/>
+    /// filtra por ExternalUserId/DisplayName (LIKE case-insensitive). Order
+    /// estável: LastSeenAt DESC, Id ASC. Total separado pra paginação UI.
+    /// </summary>
+    Task<(IReadOnlyList<User> Items, int Total)> ListAsync(
+        string tenantId,
+        string? search,
+        int page,
+        int pageSize,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Atualiza IsAdmin. Idempotente. Auditoria fica a cargo do caller —
     /// repository não escreve no admin_audit_log.
     /// </summary>
@@ -33,3 +47,7 @@ public interface IUserDirectory
 
     Task SetDisplayNameAsync(Guid userId, string displayName, CancellationToken ct = default);
 }
+
+/// <summary>Resultado do upsert: a row final + flag indicando se foi insert.</summary>
+public sealed record UpsertResult(User User, bool Created);
+

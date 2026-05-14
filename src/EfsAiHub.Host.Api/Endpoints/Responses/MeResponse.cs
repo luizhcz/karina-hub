@@ -27,4 +27,20 @@ public sealed class MeResponse
     /// <summary>Nome humano do usuário (default = ExternalUserId enquanto o
     /// admin não personalizar via UI).</summary>
     public string? DisplayName { get; init; }
+
+    /// <summary>
+    /// Projetos visíveis ao usuário. Admin recebe todos os projetos do tenant
+    /// (exceto "default" que é admin-only e fica omitido aqui). Non-admin
+    /// recebe apenas projetos com vínculo em user_projects. Lista vazia
+    /// quando non-admin ainda não tem nenhum vínculo — frontend redireciona
+    /// pra /bem-vindo nesse caso.
+    /// </summary>
+    public IReadOnlyList<ProjectRef> Projects { get; init; } = [];
+}
+
+/// <summary>Resumo de projeto incluído no /me response. Só id + nome humano.</summary>
+public sealed class ProjectRef
+{
+    public required string Id { get; init; }
+    public required string Name { get; init; }
 }

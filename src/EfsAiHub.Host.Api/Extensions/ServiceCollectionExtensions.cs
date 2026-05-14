@@ -283,6 +283,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger, PgAdminAuditLogRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.McpServers.IMcpServerRepository, PgMcpServerRepository>();
         services.AddSingleton<EfsAiHub.Core.Abstractions.Users.IUserDirectory, PgUserDirectory>();
+        services.AddSingleton<EfsAiHub.Core.Abstractions.Users.IUserMembershipService, PgUserMembershipService>();
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentExtractionRepository, PgDocumentExtractionRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentIntelligenceService, EfsAiHub.Platform.Runtime.Services.DocumentIntelligenceService>();
         services.AddSingleton<EfsAiHub.Platform.Runtime.Executors.DocumentIntelligenceFunctions>();
