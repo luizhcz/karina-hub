@@ -1,138 +1,39 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import { getIdentity, setIdentity, type UserType } from '../stores/identity'
-import { listProjects, type Project } from '../api/projects'
-import { friendlyError } from '../api/client'
 import { cn } from '../ui'
 import {
   Button,
   Card,
-  ErrorMessage,
   Input,
   LogoIcon,
-  Select,
   ThemeToggle,
-  type SelectOption,
 } from '../ui'
-
-// Debounce do fetch de projetos: evita chamada por keystroke quando o user
-// digita a conta. 400ms é confortável — espera o user terminar antes de
-// disparar listProjects, mas não fica lento depois do último caractere.
-const FETCH_DEBOUNCE_MS = 400
 
 export function Onboarding() {
   // Pré-popula com identidade salva: se o user já passou pela tela e voltou
-  // (clicou em "Trocar identidade" ou ainda não escolheu projeto), os campos
-  // já vêm preenchidos.
+  // (clicou em "Trocar identidade"), os campos já vêm preenchidos.
   const initial = getIdentity()
   const [name, setName] = useState(initial?.name ?? '')
   const [account, setAccount] = useState(initial?.account ?? '')
   const [userType, setUserType] = useState<UserType>(initial?.userType ?? 'cliente')
-  const [projects, setProjects] = useState<Project[]>([])
-  const [projectId, setProjectId] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  // Lista projetos só depois que o usuário informa nome E conta — backend
-  // valida identidade via header `x-efs-account`/`x-efs-user-profile-id`.
-  // Setamos identidade provisória (sem projectId) só pra que o client.ts
-  // envie o header no fetch. App.tsx mantém o user nessa tela enquanto
-  // projectId estiver vazio.
-  //
-  // Importante: a identity provisória precisa ter nome E conta preenchidos.
-  // Persistir com algum deles vazio quebra o refresh — readFromStorage
-  // rejeita identity sem nome, jogando o user de volta no Onboarding mesmo
-  // após ter "quase completado" o login.
-  useEffect(() => {
-    const trimmedAccount = account.trim()
-    const trimmedName = name.trim()
-    if (!trimmedAccount || !trimmedName) {
-      setProjects([])
-      setProjectId('')
-      setError(null)
-      setLoading(false)
-      return
-    }
+  const canSubmit = name.trim().length > 0 && account.trim().length > 0
 
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-
-    const handle = window.setTimeout(() => {
-      if (cancelled) return
-
-      setIdentity({
-        name: trimmedName,
-        account: trimmedAccount,
-        userType,
-        projectId: '',
-        projectName: '',
-        chatDeploymentAllowed: false,
-      })
-
-      listProjects()
-        .then((list) => {
-          if (cancelled) return
-          setProjects(list)
-          // Auto-seleciona o primeiro projeto da lista. Usuário pode trocar
-          // no dropdown se quiser outro — pré-selecionar evita o passo extra
-          // do "agora selecione um projeto" que ninguém quer fazer na
-          // primeira entrada do app.
-          setProjectId((current) => {
-            if (current && list.some((p) => p.id === current)) return current
-            return list.length > 0 ? list[0].id : ''
-          })
-        })
-        .catch((err: unknown) => {
-          if (cancelled) return
-          setError(friendlyError(err, 'Não foi possível carregar os projetos.'))
-          setProjects([])
-          setProjectId('')
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false)
-        })
-    }, FETCH_DEBOUNCE_MS)
-
-    return () => {
-      cancelled = true
-      window.clearTimeout(handle)
-    }
-  }, [account, name, userType])
-
-  const projectOptions = useMemo<SelectOption[]>(
-    () => projects.map((p) => ({ value: p.id, label: p.name })),
-    [projects],
-  )
-
-  const projectPlaceholder = useMemo(() => {
-    if (!account.trim()) return 'Informe a conta primeiro'
-    if (loading) return 'Carregando…'
-    if (projects.length === 0) return 'Nenhum projeto disponível'
-    // Sem placeholder, <select value=""> sem matching option exibe o primeiro
-    // <option> visualmente — o user pensa que está selecionado, mas o state
-    // segue vazio e o botão "Continuar" fica desabilitado. Forçar option
-    // vazio resolve a divergência state ↔ display.
-    if (!projectId) return 'Selecione um projeto'
-    return undefined
-  }, [account, loading, projects.length, projectId])
-
-  // Quando o backend devolve lista vazia (non-admin sem nenhum vínculo),
-  // permitimos continuar sem projeto — o RequireAccessOrWelcome redireciona
-  // pra /bem-vindo na primeira renderização do Layout.
-  const noProjectsAvailable = !loading && account.trim().length > 0 && projects.length === 0
-  const canSubmit = !!(name.trim() && account.trim() && (projectId || noProjectsAvailable))
-
+  // Identity só é persistida no clique do Continuar. Persistir durante o
+  // typing (via debounce + setIdentity) fazia o App.tsx renderizar o Layout
+  // assim que name+account ficavam preenchidos, antes do user terminar de
+  // digitar — o seletor de projeto fica a cargo do Layout (auto-select via
+  // useAutoSelectProject + troca manual pelo header).
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!canSubmit) return
-    const selected = projects.find((p) => p.id === projectId)
     setIdentity({
       name: name.trim(),
       account: account.trim(),
       userType,
-      projectId: projectId || '',
-      projectName: selected?.name ?? '',
-      chatDeploymentAllowed: selected?.chatDeploymentAllowed ?? false,
+      projectId: '',
+      projectName: '',
+      chatDeploymentAllowed: false,
     })
   }
 
@@ -196,34 +97,15 @@ export function Onboarding() {
               monospace
             />
 
-            <Select
-              label="Projeto"
-              options={projectOptions}
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-              disabled={!account.trim() || loading || projects.length === 0}
-              placeholder={projectPlaceholder}
-              error={error ?? undefined}
-            />
-
             <Button type="submit" disabled={!canSubmit} className="w-full">
-              {noProjectsAvailable ? 'Continuar mesmo assim' : 'Continuar'}
+              Continuar
             </Button>
           </form>
         </Card>
 
-        {error && <ErrorMessage message={error} className="mt-4" />}
-
-        {noProjectsAvailable ? (
-          <p className="mt-6 text-center text-[11px] text-fg-dim">
-            Você ainda não tem projetos vinculados. Continue para acessar a área
-            de boas-vindas — solicite o vínculo a um administrador.
-          </p>
-        ) : (
-          <p className="mt-6 text-center text-[11px] text-fg-dim">
-            Você pode trocar de projeto a qualquer momento pelo ícone de configurações.
-          </p>
-        )}
+        <p className="mt-6 text-center text-[11px] text-fg-dim">
+          O projeto é selecionado automaticamente após entrar — você pode trocar a qualquer momento pelo header.
+        </p>
       </div>
     </div>
   )
