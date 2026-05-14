@@ -1645,12 +1645,39 @@ CREATE INDEX IF NOT EXISTS "IX_operational_memory_ProjectId_AgentId"
 -- agent_definitions (lookup rápido no save de Chat deploy) e gera audit log.
 -- =============================================================================
 
-CREATE TABLE IF NOT EXISTS aihub.chat_sandbox_sessions (
-    "ChatSandboxSessionId" VARCHAR(64)  NOT NULL,
+-- Migração idempotente: DBs com a tabela legacy chat_sandbox_sessions são
+-- renomeados pra agent_sandbox_sessions; PK, constraints e índices acompanham.
+-- DBs novos pulam o bloco e caem direto no CREATE abaixo. Mode default 'chat'
+-- preserva sessions de chat existentes; ConversationId vira nullable pra que
+-- sessions standalone (Mode='standalone') possam pular criação de conversation.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'aihub' AND table_name = 'chat_sandbox_sessions'
+    ) THEN
+        ALTER TABLE aihub.chat_sandbox_sessions RENAME TO agent_sandbox_sessions;
+        ALTER TABLE aihub.agent_sandbox_sessions
+            RENAME COLUMN "ChatSandboxSessionId" TO "SandboxSessionId";
+        ALTER TABLE aihub.agent_sandbox_sessions
+            RENAME CONSTRAINT "PK_chat_sandbox_sessions" TO "PK_agent_sandbox_sessions";
+        ALTER TABLE aihub.agent_sandbox_sessions
+            RENAME CONSTRAINT "CK_chat_sandbox_sessions_Status"
+                          TO "CK_agent_sandbox_sessions_Status";
+        ALTER INDEX IF EXISTS aihub."IX_chat_sandbox_sessions_AgentId_CreatedAt"
+            RENAME TO "IX_agent_sandbox_sessions_AgentId_CreatedAt";
+        ALTER INDEX IF EXISTS aihub."IX_chat_sandbox_sessions_ExpiresAt_Active"
+            RENAME TO "IX_agent_sandbox_sessions_ExpiresAt_Active";
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS aihub.agent_sandbox_sessions (
+    "SandboxSessionId"     VARCHAR(64)  NOT NULL,
     "AgentId"              VARCHAR(256) NOT NULL,
     "AgentVersionId"       VARCHAR(64)  NOT NULL,
+    "Mode"                 VARCHAR(32)  NOT NULL DEFAULT 'chat',
     "WorkflowId"           VARCHAR(256) NOT NULL,
-    "ConversationId"       VARCHAR(128) NOT NULL,
+    "ConversationId"       VARCHAR(128),
     "ProjectId"            VARCHAR(128) NOT NULL,
     "CreatedByUserId"      VARCHAR(256) NOT NULL,
     "CreatedAt"            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -1660,20 +1687,44 @@ CREATE TABLE IF NOT EXISTS aihub.chat_sandbox_sessions (
     "ValidatedAt"          TIMESTAMPTZ,
     "ValidatedByUserId"    VARCHAR(256),
     "ValidationNotes"      TEXT,
-    CONSTRAINT "PK_chat_sandbox_sessions" PRIMARY KEY ("ChatSandboxSessionId"),
-    CONSTRAINT "CK_chat_sandbox_sessions_Status"
-        CHECK ("Status" IN ('Active', 'Validated', 'Expired', 'Closed'))
+    CONSTRAINT "PK_agent_sandbox_sessions" PRIMARY KEY ("SandboxSessionId"),
+    CONSTRAINT "CK_agent_sandbox_sessions_Status"
+        CHECK ("Status" IN ('Active', 'Validated', 'Expired', 'Closed')),
+    CONSTRAINT "CK_agent_sandbox_sessions_Mode"
+        CHECK ("Mode" IN ('chat', 'standalone'))
 );
 
--- Listagem por agente (UI mostra sessions passadas no card do agente
--- Conversational) — ordenada por mais recente primeiro.
-CREATE INDEX IF NOT EXISTS "IX_chat_sandbox_sessions_AgentId_CreatedAt"
-    ON aihub.chat_sandbox_sessions ("AgentId", "CreatedAt" DESC);
+-- Idempotente: DBs renomeados (vinham com schema antigo, sem Mode e com
+-- ConversationId NOT NULL) precisam dessas ALTERs explícitas — o CREATE acima
+-- pula porque a tabela já existe.
+ALTER TABLE aihub.agent_sandbox_sessions
+    ADD COLUMN IF NOT EXISTS "Mode" VARCHAR(32) NOT NULL DEFAULT 'chat';
+ALTER TABLE aihub.agent_sandbox_sessions
+    ALTER COLUMN "ConversationId" DROP NOT NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_schema = 'aihub'
+          AND table_name = 'agent_sandbox_sessions'
+          AND constraint_name = 'CK_agent_sandbox_sessions_Mode'
+    ) THEN
+        ALTER TABLE aihub.agent_sandbox_sessions
+            ADD CONSTRAINT "CK_agent_sandbox_sessions_Mode"
+                CHECK ("Mode" IN ('chat', 'standalone'));
+    END IF;
+END $$;
+
+-- Listagem por agente (UI mostra sessions passadas no card do agente) —
+-- ordenada por mais recente primeiro.
+CREATE INDEX IF NOT EXISTS "IX_agent_sandbox_sessions_AgentId_CreatedAt"
+    ON aihub.agent_sandbox_sessions ("AgentId", "CreatedAt" DESC);
 
 -- Cleanup background service filtra por ExpiresAt + Status (Validated nunca
 -- expira; preserva audit). Partial index economiza tamanho do índice.
-CREATE INDEX IF NOT EXISTS "IX_chat_sandbox_sessions_ExpiresAt_Active"
-    ON aihub.chat_sandbox_sessions ("ExpiresAt")
+CREATE INDEX IF NOT EXISTS "IX_agent_sandbox_sessions_ExpiresAt_Active"
+    ON aihub.agent_sandbox_sessions ("ExpiresAt")
     WHERE "Status" IN ('Active', 'Closed');
 
 -- Colunas denormalizadas em agent_definitions: lookup rápido no save de Chat

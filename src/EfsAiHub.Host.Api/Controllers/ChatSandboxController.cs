@@ -1,6 +1,6 @@
-using EfsAiHub.Core.Abstractions.ChatSandbox;
+using EfsAiHub.Core.Abstractions.AgentSandbox;
 using EfsAiHub.Core.Abstractions.Identity;
-using EfsAiHub.Host.Api.ChatSandbox;
+using EfsAiHub.Host.Api.AgentSandbox;
 using EfsAiHub.Host.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
@@ -11,11 +11,11 @@ namespace EfsAiHub.Host.Api.Controllers;
 [Produces("application/json")]
 public sealed class ChatSandboxController : ControllerBase
 {
-    private readonly ChatSandboxService _service;
+    private readonly AgentSandboxService _service;
     private readonly UserIdentityResolver _identityResolver;
 
     public ChatSandboxController(
-        ChatSandboxService service,
+        AgentSandboxService service,
         UserIdentityResolver identityResolver)
     {
         _service = service;
@@ -44,7 +44,7 @@ public sealed class ChatSandboxController : ControllerBase
             var session = await _service.CreateSessionAsync(
                 agentId,
                 caller,
-                new ChatSandboxService.CreateSessionRequest(body?.AgentVersionId),
+                new AgentSandboxService.CreateSessionRequest(body?.AgentVersionId),
                 ct);
 
             var response = ChatSandboxSessionResponse.FromDomain(session);
@@ -76,10 +76,10 @@ public sealed class ChatSandboxController : ControllerBase
         [FromQuery] int limit = 50,
         CancellationToken ct = default)
     {
-        ChatSandboxSessionStatus? statusFilter = null;
+        AgentSandboxSessionStatus? statusFilter = null;
         if (!string.IsNullOrWhiteSpace(status))
         {
-            if (!Enum.TryParse<ChatSandboxSessionStatus>(status, ignoreCase: true, out var parsed))
+            if (!Enum.TryParse<AgentSandboxSessionStatus>(status, ignoreCase: true, out var parsed))
                 return BadRequest(new { error = $"Status '{status}' inválido." });
             statusFilter = parsed;
         }
@@ -142,7 +142,7 @@ public sealed class ChatSandboxController : ControllerBase
             var session = await _service.ValidateAsync(
                 sessionId,
                 caller,
-                new ChatSandboxService.ValidateSessionRequest(body?.Notes),
+                new AgentSandboxService.ValidateSessionRequest(body?.Notes),
                 ct);
             return Ok(ChatSandboxSessionResponse.FromDomain(session));
         }
@@ -161,12 +161,17 @@ public sealed record ChatSandboxCreateRequest(string? AgentVersionId);
 
 public sealed record ChatSandboxValidateRequest(string? Notes);
 
+/// <summary>
+/// DTO de resposta da Chat Sandbox API legada. Field <c>ChatSandboxSessionId</c>
+/// preservado pra estabilidade do contrato JSON (clientes existentes leem essa
+/// chave); internamente o domínio chama de <c>SandboxSessionId</c>.
+/// </summary>
 public sealed record ChatSandboxSessionResponse(
     string ChatSandboxSessionId,
     string AgentId,
     string AgentVersionId,
     string WorkflowId,
-    string ConversationId,
+    string? ConversationId,
     string ProjectId,
     string CreatedByUserId,
     DateTime CreatedAt,
@@ -177,8 +182,8 @@ public sealed record ChatSandboxSessionResponse(
     string? ValidatedByUserId,
     string? ValidationNotes)
 {
-    public static ChatSandboxSessionResponse FromDomain(ChatSandboxSession s) => new(
-        s.ChatSandboxSessionId,
+    public static ChatSandboxSessionResponse FromDomain(AgentSandboxSession s) => new(
+        s.SandboxSessionId,
         s.AgentId,
         s.AgentVersionId,
         s.WorkflowId,

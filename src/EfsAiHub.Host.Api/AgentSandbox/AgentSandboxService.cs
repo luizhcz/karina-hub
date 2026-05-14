@@ -1,5 +1,4 @@
-using System.Text.Json;
-using EfsAiHub.Core.Abstractions.ChatSandbox;
+using EfsAiHub.Core.Abstractions.AgentSandbox;
 using EfsAiHub.Core.Abstractions.Conversations;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
@@ -14,21 +13,26 @@ using EfsAiHub.Platform.Runtime.Interfaces;
 using EfsAiHub.Platform.Runtime.Options;
 using Microsoft.Extensions.Options;
 
-namespace EfsAiHub.Host.Api.ChatSandbox;
+namespace EfsAiHub.Host.Api.AgentSandbox;
 
 /// <summary>
-/// Orquestra ciclo de vida de Chat Sandbox sessions:
-/// criação (workflow efêmero + conversation + session record),
-/// listagem, fechamento manual e validação (PR #3).
+/// Orquestra ciclo de vida de sessions de sandbox de agente: criação
+/// (workflow efêmero + conversation, quando aplicável + session record),
+/// listagem, fechamento manual e validação (gate de Chat).
+///
+/// <para>
+/// Hoje só constrói workflow Chat (<c>Mode=chat</c>) — caminho Standalone
+/// pra Custom/Worker/ToolRunner é construído em entrega subsequente.
+/// </para>
 ///
 /// Workflow é criado como Chat real (InputMode=Chat, OrchestrationMode=Graph)
 /// com pin exato da AgentVersion alvo — o trigger usa header x-version
 /// automaticamente porque <c>WorkflowExecutor</c> ativa <c>exactAgentPin</c>
 /// quando o execution.WorkflowVersionId vem setado.
 /// </summary>
-public sealed class ChatSandboxService
+public sealed class AgentSandboxService
 {
-    private readonly IChatSandboxSessionRepository _sandboxRepo;
+    private readonly IAgentSandboxSessionRepository _sandboxRepo;
     private readonly IAgentDefinitionRepository _agentRepo;
     private readonly IAgentVersionRepository? _agentVersionRepo;
     private readonly IWorkflowService _workflowService;
@@ -37,18 +41,18 @@ public sealed class ChatSandboxService
     private readonly IAdminAuditLogger? _auditLogger;
     private readonly AdminAuditContext? _auditContext;
     private readonly IProjectContextAccessor _projectAccessor;
-    private readonly IOptions<ChatSandboxOptions> _options;
-    private readonly ILogger<ChatSandboxService> _logger;
+    private readonly IOptions<AgentSandboxOptions> _options;
+    private readonly ILogger<AgentSandboxService> _logger;
 
-    public ChatSandboxService(
-        IChatSandboxSessionRepository sandboxRepo,
+    public AgentSandboxService(
+        IAgentSandboxSessionRepository sandboxRepo,
         IAgentDefinitionRepository agentRepo,
         IWorkflowService workflowService,
         IConversationLifecycle conversationLifecycle,
         IChatMessageRepository messageRepo,
         IProjectContextAccessor projectAccessor,
-        IOptions<ChatSandboxOptions> options,
-        ILogger<ChatSandboxService> logger,
+        IOptions<AgentSandboxOptions> options,
+        ILogger<AgentSandboxService> logger,
         IAgentVersionRepository? agentVersionRepo = null,
         IAdminAuditLogger? auditLogger = null,
         AdminAuditContext? auditContext = null)
@@ -68,7 +72,7 @@ public sealed class ChatSandboxService
 
     public sealed record CreateSessionRequest(string? AgentVersionId);
 
-    public async Task<ChatSandboxSession> CreateSessionAsync(
+    public async Task<AgentSandboxSession> CreateSessionAsync(
         string agentId,
         UserContext caller,
         CreateSessionRequest? request,
@@ -87,11 +91,11 @@ public sealed class ChatSandboxService
 
         var resolvedVersionId = await ResolveAgentVersionIdAsync(agentId, request?.AgentVersionId, ct);
 
-        var chatSandboxSessionId = Guid.NewGuid().ToString("N");
-        var workflowId = $"deploy-chat-sandbox-{chatSandboxSessionId[..8]}";
+        var sandboxSessionId = Guid.NewGuid().ToString("N");
+        var workflowId = $"deploy-chat-sandbox-{sandboxSessionId[..8]}";
 
-        var workflowDefinition = BuildSandboxWorkflow(
-            workflowId, agent, resolvedVersionId, chatSandboxSessionId, caller.UserId);
+        var workflowDefinition = BuildChatSandboxWorkflow(
+            workflowId, agent, resolvedVersionId, sandboxSessionId, caller.UserId);
 
         var createdWorkflow = await _workflowService.CreateAsync(workflowDefinition, ct);
 
@@ -101,55 +105,57 @@ public sealed class ChatSandboxService
             userType: caller.UserType,
             metadata: new Dictionary<string, string>
             {
-                [ChatSandboxMetadata.SessionIdKey] = chatSandboxSessionId,
+                [AgentSandboxMetadata.SessionIdKey] = sandboxSessionId,
                 ["agentId"] = agentId,
-                ["kind"] = "chat-sandbox",
+                ["kind"] = AgentSandboxMetadata.KindChatSandbox,
             },
             ct: ct);
 
         var now = DateTime.UtcNow;
-        var session = new ChatSandboxSession
+        var session = new AgentSandboxSession
         {
-            ChatSandboxSessionId = chatSandboxSessionId,
+            SandboxSessionId = sandboxSessionId,
             AgentId = agentId,
             AgentVersionId = resolvedVersionId,
+            Mode = AgentSandboxModes.Chat,
             WorkflowId = createdWorkflow.Id,
             ConversationId = conversation.ConversationId,
             ProjectId = _projectAccessor.Current.ProjectId,
             CreatedByUserId = caller.UserId,
             CreatedAt = now,
             ExpiresAt = now.AddDays(_options.Value.SessionTtlDays),
-            Status = ChatSandboxSessionStatus.Active,
+            Status = AgentSandboxSessionStatus.Active,
         };
 
         await _sandboxRepo.CreateAsync(session, ct);
 
         await TryAuditAsync(
             AdminAuditActions.ChatSandboxSessionCreated,
-            session.ChatSandboxSessionId,
+            session.SandboxSessionId,
             payloadAfter: new
             {
-                chatSandboxSessionId = session.ChatSandboxSessionId,
+                sandboxSessionId = session.SandboxSessionId,
                 agentId = session.AgentId,
                 agentVersionId = session.AgentVersionId,
+                mode = session.Mode,
                 workflowId = session.WorkflowId,
                 conversationId = session.ConversationId,
             },
             ct);
 
         _logger.LogInformation(
-            "[ChatSandbox] Session '{SessionId}' criada (agent={AgentId}@{VersionId}, workflow={WorkflowId}).",
-            chatSandboxSessionId, agentId, resolvedVersionId, createdWorkflow.Id);
+            "[AgentSandbox] Session '{SessionId}' criada (mode={Mode}, agent={AgentId}@{VersionId}, workflow={WorkflowId}).",
+            sandboxSessionId, session.Mode, agentId, resolvedVersionId, createdWorkflow.Id);
 
         return session;
     }
 
-    public Task<ChatSandboxSession?> GetByIdAsync(string sessionId, CancellationToken ct = default)
+    public Task<AgentSandboxSession?> GetByIdAsync(string sessionId, CancellationToken ct = default)
         => _sandboxRepo.GetByIdAsync(sessionId, ct);
 
-    public Task<IReadOnlyList<ChatSandboxSession>> ListByAgentAsync(
+    public Task<IReadOnlyList<AgentSandboxSession>> ListByAgentAsync(
         string agentId,
-        ChatSandboxSessionStatus? statusFilter,
+        AgentSandboxSessionStatus? statusFilter,
         int limit,
         CancellationToken ct = default)
         => _sandboxRepo.ListByAgentAsync(agentId, statusFilter, limit, ct);
@@ -157,19 +163,19 @@ public sealed class ChatSandboxService
     public async Task CloseSessionAsync(string sessionId, CancellationToken ct = default)
     {
         var session = await _sandboxRepo.GetByIdAsync(sessionId, ct)
-            ?? throw new KeyNotFoundException($"ChatSandboxSession '{sessionId}' não encontrada.");
+            ?? throw new KeyNotFoundException($"AgentSandboxSession '{sessionId}' não encontrada.");
 
-        if (session.Status is ChatSandboxSessionStatus.Validated)
+        if (session.Status is AgentSandboxSessionStatus.Validated)
             throw new InvalidOperationException(
                 "Sessions validadas não podem ser fechadas — preservam audit trail.");
 
-        if (session.Status is ChatSandboxSessionStatus.Closed or ChatSandboxSessionStatus.Expired)
+        if (session.Status is AgentSandboxSessionStatus.Closed or AgentSandboxSessionStatus.Expired)
             return;
 
-        session.Status = ChatSandboxSessionStatus.Closed;
+        session.Status = AgentSandboxSessionStatus.Closed;
         await _sandboxRepo.UpdateAsync(session, ct);
 
-        _logger.LogInformation("[ChatSandbox] Session '{SessionId}' fechada.", sessionId);
+        _logger.LogInformation("[AgentSandbox] Session '{SessionId}' fechada.", sessionId);
     }
 
     public sealed record ValidateSessionRequest(string? Notes);
@@ -178,21 +184,30 @@ public sealed class ChatSandboxService
     /// Promove a session a <c>Validated</c> e popula
     /// <c>agent_definitions.LastChatSandboxValidated*</c>. Gate pra que Chat
     /// deploys parem de avisar "agent não validado" pra essa versão. Exige
-    /// ≥1 mensagem na conversation (pra que valide-se de fato algo, não uma
-    /// session vazia recém-criada).
+    /// ≥1 mensagem na conversation. Em V1 só funciona pra <c>Mode=chat</c>;
+    /// chamadas pra session standalone retornam 400 (sem consumer downstream).
     /// </summary>
-    public async Task<ChatSandboxSession> ValidateAsync(
+    public async Task<AgentSandboxSession> ValidateAsync(
         string sessionId,
         UserContext caller,
         ValidateSessionRequest? request,
         CancellationToken ct = default)
     {
         var session = await _sandboxRepo.GetByIdAsync(sessionId, ct)
-            ?? throw new KeyNotFoundException($"ChatSandboxSession '{sessionId}' não encontrada.");
+            ?? throw new KeyNotFoundException($"AgentSandboxSession '{sessionId}' não encontrada.");
 
-        if (session.Status != ChatSandboxSessionStatus.Active)
+        if (!string.Equals(session.Mode, AgentSandboxModes.Chat, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                "Validation gate está disponível apenas pra sessions de Chat (Conversational). " +
+                $"Mode atual: '{session.Mode}'.");
+
+        if (session.Status != AgentSandboxSessionStatus.Active)
             throw new InvalidOperationException(
                 $"Apenas sessions Active podem ser validadas. Estado atual: {session.Status}.");
+
+        if (string.IsNullOrEmpty(session.ConversationId))
+            throw new InvalidOperationException(
+                "Session de Chat sem ConversationId — estado inconsistente, não pode ser validada.");
 
         var sample = await _messageRepo.ListAsync(session.ConversationId, limit: 1, offset: 0, ct);
         if (sample.Count == 0)
@@ -206,7 +221,7 @@ public sealed class ChatSandboxService
             throw new InvalidOperationException(
                 $"Agente '{session.AgentId}' não foi encontrado pra gravar validation — pode ter sido deletado.");
 
-        session.Status = ChatSandboxSessionStatus.Validated;
+        session.Status = AgentSandboxSessionStatus.Validated;
         session.ValidatedAt = now;
         session.ValidatedByUserId = caller.UserId;
         session.ValidationNotes = request?.Notes;
@@ -214,10 +229,10 @@ public sealed class ChatSandboxService
 
         await TryAuditAsync(
             AdminAuditActions.ChatSandboxValidated,
-            session.ChatSandboxSessionId,
+            session.SandboxSessionId,
             payloadAfter: new
             {
-                chatSandboxSessionId = session.ChatSandboxSessionId,
+                sandboxSessionId = session.SandboxSessionId,
                 agentId = session.AgentId,
                 agentVersionId = session.AgentVersionId,
                 validatedByUserId = caller.UserId,
@@ -226,7 +241,7 @@ public sealed class ChatSandboxService
             ct);
 
         _logger.LogInformation(
-            "[ChatSandbox] Session '{SessionId}' validada por '{UserId}' (agent={AgentId}@{VersionId}).",
+            "[AgentSandbox] Session '{SessionId}' validada por '{UserId}' (agent={AgentId}@{VersionId}).",
             sessionId, caller.UserId, session.AgentId, session.AgentVersionId);
 
         return session;
@@ -237,7 +252,7 @@ public sealed class ChatSandboxService
     {
         if (_agentVersionRepo is null)
             throw new InvalidOperationException(
-                "IAgentVersionRepository não está disponível — versioning é requisito do Chat Sandbox.");
+                "IAgentVersionRepository não está disponível — versioning é requisito do Agent Sandbox.");
 
         if (!string.IsNullOrEmpty(requestedVersionId))
         {
@@ -256,11 +271,11 @@ public sealed class ChatSandboxService
         return current.AgentVersionId;
     }
 
-    private WorkflowDefinition BuildSandboxWorkflow(
+    private WorkflowDefinition BuildChatSandboxWorkflow(
         string workflowId,
         AgentDefinition agent,
         string agentVersionId,
-        string chatSandboxSessionId,
+        string sandboxSessionId,
         string createdByUserId)
     {
         // Conversational depende de StructuredOutputState (alimentação do AG-UI
@@ -298,10 +313,10 @@ public sealed class ChatSandboxService
             ],
             Metadata = new Dictionary<string, string>
             {
-                [ChatSandboxMetadata.DeploymentKindKey] = ChatSandboxMetadata.DeploymentKindChat,
-                [ChatSandboxMetadata.KindKey] = ChatSandboxMetadata.KindChatSandbox,
-                [ChatSandboxMetadata.TransientKey] = "true",
-                [ChatSandboxMetadata.SessionIdKey] = chatSandboxSessionId,
+                [AgentSandboxMetadata.DeploymentKindKey] = AgentSandboxMetadata.DeploymentKindChat,
+                [AgentSandboxMetadata.KindKey] = AgentSandboxMetadata.KindChatSandbox,
+                [AgentSandboxMetadata.TransientKey] = "true",
+                [AgentSandboxMetadata.SessionIdKey] = sandboxSessionId,
                 ["createdByUserId"] = createdByUserId,
                 ["deployedFromAgentId"] = agent.Id,
             },
@@ -324,7 +339,7 @@ public sealed class ChatSandboxService
         catch (Exception ex)
         {
             // Audit não pode bloquear o fluxo — só loga.
-            _logger.LogWarning(ex, "[ChatSandbox] Falha ao registrar audit '{Action}' pra '{ResourceId}'.",
+            _logger.LogWarning(ex, "[AgentSandbox] Falha ao registrar audit '{Action}' pra '{ResourceId}'.",
                 action, resourceId);
         }
     }

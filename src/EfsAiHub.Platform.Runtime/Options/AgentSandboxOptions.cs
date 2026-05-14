@@ -1,13 +1,13 @@
 namespace EfsAiHub.Platform.Runtime.Options;
 
 /// <summary>
-/// Opções de configuração do subsistema Chat Sandbox. Bind em appsettings via
-/// seção <c>ChatSandbox</c>. Vive em <c>Platform.Runtime/Options</c> pra ficar
-/// acessível tanto a <c>Host.Api</c> (ChatSandboxService consome) quanto a
-/// <c>Host.Worker</c> (ChatSandboxCleanupService consome) sem dependência
-/// cross-host.
+/// Opções do subsistema Agent Sandbox. Bind em appsettings via seção
+/// <c>AgentSandbox</c> (legado <c>ChatSandbox</c> também aceito enquanto a
+/// rename está em curso — config bind é case-insensitive por key, não por
+/// seção). Vive em <c>Platform.Runtime/Options</c> pra acesso cross-host
+/// (Host.Api consome o AgentSandboxService, Host.Worker o cleanup).
 /// </summary>
-public sealed class ChatSandboxOptions
+public sealed class AgentSandboxOptions
 {
     /// <summary>TTL de session ativa antes de virar candidata a Expired pelo cleanup.</summary>
     public int SessionTtlDays { get; set; } = 7;
