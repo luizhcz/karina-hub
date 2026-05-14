@@ -59,10 +59,11 @@ public class MeController : ControllerBase
         IEnumerable<Project> visibleProjects;
         if (user.IsAdmin)
         {
-            // Admin recebe todos do tenant menos o "default" (admin-only,
-            // não deve aparecer no seletor da UI).
-            visibleProjects = allProjects.Where(p =>
-                !p.Id.Equals("default", StringComparison.OrdinalIgnoreCase));
+            // Admin enxerga todos os projetos do tenant — inclui o "default"
+            // pra que apareça no seletor da UI e seja reconhecido como válido
+            // pelo auto-select do Layout (filtrar aqui causava o admin perder
+            // a seleção de 'default' a cada render).
+            visibleProjects = allProjects;
         }
         else
         {
