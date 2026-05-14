@@ -11,7 +11,7 @@ import {
   type ApprovalHistoryEntry,
 } from '../api/agents'
 import { ApiError, friendlyError } from '../api/client'
-import { createChatSandboxSession } from '../api/chatSandbox'
+import { createAgentSandboxSession } from '../api/agentSandbox'
 import { getIdentity } from '../stores/identity'
 import {
   deployedAgentId,
@@ -99,7 +99,9 @@ export function AgentsList() {
   const [forkingId, setForkingId] = useState<string | null>(null)
   const [forkError, setForkError] = useState<string | null>(null)
 
-  // Spinner por card enquanto o POST /chat-sandbox-sessions roda.
+  // Spinner por card enquanto o POST /sandbox-sessions (ou legado
+  // /chat-sandbox-sessions) roda. Botão é universal: Conversational vai pro
+  // Chat AG-UI; Custom/Worker/ToolRunner vão pro Deployment Sandbox standalone.
   const [testingInChatId, setTestingInChatId] = useState<string | null>(null)
   const [testingInChatError, setTestingInChatError] = useState<string | null>(null)
 
@@ -290,14 +292,18 @@ export function AgentsList() {
     setTestingInChatId(agentId)
     setTestingInChatError(null)
     try {
-      const session = await createChatSandboxSession(agentId)
-      // Workflow efêmero é Chat real — reaproveita o sandbox AG-UI já existente.
-      // A continuidade do thread veio com a conversation criada pelo backend, mas
-      // o ChatDeploymentSandbox cria thread própria por mount; pra V1 isso é OK
-      // (cada visita = novo thread). PR futuro pode plumb conversationId via state.
-      navigate(`/implantacoes/chat/${session.workflowId}/sandbox`)
+      // Endpoint unificado: backend decide o mode por agent.Type. Frontend
+      // só roteia pela `mode` da response — nunca hardcoda mapping.
+      // chat → ChatDeploymentSandbox (AG-UI); standalone → DeploymentSandbox
+      // (SSE de execução). Router não é aceito (400 do backend); botão é
+      // ocultado pra Router antes de chegar aqui.
+      const session = await createAgentSandboxSession(agentId)
+      const path = session.mode === 'chat'
+        ? `/implantacoes/chat/${session.workflowId}/sandbox`
+        : `/implantacoes/${session.workflowId}/sandbox`
+      navigate(path)
     } catch (err) {
-      setTestingInChatError(friendlyError(err, 'Não foi possível abrir o Chat Sandbox.'))
+      setTestingInChatError(friendlyError(err, 'Não foi possível abrir o Sandbox.'))
     } finally {
       setTestingInChatId(null)
     }
@@ -922,15 +928,21 @@ function PublishedAgentCard({
           <Button variant="secondary" size="sm" onClick={onEdit} loading={forking}>
             Editar
           </Button>
-          {isConversational && (
+          {/* Router não suporta sandbox (precisa de branches). PR #3 oferece
+              "Predict intent" como caminho dedicado de classificação stateless. */}
+          {!isRouter && (
             <Button
               variant="secondary"
               size="sm"
               onClick={onTestInChat}
               loading={testingInChat}
-              title="Cria session de teste isolado em chat AG-UI (workflow efêmero, sem Router)."
+              title={
+                isConversational
+                  ? 'Cria session de teste isolado em chat AG-UI (workflow efêmero, sem Router).'
+                  : 'Cria workflow Standalone efêmero pra testar o agente sem deploy permanente.'
+              }
             >
-              Testar em Chat
+              Testar
             </Button>
           )}
           {/* O disable abaixo é hint de UX. Authority da regra

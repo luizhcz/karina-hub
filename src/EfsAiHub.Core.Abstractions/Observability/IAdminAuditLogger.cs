@@ -202,6 +202,23 @@ public static class AdminAuditActions
     public const string ChatSandboxValidationInvalidated = "chat_sandbox.validation_invalidated";
 
     /// <summary>
+    /// Session Standalone Sandbox criada pra testar agente Custom/Worker/ToolRunner
+    /// sem deploy permanente. Emitido pelo POST
+    /// /api/aihub/agents/{id}/sandbox-sessions quando agent.Type ≠ Conversational.
+    /// PayloadAfter inclui sandboxSessionId, agentId, agentType, agentVersionId,
+    /// mode, workflowId. <strong>Gate de validation não se aplica</strong>
+    /// (Standalone não tem cadeia de consumo downstream).
+    /// </summary>
+    public const string AgentSandboxStandaloneSessionCreated = "agent_sandbox.standalone_session_created";
+
+    /// <summary>
+    /// Predição isolada de intent por agente Router. Emitido pelo POST
+    /// /api/aihub/agents/{id}/predict-intent. PayloadAfter inclui agentId,
+    /// agentVersionId, inputLength, intent, latencyMs.
+    /// </summary>
+    public const string RouterIntentPredicted = "router.intent_predicted";
+
+    /// <summary>
     /// Criação de Predefined Model (preset global). Emitido pelo
     /// POST /api/aihub/admin/predefined-models. PayloadAfter inclui id, displayName,
     /// provider, deploymentName.

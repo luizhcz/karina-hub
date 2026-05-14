@@ -129,14 +129,14 @@ public class AgentSandboxServiceTests
     private static UserContext Caller() => new(CallerId, "admin");
 
     [Fact]
-    public async Task CreateSessionAsync_RejectsNonConversational()
+    public async Task CreateSessionAsync_RejectsRouter()
     {
-        var (svc, _, _, _, workflowSvc, _, _) = BuildService(StubAgent("agent-1", AgentType.Custom));
+        var (svc, _, _, _, workflowSvc, _, _) = BuildService(StubAgent("router-1", AgentType.Router));
 
-        var act = async () => await svc.CreateSessionAsync("agent-1", Caller(), null);
+        var act = async () => await svc.CreateSessionAsync("router-1", Caller(), null);
 
         var ex = await act.Should().ThrowAsync<InvalidOperationException>();
-        ex.Which.Message.Should().Contain("Conversational");
+        ex.Which.Message.Should().Contain("predict-intent");
         await workflowSvc.DidNotReceive().CreateAsync(Arg.Any<WorkflowDefinition>(), Arg.Any<CancellationToken>());
     }
 
@@ -224,6 +224,53 @@ public class AgentSandboxServiceTests
 
         var ex = await act.Should().ThrowAsync<ArgumentException>();
         ex.Which.Message.Should().Contain("não pertence");
+    }
+
+    [Theory]
+    [InlineData(AgentType.Custom)]
+    [InlineData(AgentType.Worker)]
+    [InlineData(AgentType.ToolRunner)]
+    public async Task CreateSessionAsync_BuildsStandaloneWorkflowForNonChatTypes(AgentType type)
+    {
+        var (svc, _, _, _, workflowSvc, convLifecycle, _) = BuildService(StubAgent("a-1", type));
+
+        var session = await svc.CreateSessionAsync("a-1", Caller(), null);
+
+        // Workflow Standalone: InputMode=Standalone, Sequential, kind=standalone-sandbox.
+        // Carrega chave chatSandboxSessionId no metadata (compat com leitores legacy).
+        await workflowSvc.Received(1).CreateAsync(
+            Arg.Is<WorkflowDefinition>(w =>
+                w.Configuration.InputMode == "Standalone"
+                && w.OrchestrationMode == OrchestrationMode.Sequential
+                && w.Agents.Count == 1
+                && w.Agents[0].AgentId == "a-1"
+                && w.Metadata!["deploymentKind"] == "standalone"
+                && w.Metadata["kind"] == "standalone-sandbox"
+                && w.Metadata["transient"] == "true"
+                && w.Metadata["deployedFromAgentType"] == type.ToString()
+                && w.Metadata.ContainsKey("chatSandboxSessionId")),
+            Arg.Any<CancellationToken>());
+
+        // Standalone NÃO cria conversation — fluxo single-shot via SSE de execução.
+        await convLifecycle.DidNotReceive().CreateAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<Dictionary<string, string>?>(), Arg.Any<CancellationToken>());
+
+        session.Mode.Should().Be(AgentSandboxModes.Standalone);
+        session.ConversationId.Should().BeNull();
+        session.Status.Should().Be(AgentSandboxSessionStatus.Active);
+    }
+
+    [Fact]
+    public async Task CreateSessionAsync_RejectsDisabledAgentEvenForStandalone()
+    {
+        var (svc, _, _, _, workflowSvc, _, _) = BuildService(StubAgent("w-1", AgentType.Worker, enabled: false));
+
+        var act = async () => await svc.CreateSessionAsync("w-1", Caller(), null);
+
+        var ex = await act.Should().ThrowAsync<InvalidOperationException>();
+        ex.Which.Message.Should().Contain("desabilitado");
+        await workflowSvc.DidNotReceive().CreateAsync(Arg.Any<WorkflowDefinition>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

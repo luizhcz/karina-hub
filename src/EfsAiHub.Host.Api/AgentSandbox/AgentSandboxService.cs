@@ -81,17 +81,35 @@ public sealed class AgentSandboxService
         var agent = await _agentRepo.GetByIdAsync(agentId, ct)
             ?? throw new KeyNotFoundException($"Agente '{agentId}' não encontrado.");
 
-        if (agent.Type != AgentType.Conversational)
-            throw new InvalidOperationException(
-                $"Chat Sandbox só está disponível pra agentes Conversational (tipo atual: {agent.Type}).");
-
         if (!agent.Enabled)
             throw new InvalidOperationException(
                 $"Agente '{agentId}' está desabilitado — habilite antes de criar uma session.");
 
-        var resolvedVersionId = await ResolveAgentVersionIdAsync(agentId, request?.AgentVersionId, ct);
+        // Router é classificador puro: sandbox isolada exige branches reais ou
+        // mock pra fazer sentido. Caminho dedicado é /predict-intent (stateless).
+        if (agent.Type == AgentType.Router)
+            throw new InvalidOperationException(
+                "Router não suporta Sandbox session — use POST /api/aihub/agents/{id}/predict-intent " +
+                "pra testar a classificação de intent isoladamente.");
 
+        var resolvedVersionId = await ResolveAgentVersionIdAsync(agentId, request?.AgentVersionId, ct);
         var sandboxSessionId = Guid.NewGuid().ToString("N");
+
+        // Backend decide o mode por agent.Type (regra de negócio). Frontend roteia
+        // pela resposta — nunca hardcoda mapping. Conversational → Chat (cria
+        // conversation, AG-UI); demais → Standalone (single-shot, sem conversation).
+        if (agent.Type == AgentType.Conversational)
+            return await CreateChatSessionAsync(agent, resolvedVersionId, sandboxSessionId, caller, ct);
+        return await CreateStandaloneSessionAsync(agent, resolvedVersionId, sandboxSessionId, caller, ct);
+    }
+
+    private async Task<AgentSandboxSession> CreateChatSessionAsync(
+        AgentDefinition agent,
+        string resolvedVersionId,
+        string sandboxSessionId,
+        UserContext caller,
+        CancellationToken ct)
+    {
         var workflowId = $"deploy-chat-sandbox-{sandboxSessionId[..8]}";
 
         var workflowDefinition = BuildChatSandboxWorkflow(
@@ -106,7 +124,7 @@ public sealed class AgentSandboxService
             metadata: new Dictionary<string, string>
             {
                 [AgentSandboxMetadata.SessionIdKey] = sandboxSessionId,
-                ["agentId"] = agentId,
+                ["agentId"] = agent.Id,
                 ["kind"] = AgentSandboxMetadata.KindChatSandbox,
             },
             ct: ct);
@@ -115,7 +133,7 @@ public sealed class AgentSandboxService
         var session = new AgentSandboxSession
         {
             SandboxSessionId = sandboxSessionId,
-            AgentId = agentId,
+            AgentId = agent.Id,
             AgentVersionId = resolvedVersionId,
             Mode = AgentSandboxModes.Chat,
             WorkflowId = createdWorkflow.Id,
@@ -148,8 +166,65 @@ public sealed class AgentSandboxService
             ct);
 
         _logger.LogInformation(
-            "[AgentSandbox] Session '{SessionId}' criada (mode={Mode}, agent={AgentId}@{VersionId}, workflow={WorkflowId}).",
-            sandboxSessionId, session.Mode, agentId, resolvedVersionId, createdWorkflow.Id);
+            "[AgentSandbox] Chat session '{SessionId}' criada (agent={AgentId}@{VersionId}, workflow={WorkflowId}).",
+            sandboxSessionId, agent.Id, resolvedVersionId, createdWorkflow.Id);
+
+        return session;
+    }
+
+    private async Task<AgentSandboxSession> CreateStandaloneSessionAsync(
+        AgentDefinition agent,
+        string resolvedVersionId,
+        string sandboxSessionId,
+        UserContext caller,
+        CancellationToken ct)
+    {
+        var workflowId = $"sandbox-standalone-{sandboxSessionId[..8]}";
+
+        var workflowDefinition = BuildStandaloneSandboxWorkflow(
+            workflowId, agent, resolvedVersionId, sandboxSessionId, caller.UserId);
+
+        var createdWorkflow = await _workflowService.CreateAsync(workflowDefinition, ct);
+
+        // Standalone não cria conversation: cada trigger é single-shot, sem
+        // histórico AG-UI. DeploymentSandbox.tsx (UI) renderiza via SSE de
+        // execution direto.
+
+        var now = DateTime.UtcNow;
+        var session = new AgentSandboxSession
+        {
+            SandboxSessionId = sandboxSessionId,
+            AgentId = agent.Id,
+            AgentVersionId = resolvedVersionId,
+            Mode = AgentSandboxModes.Standalone,
+            WorkflowId = createdWorkflow.Id,
+            ConversationId = null,
+            ProjectId = _projectAccessor.Current.ProjectId,
+            CreatedByUserId = caller.UserId,
+            CreatedAt = now,
+            ExpiresAt = now.AddDays(_options.Value.SessionTtlDays),
+            Status = AgentSandboxSessionStatus.Active,
+        };
+
+        await _sandboxRepo.CreateAsync(session, ct);
+
+        await TryAuditAsync(
+            AdminAuditActions.AgentSandboxStandaloneSessionCreated,
+            session.SandboxSessionId,
+            payloadAfter: new
+            {
+                sandboxSessionId = session.SandboxSessionId,
+                agentId = session.AgentId,
+                agentType = agent.Type.ToString(),
+                agentVersionId = session.AgentVersionId,
+                mode = session.Mode,
+                workflowId = session.WorkflowId,
+            },
+            ct);
+
+        _logger.LogInformation(
+            "[AgentSandbox] Standalone session '{SessionId}' criada (agent={AgentId}/{Type}@{VersionId}, workflow={WorkflowId}).",
+            sandboxSessionId, agent.Id, agent.Type, resolvedVersionId, createdWorkflow.Id);
 
         return session;
     }
@@ -323,6 +398,60 @@ public sealed class AgentSandboxService
                 [AgentSandboxMetadata.SessionIdKey] = sandboxSessionId,
                 ["createdByUserId"] = createdByUserId,
                 ["deployedFromAgentId"] = agent.Id,
+            },
+        };
+    }
+
+    private WorkflowDefinition BuildStandaloneSandboxWorkflow(
+        string workflowId,
+        AgentDefinition agent,
+        string agentVersionId,
+        string sandboxSessionId,
+        string createdByUserId)
+    {
+        // Custom/Worker/ToolRunner rodam single-shot: input → output sem histórico
+        // conversational. OrchestrationMode=Sequential é equivalente a Graph pra
+        // um agente único e simplifica diff visual no Sandbox UI.
+        // Metadata kind=standalone-sandbox marca pra cleanup background e pra
+        // distinguir de deploys Standalone permanentes em listagens analíticas.
+        return new WorkflowDefinition
+        {
+            Id = workflowId,
+            Name = $"Standalone Sandbox · {agent.Name}",
+            Description = $"Workflow efêmero pra teste isolado de '{agent.Name}' ({agent.Type}).",
+            OrchestrationMode = OrchestrationMode.Sequential,
+            ProjectId = _projectAccessor.Current.ProjectId,
+            Visibility = "project",
+            Configuration = new WorkflowConfiguration
+            {
+                InputMode = "Standalone",
+                TimeoutSeconds = 300,
+                MaxRounds = null,
+                MaxAgentInvocations = 10,
+                MaxHistoryMessages = 0,
+                MaxTokensPerExecution = 50000,
+                CheckpointMode = "InMemory",
+                EnableHumanInTheLoop = false,
+                ExposeAsAgent = false,
+            },
+            Agents =
+            [
+                new WorkflowAgentReference
+                {
+                    AgentId = agent.Id,
+                    AgentVersionId = agentVersionId,
+                    Role = "EntryPoint",
+                },
+            ],
+            Metadata = new Dictionary<string, string>
+            {
+                [AgentSandboxMetadata.DeploymentKindKey] = AgentSandboxMetadata.DeploymentKindStandalone,
+                [AgentSandboxMetadata.KindKey] = AgentSandboxMetadata.KindStandaloneSandbox,
+                [AgentSandboxMetadata.TransientKey] = "true",
+                [AgentSandboxMetadata.SessionIdKey] = sandboxSessionId,
+                ["createdByUserId"] = createdByUserId,
+                ["deployedFromAgentId"] = agent.Id,
+                ["deployedFromAgentType"] = agent.Type.ToString(),
             },
         };
     }
