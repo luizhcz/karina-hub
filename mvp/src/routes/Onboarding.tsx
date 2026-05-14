@@ -32,13 +32,20 @@ export function Onboarding() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Lista projetos só depois que o usuário informa a conta — backend valida
-  // identidade via header `x-efs-account`. Setamos identidade provisória
-  // (sem projectId) só pra que o client.ts envie o header no fetch. App.tsx
-  // mantém o user nessa tela enquanto projectId estiver vazio.
+  // Lista projetos só depois que o usuário informa nome E conta — backend
+  // valida identidade via header `x-efs-account`/`x-efs-user-profile-id`.
+  // Setamos identidade provisória (sem projectId) só pra que o client.ts
+  // envie o header no fetch. App.tsx mantém o user nessa tela enquanto
+  // projectId estiver vazio.
+  //
+  // Importante: a identity provisória precisa ter nome E conta preenchidos.
+  // Persistir com algum deles vazio quebra o refresh — readFromStorage
+  // rejeita identity sem nome, jogando o user de volta no Onboarding mesmo
+  // após ter "quase completado" o login.
   useEffect(() => {
     const trimmedAccount = account.trim()
-    if (!trimmedAccount) {
+    const trimmedName = name.trim()
+    if (!trimmedAccount || !trimmedName) {
       setProjects([])
       setProjectId('')
       setError(null)
@@ -54,7 +61,7 @@ export function Onboarding() {
       if (cancelled) return
 
       setIdentity({
-        name: name.trim(),
+        name: trimmedName,
         account: trimmedAccount,
         userType,
         projectId: '',

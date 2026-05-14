@@ -36,9 +36,12 @@ function readFromStorage(): Identity | null {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<Identity>
-    if (!parsed.name || !parsed.account) return null
+    // account é o identificador efetivo (vira header). Sem ele, identity é
+    // inútil. name é só display — fallback pro próprio account preserva o
+    // refresh quando algum estado parcial chegou a localStorage.
+    if (!parsed.account) return null
     return {
-      name: parsed.name,
+      name: parsed.name && parsed.name.length > 0 ? parsed.name : parsed.account,
       account: parsed.account,
       // Identidades antigas (sem o campo) caem em 'cliente' — backward-compat
       // com o comportamento anterior (MVP sempre mandava x-efs-account).
