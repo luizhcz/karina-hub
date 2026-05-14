@@ -7,6 +7,7 @@ using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Abstractions.Projects;
 using EfsAiHub.Core.Abstractions.Secrets;
+using EfsAiHub.Core.Abstractions.Users;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.Annotations;
@@ -21,8 +22,9 @@ public class ProjectsController : ControllerBase
 {
     private readonly IProjectRepository _repo;
     private readonly ITenantContextAccessor _tenantAccessor;
-    private readonly HashSet<string> _adminAccountIds;
-    private readonly UserIdentityResolver _identityResolver;
+    private readonly IUserContextAccessor _userAccessor;
+    private readonly IUserMembershipService _membership;
+    private readonly bool _gateEnabled;
     private readonly IAdminAuditLogger _audit;
     private readonly AdminAuditContext _auditContext;
 
@@ -30,23 +32,24 @@ public class ProjectsController : ControllerBase
         IProjectRepository repo,
         ITenantContextAccessor tenantAccessor,
         IOptions<AdminOptions> adminOptions,
-        UserIdentityResolver identityResolver,
+        IUserContextAccessor userAccessor,
+        IUserMembershipService membership,
         IAdminAuditLogger audit,
         AdminAuditContext auditContext)
     {
         _repo = repo;
         _tenantAccessor = tenantAccessor;
-        _adminAccountIds = new HashSet<string>(adminOptions.Value.AccountIds, StringComparer.Ordinal);
-        _identityResolver = identityResolver;
+        _userAccessor = userAccessor;
+        _membership = membership;
+        _gateEnabled = adminOptions.Value.GateEnabled;
         _audit = audit;
         _auditContext = auditContext;
     }
 
     private bool IsAdmin()
     {
-        if (_adminAccountIds.Count == 0) return true; // gate desabilitado (dev/test)
-        var identity = _identityResolver.TryResolve(HttpContext.Request.Headers, out _);
-        return identity != null && _adminAccountIds.Contains(identity.UserId);
+        if (!_gateEnabled) return true; // gate desabilitado (dev/test)
+        return _userAccessor.Current?.IsAdmin == true;
     }
 
     [HttpPost]
@@ -85,7 +88,7 @@ public class ProjectsController : ControllerBase
     }
 
     [HttpGet]
-    [SwaggerOperation(Summary = "Lista projetos do tenant")]
+    [SwaggerOperation(Summary = "Lista projetos visíveis ao usuário. Admin vê todos do tenant; non-admin vê só os vinculados em user_projects.")]
     [ProducesResponseType(typeof(IReadOnlyList<ProjectResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List(CancellationToken ct)
     {
@@ -94,19 +97,39 @@ public class ProjectsController : ControllerBase
 
         var result = projects.AsEnumerable();
         if (!IsAdmin())
-            result = result.Where(p => !p.Id.Equals("default", StringComparison.OrdinalIgnoreCase));
+        {
+            var user = _userAccessor.Current;
+            var visible = user is null
+                ? Array.Empty<string>()
+                : await _membership.GetVisibleProjectIdsAsync(user.ExternalUserId, tenantId, ct)
+                  ?? Array.Empty<string>();
+            var visibleSet = new HashSet<string>(visible, StringComparer.Ordinal);
+            result = result.Where(p =>
+                !p.Id.Equals("default", StringComparison.OrdinalIgnoreCase)
+                && visibleSet.Contains(p.Id));
+        }
 
         return Ok(result.Select(ProjectResponse.From));
     }
 
     [HttpGet("{id}")]
-    [SwaggerOperation(Summary = "Busca um projeto por ID")]
+    [SwaggerOperation(Summary = "Busca um projeto por ID. Non-admin precisa do vínculo em user_projects.")]
     [ProducesResponseType(typeof(ProjectResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(string id, CancellationToken ct)
     {
-        if (id.Equals("default", StringComparison.OrdinalIgnoreCase) && !IsAdmin())
-            return NotFound();
+        if (!IsAdmin())
+        {
+            if (id.Equals("default", StringComparison.OrdinalIgnoreCase))
+                return NotFound();
+
+            var user = _userAccessor.Current;
+            if (user is null) return NotFound();
+
+            var authorized = await _membership.IsAuthorizedAsync(
+                user.ExternalUserId, _tenantAccessor.Current.TenantId, id, ct);
+            if (!authorized) return NotFound();
+        }
 
         var project = await _repo.GetByIdAsync(id, ct);
         if (project is null) return NotFound();

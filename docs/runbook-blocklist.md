@@ -77,7 +77,7 @@ outras camadas (TokenTracking, Circuit, provider LLM).
    - **Não envia mas era pra estar enviando**: alinhar com cliente sobre fix no integrador.
 3. Se for caminho não-HTTP recém-introduzido (job, scheduler, listener): autor do código novo precisa popular `IProjectContextAccessor.Current` ou `WorkflowExecution.Metadata["projectId"]`. **Não é fix de runtime — é fix de código + redeploy.**
 4. **Não tente debug de async/AsyncLocal localmente.** Se `IsExplicit=false` aparecer em request HTTP que enviou header correto, é bug arquitetural — abrir issue com stack trace completo e correlationId em `#efs-platform`. Não é resolvível em ops.
-5. Workaround temporário: NÃO existe via config. Setar `Admin:AccountIds` vazio (desabilita AdminGate) NÃO resolve — AdminGate é diferente do ProjectMiddleware.
+5. Workaround temporário: NÃO existe via config. Setar `Admin:GateEnabled=false` (desabilita AdminGate) NÃO resolve — AdminGate é diferente do ProjectMiddleware.
 
 ### Causa 2 — `IWorkflowEventBus` não registrado no DI
 

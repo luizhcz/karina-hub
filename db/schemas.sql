@@ -1736,3 +1736,65 @@ ALTER TABLE aihub.agent_definitions
     ADD COLUMN IF NOT EXISTS "LastChatSandboxValidatedByUserId" VARCHAR(256);
 ALTER TABLE aihub.agent_definitions
     ADD COLUMN IF NOT EXISTS "LastChatSandboxValidatedAgentVersionId" VARCHAR(64);
+
+-- =============================================================================
+-- USERS — diretório persistente de usuários (auto-provision no primeiro login)
+-- =============================================================================
+-- ExternalUserId guarda o identificador externo do caller (header `x-efs-account`
+-- pra cliente, `x-efs-user-profile-id` pra admin; quando login virar JWT, vira
+-- `sub` da claim). Identidade é resolvida via IUserIdentityProvider e o
+-- UserProvisioningMiddleware faz upsert idempotente por (ExternalUserId, TenantId).
+--
+-- IsAdmin é a única fonte de verdade pra gating administrativo no runtime.
+-- BootstrapAdminExternalUserIds em appsettings é só seed inicial — o
+-- UserBootstrapHostedService força IsAdmin=TRUE no startup pra evitar lock-out
+-- caso um admin se demova por engano via UI.
+CREATE TABLE IF NOT EXISTS aihub.users (
+    "Id"             UUID         NOT NULL DEFAULT gen_random_uuid(),
+    "ExternalUserId" VARCHAR(128) NOT NULL,
+    "UserType"       VARCHAR(32)  NOT NULL,             -- 'cliente' | 'admin' (origem do header, informativo)
+    "TenantId"       VARCHAR(128) NOT NULL,
+    "DisplayName"    VARCHAR(256) NULL,
+    "IsAdmin"        BOOLEAN      NOT NULL DEFAULT FALSE,
+    "CreatedAt"      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    "LastSeenAt"     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT "PK_users" PRIMARY KEY ("Id"),
+    CONSTRAINT "UQ_users_ExternalUserId_TenantId" UNIQUE ("ExternalUserId", "TenantId"),
+    CONSTRAINT "CK_users_UserType" CHECK ("UserType" IN ('cliente', 'admin'))
+);
+
+-- Lookup primário do UserProvisioningMiddleware: (ExternalUserId, TenantId).
+-- Já coberto pelo UNIQUE constraint acima; índice adicional pra range scan
+-- por tenant (admin lista usuários do próprio tenant).
+CREATE INDEX IF NOT EXISTS "IX_users_TenantId"
+    ON aihub.users ("TenantId");
+
+-- Partial index pra responder rapidamente "quem são os admins deste tenant?"
+-- (UI admin, audit, alertas de segurança quando o último admin se demove).
+CREATE INDEX IF NOT EXISTS "IX_users_TenantId_IsAdmin"
+    ON aihub.users ("TenantId")
+    WHERE "IsAdmin" = TRUE;
+
+-- =============================================================================
+-- USER_PROJECTS — vínculo N:N entre usuário e projetos visíveis
+-- =============================================================================
+-- Non-admin só enxerga projetos onde tem um vínculo aqui. Admin tem bypass
+-- total (sem precisar de vínculo). ON DELETE CASCADE remove o vínculo
+-- automaticamente quando o usuário ou o projeto é deletado — vinculação
+-- órfã não tem semântica.
+CREATE TABLE IF NOT EXISTS aihub.user_projects (
+    "UserId"     UUID         NOT NULL,
+    "ProjectId"  VARCHAR(128) NOT NULL,
+    "GrantedAt"  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    "GrantedBy"  VARCHAR(128) NULL,
+    CONSTRAINT "PK_user_projects" PRIMARY KEY ("UserId", "ProjectId"),
+    CONSTRAINT "FK_user_projects_UserId"
+        FOREIGN KEY ("UserId") REFERENCES aihub.users("Id") ON DELETE CASCADE,
+    CONSTRAINT "FK_user_projects_ProjectId"
+        FOREIGN KEY ("ProjectId") REFERENCES aihub.projects(id) ON DELETE CASCADE
+);
+
+-- Lookup reverso "quais usuários veem este projeto" — alimenta UI admin
+-- de gestão de projeto + checagem de impacto antes de deletar.
+CREATE INDEX IF NOT EXISTS "IX_user_projects_ProjectId"
+    ON aihub.user_projects ("ProjectId");

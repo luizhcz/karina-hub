@@ -1,5 +1,5 @@
 import { ApiError, post } from './client'
-import { getIdentity } from '../stores/identity'
+import { getAuthHeaders } from '../auth/headers'
 
 export interface AgentSession {
   sessionId: string
@@ -43,10 +43,10 @@ export async function* streamRun(
   message: string,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent, void, unknown> {
-  const id = getIdentity()
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (id?.account) headers['x-efs-account'] = id.account
-  if (id?.projectId) headers['x-project-id'] = id.projectId
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...getAuthHeaders(),
+  }
 
   const response = await fetch(`/api/aihub/agents/${agentId}/sessions/${sessionId}/stream`, {
     method: 'POST',

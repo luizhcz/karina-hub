@@ -35,6 +35,10 @@ public static class WebApplicationExtensions
             },
         });
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.TenantMiddleware>();
+        // UserProvisioning roda logo após TenantMiddleware (precisa do TenantId
+        // resolvido) e antes de qualquer guard/admin gate (que consultam
+        // IUserContextAccessor.Current?.IsAdmin pra decidir 403).
+        app.UseMiddleware<EfsAiHub.Host.Api.Middleware.UserProvisioningMiddleware>();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.ProjectMiddleware>();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.DefaultProjectGuard>();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.Identity.PersonaResolutionMiddleware>();

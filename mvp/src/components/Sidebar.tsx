@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router'
+import { useIsAdmin } from '../stores/me'
 import {
   AgentIcon,
   BoltIcon,
@@ -6,6 +7,7 @@ import {
   CheckIcon,
   LogoIcon,
   ServerIcon,
+  SettingsIcon,
   SparklesIcon,
   ToolIcon,
   cn,
@@ -15,23 +17,35 @@ interface NavItem {
   label: string
   to: string
   icon: React.ReactNode
+  adminOnly?: boolean
 }
 
 // Implantações é visível a todos: non-admin consulta deploys (read-only),
 // admin gerencia. Gating das ações (Implantar / Atualizar / Testar) é feito
 // no card e na tela de detalhe via useIsAdmin.
-const items: NavItem[] = [
+//
+// Intenções e Aprovações são admin-only — escondidos do menu pra non-admin
+// pra evitar 403 ao entrar. Backend ainda enforça via AdminGate.
+const navItems: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: <ChartIcon className="h-5 w-5" /> },
   { label: 'Agentes', to: '/agentes', icon: <AgentIcon className="h-5 w-5" /> },
-  { label: 'Intenções', to: '/intencoes', icon: <SparklesIcon className="h-5 w-5" /> },
-  { label: 'Aprovações', to: '/aprovacoes', icon: <CheckIcon className="h-5 w-5" /> },
+  { label: 'Intenções', to: '/intencoes', icon: <SparklesIcon className="h-5 w-5" />, adminOnly: true },
+  { label: 'Aprovações', to: '/aprovacoes', icon: <CheckIcon className="h-5 w-5" />, adminOnly: true },
   { label: 'Implantações', to: '/implantacoes', icon: <BoltIcon className="h-5 w-5" /> },
   { label: 'Avaliações', to: '/avaliacoes', icon: <SparklesIcon className="h-5 w-5" /> },
   { label: 'Ferramentas', to: '/ferramentas', icon: <ToolIcon className="h-5 w-5" /> },
   { label: 'MCPs', to: '/mcps', icon: <ServerIcon className="h-5 w-5" /> },
 ]
 
+const adminItems: NavItem[] = [
+  { label: 'Usuários', to: '/admin/usuarios', icon: <SettingsIcon className="h-5 w-5" /> },
+]
+
 export function Sidebar() {
+  const isAdmin = useIsAdmin()
+
+  const visibleNav = navItems.filter((item) => !item.adminOnly || isAdmin === true)
+
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-bg-soft">
       <div className="flex items-center gap-2 px-5 py-5">
@@ -45,27 +59,43 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 px-3 py-2">
-        {items.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) =>
-              cn(
-                'relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition',
-                // Quick-win UX: barra lateral à esquerda no item ativo dá hierarquia
-                // visual de menu enterprise (Linear/Stripe pattern).
-                'before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-r before:transition',
-                isActive
-                  ? 'bg-accent-subtle text-accent before:bg-accent'
-                  : 'text-fg-muted before:bg-transparent hover:bg-surface-hover hover:text-fg',
-              )
-            }
-          >
-            {item.icon}
-            <span>{item.label}</span>
-          </NavLink>
+        {visibleNav.map((item) => (
+          <SidebarLink key={item.to} item={item} />
         ))}
+
+        {isAdmin === true && (
+          <div className="mt-6">
+            <div className="px-3 pb-2 text-[10px] font-medium uppercase tracking-widest text-fg-dim">
+              Administração
+            </div>
+            {adminItems.map((item) => (
+              <SidebarLink key={item.to} item={item} />
+            ))}
+          </div>
+        )}
       </nav>
     </aside>
+  )
+}
+
+function SidebarLink({ item }: { item: NavItem }) {
+  return (
+    <NavLink
+      to={item.to}
+      className={({ isActive }) =>
+        cn(
+          'relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition',
+          // Quick-win UX: barra lateral à esquerda no item ativo dá hierarquia
+          // visual de menu enterprise (Linear/Stripe pattern).
+          'before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-r before:transition',
+          isActive
+            ? 'bg-accent-subtle text-accent before:bg-accent'
+            : 'text-fg-muted before:bg-transparent hover:bg-surface-hover hover:text-fg',
+        )
+      }
+    >
+      {item.icon}
+      <span>{item.label}</span>
+    </NavLink>
   )
 }
