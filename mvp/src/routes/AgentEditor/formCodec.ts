@@ -611,7 +611,12 @@ function encodeStructuredOutput(
   prev: AgentDraftPayload | undefined,
   form: FormState,
 ): AgentDraftPayload['structuredOutput'] {
-  if (form.type === 'Worker' || form.type === 'ToolRunner') {
+  // Worker/ToolRunner/Custom regeneram payload.structuredOutput a partir do
+  // form. Custom embute o output também no markdown (## Output estruturado),
+  // mas a redundância é proposital: o markdown é guidance pro LLM e o
+  // structuredOutput é a hint canônica pro runtime resolver schema sem
+  // depender de regex no instructions.
+  if (form.type === 'Worker' || form.type === 'ToolRunner' || form.type === 'Custom') {
     if (form.output.mode !== 'structured') {
       return null
     }
@@ -631,7 +636,12 @@ function encodeStructuredOutput(
       typeof prev?.structuredOutput?.schemaName === 'string'
         ? prev.structuredOutput.schemaName
         : null
-    const fallbackSchemaName = form.type === 'Worker' ? 'WorkerOutput' : 'ToolRunnerOutput'
+    const fallbackSchemaName =
+      form.type === 'Worker'
+        ? 'WorkerOutput'
+        : form.type === 'ToolRunner'
+          ? 'ToolRunnerOutput'
+          : 'CustomOutput'
     return {
       responseFormat: 'json_schema',
       schemaName: prevSchemaName || fallbackSchemaName,
@@ -672,11 +682,8 @@ function encodeStructuredOutput(
     }
   }
 
-  if (form.type !== 'Router') {
-    const prevSO = prev?.structuredOutput
-    return prevSO === undefined ? null : prevSO
-  }
-
+  // Router cai aqui (os outros tipos foram tratados nos blocos acima).
+  // Schema fixo — runtime injeta o enum dinâmico das intents.
   return {
     responseFormat: 'json_schema',
     schemaName: 'router_intent',
