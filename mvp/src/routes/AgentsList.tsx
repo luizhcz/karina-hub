@@ -12,6 +12,7 @@ import {
 } from '../api/agents'
 import { ApiError, friendlyError } from '../api/client'
 import { createAgentSandboxSession } from '../api/agentSandbox'
+import { useIsAdmin } from '../stores/me'
 import { getIdentity } from '../stores/identity'
 import {
   deployedAgentId,
@@ -830,6 +831,9 @@ function PublishedAgentCard({
   const modelLabel = agent.model?.predefinedModelId || agent.model?.deploymentName || ''
   const toolCount = agent.tools?.length ?? 0
   const enabled = agent.enabled !== false
+  // Implantar é admin-only — autores podem criar/editar/testar agentes,
+  // mas não promovem em produção pela UI.
+  const isAdmin = useIsAdmin()
   // Router herda o accent roxo, Worker o azul (sky), Tool Runner o âmbar,
   // Conversational o rosa — espelham os cards de tipo no NewAgentModeModal/
   // TypeStep, mantendo consistência visual entre seleção e listagem. Custom
@@ -960,23 +964,25 @@ function PublishedAgentCard({
               Testar
             </Button>
           )}
-          {/* O disable abaixo é hint de UX. Authority da regra
-              "Conversational requer InputMode=Chat" vive no backend
-              (WorkflowAgentInvariantsValidator) — qualquer tentativa via API
-              direta retorna 400 com errorCode=ConversationalRequiresChat. */}
-          <Button
-            size="sm"
-            onClick={onDeploy}
-            disabled={isConversational}
-            leftIcon={<BoltIcon className="h-3.5 w-3.5" />}
-            title={
-              isConversational
-                ? 'Conversational não suporta implantação Single — use Roteamento por intent ou Pipeline.'
-                : undefined
-            }
-          >
-            Implantar
-          </Button>
+          {/* Implantar é admin-only — autores ficam na alçada de
+              criação/edição/teste do agente; promoção pra produção depende de
+              admin. O disable interno é hint de UX pra Conversational
+              (regra real vive no WorkflowAgentInvariantsValidator no backend). */}
+          {isAdmin === true && (
+            <Button
+              size="sm"
+              onClick={onDeploy}
+              disabled={isConversational}
+              leftIcon={<BoltIcon className="h-3.5 w-3.5" />}
+              title={
+                isConversational
+                  ? 'Conversational não suporta implantação Single — use Roteamento por intent ou Pipeline.'
+                  : undefined
+              }
+            >
+              Implantar
+            </Button>
+          )}
         </div>
       </div>
     </Card>

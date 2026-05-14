@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
+import { useIsAdmin } from '../stores/me'
 import { getAgent, type Agent } from '../api/agents'
 import { listAgentVersions } from '../api/agentVersions'
 import {
@@ -326,6 +327,9 @@ function DeployedView({
   redeployError,
   redeployFlash,
 }: DeployedViewProps) {
+  // Ações de mutação/teste do deploy são admin-only: non-admin só visualiza
+  // (Versões fica disponível pra qualquer role consultar o histórico).
+  const isAdmin = useIsAdmin()
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -378,19 +382,25 @@ function DeployedView({
         )}
         {redeployError && <ErrorMessage message={redeployError} />}
         <div className="flex flex-wrap items-end justify-between gap-2 pt-2">
-          <p className="max-w-xs text-[11px] leading-snug text-fg-muted">
-            <span className="font-semibold text-fg">Atualizar agente</span> sobe o workflow para a versão atual do agente (cria uma nova revisão).
-          </p>
+          {isAdmin === true && (
+            <p className="max-w-xs text-[11px] leading-snug text-fg-muted">
+              <span className="font-semibold text-fg">Atualizar agente</span> sobe o workflow para a versão atual do agente (cria uma nova revisão).
+            </p>
+          )}
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={onOpenVersions}>
               Versões
             </Button>
-            <Button variant="secondary" size="sm" onClick={onRedeploy} loading={redeploying}>
-              Atualizar agente
-            </Button>
-            <Button size="sm" onClick={onOpenSandbox} leftIcon={<BoltIcon className="h-3.5 w-3.5" />}>
-              Testar
-            </Button>
+            {isAdmin === true && (
+              <>
+                <Button variant="secondary" size="sm" onClick={onRedeploy} loading={redeploying}>
+                  Atualizar agente
+                </Button>
+                <Button size="sm" onClick={onOpenSandbox} leftIcon={<BoltIcon className="h-3.5 w-3.5" />}>
+                  Testar
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </Card>
