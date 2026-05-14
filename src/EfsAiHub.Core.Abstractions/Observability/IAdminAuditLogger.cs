@@ -180,8 +180,9 @@ public static class AdminAuditActions
 
     /// <summary>
     /// Session de teste isolado de Conversational criada via POST
-    /// /api/aihub/agents/{id}/chat-sandbox-sessions. PayloadAfter inclui
-    /// chatSandboxSessionId, agentId, agentVersionId, workflowId, conversationId.
+    /// /api/aihub/agents/{id}/sandbox-sessions (com Mode=chat derivado pelo
+    /// backend). PayloadAfter inclui chatSandboxSessionId, agentId,
+    /// agentVersionId, mode, workflowId, conversationId.
     /// </summary>
     public const string ChatSandboxSessionCreated = "chat_sandbox.session_created";
 

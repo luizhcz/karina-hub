@@ -1,6 +1,21 @@
 import { del, get, post } from './client'
 
 /**
+ * Chaves canônicas do <code>workflow.metadata</code> escritas pelo
+ * AgentSandboxService e lidas pelo frontend pra distinguir sandbox de deploy
+ * real. Espelho 1-1 das constantes em <code>AgentSandboxMetadata</code> no
+ * backend (.NET). <code>SessionId</code> mantém o nome legado
+ * <code>chatSandboxSessionId</code> pra preservar leitores existentes — rename
+ * de chave entra junto com migração coordenada FE/BE.
+ */
+export const AgentSandboxMetadataKeys = {
+  SessionId: 'chatSandboxSessionId',
+  Kind: 'kind',
+  KindChatSandbox: 'chat-sandbox',
+  KindStandaloneSandbox: 'standalone-sandbox',
+} as const
+
+/**
  * API unificada de Agent Sandbox. Backend decide o <code>mode</code> por
  * <code>agent.Type</code>:
  *

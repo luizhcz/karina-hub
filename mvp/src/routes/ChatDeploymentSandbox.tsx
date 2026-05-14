@@ -13,7 +13,7 @@ import {
 } from '../api/workflows'
 import { getOperationalMemory, type OperationalMemory } from '../api/operationalMemory'
 import { listAgents, type Agent, type AgentType } from '../api/agents'
-import { ChatSandboxMetadataKeys, validateChatSandboxSession } from '../api/chatSandbox'
+import { AgentSandboxMetadataKeys, validateAgentSandboxSession } from '../api/agentSandbox'
 import {
   useChatStream,
   type ChatBubble,
@@ -51,8 +51,8 @@ export function ChatDeploymentSandbox() {
   const [selectedVersionId, setSelectedVersionId] = useState<string>(VERSION_CURRENT)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
-  // Sandbox flow PR #3: quando o workflow é um Chat Sandbox efêmero (criado
-  // pelo ChatSandboxService), o backend carrega chatSandboxSessionId em
+  // Quando o workflow é um Chat Sandbox efêmero (criado
+  // pelo AgentSandboxService), o backend carrega chatSandboxSessionId em
   // metadata. Frontend lê e renderiza o botão "Marcar como validado" no header
   // — sem regra de negócio própria, só presença/ausência decide.
   const [validatingState, setValidatingState] = useState<
@@ -209,15 +209,15 @@ export function ChatDeploymentSandbox() {
   const containerMaxWidth = sidePanelOpen ? 'max-w-7xl' : 'max-w-4xl'
 
   // chatSandboxSessionId vem em workflow.metadata quando o workflow foi criado
-  // pelo ChatSandboxService. Backend é a authority — UI só detecta presença.
+  // pelo AgentSandboxService. Backend é a authority — UI só detecta presença.
   const workflowMetadata = (workflow?.metadata ?? null) as Record<string, string> | null
-  const chatSandboxSessionId = workflowMetadata?.[ChatSandboxMetadataKeys.SessionId] ?? null
+  const chatSandboxSessionId = workflowMetadata?.[AgentSandboxMetadataKeys.SessionId] ?? null
 
   const handleValidateClick = async () => {
     if (!chatSandboxSessionId) return
     setValidatingState({ sending: true, error: null, validated: false })
     try {
-      await validateChatSandboxSession(chatSandboxSessionId, {
+      await validateAgentSandboxSession(chatSandboxSessionId, {
         notes: 'Validado via Chat Sandbox',
       })
       setValidatingState({ sending: false, error: null, validated: true })

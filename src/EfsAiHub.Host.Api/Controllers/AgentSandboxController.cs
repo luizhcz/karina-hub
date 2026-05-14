@@ -12,10 +12,6 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// (chat ou standalone) pelo tipo do agent. Caller só passa <c>agentId</c>
 /// (e opcionalmente <c>agentVersionId</c>) e roteia o usuário pra UI correta
 /// via <c>response.mode</c>.
-///
-/// Rotas legacy <c>/chat-sandbox-sessions/*</c> em
-/// <see cref="ChatSandboxController"/> continuam funcionando como shim
-/// (delegam pro mesmo service); marcadas como obsoletas pra cleanup futuro.
 /// </summary>
 [ApiController]
 [Produces("application/json")]

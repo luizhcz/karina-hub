@@ -1,6 +1,6 @@
 using EfsAiHub.Core.Orchestration.Validation;
 
-namespace EfsAiHub.Tests.Unit.ChatSandbox;
+namespace EfsAiHub.Tests.Unit.Validation;
 
 [Trait("Category", "Unit")]
 public class ChatValidationWarningCalculatorTests

@@ -22,19 +22,21 @@ using Microsoft.Extensions.Options;
 namespace EfsAiHub.Host.Api.AgentSandbox;
 
 /// <summary>
-/// Orquestra ciclo de vida de sessions de sandbox de agente: criação
-/// (workflow efêmero + conversation, quando aplicável + session record),
-/// listagem, fechamento manual e validação (gate de Chat).
+/// Orquestra ciclo de vida de sandbox sessions de agente: criação (workflow
+/// efêmero + conversation quando aplicável + session record), listagem,
+/// fechamento manual, validação (gate de Chat) e predição stateless de
+/// intent (Router).
 ///
 /// <para>
-/// Hoje só constrói workflow Chat (<c>Mode=chat</c>) — caminho Standalone
-/// pra Custom/Worker/ToolRunner é construído em entrega subsequente.
+/// Backend decide <c>Mode</c> por <see cref="AgentType"/>:
+/// Conversational → Chat workflow + conversation (InputMode=Chat, Graph);
+/// Custom/Worker/ToolRunner → Standalone workflow single-shot (sem
+/// conversation); Router → não cria session, usa <c>PredictRouterIntentAsync</c>.
 /// </para>
 ///
-/// Workflow é criado como Chat real (InputMode=Chat, OrchestrationMode=Graph)
-/// com pin exato da AgentVersion alvo — o trigger usa header x-version
-/// automaticamente porque <c>WorkflowExecutor</c> ativa <c>exactAgentPin</c>
-/// quando o execution.WorkflowVersionId vem setado.
+/// Pin exato da AgentVersion é alimentado via metadata do workflow efêmero;
+/// <c>WorkflowExecutor</c> ativa <c>exactAgentPin</c> quando
+/// <c>execution.WorkflowVersionId</c> vem setado.
 /// </summary>
 public sealed class AgentSandboxService
 {
