@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { getAgent, type Agent } from '../api/agents'
 import { listAgentVersions, type AgentVersion } from '../api/agentVersions'
+import { formatRevisionLabel } from '../api/workflows'
 import { friendlyError } from '../api/client'
 import {
   ArrowLeftIcon,
@@ -139,11 +140,11 @@ function VersionRow({ version, selected, order, onToggle }: VersionRowProps) {
           selected ? 'bg-accent text-accent-contrast' : 'bg-bg-soft text-fg-muted',
         )}
       >
-        {selected ? (order === 0 ? 'A' : 'B') : `r${version.revision}`}
+        {selected ? (order === 0 ? 'A' : 'B') : version.revision}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-sm font-semibold text-fg">Revisão {version.revision}</span>
+          <span className="font-mono text-sm font-semibold text-fg">{formatRevisionLabel(version.revision)}</span>
           {version.breakingChange ? (
             <Badge tone="warning">Breaking</Badge>
           ) : (

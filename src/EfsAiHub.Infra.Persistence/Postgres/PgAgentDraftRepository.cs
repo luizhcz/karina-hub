@@ -268,12 +268,17 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
         // do caller — agent recém-aprovado fica visível pro owner project sem
         // depender do query filter atual. Cobre stamp de FingerprintHash, tenant
         // lookup canônico via owner project, dual-write de AgentVersion.
+        // Tier classificado em SubmitForApprovalAsync. Cosmetic preserva o gate
+        // "validated for chat" — edits sem mudança comportamental não invalidam
+        // testes prévios. Behavioral (default conservador quando tier=null) zera.
+        var isCosmeticOnly = tier == AgentChangeTier.Cosmetic;
         var published = await _definitionRepo.UpsertAsync(
             definition,
             ct,
             breakingChange: false,
             changeReason: changeReason,
-            createdBy: actorUserId);
+            createdBy: actorUserId,
+            isCosmeticOnly: isCosmeticOnly);
 
         // Cleanup do draft + history em transação atômica via mesmo ctx.
         await using var ctx = await _factory.CreateDbContextAsync(ct);

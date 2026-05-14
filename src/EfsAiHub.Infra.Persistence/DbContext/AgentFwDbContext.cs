@@ -38,6 +38,14 @@ internal class AgentDefinitionRow
     // antigas sem mapping ignoram silenciosamente.
     public string? RegressionTestSetId { get; set; }
     public string? RegressionEvaluatorConfigVersionId { get; set; }
+
+    // Gate "validated for chat" denormalizado da tabela chat_sandbox_sessions
+    // pra lookup rápido no save de Chat deploy. Populado pelo ChatSandboxService
+    // ao marcar uma session como Validated; zerado pelo approval flow quando
+    // nova AgentVersion é publicada.
+    public DateTime? LastChatSandboxValidatedAt { get; set; }
+    public string? LastChatSandboxValidatedByUserId { get; set; }
+    public string? LastChatSandboxValidatedAgentVersionId { get; set; }
 }
 
 // Rascunho de agent — tabela fisicamente separada de agent_definitions.
@@ -441,6 +449,24 @@ internal class HumanInteractionRow
     public string? ResolvedBy { get; set; }
 }
 
+internal class ChatSandboxSessionRow
+{
+    public string ChatSandboxSessionId { get; set; } = "";
+    public string AgentId { get; set; } = "";
+    public string AgentVersionId { get; set; } = "";
+    public string WorkflowId { get; set; } = "";
+    public string ConversationId { get; set; } = "";
+    public string ProjectId { get; set; } = "";
+    public string CreatedByUserId { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastMessageAt { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public string Status { get; set; } = "Active";
+    public DateTime? ValidatedAt { get; set; }
+    public string? ValidatedByUserId { get; set; }
+    public string? ValidationNotes { get; set; }
+}
+
 internal class AgentSessionRow
 {
     public string SessionId { get; set; } = "";
@@ -665,6 +691,7 @@ public class AgentFwDbContext : DbContext
     internal DbSet<WorkflowCheckpointRow> WorkflowCheckpoints => Set<WorkflowCheckpointRow>();
     internal DbSet<HumanInteractionRow> HumanInteractions => Set<HumanInteractionRow>();
     internal DbSet<AgentSessionRow> AgentSessions => Set<AgentSessionRow>();
+    internal DbSet<ChatSandboxSessionRow> ChatSandboxSessions => Set<ChatSandboxSessionRow>();
     internal DbSet<WorkflowEventAuditRow> WorkflowEventAudits => Set<WorkflowEventAuditRow>();
     internal DbSet<AdminAuditLogRow> AdminAuditLogs => Set<AdminAuditLogRow>();
     internal DbSet<McpServerRow> McpServers => Set<McpServerRow>();
@@ -798,6 +825,9 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.UpdatedAt).IsRequired();
             b.Property(e => e.RegressionTestSetId).HasMaxLength(64);
             b.Property(e => e.RegressionEvaluatorConfigVersionId).HasMaxLength(64);
+            b.Property(e => e.LastChatSandboxValidatedAt);
+            b.Property(e => e.LastChatSandboxValidatedByUserId).HasMaxLength(256);
+            b.Property(e => e.LastChatSandboxValidatedAgentVersionId).HasMaxLength(64);
             // Tenant-aware visibility: project (estrito) OU global dentro do mesmo tenant.
             // Workflow do projeto A pode resolver agent global de B (mesmo tenant) sem
             // bypass de filter — query filter padrão já cobre.
@@ -1282,6 +1312,29 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.ExpiresAt).IsRequired();
             b.HasIndex(e => e.AgentId);
             b.HasIndex(e => e.ExpiresAt);
+        });
+
+        modelBuilder.Entity<ChatSandboxSessionRow>(b =>
+        {
+            b.ToTable("chat_sandbox_sessions");
+            b.HasKey(e => e.ChatSandboxSessionId);
+            b.Property(e => e.ChatSandboxSessionId).HasMaxLength(64);
+            b.Property(e => e.AgentId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.AgentVersionId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.WorkflowId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.ConversationId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.CreatedByUserId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.LastMessageAt);
+            b.Property(e => e.ExpiresAt).IsRequired();
+            b.Property(e => e.Status).HasMaxLength(32).IsRequired().HasDefaultValue("Active");
+            b.Property(e => e.ValidatedAt);
+            b.Property(e => e.ValidatedByUserId).HasMaxLength(256);
+            b.Property(e => e.ValidationNotes).HasColumnType("text");
+            b.HasIndex(e => new { e.AgentId, e.CreatedAt }).IsDescending(false, true);
+            // Partial index pra cleanup é declarado direto no DDL (schemas.sql) —
+            // EF não suporta filtered indexes condicionais via Fluent API.
         });
 
         modelBuilder.Entity<BackgroundResponseJobRow>(b =>

@@ -1,4 +1,5 @@
 using EfsAiHub.Core.Orchestration.Enums;
+using EfsAiHub.Core.Orchestration.Validation;
 
 namespace EfsAiHub.Host.Api.Models.Responses;
 
@@ -34,9 +35,20 @@ public class WorkflowResponse
     /// <summary>Revision (int) da CurrentVersionId — atalho pra UI exibir "rN".</summary>
     public int? CurrentRevision { get; init; }
 
+    /// <summary>
+    /// Warnings não-bloqueantes do save — emitidos quando Chat deploy tem
+    /// branch agent Conversational sem validation válida em Chat Sandbox.
+    /// Frontend renderiza inline; save NÃO é bloqueado (decisão de produto:
+    /// gate é warning, não erro). Null/omitido quando não há warnings.
+    /// </summary>
+    public IReadOnlyList<ChatValidationWarning>? ValidationWarnings { get; init; }
+
     public static WorkflowResponse FromDomain(WorkflowDefinition def) => FromDomain(def, null);
 
-    public static WorkflowResponse FromDomain(WorkflowDefinition def, WorkflowVersion? currentVersion) => new()
+    public static WorkflowResponse FromDomain(
+        WorkflowDefinition def,
+        WorkflowVersion? currentVersion,
+        IReadOnlyList<ChatValidationWarning>? validationWarnings = null) => new()
     {
         Id = def.Id,
         Name = def.Name,
@@ -54,6 +66,7 @@ public class WorkflowResponse
         CreatedAt = def.CreatedAt,
         UpdatedAt = def.UpdatedAt,
         CurrentVersionId = currentVersion?.WorkflowVersionId,
-        CurrentRevision = currentVersion?.Revision
+        CurrentRevision = currentVersion?.Revision,
+        ValidationWarnings = validationWarnings is { Count: > 0 } ? validationWarnings : null,
     };
 }

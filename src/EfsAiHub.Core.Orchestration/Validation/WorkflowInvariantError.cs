@@ -43,6 +43,14 @@ public static class WorkflowErrorCodes
     /// disponíveis via API (PR 3 expõe <c>OutputSchema</c> em <c>GET /api/aihub/functions</c>).
     /// </summary>
     public const string PathNotFoundInSchema = "PathNotFoundInSchema";
+
+    /// <summary>
+    /// Workflow com <c>InputMode=Standalone</c> referencia agente do tipo
+    /// <c>Conversational</c>. Conversational depende de contexto multi-turn
+    /// (ConversationId, AG-UI shared state) que só existe em workflows
+    /// <c>InputMode=Chat</c>. Use Chat deploy ou troque o tipo do agente.
+    /// </summary>
+    public const string ConversationalRequiresChat = "ConversationalRequiresChat";
 }
 
 /// <summary>

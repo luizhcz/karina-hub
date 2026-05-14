@@ -179,6 +179,29 @@ public static class AdminAuditActions
     public const string WorkflowAgentVersionPinned = "workflow.agent_version_pinned";
 
     /// <summary>
+    /// Session de teste isolado de Conversational criada via POST
+    /// /api/aihub/agents/{id}/chat-sandbox-sessions. PayloadAfter inclui
+    /// chatSandboxSessionId, agentId, agentVersionId, workflowId, conversationId.
+    /// </summary>
+    public const string ChatSandboxSessionCreated = "chat_sandbox.session_created";
+
+    /// <summary>
+    /// Validação manual de uma session (admin marca o Conversational como apto
+    /// pra plug em chats de produção). Popula colunas LastChatSandboxValidated*
+    /// em agent_definitions. PayloadAfter inclui agentId, agentVersionId,
+    /// chatSandboxSessionId, notes.
+    /// </summary>
+    public const string ChatSandboxValidated = "chat_sandbox.validated";
+
+    /// <summary>
+    /// Validação anterior do agent foi invalidada porque uma nova
+    /// AgentVersion foi publicada. Emitido pelo approval flow ao zerar as
+    /// colunas LastChatSandboxValidated*. PayloadAfter inclui agentId,
+    /// previousValidatedAgentVersionId, newAgentVersionId.
+    /// </summary>
+    public const string ChatSandboxValidationInvalidated = "chat_sandbox.validation_invalidated";
+
+    /// <summary>
     /// Criação de Predefined Model (preset global). Emitido pelo
     /// POST /api/aihub/admin/predefined-models. PayloadAfter inclui id, displayName,
     /// provider, deploymentName.
@@ -240,6 +263,9 @@ public static class AdminAuditResources
 
     /// <summary>Item do pool global de intents (cross-project por tenant) consumido por Router agents.</summary>
     public const string RouterIntent = "router_intent";
+
+    /// <summary>Session de teste isolado de agente Conversational em chat AG-UI.</summary>
+    public const string ChatSandboxSession = "chat_sandbox_session";
 }
 
 /// <summary>

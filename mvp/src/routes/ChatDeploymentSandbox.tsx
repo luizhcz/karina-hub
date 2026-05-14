@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { friendlyError } from '../api/client'
 import {
+  formatRevisionLabel,
   getWorkflow,
   isChatDeployment,
   listWorkflowVersions,
@@ -12,6 +13,7 @@ import {
 } from '../api/workflows'
 import { getOperationalMemory, type OperationalMemory } from '../api/operationalMemory'
 import { listAgents, type Agent, type AgentType } from '../api/agents'
+import { ChatSandboxMetadataKeys, validateChatSandboxSession } from '../api/chatSandbox'
 import {
   useChatStream,
   type ChatBubble,
@@ -49,6 +51,13 @@ export function ChatDeploymentSandbox() {
   const [selectedVersionId, setSelectedVersionId] = useState<string>(VERSION_CURRENT)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  // Sandbox flow PR #3: quando o workflow é um Chat Sandbox efêmero (criado
+  // pelo ChatSandboxService), o backend carrega chatSandboxSessionId em
+  // metadata. Frontend lê e renderiza o botão "Marcar como validado" no header
+  // — sem regra de negócio própria, só presença/ausência decide.
+  const [validatingState, setValidatingState] = useState<
+    { sending: boolean; error: string | null; validated: boolean }
+  >({ sending: false, error: null, validated: false })
   const [sidePanelOpen, setSidePanelOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<SidePanelTab>('events')
   // Backend AG-UI emite STEP_STARTED só com stepId/stepName — sem agentType.
@@ -199,6 +208,28 @@ export function ChatDeploymentSandbox() {
 
   const containerMaxWidth = sidePanelOpen ? 'max-w-7xl' : 'max-w-4xl'
 
+  // chatSandboxSessionId vem em workflow.metadata quando o workflow foi criado
+  // pelo ChatSandboxService. Backend é a authority — UI só detecta presença.
+  const workflowMetadata = (workflow?.metadata ?? null) as Record<string, string> | null
+  const chatSandboxSessionId = workflowMetadata?.[ChatSandboxMetadataKeys.SessionId] ?? null
+
+  const handleValidateClick = async () => {
+    if (!chatSandboxSessionId) return
+    setValidatingState({ sending: true, error: null, validated: false })
+    try {
+      await validateChatSandboxSession(chatSandboxSessionId, {
+        notes: 'Validado via Chat Sandbox',
+      })
+      setValidatingState({ sending: false, error: null, validated: true })
+    } catch (err) {
+      setValidatingState({
+        sending: false,
+        error: friendlyError(err, 'Não foi possível validar a session.'),
+        validated: false,
+      })
+    }
+  }
+
   return (
     <div className={cn('mx-auto flex h-[calc(100vh-4rem)] flex-col gap-4', containerMaxWidth)}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -230,7 +261,7 @@ export function ChatDeploymentSandbox() {
               { value: VERSION_CURRENT, label: versions.length > 0 ? 'Versão atual (current)' : 'Versão atual' },
               ...versions.map((v) => ({
                 value: v.workflowVersionId,
-                label: `r${v.revision} · ${v.contentHash.slice(0, 8)}`,
+                label: `${formatRevisionLabel(v.revision)} · ${v.contentHash.slice(0, 8)}`,
               })),
             ]}
             className="min-w-[180px]"
@@ -251,8 +282,32 @@ export function ChatDeploymentSandbox() {
               Limpar
             </Button>
           )}
+          {chatSandboxSessionId && !validatingState.validated && (
+            <Button
+              variant="primary"
+              loading={validatingState.sending}
+              disabled={validatingState.sending || stream.bubbles.length === 0}
+              title={
+                stream.bubbles.length === 0
+                  ? 'Mande pelo menos uma mensagem antes de validar.'
+                  : 'Marca o Conversational como validado — libera plug em chats de produção sem warning.'
+              }
+              onClick={handleValidateClick}
+            >
+              Marcar como validado
+            </Button>
+          )}
+          {chatSandboxSessionId && validatingState.validated && (
+            <span className="inline-flex items-center rounded-md border border-success/40 bg-success/10 px-2 py-1 text-[11px] font-semibold text-success">
+              ✓ Validado
+            </span>
+          )}
         </div>
       </div>
+
+      {chatSandboxSessionId && validatingState.error && (
+        <ErrorMessage message={validatingState.error} />
+      )}
 
       {loadError && <ErrorMessage message={loadError} />}
 

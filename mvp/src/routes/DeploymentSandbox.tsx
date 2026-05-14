@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router'
 import { listAgents, type Agent } from '../api/agents'
 import {
   deployedAgentId,
+  formatRevisionLabel,
   getWorkflow,
   isPipelineDeployment,
   listWorkflowVersions,
@@ -381,7 +382,7 @@ function formatVersionOption(v: WorkflowVersion): string {
   const stamp = v.createdAt
     ? new Date(v.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
     : ''
-  return `rev ${v.revision}${stamp ? ` (${stamp})` : ''}`
+  return `${formatRevisionLabel(v.revision)}${stamp ? ` (${stamp})` : ''}`
 }
 
 function matchesStep(nodeRef: string, agentId: string): boolean {

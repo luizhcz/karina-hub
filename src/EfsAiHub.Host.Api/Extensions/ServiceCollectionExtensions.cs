@@ -314,6 +314,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAgentApprovalService, AgentApprovalService>();
         services.AddScoped<WorkflowValidator>();
         services.AddScoped<EfsAiHub.Core.Orchestration.Validation.EdgeInvariantsValidator>();
+        services.AddScoped<EfsAiHub.Core.Orchestration.Validation.WorkflowAgentInvariantsValidator>();
+        services.AddScoped<EfsAiHub.Core.Orchestration.Validation.ChatValidationWarningCalculator>();
+        services.AddScoped<EfsAiHub.Core.Abstractions.ChatSandbox.IChatSandboxSessionRepository,
+            EfsAiHub.Infra.Persistence.Postgres.PgChatSandboxSessionRepository>();
+        services.AddScoped<EfsAiHub.Host.Api.ChatSandbox.ChatSandboxService>();
+        services.Configure<EfsAiHub.Platform.Runtime.Options.ChatSandboxOptions>(
+            configuration.GetSection("ChatSandbox"));
         services.AddScoped<EfsAiHub.Platform.Runtime.Migration.EdgeMigrationReporter>(sp =>
             new EfsAiHub.Platform.Runtime.Migration.EdgeMigrationReporter(
                 sp.GetRequiredKeyedService<Npgsql.NpgsqlDataSource>("general"),
@@ -328,6 +335,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ConversationService>();
         services.AddScoped<EfsAiHub.Core.Abstractions.Execution.IExecutionLifecycleObserver>(
             sp => sp.GetRequiredService<ConversationService>());
+        services.AddScoped<IConversationLifecycle>(sp => sp.GetRequiredService<ConversationService>());
         services.AddScoped<IConversationFacade, ConversationFacade>();
         services.AddSingleton<ChatRateLimiter>();
         services.AddSingleton<ConversationLockManager>();
@@ -427,6 +435,7 @@ public static class ServiceCollectionExtensions
 
         services.AddHostedService<DatabaseBootstrapService>();
         services.AddHostedService<AgentSessionCleanupService>();
+        services.AddHostedService<ChatSandboxCleanupService>();
         services.AddHostedService<LlmCostRefreshService>();
         services.AddHostedService<AuditRetentionService>();
         if (engineOpts.MultiNode)

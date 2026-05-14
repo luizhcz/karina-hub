@@ -34,6 +34,7 @@ public class ChatDeploymentValidationTests
 
         var validator = new WorkflowValidator(agentDefRepo);
         var edgeInvariants = new EdgeInvariantsValidator(agentDefRepo, executorRegistry);
+        var agentInvariants = new WorkflowAgentInvariantsValidator(agentDefRepo);
 
         var scopeFactory = Substitute.For<IServiceScopeFactory>();
         var appLifetime = Substitute.For<IHostApplicationLifetime>();
@@ -56,6 +57,7 @@ public class ChatDeploymentValidationTests
             execRepo,
             validator,
             edgeInvariants,
+            agentInvariants,
             scopeFactory,
             appLifetime,
             chatRegistry,

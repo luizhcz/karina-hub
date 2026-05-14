@@ -8,6 +8,8 @@ import {
 import {
   CHAT_DEPLOYMENT_KIND,
   chatWorkflowId,
+  type ChatValidationWarning,
+  formatRevisionLabel,
   createWorkflow,
   getWorkflow,
   updateWorkflow,
@@ -220,6 +222,7 @@ export function ChatDeployEditor() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [validationWarnings, setValidationWarnings] = useState<ChatValidationWarning[]>([])
   const [intentsLoading, setIntentsLoading] = useState(false)
   const [intentsError, setIntentsError] = useState<string | null>(null)
 
@@ -370,6 +373,9 @@ export function ChatDeployEditor() {
         ? await updateWorkflow(form.id, body)
         : await createWorkflow(body)
       setLoadedWorkflow(wf)
+      // Warnings de Chat Sandbox validation vêm no response. Frontend só
+      // renderiza — authority do gate é backend (warning, não bloqueio).
+      setValidationWarnings(wf.validationWarnings ?? [])
       if (!isEdit) {
         navigate(`/implantacoes/chat/${wf.id}`, { replace: true })
       }
@@ -560,6 +566,10 @@ export function ChatDeployEditor() {
 
       {saveError && <ErrorMessage message={saveError} />}
 
+      {validationWarnings.length > 0 && (
+        <ChatValidationWarningsPanel warnings={validationWarnings} />
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
         <p className="text-[11px] text-fg-dim">
           {isEdit
@@ -601,5 +611,48 @@ export function ChatDeployEditor() {
         }}
       />
     </div>
+  )
+}
+
+/**
+ * Painel inline de warnings de Chat Sandbox validation, exibido pós-save. UI
+ * só renderiza o que o backend retornou em <code>validationWarnings</code>;
+ * autoridade do gate é backend. Save NÃO foi bloqueado (warning, não erro).
+ */
+function ChatValidationWarningsPanel({ warnings }: { warnings: ChatValidationWarning[] }) {
+  return (
+    <Card padded className="border-warning/40 bg-warning/5">
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-warning">
+            ⚠ Branch agents sem validation em Chat Sandbox
+          </h3>
+          <p className="mt-1 text-[11px] text-fg-muted">
+            O save foi bem-sucedido. Estes agentes Conversational podem rodar em produção, mas
+            recomendamos testá-los em Chat Sandbox antes pra confirmar comportamento.
+          </p>
+        </div>
+        <ul className="space-y-1.5 text-xs">
+          {warnings.map((w) => (
+            <li key={w.agentId} className="flex flex-wrap items-center gap-2">
+              <span className="font-mono font-semibold text-fg">{w.agentName}</span>
+              <span className="text-fg-muted">
+                pin: {formatRevisionLabel(w.pinnedRevision)}
+              </span>
+              {w.reason === 'no_chat_sandbox_validation' && (
+                <span className="rounded-md bg-warning/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-warning">
+                  nunca validado
+                </span>
+              )}
+              {w.reason === 'validation_stale' && (
+                <span className="rounded-md bg-warning/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-warning">
+                  validado em {formatRevisionLabel(w.validatedRevision)}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Card>
   )
 }

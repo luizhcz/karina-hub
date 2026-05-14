@@ -17,7 +17,8 @@ public interface IAgentDefinitionRepository
         CancellationToken ct = default,
         bool breakingChange = false,
         string? changeReason = null,
-        string? createdBy = null);
+        string? createdBy = null,
+        bool isCosmeticOnly = false);
     Task<bool> DeleteAsync(string id, CancellationToken ct = default);
     Task<bool> ExistsAsync(string id, CancellationToken ct = default);
 
@@ -33,4 +34,23 @@ public interface IAgentDefinitionRepository
     /// </summary>
     Task<IReadOnlyList<(string AgentId, string MissingProjectId)>> ListOrphanGlobalAgentsAsync(
         int limit = 20, CancellationToken ct = default);
+
+    /// <summary>
+    /// Popula as colunas <c>LastChatSandboxValidated*</c> em <c>agent_definitions</c>
+    /// e invalida o cache do agent. Usado por <c>ChatSandboxService.ValidateAsync</c>.
+    /// Retorna false se o agent não existe.
+    /// </summary>
+    Task<bool> SetChatSandboxValidationAsync(
+        string agentId,
+        DateTime validatedAt,
+        string validatedByUserId,
+        string validatedAgentVersionId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Zera <c>LastChatSandboxValidated*</c> em <c>agent_definitions</c> e invalida
+    /// o cache. Idempotente (no-op se já null). Retorna a versão pinada anterior
+    /// (pra emissão de audit) ou null se já estava limpa.
+    /// </summary>
+    Task<string?> ClearChatSandboxValidationAsync(string agentId, CancellationToken ct = default);
 }

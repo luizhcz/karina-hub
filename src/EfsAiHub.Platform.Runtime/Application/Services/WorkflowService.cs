@@ -15,6 +15,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
     private readonly IWorkflowExecutionRepository _executionRepo;
     private readonly WorkflowValidator _validator;
     private readonly EdgeInvariantsValidator _edgeInvariants;
+    private readonly WorkflowAgentInvariantsValidator _agentInvariants;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly IExecutionSlotRegistry _chatRegistry;
@@ -31,6 +32,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         IWorkflowExecutionRepository executionRepo,
         WorkflowValidator validator,
         EdgeInvariantsValidator edgeInvariants,
+        WorkflowAgentInvariantsValidator agentInvariants,
         IServiceScopeFactory scopeFactory,
         IHostApplicationLifetime appLifetime,
         IExecutionSlotRegistry chatRegistry,
@@ -46,6 +48,7 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         _executionRepo = executionRepo;
         _validator = validator;
         _edgeInvariants = edgeInvariants;
+        _agentInvariants = agentInvariants;
         _scopeFactory = scopeFactory;
         _appLifetime = appLifetime;
         _chatRegistry = chatRegistry;
@@ -115,7 +118,9 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
 
         // Invariantes tipadas (regras de negócio cruzando registries) — falha com
         // envelope estruturado pra controller mapear pra 400 com error_code.
-        var invariantErrors = await _edgeInvariants.ValidateAsync(definition, ct);
+        var invariantErrors = new List<WorkflowInvariantError>();
+        invariantErrors.AddRange(await _edgeInvariants.ValidateAsync(definition, ct));
+        invariantErrors.AddRange(await _agentInvariants.ValidateAsync(definition, ct));
         if (invariantErrors.Count > 0)
             throw new WorkflowInvariantViolationException(invariantErrors);
 
@@ -163,7 +168,9 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         if (!isValid)
             throw new ArgumentException($"Definição de workflow inválida: {string.Join(", ", errors)}");
 
-        var invariantErrors = await _edgeInvariants.ValidateAsync(definition, ct);
+        var invariantErrors = new List<WorkflowInvariantError>();
+        invariantErrors.AddRange(await _edgeInvariants.ValidateAsync(definition, ct));
+        invariantErrors.AddRange(await _agentInvariants.ValidateAsync(definition, ct));
         if (invariantErrors.Count > 0)
             throw new WorkflowInvariantViolationException(invariantErrors);
 
@@ -418,6 +425,19 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         var source = await _definitionRepo.GetByIdAsync(sourceWorkflowId, ct)
             ?? throw new KeyNotFoundException($"Workflow '{sourceWorkflowId}' não encontrado.");
 
+        // Workflows efêmeros de Chat Sandbox são gerenciados pelo ChatSandboxService
+        // e limpos pelo background cleanup com base em metadata.kind. Permitir clone
+        // herda o marcador "transient" pro clone, que viraria deploy permanente E
+        // candidato a deleção pelo cleanup. Bloqueio explícito evita o footgun.
+        if (source.Metadata is not null
+            && source.Metadata.TryGetValue("kind", out var sourceKind)
+            && string.Equals(sourceKind, "chat-sandbox", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Workflows de Chat Sandbox são efêmeros e não podem ser clonados como deploys permanentes. " +
+                "Crie um deploy Chat real via tela de Implantações.");
+        }
+
         // Gera novo ID; atribui ao projeto atual; visibilidade "project" por padrão.
         // Create() valida invariantes — lança DomainException se o source estiver inconsistente.
         var cloned = WorkflowDefinition.Create(
@@ -438,6 +458,15 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
         var (isValid, errors) = await ValidateAsync(cloned, ct);
         if (!isValid)
             throw new ArgumentException($"Workflow clonado inválido: {string.Join(", ", errors)}");
+
+        // Source pode ter sido salvo antes de invariants atuais existirem. Sem
+        // re-checagem aqui, clone vira bypass legítimo de regras novas (Edge
+        // typing, Conversational+Standalone). Mesmo padrão de Create/Update.
+        var invariantErrors = new List<WorkflowInvariantError>();
+        invariantErrors.AddRange(await _edgeInvariants.ValidateAsync(cloned, ct));
+        invariantErrors.AddRange(await _agentInvariants.ValidateAsync(cloned, ct));
+        if (invariantErrors.Count > 0)
+            throw new WorkflowInvariantViolationException(invariantErrors);
 
         return await _definitionRepo.UpsertAsync(cloned, ct);
     }

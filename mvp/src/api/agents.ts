@@ -62,6 +62,14 @@ export interface Agent {
    * partir da junction aihub.agent_router_intents.
    */
   routerIntentIds?: string[] | null
+  /**
+   * Gate "validated for chat" — populado quando um admin valida o agente em
+   * Chat Sandbox. Zerado automaticamente pelo backend quando nova AgentVersion
+   * é publicada. Frontend só lê e renderiza badge/warning.
+   */
+  lastChatSandboxValidatedAt?: string | null
+  lastChatSandboxValidatedByUserId?: string | null
+  lastChatSandboxValidatedAgentVersionId?: string | null
   createdAt: string
   updatedAt: string
 }
