@@ -11,7 +11,7 @@ import {
   type WorkflowAgentReference,
 } from '../../api/workflows'
 import { ApiError, friendlyError } from '../../api/client'
-import { getSystemInfo } from '../../api/system'
+import { getSystemInfo, type ConsumeHeader } from '../../api/system'
 import { HowToConsumeWorkflow } from '../../components/HowToConsumeWorkflow'
 import {
   ArrowLeftIcon,
@@ -104,6 +104,7 @@ export function PipelineEditor() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [publicBaseUrl, setPublicBaseUrl] = useState<string | null>(null)
+  const [consumeHeaders, setConsumeHeaders] = useState<ConsumeHeader[]>([])
 
   // Resolve a base URL pública pra preencher o exemplo de consumo. Falha
   // silenciosa: o componente usa placeholder se ficar null.
@@ -111,7 +112,9 @@ export function PipelineEditor() {
     let cancelled = false
     getSystemInfo()
       .then((info) => {
-        if (!cancelled) setPublicBaseUrl(info.publicBaseUrl)
+        if (cancelled) return
+        setPublicBaseUrl(info.publicBaseUrl)
+        setConsumeHeaders(info.consumeHeaders ?? [])
       })
       .catch(() => {
         /* placeholder vai entrar no lugar */
@@ -260,6 +263,7 @@ export function PipelineEditor() {
         <HowToConsumeWorkflow
           workflowId={loadedWorkflow.id}
           publicBaseUrl={publicBaseUrl}
+          consumeHeaders={consumeHeaders}
           description="O pipeline é assíncrono: dispara com POST, retorna 202 + executionId, e o resultado é lido fazendo polling no GET de execução. O output final é o do último agente da sequência."
         />
       )}

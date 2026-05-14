@@ -20,7 +20,7 @@ public class SystemController : ControllerBase
     }
 
     [HttpGet("info")]
-    [SwaggerOperation(Summary = "Metadados públicos do backend — baseUrl que clientes externos devem usar pra consumir a API (PM/PO copia esse valor nos exemplos de implantação).")]
+    [SwaggerOperation(Summary = "Metadados públicos do backend — baseUrl + headers que clientes externos devem enviar (configurado em EfsAiHub:ConsumeHeaders no appsettings). UI de doc copia esses valores nos exemplos de implantação.")]
     [ProducesResponseType(typeof(SystemInfoResponse), StatusCodes.Status200OK)]
     public IActionResult GetInfo()
     {
@@ -32,7 +32,25 @@ public class SystemController : ControllerBase
             ? $"{Request.Scheme}://{Request.Host}"
             : configured.TrimEnd('/');
 
-        return Ok(new SystemInfoResponse { PublicBaseUrl = baseUrl });
+        // Headers que o consumidor externo precisa enviar (app_origin,
+        // access_token, etc.). Config é fonte da verdade — alterar headers
+        // exigidos não precisa de deploy do FE, só edit no appsettings.
+        // Entradas com Key vazia são ignoradas (defensivo contra config malformada).
+        var headers = _config.GetSection("EfsAiHub:ConsumeHeaders")
+            .GetChildren()
+            .Select(s => new ConsumeHeaderDto
+            {
+                Key = s["Key"] ?? string.Empty,
+                Value = s["Value"] ?? string.Empty,
+            })
+            .Where(h => !string.IsNullOrWhiteSpace(h.Key))
+            .ToList();
+
+        return Ok(new SystemInfoResponse
+        {
+            PublicBaseUrl = baseUrl,
+            ConsumeHeaders = headers,
+        });
     }
 
     [HttpGet("health/circuit-breakers")]
@@ -60,6 +78,13 @@ public class SystemController : ControllerBase
 public sealed class SystemInfoResponse
 {
     public required string PublicBaseUrl { get; init; }
+    public List<ConsumeHeaderDto> ConsumeHeaders { get; init; } = [];
+}
+
+public sealed class ConsumeHeaderDto
+{
+    public required string Key { get; init; }
+    public required string Value { get; init; }
 }
 
 public class CircuitBreakersResponse
