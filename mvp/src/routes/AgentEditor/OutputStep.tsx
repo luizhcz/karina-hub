@@ -121,6 +121,7 @@ export function OutputStep({ form, setForm, readonly }: OutputStepProps) {
               }
               className="min-h-[100px]"
               disabled={readonly}
+              autoGrow
             />
           </Card>
 
