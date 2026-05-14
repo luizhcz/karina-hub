@@ -2,21 +2,25 @@ import { useSyncExternalStore } from 'react'
 
 // Identidade do PM/PO persistida em localStorage. Campos:
 // - name: display visual no header.
-// - account: vai como header `x-efs-account` em toda chamada — backend trata
-//   como userType=cliente.
-// - projectId: define o scope das chamadas project-scoped (ex: generic-tools).
-//   Vai como header `x-project-id`.
-// - projectName: cache do nome humano-legível pra exibir no header sem
-//   precisar buscar a lista de projetos toda vez.
-// - chatDeploymentAllowed: cache da flag do projeto (vem de
-//   ProjectResponse.chatDeploymentAllowed). Usado pra desabilitar o card
-//   "Chat" no modal de nova implantação sem precisar buscar o projeto.
+// - account: identificador opaco do usuário. Vai como `x-efs-account` quando
+//   userType=cliente; como `x-efs-user-profile-id` quando userType=admin.
+//   Backend interpreta o header como origem (cliente vs admin), o que afeta
+//   ChatRouting default + esquema de Persona (ClientPersona/AdminPersona) +
+//   templates de prompt. IsAdmin gating é independente (vive em users.IsAdmin
+//   no DB), então admin no DB pode ser "cliente" e vice-versa.
+// - userType: cliente ou admin. Define qual header de identidade enviar.
+//   Default 'cliente' pra compatibilidade com identities já salvas em
+//   localStorage que não tinham o campo.
+// - projectId/projectName/chatDeploymentAllowed: scope de projeto + cache UI.
 
 const STORAGE_KEY = 'efs-mvp-identity'
+
+export type UserType = 'cliente' | 'admin'
 
 export interface Identity {
   name: string
   account: string
+  userType: UserType
   projectId: string
   projectName: string
   chatDeploymentAllowed: boolean
@@ -36,6 +40,9 @@ function readFromStorage(): Identity | null {
     return {
       name: parsed.name,
       account: parsed.account,
+      // Identidades antigas (sem o campo) caem em 'cliente' — backward-compat
+      // com o comportamento anterior (MVP sempre mandava x-efs-account).
+      userType: parsed.userType === 'admin' ? 'admin' : 'cliente',
       projectId: parsed.projectId ?? '',
       projectName: parsed.projectName ?? '',
       // Identidades antigas (sem o campo) caem em false — fail-safe: user

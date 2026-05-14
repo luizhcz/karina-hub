@@ -29,13 +29,16 @@ export function HowToConsumeWorkflow({
   const identity = useMemo(() => getIdentity(), [])
   const projectId = identity?.projectId ?? '<seu-project-id>'
   const account = identity?.account ?? '<seu-account>'
+  const isAdminCaller = identity?.userType === 'admin'
+  const identityHeaderKey = isAdminCaller ? 'x-efs-user-profile-id' : 'x-efs-account'
+  const identityHeaderPlaceholder = isAdminCaller ? '<seu-user-profile-id>' : '<seu-account>'
   const baseUrl = publicBaseUrl ?? '<base-url-do-backend>'
   const triggerUrl = `${baseUrl}/api/aihub/workflows/${workflowId}/trigger`
   const executionUrl = `${baseUrl}/api/aihub/executions/{executionId}`
 
   const headers: Array<{ key: string; value: string }> = [
     { key: 'Content-Type', value: 'application/json' },
-    { key: 'x-efs-account', value: account },
+    { key: identityHeaderKey, value: identity?.account ? account : identityHeaderPlaceholder },
     { key: 'x-project-id', value: projectId },
   ]
 

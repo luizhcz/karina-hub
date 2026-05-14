@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { getIdentity, setIdentity } from '../stores/identity'
+import { getIdentity, setIdentity, type UserType } from '../stores/identity'
 import { listProjects, type Project } from '../api/projects'
 import { friendlyError } from '../api/client'
+import { cn } from '../ui'
 import {
   Button,
   Card,
@@ -25,6 +26,7 @@ export function Onboarding() {
   const initial = getIdentity()
   const [name, setName] = useState(initial?.name ?? '')
   const [account, setAccount] = useState(initial?.account ?? '')
+  const [userType, setUserType] = useState<UserType>(initial?.userType ?? 'cliente')
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState('')
   const [loading, setLoading] = useState(false)
@@ -54,6 +56,7 @@ export function Onboarding() {
       setIdentity({
         name: name.trim(),
         account: trimmedAccount,
+        userType,
         projectId: '',
         projectName: '',
         chatDeploymentAllowed: false,
@@ -85,7 +88,7 @@ export function Onboarding() {
       cancelled = true
       window.clearTimeout(handle)
     }
-  }, [account, name])
+  }, [account, name, userType])
 
   const projectOptions = useMemo<SelectOption[]>(
     () => projects.map((p) => ({ value: p.id, label: p.name })),
@@ -117,11 +120,18 @@ export function Onboarding() {
     setIdentity({
       name: name.trim(),
       account: account.trim(),
+      userType,
       projectId: projectId || '',
       projectName: selected?.name ?? '',
       chatDeploymentAllowed: selected?.chatDeploymentAllowed ?? false,
     })
   }
+
+  const accountLabel = userType === 'admin' ? 'ID de perfil' : 'Conta'
+  const accountPlaceholder = userType === 'admin' ? 'ex.: 011982329' : 'ex.: 12345'
+  const accountHint = userType === 'admin'
+    ? 'Profile id do assessor — vai como x-efs-user-profile-id em toda chamada.'
+    : 'Identifica o cliente em todas as chamadas do hub — vai como x-efs-account.'
 
   return (
     <div className="flex min-h-screen items-center justify-center px-6">
@@ -150,12 +160,30 @@ export function Onboarding() {
               autoFocus
             />
 
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-fg-muted">Tipo de acesso</span>
+              <div className="grid grid-cols-2 gap-2">
+                <UserTypeOption
+                  active={userType === 'cliente'}
+                  onClick={() => setUserType('cliente')}
+                  title="Cliente"
+                  description="Acesso pelo app do cliente — header x-efs-account."
+                />
+                <UserTypeOption
+                  active={userType === 'admin'}
+                  onClick={() => setUserType('admin')}
+                  title="Assessor"
+                  description="Acesso pelo portal interno — header x-efs-user-profile-id."
+                />
+              </div>
+            </div>
+
             <Input
-              label="Conta"
-              placeholder="ex.: 12345"
+              label={accountLabel}
+              placeholder={accountPlaceholder}
               value={account}
               onChange={(e) => setAccount(e.target.value)}
-              hint="Identifica seu acesso em todas as chamadas do hub."
+              hint={accountHint}
               monospace
             />
 
@@ -189,5 +217,31 @@ export function Onboarding() {
         )}
       </div>
     </div>
+  )
+}
+
+interface UserTypeOptionProps {
+  active: boolean
+  onClick: () => void
+  title: string
+  description: string
+}
+
+function UserTypeOption({ active, onClick, title, description }: UserTypeOptionProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-accent/30',
+        active
+          ? 'border-accent bg-accent-subtle text-accent'
+          : 'border-border bg-surface hover:bg-surface-hover text-fg',
+      )}
+      aria-pressed={active}
+    >
+      <span className="text-sm font-medium">{title}</span>
+      <span className="text-[11px] text-fg-muted">{description}</span>
+    </button>
   )
 }
