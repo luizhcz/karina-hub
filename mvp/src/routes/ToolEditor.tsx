@@ -399,6 +399,7 @@ export function ToolEditor({ mode }: Props) {
           onChange={(e) => set('description', e.target.value)}
           placeholder="O que o endpoint faz e o que ele retorna."
           hint="Esse texto vai pro prompt do agente como descrição da ferramenta."
+          autoGrow
         />
         <Textarea
           label="Quando usar"
@@ -406,6 +407,7 @@ export function ToolEditor({ mode }: Props) {
           onChange={(e) => set('whenToUse', e.target.value)}
           placeholder="Ex.: o usuário pergunta sobre preço ou variação de um ticker específico."
           hint="Gatilho que orienta o agente a invocar essa tool. Vira a linha 'Use quando: ...' no prompt."
+          autoGrow
         />
 
         <label className="mt-2 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-bg-soft p-3">
