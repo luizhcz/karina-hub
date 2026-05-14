@@ -1,10 +1,17 @@
 import { useMemo, useState } from 'react'
 import { getIdentity } from '../stores/identity'
+import type { ConsumeHeader } from '../api/system'
 import { Card, CardHeader } from '../ui'
 
 interface HowToConsumeWorkflowProps {
   workflowId: string
   publicBaseUrl: string | null
+  /**
+   * Headers configurados no backend (EfsAiHub:ConsumeHeaders no appsettings).
+   * Renderizados entre Content-Type e x-project-id pra que operadores possam
+   * alterar a doc de consumo sem deploy do FE.
+   */
+  consumeHeaders?: ConsumeHeader[]
   /**
    * Texto da descrição do CardHeader. Default cobre os dois casos (single +
    * pipeline). Pode ser sobrescrito pra detalhar especificidades por tipo.
@@ -24,21 +31,18 @@ interface HowToConsumeWorkflowProps {
 export function HowToConsumeWorkflow({
   workflowId,
   publicBaseUrl,
+  consumeHeaders,
   description = 'O workflow é assíncrono: dispara com POST, retorna 202 + executionId, e o resultado é lido fazendo polling no GET de execução.',
 }: HowToConsumeWorkflowProps) {
   const identity = useMemo(() => getIdentity(), [])
   const projectId = identity?.projectId ?? '<seu-project-id>'
-  const account = identity?.account ?? '<seu-account>'
-  const isAdminCaller = identity?.userType === 'admin'
-  const identityHeaderKey = isAdminCaller ? 'x-efs-user-profile-id' : 'x-efs-account'
-  const identityHeaderPlaceholder = isAdminCaller ? '<seu-user-profile-id>' : '<seu-account>'
   const baseUrl = publicBaseUrl ?? '<base-url-do-backend>'
   const triggerUrl = `${baseUrl}/api/aihub/workflows/${workflowId}/trigger`
   const executionUrl = `${baseUrl}/api/aihub/executions/{executionId}`
 
   const headers: Array<{ key: string; value: string }> = [
     { key: 'Content-Type', value: 'application/json' },
-    { key: identityHeaderKey, value: identity?.account ? account : identityHeaderPlaceholder },
+    ...(consumeHeaders ?? []),
     { key: 'x-project-id', value: projectId },
   ]
 

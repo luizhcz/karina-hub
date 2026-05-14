@@ -14,7 +14,7 @@ import {
   type WorkflowEnabledStatus,
 } from '../api/workflows'
 import { ApiError, friendlyError } from '../api/client'
-import { getSystemInfo } from '../api/system'
+import { getSystemInfo, type ConsumeHeader } from '../api/system'
 import { HowToConsumeWorkflow } from '../components/HowToConsumeWorkflow'
 import { WorkflowVersionsModal } from '../components/WorkflowVersionsModal'
 import {
@@ -53,6 +53,7 @@ export function AgentDeploy() {
   const [workflow, setWorkflow] = useState<Workflow | null>(null)
   const [enabledStatus, setEnabledStatus] = useState<WorkflowEnabledStatus | null>(null)
   const [publicBaseUrl, setPublicBaseUrl] = useState<string | null>(null)
+  const [consumeHeaders, setConsumeHeaders] = useState<ConsumeHeader[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [deploying, setDeploying] = useState(false)
@@ -81,6 +82,7 @@ export function AgentDeploy() {
         if (cancelled) return
         setAgent(a)
         setPublicBaseUrl(info.publicBaseUrl)
+        setConsumeHeaders(info.consumeHeaders ?? [])
 
         try {
           const wf = await getWorkflow(deploymentWorkflowId(id))
@@ -230,6 +232,7 @@ export function AgentDeploy() {
           workflow={workflow}
           agent={agent}
           publicBaseUrl={publicBaseUrl}
+          consumeHeaders={consumeHeaders}
           enabledStatus={enabledStatus}
           onRedeploy={handleRedeploy}
           onOpenVersions={() => setVersionsOpen(true)}
@@ -306,6 +309,7 @@ interface DeployedViewProps {
   workflow: Workflow
   agent: Agent
   publicBaseUrl: string | null
+  consumeHeaders: ConsumeHeader[]
   enabledStatus: WorkflowEnabledStatus | null
   onRedeploy: () => void
   onOpenVersions: () => void
@@ -319,6 +323,7 @@ function DeployedView({
   workflow,
   agent,
   publicBaseUrl,
+  consumeHeaders,
   enabledStatus,
   onRedeploy,
   onOpenVersions,
@@ -405,7 +410,7 @@ function DeployedView({
         </div>
       </Card>
 
-      <HowToConsumeWorkflow workflowId={workflow.id} publicBaseUrl={publicBaseUrl} />
+      <HowToConsumeWorkflow workflowId={workflow.id} publicBaseUrl={publicBaseUrl} consumeHeaders={consumeHeaders} />
       </div>
     </div>
   )

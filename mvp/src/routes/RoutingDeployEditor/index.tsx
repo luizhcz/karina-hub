@@ -15,7 +15,7 @@ import {
   type Workflow,
 } from '../../api/workflows'
 import { ApiError, friendlyError } from '../../api/client'
-import { getSystemInfo } from '../../api/system'
+import { getSystemInfo, type ConsumeHeader } from '../../api/system'
 import { useIsAdmin } from '../../stores/me'
 import { HowToConsumeWorkflow } from '../../components/HowToConsumeWorkflow'
 import {
@@ -208,6 +208,7 @@ export function RoutingDeployEditor() {
   const [intentsLoading, setIntentsLoading] = useState(false)
   const [intentsError, setIntentsError] = useState<string | null>(null)
   const [publicBaseUrl, setPublicBaseUrl] = useState<string | null>(null)
+  const [consumeHeaders, setConsumeHeaders] = useState<ConsumeHeader[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -224,7 +225,9 @@ export function RoutingDeployEditor() {
       })
     getSystemInfo()
       .then((info) => {
-        if (!cancelled) setPublicBaseUrl(info.publicBaseUrl)
+        if (cancelled) return
+        setPublicBaseUrl(info.publicBaseUrl)
+        setConsumeHeaders(info.consumeHeaders ?? [])
       })
       .catch(() => undefined)
     return () => {
@@ -541,6 +544,7 @@ export function RoutingDeployEditor() {
         <HowToConsumeWorkflow
           workflowId={loadedWorkflow.id}
           publicBaseUrl={publicBaseUrl}
+          consumeHeaders={consumeHeaders}
           description="Implantação assíncrona: POST → 202 + executionId; GET de execução retorna a resposta da branch escolhida pelo Router."
         />
       )}
