@@ -10,11 +10,13 @@ import {
   ToolIcon,
   cn,
 } from '../ui'
+import { useIsAdmin } from '../stores/me'
 
 interface NavItem {
   label: string
   to: string
   icon: React.ReactNode
+  adminOnly?: boolean
 }
 
 const items: NavItem[] = [
@@ -22,13 +24,19 @@ const items: NavItem[] = [
   { label: 'Agentes', to: '/agentes', icon: <AgentIcon className="h-5 w-5" /> },
   { label: 'Intenções', to: '/intencoes', icon: <SparklesIcon className="h-5 w-5" /> },
   { label: 'Aprovações', to: '/aprovacoes', icon: <CheckIcon className="h-5 w-5" /> },
-  { label: 'Implantações', to: '/implantacoes', icon: <BoltIcon className="h-5 w-5" /> },
+  // Implantações é página de gestão (deploys reais em prod) — só admin enxerga.
+  // Sandbox de agente fica acessível a todos via card de Agentes ("Testar").
+  { label: 'Implantações', to: '/implantacoes', icon: <BoltIcon className="h-5 w-5" />, adminOnly: true },
   { label: 'Avaliações', to: '/avaliacoes', icon: <SparklesIcon className="h-5 w-5" /> },
   { label: 'Ferramentas', to: '/ferramentas', icon: <ToolIcon className="h-5 w-5" /> },
   { label: 'MCPs', to: '/mcps', icon: <ServerIcon className="h-5 w-5" /> },
 ]
 
 export function Sidebar() {
+  const isAdmin = useIsAdmin()
+  // isAdmin === null = ainda checando: escondemos itens adminOnly até ter certeza
+  // (evita "flash" do item desaparecendo logo depois de aparecer).
+  const visibleItems = items.filter((i) => !i.adminOnly || isAdmin === true)
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-bg-soft">
       <div className="flex items-center gap-2 px-5 py-5">
@@ -42,7 +50,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 px-3 py-2">
-        {items.map((item) => (
+        {visibleItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

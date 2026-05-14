@@ -77,6 +77,20 @@ export function Implantacoes() {
   }
 
   useEffect(() => {
+    // Página de gestão de deploys reais é admin-only. Non-admin que chega aqui
+    // por URL direta vê a mensagem em vez de listar — autores ainda podem
+    // testar agentes pelo sandbox em /agentes (card "Testar"), que continua
+    // disponível pra qualquer role.
+    if (isAdmin === false) {
+      setLoading(false)
+      setError(
+        'Esta tela é restrita a administradores. Para testar um agente sem implantar, use o botão "Testar" no card do agente em Agentes.',
+      )
+      setWorkflows([])
+      return
+    }
+    if (isAdmin === null) return
+
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -84,9 +98,7 @@ export function Implantacoes() {
       .then((all) => {
         if (cancelled) return
         // Lista mostra qualquer workflow nascido dos fluxos de implantação:
-        // single, pipeline, routing, chat. Filtragem por isAdmin (esconde
-        // routing/chat pra non-admin) acontece no useMemo `filtered` abaixo —
-        // mantemos todos em workflows[] pra que o contador mostre o real.
+        // single, pipeline, routing, chat.
         const deployments = all.filter(
           (w) =>
             isAgentDeployment(w)
@@ -102,12 +114,10 @@ export function Implantacoes() {
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
-    // isAdmin agora vem do hook `useIsAdmin()` no topo do componente —
-    // cache singleton em stores/me.ts evita refetch entre telas.
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [isAdmin])
 
   const deployedAgentIds = useMemo(
     () => new Set(workflows.map((w) => deployedAgentId(w)).filter((id): id is string => !!id)),
