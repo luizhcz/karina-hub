@@ -66,11 +66,13 @@ export function Onboarding() {
         .then((list) => {
           if (cancelled) return
           setProjects(list)
-          // Auto-seleciona se houver só um projeto disponível, senão deixa
-          // o user escolher conscientemente.
+          // Auto-seleciona o primeiro projeto da lista. Usuário pode trocar
+          // no dropdown se quiser outro — pré-selecionar evita o passo extra
+          // do "agora selecione um projeto" que ninguém quer fazer na
+          // primeira entrada do app.
           setProjectId((current) => {
             if (current && list.some((p) => p.id === current)) return current
-            return list.length === 1 ? list[0].id : ''
+            return list.length > 0 ? list[0].id : ''
           })
         })
         .catch((err: unknown) => {
