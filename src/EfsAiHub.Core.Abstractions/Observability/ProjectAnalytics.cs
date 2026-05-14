@@ -24,6 +24,8 @@ public sealed class ProjectOverview
 public sealed class AgentMiniRow
 {
     public required string AgentId { get; init; }
+    /// <summary>Nome humano hidratado via JOIN com agent_definitions. Null se o agent foi deletado.</summary>
+    public string? AgentName { get; init; }
     public required long TotalTokens { get; init; }
     public required decimal CostUsd { get; init; }
     public required int Calls { get; init; }

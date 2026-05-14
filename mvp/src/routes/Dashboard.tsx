@@ -201,12 +201,17 @@ function OverviewCards({ overview }: OverviewCardsProps) {
               <li
                 key={a.agentId}
                 className="flex items-center justify-between rounded-md border border-border bg-bg-soft px-3 py-2 text-xs"
+                title={a.agentId}
               >
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-subtle text-[10px] font-bold text-accent">
                     {idx + 1}
                   </span>
-                  <span className="truncate font-mono">{a.agentId}</span>
+                  {/* Nome quando disponível; fallback pro id (font-mono pra denotar) em
+                      agentes deletados que ainda têm consumo histórico no período. */}
+                  <span className={a.agentName ? 'truncate' : 'truncate font-mono'}>
+                    {a.agentName ?? a.agentId}
+                  </span>
                 </div>
                 <span className="ml-2 shrink-0 font-mono font-semibold">{formatUsd(a.costUsd)}</span>
               </li>
@@ -498,7 +503,19 @@ function AgentsTable({ rows }: AgentsTableProps) {
         <tbody>
           {rows.map((r) => (
             <tr key={r.agentId} className="border-b border-border last:border-b-0 hover:bg-bg-soft">
-              <td className="py-2 pr-3 font-mono text-fg">{r.agentId}</td>
+              {/* Nome quando disponível; agentId mono (cinza) em segunda linha
+                  como referência técnica. Fallback pro id quando o agent foi
+                  deletado e ainda tem consumo histórico no período. */}
+              <td className="py-2 pr-3" title={r.agentId}>
+                {r.agentName ? (
+                  <>
+                    <div className="text-fg">{r.agentName}</div>
+                    <div className="font-mono text-[10px] text-fg-dim">{r.agentId}</div>
+                  </>
+                ) : (
+                  <span className="font-mono text-fg">{r.agentId}</span>
+                )}
+              </td>
               <td className="py-2 px-3 text-fg-muted">{r.modelId ?? '—'}</td>
               <td className="py-2 px-3 text-right font-mono">{formatNumber(r.calls)}</td>
               <td className="py-2 px-3 text-right font-mono">{formatNumber(r.totalTokens)}</td>
