@@ -110,6 +110,15 @@ CREATE INDEX IF NOT EXISTS "IX_agent_definitions_TenantId_Visibility"
     ON aihub.agent_definitions ("TenantId")
     WHERE "Visibility" = 'global';
 
+-- Backfill: Conversational SEMPRE é global (decisão de produto — chat deploy
+-- precisa enxergar todos os agentes Conversational do tenant, independente
+-- do projeto que os criou). Create/UpdateAsync já forçam isso pra novos;
+-- aqui pegamos os legacy criados antes do enforcement.
+UPDATE aihub.agent_definitions
+SET "Visibility" = 'global'
+WHERE "Visibility" <> 'global'
+  AND ("Data"::jsonb ->> 'Type') = 'Conversational';
+
 -- Drafts de agente. Tabela fisicamente separada de agent_definitions: workflows
 -- nunca leem desta tabela, eliminando a classe de bug "draft vazou pro runtime".
 -- BaseAgentId/BaseRevision = NULL pra draft de criação; setados pra draft de
