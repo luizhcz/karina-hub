@@ -1489,6 +1489,7 @@ CREATE TABLE IF NOT EXISTS aihub.generic_tools (
     "OutputSchema"             TEXT          NULL,
     "TimeoutSecondsOverride"   INTEGER       NULL,
     "WhenToUse"                TEXT          NULL,
+    "IsExclusive"              BOOLEAN       NOT NULL DEFAULT FALSE,
     "CreatedAt"                TIMESTAMPTZ   NOT NULL,
     "UpdatedAt"                TIMESTAMPTZ   NOT NULL,
     CONSTRAINT "PK_generic_tools" PRIMARY KEY ("Id"),
@@ -1499,6 +1500,14 @@ CREATE TABLE IF NOT EXISTS aihub.generic_tools (
     CONSTRAINT "CK_generic_tools_OutputContentType"
         CHECK ("OutputContentType" IN ('Json', 'Text', 'Csv'))
 );
+
+-- IsExclusive idempotente: marca a tool como "exclusiva do usuário" — quando
+-- TRUE, GenericToolExecutor forwarda app_origin + access_token da request
+-- pra que o downstream autorize contra o token do user. FALSE = tool geral
+-- (chamada sem credencial do user, depende só do que está em CustomHeaders).
+-- ALTER explícito pra DBs existentes que vieram sem essa coluna.
+ALTER TABLE aihub.generic_tools
+    ADD COLUMN IF NOT EXISTS "IsExclusive" BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS "IX_generic_tools_ProjectId_TenantId"
     ON aihub.generic_tools ("ProjectId", "TenantId");

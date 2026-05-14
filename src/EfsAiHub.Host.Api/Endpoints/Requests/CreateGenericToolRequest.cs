@@ -49,6 +49,12 @@ public sealed class CreateGenericToolRequest
     public string? WhenToUse { get; init; }
 
     /// <summary>
+    /// Quando true, executor forwarda <c>app_origin</c>/<c>access_token</c> da
+    /// request original. Default false — tool considerada "geral".
+    /// </summary>
+    public bool IsExclusive { get; init; }
+
+    /// <summary>
     /// Materializa um template de <see cref="GenericTool"/>. Id/ProjectId/TenantId
     /// ficam como string.Empty propositalmente — o service substitui por valores
     /// canônicos (Id gerado/ProjectId/TenantId do contexto da request) antes de
@@ -72,5 +78,6 @@ public sealed class CreateGenericToolRequest
         OutputSchema = OutputSchema,
         TimeoutSecondsOverride = TimeoutSecondsOverride,
         WhenToUse = string.IsNullOrWhiteSpace(WhenToUse) ? null : WhenToUse.Trim(),
+        IsExclusive = IsExclusive,
     };
 }

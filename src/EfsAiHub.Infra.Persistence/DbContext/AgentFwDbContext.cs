@@ -145,6 +145,7 @@ internal class GenericToolRow
     public string? OutputSchema { get; set; }
     public int? TimeoutSecondsOverride { get; set; }
     public string? WhenToUse { get; set; }
+    public bool IsExclusive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
@@ -913,6 +914,7 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.OutputSchema).HasColumnType("text");
             b.Property(e => e.TimeoutSecondsOverride);
             b.Property(e => e.WhenToUse).HasColumnType("text");
+            b.Property(e => e.IsExclusive).HasDefaultValue(false).IsRequired();
             b.Property(e => e.CreatedAt).IsRequired();
             b.Property(e => e.UpdatedAt).IsRequired();
             b.HasIndex(e => new { e.ProjectId, e.TenantId })

@@ -77,6 +77,7 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
             OutputSchema = tool.OutputSchema,
             TimeoutSecondsOverride = tool.TimeoutSecondsOverride,
             WhenToUse = tool.WhenToUse,
+            IsExclusive = tool.IsExclusive,
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -127,6 +128,7 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
         current.OutputSchema = tool.OutputSchema;
         current.TimeoutSecondsOverride = tool.TimeoutSecondsOverride;
         current.WhenToUse = tool.WhenToUse;
+        current.IsExclusive = tool.IsExclusive;
         current.UpdatedAt = now;
 
         try
@@ -171,6 +173,7 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
             OutputSchema = row.OutputSchema,
             TimeoutSecondsOverride = row.TimeoutSecondsOverride,
             WhenToUse = row.WhenToUse,
+            IsExclusive = row.IsExclusive,
             CreatedAt = row.CreatedAt,
             UpdatedAt = row.UpdatedAt,
         };

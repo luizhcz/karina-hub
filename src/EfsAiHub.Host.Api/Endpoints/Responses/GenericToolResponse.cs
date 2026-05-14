@@ -20,6 +20,7 @@ public sealed class GenericToolResponse
     public string? OutputSchema { get; init; }
     public int? TimeoutSecondsOverride { get; init; }
     public string? WhenToUse { get; init; }
+    public required bool IsExclusive { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 
@@ -41,6 +42,7 @@ public sealed class GenericToolResponse
         OutputSchema = tool.OutputSchema,
         TimeoutSecondsOverride = tool.TimeoutSecondsOverride,
         WhenToUse = tool.WhenToUse,
+        IsExclusive = tool.IsExclusive,
         CreatedAt = tool.CreatedAt,
         UpdatedAt = tool.UpdatedAt,
     };

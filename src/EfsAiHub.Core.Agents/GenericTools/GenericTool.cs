@@ -52,6 +52,16 @@ public sealed class GenericTool
     /// </summary>
     public string? WhenToUse { get; set; }
 
+    /// <summary>
+    /// Quando true, a tool é "exclusiva do usuário": o executor anexa
+    /// <c>app_origin</c> e <c>access_token</c> da request original na chamada
+    /// downstream (forward de credenciais). O provedor da tool autoriza contra
+    /// o token do user — 401/403 vira "sem permissão pra essa ferramenta".
+    /// Quando false (default), a chamada vai sem essas credenciais — tool
+    /// considerada "geral", autorizada via CustomHeaders fixos ou pública.
+    /// </summary>
+    public bool IsExclusive { get; set; }
+
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

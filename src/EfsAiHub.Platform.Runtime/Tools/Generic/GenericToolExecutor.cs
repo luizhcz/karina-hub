@@ -48,20 +48,24 @@ public sealed class GenericToolExecutor : IGenericToolExecutor
 
             using var request = GenericRequestBuilder.Build(tool, args);
 
-            // Forward de credenciais do caller pra que o downstream autorize a
-            // ferramenta com base no token do usuário (não no token de service
-            // do hub). 401 do downstream = caller sem permissão pra essa tool.
-            // CustomHeaders do próprio tool têm precedência (já adicionados em
-            // GenericRequestBuilder) — só preenchemos quando ausentes.
-            if (!string.IsNullOrWhiteSpace(_authContext.AppOrigin)
-                && !request.Headers.Contains("app_origin"))
+            // Tools "exclusivas" forwardam credenciais do caller pra que o
+            // downstream autorize com base no token do usuário (não no token de
+            // service do hub). Tool "geral" (IsExclusive=false) vai sem essas
+            // credenciais — autorização via CustomHeaders fixos ou pública.
+            // CustomHeaders declarados no próprio tool têm precedência: só
+            // preenchemos quando ausentes do request original.
+            if (tool.IsExclusive)
             {
-                request.Headers.TryAddWithoutValidation("app_origin", _authContext.AppOrigin);
-            }
-            if (!string.IsNullOrWhiteSpace(_authContext.AccessToken)
-                && !request.Headers.Contains("access_token"))
-            {
-                request.Headers.TryAddWithoutValidation("access_token", _authContext.AccessToken);
+                if (!string.IsNullOrWhiteSpace(_authContext.AppOrigin)
+                    && !request.Headers.Contains("app_origin"))
+                {
+                    request.Headers.TryAddWithoutValidation("app_origin", _authContext.AppOrigin);
+                }
+                if (!string.IsNullOrWhiteSpace(_authContext.AccessToken)
+                    && !request.Headers.Contains("access_token"))
+                {
+                    request.Headers.TryAddWithoutValidation("access_token", _authContext.AccessToken);
+                }
             }
 
             var client = _httpClientFactory.CreateClient(ClientName);

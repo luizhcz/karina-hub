@@ -40,6 +40,12 @@ public sealed class UpdateGenericToolRequest
     [MaxLength(2048)]
     public string? WhenToUse { get; init; }
 
+    /// <summary>
+    /// Quando true, executor forwarda <c>app_origin</c>/<c>access_token</c> da
+    /// request original. Default false — tool considerada "geral".
+    /// </summary>
+    public bool IsExclusive { get; init; }
+
     [Required]
     public DateTime ExpectedUpdatedAt { get; init; }
 
@@ -67,5 +73,6 @@ public sealed class UpdateGenericToolRequest
         OutputSchema = OutputSchema,
         TimeoutSecondsOverride = TimeoutSecondsOverride,
         WhenToUse = string.IsNullOrWhiteSpace(WhenToUse) ? null : WhenToUse.Trim(),
+        IsExclusive = IsExclusive,
     };
 }

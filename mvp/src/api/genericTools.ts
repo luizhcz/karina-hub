@@ -27,6 +27,12 @@ export interface GenericTool {
   outputSchema: string | null
   timeoutSecondsOverride: number | null
   whenToUse: string | null
+  /**
+   * Quando true, é "exclusiva do usuário": backend forwarda app_origin e
+   * access_token da request original na chamada downstream. Tool geral
+   * (false, default) não recebe esses headers.
+   */
+  isExclusive: boolean
   createdAt: string
   updatedAt: string
 }
@@ -46,6 +52,7 @@ export interface CreateGenericToolBody {
   outputSchema: string | null
   timeoutSecondsOverride: number | null
   whenToUse: string | null
+  isExclusive: boolean
 }
 
 export interface UpdateGenericToolBody extends Omit<CreateGenericToolBody, 'id'> {

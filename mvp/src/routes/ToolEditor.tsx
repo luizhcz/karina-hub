@@ -74,6 +74,7 @@ interface FormState {
   outputExample: string
   outputDescription: string
   timeoutSeconds: string
+  isExclusive: boolean
 }
 
 function emptyForm(): FormState {
@@ -96,6 +97,7 @@ function emptyForm(): FormState {
     outputExample: '',
     outputDescription: '',
     timeoutSeconds: '',
+    isExclusive: false,
   }
 }
 
@@ -162,6 +164,7 @@ function fromTool(tool: GenericTool): FormState {
       tool.outputContentType !== 'Text' ? tool.outputSchema || DEFAULT_JSON : DEFAULT_JSON,
     outputDescription: tool.outputContentType === 'Text' ? tool.outputSchema || '' : '',
     timeoutSeconds: tool.timeoutSecondsOverride?.toString() ?? '',
+    isExclusive: tool.isExclusive,
   }
 }
 
@@ -324,6 +327,7 @@ export function ToolEditor({ mode }: Props) {
       outputContentType: form.outputContentType,
       outputSchema,
       timeoutSecondsOverride: timeout,
+      isExclusive: form.isExclusive,
     }
   }
 
@@ -403,6 +407,25 @@ export function ToolEditor({ mode }: Props) {
           placeholder="Ex.: o usuário pergunta sobre preço ou variação de um ticker específico."
           hint="Gatilho que orienta o agente a invocar essa tool. Vira a linha 'Use quando: ...' no prompt."
         />
+
+        <label className="mt-2 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-bg-soft p-3">
+          <input
+            type="checkbox"
+            checked={form.isExclusive}
+            onChange={(e) => set('isExclusive', e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-border accent-accent"
+          />
+          <div>
+            <div className="text-sm font-medium text-fg">Ferramenta exclusiva do usuário</div>
+            <p className="text-[11px] text-fg-muted">
+              Quando ligado, a chamada da ferramenta recebe os headers{' '}
+              <code className="font-mono">access_token</code> e{' '}
+              <code className="font-mono">app_origin</code> do usuário. Use quando o backend
+              da ferramenta autoriza por usuário — 401 do downstream vira "sem permissão".
+              Mantenha desligado para ferramentas gerais/públicas.
+            </p>
+          </div>
+        </label>
       </Card>
 
       {/* URL bar estilo Postman */}

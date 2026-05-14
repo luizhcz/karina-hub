@@ -53,6 +53,7 @@ public sealed class GenericToolService : IGenericToolService
             OutputSchema = draft.OutputContentType == OutputContentType.Text ? null : draft.OutputSchema,
             TimeoutSecondsOverride = draft.TimeoutSecondsOverride,
             WhenToUse = draft.WhenToUse,
+            IsExclusive = draft.IsExclusive,
         };
 
         ValidateAll(tool);
@@ -102,6 +103,7 @@ public sealed class GenericToolService : IGenericToolService
             OutputSchema = patch.OutputContentType == OutputContentType.Text ? null : patch.OutputSchema,
             TimeoutSecondsOverride = patch.TimeoutSecondsOverride,
             WhenToUse = patch.WhenToUse,
+            IsExclusive = patch.IsExclusive,
             CreatedAt = existing.CreatedAt,
         };
 
