@@ -466,13 +466,18 @@ function ConversationalPreview({ form }: ConversationalPreviewProps) {
   return (
     <Card className="space-y-3">
       <CardHeader
-        title="Cartão desenhado no chat"
-        description="Nome do visual que o agente entrega a cada resposta — o time de front usa pra desenhar o cartão certo na tela do chat."
+        title="Cartões possíveis no chat"
+        description="Lista de visuais que o agente pode entregar a cada resposta — o LLM escolhe exatamente um da lista."
       />
       {noUiComponents ? (
-        <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-          Nome do cartão não definido — o chat vai mostrar só o texto da mensagem, sem visual personalizado.
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone="neutral">
+            <code className="font-mono text-[11px]">text</code>
+          </Badge>
+          <span className="text-[11px] text-fg-dim">
+            Lista vazia — agente cai no padrão "text" (só a mensagem do chat).
+          </span>
+        </div>
       ) : (
         <div className="flex flex-wrap gap-2">
           {uiComponents.map((value) => (

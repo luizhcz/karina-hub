@@ -774,6 +774,14 @@ function encodeRouterForChatMetadata(
  * a persona vive agora nos campos do profile (role/goal/backstory/rules/
  * constraints) injetados no instructions, igual ao Custom.
  */
+/**
+ * Limites alinhados ao OutputStep (UI): no máximo 10 cartões, cada um com
+ * 64 caracteres. Defesa em profundidade — UI também limita, mas o codec é
+ * a barreira final antes do payload sair.
+ */
+const CONVERSATIONAL_UI_COMPONENTS_MAX_ITEMS = 10
+const CONVERSATIONAL_UI_COMPONENTS_DEFAULT: ReadonlyArray<string> = ['text']
+
 function encodeConversationalMetadata(
   prev: Record<string, string>,
   form: FormState,
@@ -782,14 +790,21 @@ function encodeConversationalMetadata(
   delete next[CONVERSATIONAL_PERSONA_METADATA_KEY]
 
   if (form.type === 'Conversational') {
-    const filtered = form.conversationalUiComponents
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0)
-    if (filtered.length > 0) {
-      next[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY] = JSON.stringify(filtered)
-    } else {
-      delete next[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY]
+    // Trim → filter vazios → dedupe (case-sensitive, preserva ordem da primeira
+    // ocorrência) → cap em 10. Lista vazia vira default ['text'] pra que o LLM
+    // sempre receba um enum válido (e o agente caia no comportamento "só texto").
+    const seen = new Set<string>()
+    const sanitized: string[] = []
+    for (const raw of form.conversationalUiComponents) {
+      const trimmed = raw.trim()
+      if (trimmed.length === 0) continue
+      if (seen.has(trimmed)) continue
+      seen.add(trimmed)
+      sanitized.push(trimmed)
+      if (sanitized.length >= CONVERSATIONAL_UI_COMPONENTS_MAX_ITEMS) break
     }
+    const finalList = sanitized.length > 0 ? sanitized : [...CONVERSATIONAL_UI_COMPONENTS_DEFAULT]
+    next[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY] = JSON.stringify(finalList)
   } else {
     delete next[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY]
   }
