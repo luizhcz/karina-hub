@@ -25,7 +25,8 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
     p.WithOrigins(corsOrigins)
      .WithHeaders("Content-Type", "Authorization",
          "x-efs-account", "x-efs-user-profile-id",
-         "x-tenant-id", "x-project-id", "x-workflow-id")
+         "x-tenant-id", "x-project-id", "x-workflow-id",
+         "app_origin", "access_token")
      .WithMethods("GET", "POST", "PUT", "DELETE", "PATCH")));
 
 // ── Configuração strongly-typed ──────────────────────────────────────────────

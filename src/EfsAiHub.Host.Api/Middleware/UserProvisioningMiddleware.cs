@@ -8,9 +8,18 @@ namespace EfsAiHub.Host.Api.Middleware;
 
 /// <summary>
 /// Auto-cadastra o usuário no diretório (tabela aihub.users) no primeiro
-/// request e popula <see cref="IUserContextAccessor"/> pra downstream
-/// (AdminGate, controllers, audit). Cache em memória de 60s por
+/// request e popula <see cref="IUserContextAccessor"/> +
+/// <see cref="IRequestAuthContextAccessor"/> pra downstream (AdminGate,
+/// controllers, audit, GenericToolExecutor). Cache em memória de 60s por
 /// (TenantId, ExternalUserId) evita martelar o DB com upserts redundantes.
+///
+/// Headers consumidos:
+///   - <c>x-efs-account</c> / <c>x-efs-user-profile-id</c> → identidade
+///     (resolvida via <see cref="IUserIdentityProvider"/>).
+///   - <c>app_origin</c> → canal do caller (ex.: web-mvp). Pass-through
+///     pras chamadas downstream de generic-tools.
+///   - <c>access_token</c> → token opaco do IdP do consumidor. Não é
+///     validado aqui; serve como bearer pras chamadas downstream.
 ///
 /// Sem identidade no request: middleware é no-op (rotas públicas como
 /// /health/* continuam funcionando sem usuário associado). Falha de DB
@@ -21,6 +30,9 @@ namespace EfsAiHub.Host.Api.Middleware;
 /// </summary>
 public sealed class UserProvisioningMiddleware
 {
+    public const string AppOriginHeader = "app_origin";
+    public const string AccessTokenHeader = "access_token";
+
     private readonly RequestDelegate _next;
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
 
@@ -35,10 +47,18 @@ public sealed class UserProvisioningMiddleware
         IUserDirectory directory,
         IUserContextAccessor userAccessor,
         ITenantContextAccessor tenantAccessor,
+        IRequestAuthContextAccessor authContext,
         IMemoryCache cache,
         IAdminAuditLogger audit,
         ILogger<UserProvisioningMiddleware> logger)
     {
+        // app_origin e access_token são populados independente de identidade
+        // resolvida — generic-tools podem ser chamadas por agentes em contextos
+        // sem x-efs-* (ex.: workflow disparado por scheduler), mas o downstream
+        // ainda quer o canal/token original.
+        authContext.AppOrigin = ReadFirstNonEmptyHeader(context.Request, AppOriginHeader);
+        authContext.AccessToken = ReadFirstNonEmptyHeader(context.Request, AccessTokenHeader);
+
         var identity = identityProvider.Resolve(context, out _);
         if (identity is null)
         {
@@ -123,4 +143,14 @@ public sealed class UserProvisioningMiddleware
 
     private static string BuildCacheKey(string tenantId, string externalUserId)
         => $"user-provisioning:{tenantId}:{externalUserId}";
+
+    private static string? ReadFirstNonEmptyHeader(HttpRequest request, string headerName)
+    {
+        if (!request.Headers.TryGetValue(headerName, out var values)) return null;
+        foreach (var v in values)
+        {
+            if (!string.IsNullOrWhiteSpace(v)) return v;
+        }
+        return null;
+    }
 }
