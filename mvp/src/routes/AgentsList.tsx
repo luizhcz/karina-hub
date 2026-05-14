@@ -11,6 +11,7 @@ import {
   type ApprovalHistoryEntry,
 } from '../api/agents'
 import { ApiError, friendlyError } from '../api/client'
+import { createChatSandboxSession } from '../api/chatSandbox'
 import { getIdentity } from '../stores/identity'
 import {
   deployedAgentId,
@@ -97,6 +98,10 @@ export function AgentsList() {
   // Edit-draft fork state
   const [forkingId, setForkingId] = useState<string | null>(null)
   const [forkError, setForkError] = useState<string | null>(null)
+
+  // Spinner por card enquanto o POST /chat-sandbox-sessions roda.
+  const [testingInChatId, setTestingInChatId] = useState<string | null>(null)
+  const [testingInChatError, setTestingInChatError] = useState<string | null>(null)
 
   // Approval history modal state
   const [historyAgent, setHistoryAgent] = useState<Agent | null>(null)
@@ -281,6 +286,23 @@ export function AgentsList() {
     }
   }
 
+  const handleTestInChat = async (agentId: string) => {
+    setTestingInChatId(agentId)
+    setTestingInChatError(null)
+    try {
+      const session = await createChatSandboxSession(agentId)
+      // Workflow efêmero é Chat real — reaproveita o sandbox AG-UI já existente.
+      // A continuidade do thread veio com a conversation criada pelo backend, mas
+      // o ChatDeploymentSandbox cria thread própria por mount; pra V1 isso é OK
+      // (cada visita = novo thread). PR futuro pode plumb conversationId via state.
+      navigate(`/implantacoes/chat/${session.workflowId}/sandbox`)
+    } catch (err) {
+      setTestingInChatError(friendlyError(err, 'Não foi possível abrir o Chat Sandbox.'))
+    } finally {
+      setTestingInChatId(null)
+    }
+  }
+
   const showCreateCard = activeTab === 'drafts' && !draftsLoading && !draftsError && search.trim().length === 0
 
   return (
@@ -384,6 +406,7 @@ export function AgentsList() {
       )}
 
       {forkError && <ErrorMessage message={forkError} className="mb-4" />}
+      {testingInChatError && <ErrorMessage message={testingInChatError} className="mb-4" />}
 
       {activeTab === 'drafts' && (
         <DraftsTab
@@ -405,11 +428,13 @@ export function AgentsList() {
           items={filteredAgents}
           searchActive={search.trim().length > 0}
           forkingId={forkingId}
+          testingInChatId={testingInChatId}
           onEdit={handleEdit}
           onDeploy={(id) => navigate(`/agentes/${id}/implantar`)}
           onVersions={(id) => navigate(`/agentes/${id}/versoes`)}
           onHistory={handleOpenHistory}
           onToggleEnabled={handleOpenToggle}
+          onTestInChat={handleTestInChat}
         />
       )}
 
@@ -533,11 +558,13 @@ interface PublishedTabProps {
   items: Agent[]
   searchActive: boolean
   forkingId: string | null
+  testingInChatId: string | null
   onEdit: (id: string) => void
   onDeploy: (id: string) => void
   onVersions: (id: string) => void
   onHistory: (agent: Agent) => void
   onToggleEnabled: (agent: Agent) => void
+  onTestInChat: (id: string) => void
 }
 
 function PublishedTab({
@@ -546,11 +573,13 @@ function PublishedTab({
   items,
   searchActive,
   forkingId,
+  testingInChatId,
   onEdit,
   onDeploy,
   onVersions,
   onHistory,
   onToggleEnabled,
+  onTestInChat,
 }: PublishedTabProps) {
   if (loading) {
     return (
@@ -584,11 +613,13 @@ function PublishedTab({
           key={a.id}
           agent={a}
           forking={forkingId === a.id}
+          testingInChat={testingInChatId === a.id}
           onEdit={() => onEdit(a.id)}
           onDeploy={() => onDeploy(a.id)}
           onVersions={() => onVersions(a.id)}
           onHistory={() => onHistory(a)}
           onToggleEnabled={() => onToggleEnabled(a)}
+          onTestInChat={() => onTestInChat(a.id)}
         />
       ))}
     </div>
@@ -763,14 +794,26 @@ function countBusinessDays(from: Date, to: Date): number {
 interface PublishedAgentCardProps {
   agent: Agent
   forking: boolean
+  testingInChat: boolean
   onEdit: () => void
   onDeploy: () => void
   onVersions: () => void
   onHistory: () => void
   onToggleEnabled: () => void
+  onTestInChat: () => void
 }
 
-function PublishedAgentCard({ agent, forking, onEdit, onDeploy, onVersions, onHistory, onToggleEnabled }: PublishedAgentCardProps) {
+function PublishedAgentCard({
+  agent,
+  forking,
+  testingInChat,
+  onEdit,
+  onDeploy,
+  onVersions,
+  onHistory,
+  onToggleEnabled,
+  onTestInChat,
+}: PublishedAgentCardProps) {
   const description = agent.description ?? ''
   const modelLabel = agent.model?.predefinedModelId || agent.model?.deploymentName || ''
   const toolCount = agent.tools?.length ?? 0
@@ -841,6 +884,8 @@ function PublishedAgentCard({ agent, forking, onEdit, onDeploy, onVersions, onHi
         {description || <span className="italic text-fg-dim">sem descrição</span>}
       </p>
 
+      {isConversational && <ChatSandboxValidationBadge agent={agent} />}
+
       <div className="mt-auto flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-fg-dim">
           {isRouter && (
@@ -877,6 +922,21 @@ function PublishedAgentCard({ agent, forking, onEdit, onDeploy, onVersions, onHi
           <Button variant="secondary" size="sm" onClick={onEdit} loading={forking}>
             Editar
           </Button>
+          {isConversational && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onTestInChat}
+              loading={testingInChat}
+              title="Cria session de teste isolado em chat AG-UI (workflow efêmero, sem Router)."
+            >
+              Testar em Chat
+            </Button>
+          )}
+          {/* O disable abaixo é hint de UX. Authority da regra
+              "Conversational requer InputMode=Chat" vive no backend
+              (WorkflowAgentInvariantsValidator) — qualquer tentativa via API
+              direta retorna 400 com errorCode=ConversationalRequiresChat. */}
           <Button
             size="sm"
             onClick={onDeploy}
@@ -1225,4 +1285,27 @@ function formatRelative(iso: string): string {
   const days = Math.round(hours / 24)
   if (days < 7) return `há ${days} d`
   return date.toLocaleDateString('pt-BR')
+}
+
+/**
+ * Badge de "validated for chat" pra Conversational. Backend é a authority:
+ * frontend só renderiza com base nos 3 campos retornados em GET /agents.
+ * Sem regra de negócio aqui — gating de plug em chats reais é decidido no
+ * backend (warnings no save de Chat deploy).
+ */
+function ChatSandboxValidationBadge({ agent }: { agent: Agent }) {
+  if (!agent.lastChatSandboxValidatedAt) {
+    return (
+      <div className="text-[11px] text-fg-muted">
+        <Badge tone="neutral">Não validado em chat</Badge>
+      </div>
+    )
+  }
+  return (
+    <div className="text-[11px] text-fg-muted">
+      <Badge tone="success">
+        Validado em chat · {formatRelative(agent.lastChatSandboxValidatedAt)}
+      </Badge>
+    </div>
+  )
 }

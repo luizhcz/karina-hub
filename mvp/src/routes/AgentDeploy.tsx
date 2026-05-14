@@ -5,6 +5,7 @@ import { listAgentVersions } from '../api/agentVersions'
 import {
   createWorkflow,
   deploymentWorkflowId,
+  formatRevisionLabel,
   getWorkflow,
   getWorkflowEnabledStatus,
   updateWorkflow,
@@ -344,7 +345,7 @@ function DeployedView({
           <Field label="Modo" value={workflow.orchestrationMode} />
           <Field label="Agente" value={agent.id} mono />
           {pinnedAgentRevision(workflow) && (
-            <Field label="Versão do agente" value={`r${pinnedAgentRevision(workflow)}`} mono />
+            <Field label="Versão do agente" value={formatRevisionLabel(pinnedAgentRevision(workflow))} mono />
           )}
           <Field label="Atualizado em" value={formatAbsolute(workflow.updatedAt)} />
         </dl>

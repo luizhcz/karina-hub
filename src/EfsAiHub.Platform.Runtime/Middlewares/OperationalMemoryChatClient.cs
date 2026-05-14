@@ -263,6 +263,15 @@ public sealed class OperationalMemoryChatClient : AgentMiddlewareBase
         }
 
         obj.Remove(MemoryFieldName);
+
+        if (obj.Count == 1
+            && obj.TryGetPropertyValue("response", out var responseNode)
+            && responseNode is JsonValue responseValue
+            && responseValue.TryGetValue<string>(out var responseText))
+        {
+            return (responseText, memJson);
+        }
+
         return (obj.ToJsonString(), memJson);
     }
 

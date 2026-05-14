@@ -27,6 +27,7 @@ public class WorkflowsController : ControllerBase
     private readonly IWorkflowVersionRepository _workflowVersionRepo;
     private readonly IAgentDefinitionRepository _agentDefinitionRepo;
     private readonly IWorkflowAgentVersionStatusService _statusService;
+    private readonly EfsAiHub.Core.Orchestration.Validation.ChatValidationWarningCalculator _chatWarnings;
 
     public WorkflowsController(
         IWorkflowService workflowService,
@@ -38,7 +39,8 @@ public class WorkflowsController : ControllerBase
         IAgentVersionRepository agentVersionRepo,
         IWorkflowVersionRepository workflowVersionRepo,
         IAgentDefinitionRepository agentDefinitionRepo,
-        IWorkflowAgentVersionStatusService statusService)
+        IWorkflowAgentVersionStatusService statusService,
+        EfsAiHub.Core.Orchestration.Validation.ChatValidationWarningCalculator chatWarnings)
     {
         _workflowService = workflowService;
         _workflowFactory = workflowFactory;
@@ -50,6 +52,7 @@ public class WorkflowsController : ControllerBase
         _workflowVersionRepo = workflowVersionRepo;
         _agentDefinitionRepo = agentDefinitionRepo;
         _statusService = statusService;
+        _chatWarnings = chatWarnings;
     }
 
     /// <summary>
@@ -83,7 +86,8 @@ public class WorkflowsController : ControllerBase
         {
             var definition = await _workflowService.CreateAsync(request.ToDomain(), ct);
             var current = await ResolveCurrentVersionAsync(definition, ct);
-            var response = WorkflowResponse.FromDomain(definition, current);
+            var validationWarnings = await _chatWarnings.ComputeAsync(definition, ct);
+            var response = WorkflowResponse.FromDomain(definition, current, validationWarnings);
             await _audit.RecordAsync(_auditContext.Build(
                 AdminAuditActions.Create,
                 AdminAuditResources.Workflow,
@@ -129,7 +133,11 @@ public class WorkflowsController : ControllerBase
         var workflow = await _workflowService.GetAsync(id, ct);
         if (workflow is null) return NotFound();
         var current = await ResolveCurrentVersionAsync(workflow, ct);
-        return Ok(WorkflowResponse.FromDomain(workflow, current));
+        // Recomputa warnings no GET pra que PM voltando ao editor depois de
+        // agente atualizado fora desse fluxo veja warnings novos sem precisar
+        // re-salvar. List() não recomputa (cost N×lookups) — só GetById.
+        var validationWarnings = await _chatWarnings.ComputeAsync(workflow, ct);
+        return Ok(WorkflowResponse.FromDomain(workflow, current, validationWarnings));
     }
 
     [HttpGet("{id}/enabled-status")]
@@ -183,7 +191,8 @@ public class WorkflowsController : ControllerBase
             var definition = request.ToDomain();
             var updated = await _workflowService.UpdateAsync(definition, ct);
             var current = await ResolveCurrentVersionAsync(updated, ct);
-            var response = WorkflowResponse.FromDomain(updated, current);
+            var validationWarnings = await _chatWarnings.ComputeAsync(updated, ct);
+            var response = WorkflowResponse.FromDomain(updated, current, validationWarnings);
             await _audit.RecordAsync(_auditContext.Build(
                 AdminAuditActions.Update,
                 AdminAuditResources.Workflow,
@@ -440,6 +449,10 @@ public class WorkflowsController : ControllerBase
             return NotFound(new { error = ex.Message });
         }
         catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
         {
             return BadRequest(new { error = ex.Message });
         }

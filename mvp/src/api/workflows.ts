@@ -51,6 +51,27 @@ export interface CreateWorkflowBody {
   visibility?: 'project' | 'global'
 }
 
+/**
+ * Rótulo canônico de revisão exibido na UI. Mantém prefixo único em todos os
+ * pontos (chips, selectors, warnings) — drift entre telas confunde PM/PO que
+ * comparam versões em locais diferentes.
+ */
+export function formatRevisionLabel(revision: number | string | null | undefined): string {
+  return `dgt-eqt-${revision ?? '?'}`
+}
+
+export type ChatValidationReason = 'no_chat_sandbox_validation' | 'validation_stale'
+
+export interface ChatValidationWarning {
+  agentId: string
+  agentName: string
+  reason: ChatValidationReason
+  pinnedAgentVersionId: string
+  pinnedRevision?: number | null
+  validatedAgentVersionId?: string | null
+  validatedRevision?: number | null
+}
+
 export interface Workflow {
   id: string
   name: string
@@ -68,6 +89,9 @@ export interface Workflow {
   // estado mutável atual contra workflow_versions. Nullable em casos patológicos.
   currentVersionId?: string | null
   currentRevision?: number | null
+  // Warnings não-bloqueantes (Chat deploy com branch agent Conversational sem
+  // validation). Só presente no response de Create/Update; GET não recomputa.
+  validationWarnings?: ChatValidationWarning[] | null
   [key: string]: unknown
 }
 

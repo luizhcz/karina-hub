@@ -68,6 +68,15 @@ public class AgentResponse
     /// </summary>
     public IReadOnlyList<string>? RouterIntentIds { get; init; }
 
+    /// <summary>
+    /// Gate "validated for chat" — populado pelo ChatSandboxService ao marcar
+    /// uma session como Validated. Frontend usa pra renderizar badge/warnings
+    /// no ChatDeployEditor sem ter regra de negócio próprio (decisão fica no backend).
+    /// </summary>
+    public DateTime? LastChatSandboxValidatedAt { get; init; }
+    public string? LastChatSandboxValidatedByUserId { get; init; }
+    public string? LastChatSandboxValidatedAgentVersionId { get; init; }
+
     public static AgentResponse FromDomain(
         AgentDefinition def,
         IReadOnlyList<string>? warnings = null,
@@ -97,5 +106,8 @@ public class AgentResponse
         UpdatedAt = def.UpdatedAt,
         Warnings = warnings is { Count: > 0 } ? warnings : null,
         RouterIntentIds = routerIntentIds,
+        LastChatSandboxValidatedAt = def.LastChatSandboxValidatedAt,
+        LastChatSandboxValidatedByUserId = def.LastChatSandboxValidatedByUserId,
+        LastChatSandboxValidatedAgentVersionId = def.LastChatSandboxValidatedAgentVersionId,
     };
 }

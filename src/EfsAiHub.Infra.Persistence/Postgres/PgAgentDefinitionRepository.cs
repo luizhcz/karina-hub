@@ -1,5 +1,6 @@
 using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Identity;
+using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Abstractions.Projects;
 using EfsAiHub.Core.Agents;
 using EfsAiHub.Core.Agents.Skills;
@@ -18,6 +19,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
     private readonly ITenantContextAccessor _tenantAccessor;
     private readonly ISkillVersionRepository? _skillVersionRepo;
     private readonly IFunctionToolRegistry? _functionRegistry;
+    private readonly IAdminAuditLogger? _auditLogger;
     private readonly ILogger<PgAgentDefinitionRepository> _logger;
     private readonly TimeSpan _ttl;
 
@@ -36,7 +38,8 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
         ILogger<PgAgentDefinitionRepository> logger,
         IConfiguration config,
         ISkillVersionRepository? skillVersionRepo = null,
-        IFunctionToolRegistry? functionRegistry = null)
+        IFunctionToolRegistry? functionRegistry = null,
+        IAdminAuditLogger? auditLogger = null)
     {
         _factory = factory;
         _cache = cache;
@@ -46,6 +49,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
         _tenantAccessor = tenantAccessor;
         _skillVersionRepo = skillVersionRepo;
         _functionRegistry = functionRegistry;
+        _auditLogger = auditLogger;
         _logger = logger;
         _ttl = TimeSpan.FromSeconds(config.GetValue<int>("Redis:DefinitionCacheTtlSeconds", 300));
     }
@@ -53,12 +57,18 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
     /// <summary>
     /// Hidrata Visibility/ProjectId/TenantId da row sobre o domain — defesa contra JSON
     /// legado (sem esses campos) ou inconsistência transient. Row é source of truth.
+    /// LastChatSandboxValidated* vivem APENAS nas colunas (não no jsonb do Data,
+    /// graças ao JsonIgnore no model) — hidratação aqui é obrigatória pra que
+    /// callers vejam o gate.
     /// </summary>
     private static AgentDefinition Hydrate(AgentDefinitionRow row, AgentDefinition def)
     {
         def.ProjectId = row.ProjectId;
         def.TenantId = row.TenantId;
         def.Visibility = row.Visibility;
+        def.LastChatSandboxValidatedAt = row.LastChatSandboxValidatedAt;
+        def.LastChatSandboxValidatedByUserId = row.LastChatSandboxValidatedByUserId;
+        def.LastChatSandboxValidatedAgentVersionId = row.LastChatSandboxValidatedAgentVersionId;
         return def;
     }
 
@@ -68,7 +78,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
 
         var cached = await _cache.GetStringAsync(cacheKey);
         if (!string.IsNullOrEmpty(cached))
-            return JsonSerializer.Deserialize<AgentDefinition>(cached, JsonDefaults.Domain);
+            return DeserializeFromCacheEnvelope(cached);
 
         await using var ctx = await _factory.CreateDbContextAsync(ct);
         // FirstOrDefaultAsync respeita HasQueryFilter (project OR global+tenant) — caller
@@ -76,10 +86,61 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
         var row = await ctx.AgentDefinitions.FirstOrDefaultAsync(r => r.Id == id, ct);
         if (row is null) return null;
 
-        await _cache.SetStringAsync(cacheKey, row.Data, _ttl);
+        await _cache.SetStringAsync(cacheKey, SerializeCacheEnvelope(row), _ttl);
         var def = JsonSerializer.Deserialize<AgentDefinition>(row.Data, JsonDefaults.Domain)!;
         return Hydrate(row, def);
     }
+
+    /// <summary>
+    /// Envelope cache: <c>{ data: <jsonb-do-agent>, validation: { at, byUserId, versionId } }</c>.
+    /// Colunas <c>LastChatSandboxValidated*</c> não viajam no <c>row.Data</c> (têm
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreAttribute"/>) então cache hit
+    /// que só armazena o Data perde o gate de validation. Envelope explícito preserva.
+    /// </summary>
+    private static string SerializeCacheEnvelope(AgentDefinitionRow row)
+    {
+        var envelope = new CacheEnvelope(
+            row.Data,
+            row.LastChatSandboxValidatedAt,
+            row.LastChatSandboxValidatedByUserId,
+            row.LastChatSandboxValidatedAgentVersionId);
+        return JsonSerializer.Serialize(envelope, JsonDefaults.Domain);
+    }
+
+    private static AgentDefinition? DeserializeFromCacheEnvelope(string cached)
+    {
+        // BC: cache pré-envelope tinha row.Data direto como jsonb-do-agent. Detecta
+        // pelo formato e cai pro path antigo (definition vai ter validation=null,
+        // mesma semântica que tinha antes desta mudança — não regressão).
+        AgentDefinition? def;
+        try
+        {
+            var envelope = JsonSerializer.Deserialize<CacheEnvelope>(cached, JsonDefaults.Domain);
+            if (envelope?.Data is null)
+                def = JsonSerializer.Deserialize<AgentDefinition>(cached, JsonDefaults.Domain);
+            else
+            {
+                def = JsonSerializer.Deserialize<AgentDefinition>(envelope.Data, JsonDefaults.Domain);
+                if (def is not null)
+                {
+                    def.LastChatSandboxValidatedAt = envelope.LastChatSandboxValidatedAt;
+                    def.LastChatSandboxValidatedByUserId = envelope.LastChatSandboxValidatedByUserId;
+                    def.LastChatSandboxValidatedAgentVersionId = envelope.LastChatSandboxValidatedAgentVersionId;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            def = JsonSerializer.Deserialize<AgentDefinition>(cached, JsonDefaults.Domain);
+        }
+        return def;
+    }
+
+    private sealed record CacheEnvelope(
+        string Data,
+        DateTime? LastChatSandboxValidatedAt,
+        string? LastChatSandboxValidatedByUserId,
+        string? LastChatSandboxValidatedAgentVersionId);
 
     public async Task<IReadOnlyList<AgentDefinition>> GetAllAsync(CancellationToken ct = default)
     {
@@ -97,7 +158,8 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
         CancellationToken ct = default,
         bool breakingChange = false,
         string? changeReason = null,
-        string? createdBy = null)
+        string? createdBy = null,
+        bool isCosmeticOnly = false)
     {
         // Carimba FingerprintHash em cada function tool com o hash canônico
         // (sha256 de name|description|jsonSchema) do AIFunction atualmente registrado.
@@ -156,10 +218,24 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
 
         // Cache tenant-aware: invalida total em mudança de visibility (outros projetos
         // do tenant podem estar com cache stale); senão atualiza só se já existia.
+        // Envelope inclui LastChatSandboxValidated* (não viajam no jsonb por JsonIgnore).
         if (visibilityChanged)
+        {
             await _cache.RemoveAsync(CacheKey(definition.Id));
+        }
         else
-            await _cache.SetIfExistsAsync(CacheKey(definition.Id), data, _ttl);
+        {
+            // existing tem a versão pós-update (mesma EF entity tracking); novo Insert
+            // grava sem validation cols (null) — o cleanup do create-time não trafega.
+            var rowForCache = existing ?? new AgentDefinitionRow
+            {
+                Data = data,
+                LastChatSandboxValidatedAt = null,
+                LastChatSandboxValidatedByUserId = null,
+                LastChatSandboxValidatedAgentVersionId = null,
+            };
+            await _cache.SetIfExistsAsync(CacheKey(definition.Id), SerializeCacheEnvelope(rowForCache), _ttl);
+        }
 
         // Dual-write: append de snapshot imutável atômico.
         // Idempotente por ContentHash: upserts consecutivos sem mudança real não criam nova revision.
@@ -213,7 +289,23 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
                 skillRefs: materializedSkills,
                 breakingChange: breakingChange);
 
-            await _versionRepo.AppendAsync(snapshot, ct);
+            var persisted = await _versionRepo.AppendAsync(snapshot, ct);
+
+            // AppendAsync é idempotente por ContentHash. Nova revision criada
+            // (revision retornada bate com a que solicitamos) significa que o
+            // agent mudou e o gate "validated for chat" precisa zerar — testes
+            // anteriores não valem mais. Conferência por revision evita falsos
+            // positivos quando AppendAsync retorna a row pré-existente.
+            // Cosmetic-only edits (description/metadata) preservam validation:
+            // o LLM responde igual, testes anteriores continuam representativos.
+            // O classifier de tier roda em AgentDraftService e propaga via param.
+            if (persisted.Revision == revision && !isCosmeticOnly)
+            {
+                var previousValidatedVersionId = await ClearChatSandboxValidationAsync(definition.Id, ct);
+                if (previousValidatedVersionId is not null)
+                    await TryEmitValidationInvalidatedAudit(
+                        definition, persisted.AgentVersionId, previousValidatedVersionId, createdBy, ct);
+            }
         }
         catch (Exception ex)
         {
@@ -224,6 +316,108 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
         }
 
         return definition;
+    }
+
+    private async Task TryEmitValidationInvalidatedAudit(
+        AgentDefinition definition,
+        string newAgentVersionId,
+        string previousValidatedAgentVersionId,
+        string? createdBy,
+        CancellationToken ct)
+    {
+        if (_auditLogger is null) return;
+        try
+        {
+            var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+            {
+                agentId = definition.Id,
+                previousValidatedAgentVersionId,
+                newAgentVersionId,
+            }));
+            await _auditLogger.RecordAsync(new AdminAuditEntry
+            {
+                TenantId = _tenantAccessor.Current.TenantId,
+                ProjectId = definition.ProjectId,
+                ActorUserId = createdBy ?? "system:agent-publish",
+                ActorUserType = createdBy is null ? AdminAuditActorTypes.System : AdminAuditActorTypes.Human,
+                Action = AdminAuditActions.ChatSandboxValidationInvalidated,
+                ResourceType = AdminAuditResources.ChatSandboxSession,
+                ResourceId = definition.Id,
+                PayloadAfter = payload,
+                Timestamp = DateTime.UtcNow,
+            }, ct);
+        }
+        catch (Exception ex)
+        {
+            // Audit não bloqueia o publish — só registra warning.
+            _logger.LogWarning(ex,
+                "[PgAgentDefinitionRepository] Falha ao emitir audit ChatSandboxValidationInvalidated pra '{AgentId}'.",
+                definition.Id);
+        }
+    }
+
+    public async Task<bool> SetChatSandboxValidationAsync(
+        string agentId,
+        DateTime validatedAt,
+        string validatedByUserId,
+        string validatedAgentVersionId,
+        CancellationToken ct = default)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        // IgnoreQueryFilters: precisamos achar a row mesmo em paths cross-project
+        // (validation cross-project é decisão da feature). Mas defesa em
+        // profundidade: tenant boundary é absoluto. Reject se o agent é de
+        // outro tenant — caller não deveria conseguir validar nada fora do
+        // próprio tenant boundary, mesmo com bypass de query filter.
+        var row = await ctx.AgentDefinitions
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(r => r.Id == agentId, ct);
+        if (row is null) return false;
+
+        var currentTenantId = _tenantAccessor.Current.TenantId;
+        if (!string.Equals(row.TenantId, currentTenantId, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException(
+                $"Agente '{agentId}' pertence a outro tenant. Cross-tenant validation não é permitida.");
+
+        row.LastChatSandboxValidatedAt = validatedAt;
+        row.LastChatSandboxValidatedByUserId = validatedByUserId;
+        row.LastChatSandboxValidatedAgentVersionId = validatedAgentVersionId;
+        await ctx.SaveChangesAsync(ct);
+
+        // Cache do envelope contém as 3 colunas — invalida pra forçar re-cache
+        // com a validação fresca no próximo GetByIdAsync.
+        await _cache.RemoveAsync(CacheKey(agentId));
+        return true;
+    }
+
+    public async Task<string?> ClearChatSandboxValidationAsync(string agentId, CancellationToken ct = default)
+    {
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        var row = await ctx.AgentDefinitions
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(r => r.Id == agentId, ct);
+        if (row is null) return null;
+
+        var currentTenantId = _tenantAccessor.Current.TenantId;
+        if (!string.Equals(row.TenantId, currentTenantId, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException(
+                $"Agente '{agentId}' pertence a outro tenant. Cross-tenant clear não é permitido.");
+
+        var previousValidatedVersionId = row.LastChatSandboxValidatedAgentVersionId;
+        if (previousValidatedVersionId is null
+            && row.LastChatSandboxValidatedAt is null
+            && row.LastChatSandboxValidatedByUserId is null)
+        {
+            return null; // já estava limpo
+        }
+
+        row.LastChatSandboxValidatedAt = null;
+        row.LastChatSandboxValidatedByUserId = null;
+        row.LastChatSandboxValidatedAgentVersionId = null;
+        await ctx.SaveChangesAsync(ct);
+
+        await _cache.RemoveAsync(CacheKey(agentId));
+        return previousValidatedVersionId;
     }
 
     public async Task<bool> DeleteAsync(string id, CancellationToken ct = default)

@@ -187,6 +187,22 @@ public class AgentDefinition
     public string? RegressionEvaluatorConfigVersionId { get; init; }
 
     /// <summary>
+    /// Gate "validated for chat" denormalizado da tabela
+    /// <c>aihub.chat_sandbox_sessions</c> — populado pelo ChatSandboxService ao
+    /// validar uma session, zerado pelo approval flow quando nova AgentVersion
+    /// é publicada. Não viaja no JSON do <c>Data</c> jsonb (vive em colunas
+    /// próprias da row; <see cref="JsonIgnoreAttribute"/> evita duplicação).
+    /// </summary>
+    [JsonIgnore]
+    public DateTime? LastChatSandboxValidatedAt { get; set; }
+
+    [JsonIgnore]
+    public string? LastChatSandboxValidatedByUserId { get; set; }
+
+    [JsonIgnore]
+    public string? LastChatSandboxValidatedAgentVersionId { get; set; }
+
+    /// <summary>
     /// Factory method validante. Única forma correta de construir em código imperativo.
     /// Para deserialização, use <c>new AgentDefinition { ... }</c> + <see cref="EnsureInvariants"/>.
     /// </summary>

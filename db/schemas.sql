@@ -1634,3 +1634,54 @@ CREATE TABLE IF NOT EXISTS aihub.operational_memory (
 -- frequente que o point lookup pela PK, mas precisa de plano não-sequencial.
 CREATE INDEX IF NOT EXISTS "IX_operational_memory_ProjectId_AgentId"
     ON aihub.operational_memory ("ProjectId", "AgentId");
+
+-- =============================================================================
+-- 31. CHAT SANDBOX SESSIONS — gate de validação "agente Conversational
+-- aprovado pra plug em chats de produção".
+--
+-- Cada session referencia um workflow Chat efêmero criado pelo backend (com
+-- agente único, pin de versão exato via x-version) e uma conversation real.
+-- Admin marca como Validated; isso popula colunas de validação em
+-- agent_definitions (lookup rápido no save de Chat deploy) e gera audit log.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.chat_sandbox_sessions (
+    "ChatSandboxSessionId" VARCHAR(64)  NOT NULL,
+    "AgentId"              VARCHAR(256) NOT NULL,
+    "AgentVersionId"       VARCHAR(64)  NOT NULL,
+    "WorkflowId"           VARCHAR(256) NOT NULL,
+    "ConversationId"       VARCHAR(128) NOT NULL,
+    "ProjectId"            VARCHAR(128) NOT NULL,
+    "CreatedByUserId"      VARCHAR(256) NOT NULL,
+    "CreatedAt"            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    "LastMessageAt"        TIMESTAMPTZ,
+    "ExpiresAt"            TIMESTAMPTZ  NOT NULL,
+    "Status"               VARCHAR(32)  NOT NULL DEFAULT 'Active',
+    "ValidatedAt"          TIMESTAMPTZ,
+    "ValidatedByUserId"    VARCHAR(256),
+    "ValidationNotes"      TEXT,
+    CONSTRAINT "PK_chat_sandbox_sessions" PRIMARY KEY ("ChatSandboxSessionId"),
+    CONSTRAINT "CK_chat_sandbox_sessions_Status"
+        CHECK ("Status" IN ('Active', 'Validated', 'Expired', 'Closed'))
+);
+
+-- Listagem por agente (UI mostra sessions passadas no card do agente
+-- Conversational) — ordenada por mais recente primeiro.
+CREATE INDEX IF NOT EXISTS "IX_chat_sandbox_sessions_AgentId_CreatedAt"
+    ON aihub.chat_sandbox_sessions ("AgentId", "CreatedAt" DESC);
+
+-- Cleanup background service filtra por ExpiresAt + Status (Validated nunca
+-- expira; preserva audit). Partial index economiza tamanho do índice.
+CREATE INDEX IF NOT EXISTS "IX_chat_sandbox_sessions_ExpiresAt_Active"
+    ON aihub.chat_sandbox_sessions ("ExpiresAt")
+    WHERE "Status" IN ('Active', 'Closed');
+
+-- Colunas denormalizadas em agent_definitions: lookup rápido no save de Chat
+-- deploy ("este branch agent tem validation válida?"). Adicionar via ALTER
+-- pra preservar agent_definitions existente (pattern usado em outros campos).
+ALTER TABLE aihub.agent_definitions
+    ADD COLUMN IF NOT EXISTS "LastChatSandboxValidatedAt" TIMESTAMPTZ;
+ALTER TABLE aihub.agent_definitions
+    ADD COLUMN IF NOT EXISTS "LastChatSandboxValidatedByUserId" VARCHAR(256);
+ALTER TABLE aihub.agent_definitions
+    ADD COLUMN IF NOT EXISTS "LastChatSandboxValidatedAgentVersionId" VARCHAR(64);
