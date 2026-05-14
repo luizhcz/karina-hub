@@ -230,6 +230,7 @@
   <a href="#ag-ui-101">AG-UI em 60 segundos</a>
   <a href="#quickstart">Quick Start</a>
   <a href="#auth">Autenticação</a>
+  <a href="#permissoes">Permissões e ACL</a>
   <a href="#endpoints">Endpoints</a>
   <a href="#other-streams">Outros endpoints SSE</a>
   <a href="#polling-fallback">Polling fallback HTTP</a>
@@ -239,9 +240,11 @@
   <a href="#hitl">Fluxo HITL</a>
   <a href="#custom-events">Custom Events</a>
   <a href="#actor-extension">Extensão actor</a>
+  <a href="#generic-tools">Generic Tools</a>
   <a href="#patterns">Patterns comuns</a>
   <a href="#safety-flow">Fluxo SAFETY_VIOLATION</a>
-  <a href="#error-codes">Códigos de erro</a>
+  <a href="#error-codes">Códigos RUN_ERROR</a>
+  <a href="#troubleshooting">Troubleshooting HTTP</a>
   <div class="nav-section">Agentes</div>
   <a href="#agents-list">GET /api/aihub/agents</a>
   <a href="#agents-get">GET /api/aihub/agents/{id}</a>
@@ -431,8 +434,17 @@ x-efs-user-profile-id: P-00123</code></pre>
           <pre class="language-bash" style="margin-top:10px"><code class="language-bash">curl -X POST http://localhost:5189/api/aihub/chat/ag-ui/stream \
   -H "Content-Type: application/json" \
   -H "x-efs-account: 123456789" \
+  -H "x-project-id: investimentos" \
+  -H "app_origin: web-mvp" \
+  -H "access_token: $ACCESS_TOKEN" \
   -d '{"messages":[{"role":"user","content":"Olá, qual é o saldo da minha conta?"}],"threadId":null}' \
-  --no-buffer</code></pre>
+  --no-buffer
+
+# Notas:
+# - Troque por -H "x-efs-user-profile-id: P-00123" se o caller for assessor (admin).
+# - access_token é opcional — só é necessário se a conversa pode chamar generic tools
+#   marcadas como IsExclusive=true (ver seção Generic Tools).
+# - Sem x-project-id, o backend usa o projeto "default" (admin-only).</code></pre>
         </div>
       </div>
       <div class="step">
@@ -464,25 +476,184 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
   <!-- Autenticação -->
   <section id="auth">
     <h2>Autenticação e Identidade</h2>
-    <p>Todos os endpoints AG-UI são <strong>públicos</strong> — não exigem token. Mas exigem um header de identidade.</p>
+    <p>
+      Endpoints AG-UI são públicos no AdminGate — não exigem token JWT validado,
+      mas exigem headers de identidade pra rotear conversa, escolher prompt e
+      autorizar generic tools downstream.
+    </p>
+
+    <h3>Tabela canônica de headers</h3>
     <table>
-      <thead><tr><th>Header</th><th>Tipo de usuário</th><th>Exemplo</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Header</th>
+          <th>Obrigatório?</th>
+          <th>Quando enviar</th>
+          <th>Exemplo</th>
+        </tr>
+      </thead>
       <tbody>
         <tr>
           <td><code>x-efs-account</code></td>
-          <td>Cliente (conta de investimento)</td>
-          <td><code>x-efs-account: 123456789</code></td>
+          <td><strong>Condicional</strong></td>
+          <td>Quando <code>userType=cliente</code></td>
+          <td><code>123456789</code></td>
         </tr>
         <tr>
           <td><code>x-efs-user-profile-id</code></td>
-          <td>Assessor de investimentos</td>
-          <td><code>x-efs-user-profile-id: P-00123</code></td>
+          <td><strong>Condicional</strong></td>
+          <td>Quando <code>userType=admin</code> (assessor / interno)</td>
+          <td><code>P-00123</code></td>
+        </tr>
+        <tr>
+          <td><code>x-project-id</code></td>
+          <td>Recomendado</td>
+          <td>Define o scope do projeto. Default <code>default</code> (admin-only).</td>
+          <td><code>investimentos</code></td>
+        </tr>
+        <tr>
+          <td><code>x-workflow-id</code></td>
+          <td>Opcional</td>
+          <td>Pina um workflow específico em <code>/stream</code> (alternativa ao body)</td>
+          <td><code>atendimento-cliente</code></td>
+        </tr>
+        <tr>
+          <td><code>app_origin</code></td>
+          <td>Recomendado</td>
+          <td>Identifica o canal do caller. Repassado downstream pelas generic tools.</td>
+          <td><code>web-mvp</code></td>
+        </tr>
+        <tr>
+          <td><code>access_token</code></td>
+          <td>Opcional</td>
+          <td>Bearer opaco do IdP do consumidor. Só é forwardado pra generic tools com <code>IsExclusive=true</code>.</td>
+          <td><code>eyJhbGciOi…</code></td>
         </tr>
       </tbody>
     </table>
-    <div class="callout callout-blue">
-      Envie <strong>apenas um</strong> dos dois headers por requisição. Sem header, o usuário é identificado como <code>anonymous</code> e pode ter funcionalidades restritas dependendo do workflow.
+
+    <h3>Regra do par <code>x-efs-account</code> ↔ <code>x-efs-user-profile-id</code></h3>
+    <div class="callout callout-yellow">
+      Envie <strong>exatamente um</strong> dos dois — nunca os dois juntos. O
+      header escolhido define o campo <code>userType</code> que o backend usa
+      pra ramificar:
+      <ul style="margin-top:8px;margin-bottom:0">
+        <li><code>x-efs-account</code> → <code>userType="cliente"</code> → workflow default <code>atendimento-cliente</code>, schema <code>ClientPersona</code>, templates de prompt <code>global/cliente/…</code></li>
+        <li><code>x-efs-user-profile-id</code> → <code>userType="admin"</code> → workflow default <code>atendimento-assessor</code>, schema <code>AdminPersona</code>, templates <code>global/admin/…</code></li>
+      </ul>
     </div>
+
+    <h3><code>app_origin</code> — canal do caller</h3>
+    <p>
+      Valor curto e estável que identifica de onde a chamada veio
+      (<code>web-mvp</code>, <code>mobile-ios</code>, <code>partner-portal</code>).
+      Backend usa só pra observabilidade (logs estruturados, audit) e pra
+      <strong>repassar inalterado</strong> nas chamadas HTTP de generic tools
+      downstream — o provedor da tool decide se diferencia comportamento por
+      origem.
+    </p>
+
+    <h3><code>access_token</code> — bearer opaco do IdP</h3>
+    <p>
+      Token do provedor de identidade do consumidor (ex.: SSO corporativo,
+      Cognito, Keycloak). Backend <strong>não valida signature</strong> — é
+      pass-through. O token é armazenado no contexto da request via AsyncLocal
+      e re-injetado como header <code>access_token</code> nas chamadas
+      downstream de generic tools que estejam marcadas com <code>IsExclusive=true</code>
+      (ver <a href="#generic-tools">Generic Tools</a>).
+    </p>
+    <p>
+      Quando ausente, generic tools exclusivas chamam o provedor sem
+      credencial do usuário — o downstream tipicamente retorna 401, e o
+      backend converte pra mensagem semântica "Você não tem permissão para
+      usar esta ferramenta".
+    </p>
+
+    <h3>Identidade ausente</h3>
+    <p>
+      Sem nenhum dos dois headers de identidade, o request entra como anônimo:
+      AG-UI <code>/stream</code> ainda responde 200, mas o usuário fica como
+      <code>anonymous</code>, sem vínculo com projeto e sem audit
+      rastreável até uma pessoa. <strong>Sempre envie um header de identidade
+      em apps de produção.</strong>
+    </p>
+  </section>
+
+  <!-- Permissões e ACL -->
+  <section id="permissoes">
+    <h2>Permissões e ACL de Projeto</h2>
+    <p>
+      Existem duas camadas de autorização que o consumidor AG-UI precisa
+      entender porque ambas podem responder <strong>403 Forbidden</strong>:
+    </p>
+
+    <h3>1. AdminGate — gating de rotas administrativas</h3>
+    <p>
+      Rotas sob <code>/api/aihub/admin/…</code> (ex.: <code>/admin/users</code>,
+      <code>/admin/audit-log</code>) exigem que o usuário corrente tenha
+      <code>IsAdmin=true</code> no diretório do backend
+      (tabela <code>aihub.users</code>). <code>userType</code> do header
+      <strong>não</strong> influencia esse gate — é o flag DB que decide.
+    </p>
+    <p>
+      Rotas <code>/chat/ag-ui/*</code> são públicas no AdminGate, então
+      consumidor AG-UI <strong>não</strong> bate nesse gate diretamente. Mas
+      ferramentas administrativas do app (ex.: tela de auditoria) sim.
+    </p>
+
+    <h3>2. ACL por projeto — vínculo usuário ↔ projetos</h3>
+    <p>
+      Quando o consumidor envia <code>x-project-id</code> apontando pra um
+      projeto não-default, o <code>ProjectMiddleware</code> verifica se o
+      usuário tem vínculo com aquele projeto na tabela
+      <code>aihub.user_projects</code>. Admin (com <code>IsAdmin=true</code>)
+      tem <strong>bypass total</strong> — vê todos os projetos do tenant.
+      Non-admin só enxerga projetos onde existe vínculo explícito.
+    </p>
+
+    <div class="hitl-flow">
+<span class="comment">// Non-admin envia x-project-id que não tem vínculo:</span>
+<span class="arrow">→</span> <span class="event">POST</span> /api/aihub/chat/ag-ui/stream
+   <span class="resolve">x-efs-account: 123456789</span>
+   <span class="resolve">x-project-id: projeto-restrito</span>
+
+<span class="arrow">← 403</span> { <span class="resolve">"error"</span>: <span class="resolve">"Você não tem acesso ao projeto 'projeto-restrito'. Solicite a um administrador o vínculo."</span> }
+    </div>
+
+    <h3>Como o frontend deve tratar</h3>
+    <p>
+      Antes de qualquer chamada AG-UI, busque <code>GET /api/aihub/me</code>.
+      Esse endpoint é público (não passa pelo AdminGate) e sempre retorna 200
+      — quando não há identidade resolvida, devolve campos null + lista vazia.
+      Schema da resposta:
+    </p>
+
+    <pre class="language-json"><code class="language-json">{
+  "accountId":   "123456789",        // valor literal do header de identidade enviado
+  "userType":    "cliente",          // 'cliente' | 'admin' | null (sem identidade)
+  "isAdmin":     false,              // flag DB — independente do header
+  "userId":      "7616cc79-...",     // UUID interno do diretório
+  "displayName": "Ana Souza",        // nome humano (default = accountId)
+  "projects": [
+    { "id": "investimentos", "name": "Investimentos" },
+    { "id": "renda-fixa",    "name": "Renda Fixa" }
+  ]
+}</code></pre>
+
+    <p>
+      Use a resposta pra montar o estado de auth do app:
+    </p>
+    <ul>
+      <li><code>userType</code> decide qual header de identidade enviar (cliente → <code>x-efs-account</code>, admin → <code>x-efs-user-profile-id</code>).</li>
+      <li><code>isAdmin</code> habilita telas/UI administrativas no frontend (apenas hint visual — backend reenforça via AdminGate).</li>
+      <li><code>projects</code> é a lista válida pro seletor de projeto. Para non-admin é só o set vinculado; para admin é tudo do tenant exceto <code>default</code>. <strong>Lista vazia em non-admin = usuário sem nenhum projeto</strong> — mostre tela de boas-vindas pedindo vínculo, não envie <code>x-project-id</code>.</li>
+    </ul>
+    <p>
+      Quando recebido um 403 inesperado mesmo após validar via <code>/me</code>
+      (ex.: admin revogou o vínculo durante a sessão), trate como sinal pra
+      recarregar <code>/me</code> e potencialmente redirecionar pro fluxo de
+      boas-vindas.
+    </p>
   </section>
 
   <!-- Endpoints -->
@@ -577,7 +748,7 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
           <thead><tr><th>Campo</th><th>Valores</th></tr></thead>
           <tbody>
             <tr><td><code>toolCallId</code></td><td>ID recebido no evento <code>TOOL_CALL_START</code></td></tr>
-            <tr><td><code>response</code></td><td><code>"approved"</code>, <code>"rejected"</code>, ou texto customizado das <code>options[]</code></td></tr>
+            <tr><td><code>response</code></td><td><code>"approved"</code>/<code>"rejected"</code> quando o delta veio com <code>options=null</code>; senão a string literal da option escolhida (ver <a href="#hitl">Convenção do <code>response</code></a>).</td></tr>
           </tbody>
         </table>
       </div>
@@ -1188,8 +1359,8 @@ curl "http://localhost:5189/api/aihub/executions/$EXEC/events?since=42&waitMs=10
         <tr data-cat="tools">
           <td><code>TOOL_CALL_RESULT</code></td>
           <td><span class="badge badge-yellow">Tools</span></td>
-          <td><code>toolCallId</code>, <code>result</code>, <code>messageId</code>, <code>role: "tool"</code></td>
-          <td>Resultado da tool call. Para HITL: <code>result</code> contém a resposta humana (ex: <code>"Aprovar"</code>).</td>
+          <td><code>toolCallId</code>, <code>result</code> <em>ou</em> <code>error</code>, <code>messageId</code>, <code>role: "tool"</code></td>
+          <td>Resultado da tool call. <code>result</code> e <code>error</code> são mutuamente exclusivos: <code>result</code> presente = sucesso (HITL traz a resposta humana); <code>error</code> presente = falha com mensagem amigável (ex.: 401 do downstream de tool exclusive — ver <a href="#generic-tools">Generic Tools</a>).</td>
         </tr>
         <tr data-cat="state">
           <td><code>STATE_SNAPSHOT</code></td>
@@ -1324,6 +1495,24 @@ curl "http://localhost:5189/api/aihub/executions/$EXEC/events?since=42&waitMs=10
 let threadId = null
 const messages = []  <span class="comment">// histórico local</span>
 
+<span class="comment">// Single source of truth dos headers de identidade. Trocar daqui = trocar em</span>
+<span class="comment">// tudo (stream, cancel, reconnect, resolve-hitl). Em produção, leia esses</span>
+<span class="comment">// valores do seu auth store, não hardcode.</span>
+function authHeaders() {
+  const userType = localStorage.getItem('userType')  <span class="comment">// 'cliente' | 'admin'</span>
+  const externalId = localStorage.getItem('externalUserId')  <span class="comment">// '123456789' ou 'P-00123'</span>
+  const projectId = localStorage.getItem('projectId')  <span class="comment">// 'investimentos'</span>
+  const accessToken = localStorage.getItem('accessToken')  <span class="comment">// bearer do IdP, opcional</span>
+
+  const headers = { 'app_origin': 'web-mvp' }
+  <span class="comment">// Envia EXATAMENTE um dos dois headers de identidade, conforme userType.</span>
+  if (userType === 'admin') headers['x-efs-user-profile-id'] = externalId
+  else headers['x-efs-account'] = externalId
+  if (projectId) headers['x-project-id'] = projectId
+  if (accessToken) headers['access_token'] = accessToken  <span class="comment">// só usado se a conversa chamar tool IsExclusive</span>
+  return headers
+}
+
 async function sendTurn(userText) {
   messages.push({ id: crypto.randomUUID(), role: 'user', content: userText })
 
@@ -1331,7 +1520,7 @@ async function sendTurn(userText) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-efs-account': '123456789',  <span class="comment">// header de identidade — escolha um (ver Autenticação)</span>
+      ...authHeaders(),
     },
     body: JSON.stringify({
       messages,
@@ -1341,6 +1530,12 @@ async function sendTurn(userText) {
       state: {},
     }),
   })
+
+  if (res.status === 403) {
+    <span class="comment">// ACL de projeto bateu — non-admin sem vínculo. Body traz mensagem amigável.</span>
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? 'Sem acesso ao projeto. Solicite vínculo a um admin.')
+  }
 
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
@@ -1445,16 +1640,22 @@ async function sendTurn(userText) {
     <h3>Reconexão</h3>
     <p>
       Quando o stream cai (rede, refresh, timeout), guarde o último <code>id:</code> recebido
-      (<code>lastEventId</code> no exemplo) e chame:
+      (<code>lastEventId</code> no exemplo) e chame o endpoint de reconnect.
+      <strong>Nota:</strong> <code>runId</code> e <code>executionId</code> são
+      o mesmo valor — o que o evento <code>RUN_STARTED.runId</code> entrega é o
+      que vai no path como <code>{executionId}</code>. A nomenclatura
+      alterna conforme o contexto (cliente fala em "run", backend persiste
+      como "execution").
     </p>
-    <pre class="language-javascript"><code class="language-javascript">const res = await fetch(`/api/aihub/chat/ag-ui/reconnect/${runId}`, {
+    <pre class="language-javascript"><code class="language-javascript">const executionId = runId  <span class="comment">// mesmo valor que veio em RUN_STARTED.runId</span>
+const res = await fetch(`/api/aihub/chat/ag-ui/reconnect/${executionId}`, {
   headers: {
-    'Last-Event-ID': lastEventId,
+    'Last-Event-ID': lastEventId,  <span class="comment">// omitir o header quando null = pede resync completo</span>
     'x-thread-id': threadId,
-    'x-efs-account': '123456789',
+    ...authHeaders(),              <span class="comment">// reusa o helper — mesma identidade do stream original</span>
   },
 })
-<span class="comment">// O servidor faz replay dos eventos perdidos. Se Last-Event-ID for null, manda</span>
+<span class="comment">// O servidor faz replay dos eventos perdidos. Sem Last-Event-ID, manda</span>
 <span class="comment">// MESSAGES_SNAPSHOT + STATE_SNAPSHOT pra resync completo antes de continuar.</span></code></pre>
   </section>
 
@@ -1487,12 +1688,54 @@ async function sendTurn(userText) {
 
     <h3>Estrutura do delta HITL</h3>
     <pre class="language-json"><code class="language-json">{
-  "interactionId": "hitl-001",
-  "question": "Confirma transferência de R$ 50.000,00 para conta 123456?",
-  "options": ["Aprovar", "Rejeitar"],
-  "timeoutSeconds": 300
+  "interactionId":  "hitl-001",
+  "question":       "Confirma transferência de R$ 50.000,00 para conta 123456?",
+  "options":        ["Aprovar", "Rejeitar"],    // null quando é Aprovar/Rejeitar genérico
+  "timeoutSeconds": 300                          // sem campo = sem timeout
 }</code></pre>
-    <p>Quando <code>options</code> é <code>null</code>, assuma Aprovar / Rejeitar com valores <code>"approved"</code> / <code>"rejected"</code>.</p>
+
+    <h3>Convenção do <code>response</code> no <code>/resolve-hitl</code></h3>
+    <p>
+      A regra é simples: o consumidor envia <strong>exatamente o valor que o
+      usuário escolheu</strong>:
+    </p>
+    <ul>
+      <li>Quando <code>options</code> veio populado: envie a string da option
+        escolhida, igual ela apareceu no delta. Exemplo:
+        <code>options=["Aprovar","Rejeitar"]</code> → <code>response: "Aprovar"</code>
+        ou <code>response: "Rejeitar"</code>.</li>
+      <li>Quando <code>options</code> é <code>null</code>: assuma binário
+        Aprovar/Rejeitar e envie os valores canônicos em inglês
+        <code>"approved"</code> ou <code>"rejected"</code> — esses são os
+        tokens que o backend reconhece quando não há lista custom.</li>
+    </ul>
+    <p>
+      O <code>TOOL_CALL_RESULT</code> de volta no stream traz <code>result</code>
+      igual ao <code>response</code> enviado — não há tradução pra inglês
+      no caminho de volta.
+    </p>
+
+    <h3>Timeout</h3>
+    <p>
+      <code>timeoutSeconds</code> é a janela máxima que o backend espera o
+      <code>/resolve-hitl</code> chegar. Se o tempo estourar sem resposta,
+      o stream emite <code>RUN_ERROR</code> com
+      <code>errorCode="HITL_REJECTED"</code> e a execução encerra. Frontend
+      deve mostrar timer ao usuário (countdown visível) quando o campo está
+      presente, e tratar o <code>RUN_ERROR</code> como rejeição implícita.
+    </p>
+
+    <h3>Sobre <code>interactionType</code> (referência em patterns)</h3>
+    <p>
+      Você pode encontrar <code>interactionType</code> em exemplos de
+      cheat-sheet — é um campo opcional dentro do delta HITL que classifica
+      o tipo de interação (ex.: <code>"approval"</code>, <code>"choice"</code>).
+      Hoje o único valor usado em produção é o equivalente a "approval", então
+      pode ser ignorado pelo frontend; ler <code>options</code> + presença/
+      ausência dele já é suficiente pra montar a UI. Trate como metadata
+      forward-compatible: se chegar valor desconhecido, comporte-se como
+      approval.
+    </p>
   </section>
 
   <!-- Custom events catalog -->
@@ -1644,6 +1887,101 @@ async function sendTurn(userText) {
       especificamente postagem programática que não representa fala humana.</li>
       <li><strong>Tool calls do LLM</strong> — fluxo <code>TOOL_CALL_*</code> existe pra isso e é dirigido
       pelo agente. Robot é o oposto: <strong>frontend-driven</strong>, não LLM-driven.</li>
+    </ul>
+  </section>
+
+  <!-- Generic Tools -->
+  <section id="generic-tools">
+    <h2>Generic Tools — Exclusive vs General</h2>
+    <p>
+      Generic Tools são endpoints HTTP cadastrados por projeto que o agente
+      invoca durante o turno como function tools. Cada tool tem uma flag
+      <code>IsExclusive</code> que decide se as credenciais do usuário
+      (<code>access_token</code> + <code>app_origin</code>) são repassadas
+      pra chamada downstream.
+    </p>
+
+    <h3>Comportamento por flag</h3>
+    <table>
+      <thead>
+        <tr><th><code>IsExclusive</code></th><th>O que o backend faz</th><th>Quando usar</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>false</code> (default)</td>
+          <td>Chamada downstream sai sem <code>access_token</code> e sem <code>app_origin</code>. Apenas os <code>CustomHeaders</code> fixos da tool (ex.: API key estática) são enviados.</td>
+          <td>APIs públicas, lookups de catálogo, tools com auth próprio embutido.</td>
+        </tr>
+        <tr>
+          <td><code>true</code></td>
+          <td>Backend anexa <code>app_origin</code> e <code>access_token</code> da request original na chamada HTTP. CustomHeaders da tool têm precedência (não são sobrescritos).</td>
+          <td>APIs que autorizam por usuário — investimentos, dados pessoais, qualquer fluxo onde o downstream valida o bearer.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>401 semântico do downstream</h3>
+    <p>
+      Quando uma tool exclusive recebe 401 ou 403 do downstream (caller sem
+      permissão na API), o backend converte pra resultado de tool com
+      mensagem amigável:
+    </p>
+    <div class="hitl-flow">
+<span class="arrow">stream ←</span> <span class="event">TOOL_CALL_RESULT</span>   { toolCallId: <span class="resolve">"tc-7"</span>, error: <span class="resolve">"Você não tem permissão para usar esta ferramenta. Verifique com o administrador."</span> }
+    </div>
+    <p>
+      Esse texto é o sinal para o frontend: <strong>não retentar</strong> a
+      chamada. A causa é falta de permissão no provedor da tool, não falha
+      transiente.
+    </p>
+
+    <h3>Campo <code>error</code> vs <code>result</code> no <code>TOOL_CALL_RESULT</code></h3>
+    <p>
+      <code>TOOL_CALL_RESULT</code> traz <strong>um dos dois</strong>,
+      mutuamente exclusivos:
+    </p>
+    <ul>
+      <li><code>result</code> presente, <code>error</code> ausente → tool
+        executou; o valor é o que o agente vai consumir no próximo passo.</li>
+      <li><code>error</code> presente, <code>result</code> ausente → tool falhou
+        com mensagem amigável ao usuário. Inclui o caso de 401/403 do
+        downstream, timeout, erro de schema. Não retentar automaticamente.</li>
+    </ul>
+
+    <h3>Token expirado vs permissão real — como diferenciar</h3>
+    <p>
+      O backend <strong>não diferencia</strong> os dois casos na mensagem do
+      tool result. A diferenciação é responsabilidade do frontend, com base
+      no estado local do <code>access_token</code>:
+    </p>
+    <ul>
+      <li><strong>Token presente e ainda dentro da validade</strong> (frontend
+        sabe via <code>exp</code> do JWT ou via callback do IdP) → 401 do
+        downstream significa permissão real. Mostre a mensagem amigável e
+        oriente o usuário.</li>
+      <li><strong>Token ausente, vencido ou perto de vencer</strong> → tente
+        refresh silencioso via seu IdP/SSO antes de mostrar erro. Se renovar,
+        o próximo turno já vai com token novo automaticamente (helper
+        <code>authHeaders()</code> lê sempre o valor mais recente).</li>
+      <li><strong>Não dá pra ler <code>exp</code></strong> (token opaco/não-JWT)
+        → trate sempre como "tentar refresh uma vez e, se falhar de novo,
+        considerar permissão real".</li>
+    </ul>
+    <p>
+      Essa lógica vive no seu store de auth, não no devportal. Backend é
+      pass-through e nunca enxerga o conteúdo do token.
+    </p>
+
+    <h3>Como o frontend influencia esse fluxo</h3>
+    <ul>
+      <li><strong>Envie <code>access_token</code> sempre que tiver</strong> — mesmo
+        que a conversa atual não use tool exclusive. O custo é zero e cobre
+        agentes que decidem em runtime usar tools que exigem o token.</li>
+      <li><strong>Não tente "descobrir" quais tools são exclusive</strong>. O agente
+        e o backend negociam isso. O frontend só precisa lidar com a mensagem
+        amigável quando ela chegar.</li>
+      <li><strong>Refresh do <code>access_token</code> é responsabilidade do app</strong>.
+        Backend não valida nem renova — só repassa.</li>
     </ul>
   </section>
 
@@ -1874,6 +2212,101 @@ while (true) {
     <div class="callout callout-blue" style="margin-top:16px">
       <strong>Nota:</strong> Bloqueio por <strong>guardrail interno</strong> (Blocklist) NÃO usa <code>RUN_ERROR</code> — emite <a href="#safety-flow"><code>SAFETY_VIOLATION</code></a> separado, com semântica e UI própria.
     </div>
+  </section>
+
+  <!-- Troubleshooting HTTP -->
+  <section id="troubleshooting">
+    <h2>Troubleshooting — Códigos HTTP</h2>
+    <p>
+      A tabela abaixo cobre os códigos HTTP que o consumidor AG-UI pode
+      receber na <strong>resposta inicial do request</strong> (antes do stream
+      SSE começar). Erros que acontecem <strong>durante</strong> o stream vêm
+      como eventos <code>RUN_ERROR</code> ou <code>SAFETY_VIOLATION</code> —
+      ver <a href="#error-codes">Códigos RUN_ERROR</a> e
+      <a href="#safety-flow">Fluxo SAFETY_VIOLATION</a>.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Cenário típico</th>
+          <th>Mensagem (<code>body.error</code>)</th>
+          <th>O que fazer</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>400</strong></td>
+          <td>Headers <code>x-efs-account</code> <em>e</em> <code>x-efs-user-profile-id</code> juntos</td>
+          <td><em>Identidade ambígua: envie só um</em></td>
+          <td>Verifique o helper de headers do app — deve enviar exatamente um, conforme <code>userType</code>.</td>
+        </tr>
+        <tr>
+          <td><strong>403</strong></td>
+          <td>Non-admin com <code>x-project-id</code> de projeto sem vínculo</td>
+          <td><em>Você não tem acesso ao projeto '{id}'. Solicite a um administrador o vínculo.</em></td>
+          <td>Recarregue <code>GET /me</code> e use apenas projetos da lista <code>projects</code>. Se a lista estiver vazia, mostre tela de boas-vindas.</td>
+        </tr>
+        <tr>
+          <td><strong>403</strong></td>
+          <td>Default project bloqueado pro non-admin</td>
+          <td><em>O projeto 'default' requer permissão de administrador.</em></td>
+          <td>Envie sempre <code>x-project-id</code> apontando pra projeto real do tenant. Não dependa do default.</td>
+        </tr>
+        <tr>
+          <td><strong>403</strong></td>
+          <td>Non-admin tenta endpoint admin (<code>/admin/*</code>)</td>
+          <td><em>Acesso negado. Este endpoint requer permissão de administrador.</em></td>
+          <td>Esconda telas administrativas no frontend baseado em <code>me.isAdmin</code>. Backend é fonte de verdade — nunca enviar pra <code>/admin/*</code> sem checar.</td>
+        </tr>
+        <tr>
+          <td><strong>404</strong></td>
+          <td>Workflow/agent inexistente ou fora do scope do projeto atual</td>
+          <td><em>Workflow/Agent não encontrado</em></td>
+          <td>Confira o id contra <code>GET /api/aihub/workflows</code> ou <code>/api/aihub/agents</code>; o backend filtra por <code>x-project-id</code>.</td>
+        </tr>
+        <tr>
+          <td><strong>429</strong></td>
+          <td>Rate limit excedido (projeto ou conversa)</td>
+          <td><em>Muitas requisições — aguarde um instante.</em></td>
+          <td>Backoff exponencial. Limites são por projeto + por conversa.</td>
+        </tr>
+        <tr>
+          <td><strong>500/503</strong></td>
+          <td>DB/Redis indisponível ou erro inesperado</td>
+          <td>varia — pode ser JSON com <code>error</code> ou plaintext</td>
+          <td>Retry com backoff. Reporte ao time se persistir; <code>GET /health/ready</code> aponta o componente que caiu.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>401 — caso especial das Generic Tools</h3>
+    <p>
+      O endpoint <code>POST /chat/ag-ui/stream</code> em si não retorna 401
+      porque AG-UI é público no AdminGate. Mas o stream pode trazer um
+      <code>TOOL_CALL_RESULT</code> com mensagem amigável quando uma generic
+      tool exclusive bater 401 ou 403 no downstream — ver
+      <a href="#generic-tools">Generic Tools</a>. Esse caso é semântico, não
+      transiente — não retentar.
+    </p>
+
+    <h3>Erros durante o stream — RUN_ERROR vs SAFETY_VIOLATION</h3>
+    <ul>
+      <li>
+        <code>RUN_ERROR</code> com <code>errorCode</code> classificado — usar
+        a tabela em <a href="#error-codes">Códigos RUN_ERROR</a> pra decidir
+        retry. Falhas transientes (<code>LLM_ERROR</code>, <code>LLM_RATE_LIMIT</code>,
+        <code>BACK_PRESSURE_REJECTED</code>) são candidatas a retry; demais
+        são definitivas.
+      </li>
+      <li>
+        <code>SAFETY_VIOLATION</code> com <code>errorCode</code>
+        (PII/SECRETS/FINANCIAL/INTERNAL) — bloqueio de guardrail. Nunca
+        retentar com o mesmo conteúdo; mostrar mensagem específica pro
+        usuário editar.
+      </li>
+    </ul>
   </section>
 
   <!-- ════════════════════════════════════════════════════════════════════════
