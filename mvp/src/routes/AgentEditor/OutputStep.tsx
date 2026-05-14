@@ -1,4 +1,4 @@
-import { Card, CardHeader, Input, JsonSchemaBuilder, Textarea, cn } from '../../ui'
+import { Card, CardHeader, JsonSchemaBuilder, StringListEditor, Textarea, cn } from '../../ui'
 import type { FormState, StructuredSection } from './types'
 
 interface OutputStepProps {
@@ -36,6 +36,7 @@ function ModeCard({ active, title, description, onClick, disabled }: ModeCardPro
 }
 
 const COMPONENT_MAX_LENGTH = 64
+const COMPONENT_MAX_ITEMS = 10
 
 export function OutputStep({ form, setForm, readonly }: OutputStepProps) {
   const updateOutput = (mutator: (prev: StructuredSection) => StructuredSection) =>
@@ -44,16 +45,12 @@ export function OutputStep({ form, setForm, readonly }: OutputStepProps) {
   const isConversational = form.type === 'Conversational'
   const isStructured = form.output.mode === 'structured'
 
-  const componentValue = form.conversationalUiComponents[0] ?? ''
-  const setComponent = (value: string) => {
-    const trimmed = value.slice(0, COMPONENT_MAX_LENGTH)
-    setForm((prev) => ({
-      ...prev,
-      // Array com 1 elemento (ou vazio quando o user limpa o input) — o codec
-      // gera enum de 1 valor no schema canônico `ui_component`. Sem branch
-      // pra manter a serialização consistente com agentes legacy.
-      conversationalUiComponents: trimmed.trim() ? [trimmed.trim()] : [],
-    }))
+  const componentValues = form.conversationalUiComponents
+  const setComponentValues = (values: string[]) => {
+    // O codec aplica dedupe + cap + default 'text' no save (encodeConversationalMetadata).
+    // Aqui só repassamos o estado da UI sem mexer na ordem ou em duplicatas
+    // intermediárias — usuário vê o que digitou; backend recebe limpo.
+    setForm((prev) => ({ ...prev, conversationalUiComponents: values }))
   }
 
   return (
@@ -95,8 +92,8 @@ export function OutputStep({ form, setForm, readonly }: OutputStepProps) {
 
       {isConversational && isStructured && (
         <ConversationalComponentCard
-          value={componentValue}
-          onChange={setComponent}
+          values={componentValues}
+          onChange={setComponentValues}
           readonly={readonly}
         />
       )}
@@ -153,8 +150,8 @@ export function OutputStep({ form, setForm, readonly }: OutputStepProps) {
 }
 
 interface ConversationalComponentCardProps {
-  value: string
-  onChange: (next: string) => void
+  values: string[]
+  onChange: (next: string[]) => void
   readonly: boolean
 }
 
@@ -162,15 +159,18 @@ interface ConversationalComponentCardProps {
 // o número de etapas do wizard e refletir que componente + output são duas
 // peças do MESMO contrato canônico { ui_component, message, output }. O
 // banner azul reforça que a saída é sempre estruturada pra Conversational.
-function ConversationalComponentCard({ value, onChange, readonly }: ConversationalComponentCardProps) {
+function ConversationalComponentCard({ values, onChange, readonly }: ConversationalComponentCardProps) {
+  const count = values.filter((v) => v.trim().length > 0).length
+  const limit = COMPONENT_MAX_ITEMS
+
   return (
     <>
       <div className="rounded-lg border border-accent/20 bg-accent/[0.04] p-4 text-sm">
         <h3 className="text-[13px] font-semibold text-fg">Como o agente responde no chat</h3>
         <p className="mt-1 text-[12px] leading-relaxed text-fg-muted">
           A cada resposta o agente entrega três coisas:{' '}
-          <strong className="text-fg">qual cartão</strong> mostrar pro cliente (definido abaixo),
-          {' '}
+          <strong className="text-fg">qual cartão</strong> mostrar pro cliente (escolhe entre os
+          listados abaixo),{' '}
           <strong className="text-fg">o texto da mensagem</strong> que aparece na bolha do chat,
           e <strong className="text-fg">os dados</strong> que o cartão precisa pra ser desenhado
           (você descreve esses dados nos campos abaixo).
@@ -179,29 +179,27 @@ function ConversationalComponentCard({ value, onChange, readonly }: Conversation
 
       <Card className="space-y-3">
         <CardHeader
-          title="Nome do cartão"
-          description="Nome curto do visual que o agente desenha na tela do chat (ex.: card_pedido, lista_extratos, alerta_risco). O time de front usa esse nome pra exibir o cartão certo. Use letras minúsculas, números e underscore."
+          title="Cartões possíveis"
+          description={
+            'Liste os visuais que o front pode desenhar (ex.: card_pedido, lista_extratos, alerta_risco). ' +
+            'O agente vai escolher exatamente um deles a cada resposta. ' +
+            'Sem nenhum cartão listado, o agente cai no padrão "text" (só a mensagem do chat).'
+          }
         />
-        <div>
-          <label
-            htmlFor="conversational-component"
-            className="text-[11px] uppercase tracking-wider text-fg-dim"
-          >
-            Nome
-          </label>
-          <Input
-            id="conversational-component"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder="card_pedido"
-            disabled={readonly}
-            className="mt-1"
-            aria-describedby="conversational-component-help"
+        <div aria-describedby="conversational-component-help">
+          <StringListEditor
+            values={values}
+            onChange={readonly ? () => {} : onChange}
+            itemPlaceholder="card_pedido"
+            emptyHint="Nenhum cartão listado — o agente vai usar 'text' (só mensagem)."
+            monospace
+            max={limit}
+            maxLength={COMPONENT_MAX_LENGTH}
           />
-          <p id="conversational-component-help" className="mt-1.5 text-[11px] text-fg-dim">
-            {value
-              ? `O chat vai mostrar o cartão "${value}" a cada resposta.`
-              : 'Defina o nome do cartão antes de salvar — sem ele, o chat só mostra o texto da mensagem.'}
+          <p id="conversational-component-help" className="mt-2 text-[11px] text-fg-dim">
+            {count > 0
+              ? `O chat vai escolher um entre ${count} cartões a cada resposta.`
+              : 'Sem cartões listados, o agente sempre responde com o padrão "text".'}
           </p>
         </div>
       </Card>

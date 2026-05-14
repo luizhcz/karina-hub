@@ -10,6 +10,10 @@ interface StringListEditorProps {
   itemPlaceholder?: string
   emptyHint?: string
   monospace?: boolean
+  /** Limite máximo de entradas. Esconde o botão Adicionar quando atingido. */
+  max?: number
+  /** maxLength HTML aplicado a cada Input. */
+  maxLength?: number
 }
 
 interface InternalRow {
@@ -30,6 +34,8 @@ export function StringListEditor({
   itemPlaceholder = 'item',
   emptyHint = 'Nenhum item ainda.',
   monospace,
+  max,
+  maxLength,
 }: StringListEditorProps) {
   // Estado local com ids estáveis — sincroniza com `values` quando o tamanho
   // muda externamente (ex: load de tool existente).
@@ -57,13 +63,21 @@ export function StringListEditor({
     sync([...rows, { id: shortId(), value: '' }])
   }
 
+  const atLimit = typeof max === 'number' && rows.length >= max
+
   if (rows.length === 0) {
     return (
       <div className="space-y-3">
         <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-xs text-fg-muted">
           {emptyHint}
         </div>
-        <Button variant="secondary" size="sm" leftIcon={<PlusIcon className="h-3.5 w-3.5" />} onClick={add}>
+        <Button
+          variant="secondary"
+          size="sm"
+          leftIcon={<PlusIcon className="h-3.5 w-3.5" />}
+          onClick={add}
+          disabled={atLimit}
+        >
           Adicionar
         </Button>
       </div>
@@ -80,6 +94,7 @@ export function StringListEditor({
               onChange={(e) => update(row.id, e.target.value)}
               placeholder={itemPlaceholder}
               monospace={monospace}
+              maxLength={maxLength}
             />
           </div>
           <IconButton
@@ -92,9 +107,18 @@ export function StringListEditor({
           </IconButton>
         </div>
       ))}
-      <Button variant="secondary" size="sm" leftIcon={<PlusIcon className="h-3.5 w-3.5" />} onClick={add}>
+      <Button
+        variant="secondary"
+        size="sm"
+        leftIcon={<PlusIcon className="h-3.5 w-3.5" />}
+        onClick={add}
+        disabled={atLimit}
+      >
         Adicionar
       </Button>
+      {atLimit && (
+        <p className="text-[11px] text-fg-dim">Limite de {max} itens atingido.</p>
+      )}
     </div>
   )
 }
