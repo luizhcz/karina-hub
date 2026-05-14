@@ -584,7 +584,10 @@ public sealed class AgentSandboxService
                 TimeoutSeconds = 300,
                 MaxRounds = null,
                 MaxAgentInvocations = 10,
-                MaxHistoryMessages = 0,
+                // WorkflowValidator exige > 0 mesmo pra Standalone single-shot.
+                // Valor não é consumido (não há histórico no fluxo) — qualquer
+                // positivo satisfaz a invariante.
+                MaxHistoryMessages = 1,
                 MaxTokensPerExecution = 50000,
                 CheckpointMode = "InMemory",
                 EnableHumanInTheLoop = false,
