@@ -40,8 +40,15 @@ public sealed class ProjectMiddleware
         //   - O projeto resolvido é o fallback "default" — DefaultProjectGuard
         //     já cuida desse caso (admin-only). Manter ACL aqui dispararia 403
         //     antes do guard rodar e quebraria /me pra non-admin sem projetos.
+        //   - O endpoint não depende de contexto de projeto (bootstrap como
+        //     /me, listagem global como /projects, rotas admin já gateadas por
+        //     AdminGate). Sem essa exceção, identity stale em localStorage
+        //     (projeto deletado/revogado) trava o frontend em loop de welcome:
+        //     /me bate 403 → frontend cai no fallback isAdmin=false/projects=[]
+        //     → RequireAccessOrWelcome redireciona pra /bem-vindo a cada
+        //     refresh, sem caminho de recuperação.
         var user = userAccessor.Current;
-        if (user is null || user.IsAdmin || resolved.ProjectId == "default")
+        if (user is null || user.IsAdmin || resolved.ProjectId == "default" || IsProjectAgnosticRoute(context))
         {
             await _next(context);
             return;
@@ -66,6 +73,42 @@ public sealed class ProjectMiddleware
         }
 
         await _next(context);
+    }
+
+    /// <summary>
+    /// Rotas que não operam sobre o contexto de projeto e portanto não devem
+    /// ser bloqueadas por ACL mesmo quando o caller envia <c>x-project-id</c>
+    /// stale. Endpoints aqui ou se autogovernam (ex.: <c>/projects</c> filtra
+    /// pelo membership do user no controller) ou são gateados em outro lugar
+    /// (<c>/admin/*</c> via AdminGate). Critério mínimo de entrada: o endpoint
+    /// precisa funcionar quando o caller acabou de perder acesso ao projeto
+    /// previamente selecionado, pra que o frontend consiga se reorientar.
+    /// </summary>
+    private static bool IsProjectAgnosticRoute(HttpContext context)
+    {
+        var path = context.Request.Path.Value ?? string.Empty;
+
+        if (path.Equals("/api/aihub/me", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // /projects e /projects/{id} — ProjectsController filtra pelo membership.
+        // Sub-rotas (ex.: /projects/{id}/blocklist) NÃO entram aqui: precisam
+        // do contexto pra autorização correta.
+        if (path.Equals("/api/aihub/projects", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (path.StartsWith("/api/aihub/projects/", StringComparison.OrdinalIgnoreCase))
+        {
+            var rest = path["/api/aihub/projects/".Length..];
+            if (!rest.Contains('/'))
+                return true;
+        }
+
+        // Endpoints sob /admin/* são gateados por AdminGate (IsAdmin=true);
+        // ACL de projeto não acrescenta nada aqui.
+        if (path.StartsWith("/api/aihub/admin/", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
     }
 
     private static ProjectContext ResolveProject(HttpContext context)
