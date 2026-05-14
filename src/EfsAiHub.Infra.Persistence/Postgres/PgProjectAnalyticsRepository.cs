@@ -51,7 +51,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                 COALESCE(SUM(c.""TotalTokens""), 0)::bigint        AS ""Tokens"",
                 COUNT(*)::int                                      AS ""Calls""
             FROM aihub.v_llm_cost c
-            INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = c.""ExecutionId""
+            INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = c.""ExecutionId""
             {llmJoin}
             WHERE we.""ProjectId"" = {{0}}
               AND c.""CreatedAt"" BETWEEN {{1}} AND {{2}}
@@ -69,7 +69,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                 COUNT(*)::int                                          AS "Total",
                 COUNT(*) FILTER (WHERE "Status" = 'Completed')::int    AS "Completed",
                 COUNT(*) FILTER (WHERE "Status" = 'Failed')::int       AS "Failed"
-            FROM aihub.workflow_executions
+            FROM aihub.v_production_executions
             WHERE "ProjectId" = {0}
               AND "StartedAt" BETWEEN {1} AND {2}
             """, projectId, from, to)
@@ -89,7 +89,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                 COUNT(*)::int                                AS ""Calls""
             FROM aihub.v_llm_cost c
             INNER JOIN aihub.llm_token_usage ltu ON ltu.""Id"" = c.""Id""
-            INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = c.""ExecutionId""
+            INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = c.""ExecutionId""
             {topAgentJoin}
             WHERE we.""ProjectId"" = {{0}}
               AND c.""CreatedAt"" BETWEEN {{1}} AND {{2}}
@@ -164,7 +164,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                 COALESCE(SUM(c.""TotalTokens""), 0)::bigint                AS ""Tokens"",
                 COUNT(*)::int                                              AS ""Calls""
             FROM aihub.v_llm_cost c
-            INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = c.""ExecutionId""";
+            INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = c.""ExecutionId""";
         if (needsLtuJoin)
         {
             llmSql += $@"
@@ -203,7 +203,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                 COUNT(*)::int                                              AS ""Executions"",
                 COUNT(*) FILTER (WHERE ""Status"" = 'Completed')::int      AS ""Completed"",
                 COUNT(*) FILTER (WHERE ""Status"" = 'Failed')::int         AS ""Failed""
-            FROM aihub.workflow_executions
+            FROM aihub.v_production_executions
             WHERE ""ProjectId"" = {0}
               AND ""StartedAt"" BETWEEN {1} AND {2}
             GROUP BY 1
@@ -261,7 +261,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                        ltu.""DurationMs"", c.""EstimatedCostUsd"", c.""TotalTokens""
                 FROM aihub.v_llm_cost c
                 INNER JOIN aihub.llm_token_usage ltu ON ltu.""Id"" = c.""Id""
-                INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = c.""ExecutionId""
+                INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = c.""ExecutionId""
                 {ownedJoin}
                 WHERE we.""ProjectId"" = {{0}}
                   AND c.""CreatedAt"" BETWEEN {{1}} AND {{2}}
@@ -270,7 +270,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
             agent_exec_status AS (
                 SELECT DISTINCT ltu.""AgentId"", we.""ExecutionId"", we.""Status""
                 FROM aihub.llm_token_usage ltu
-                INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = ltu.""ExecutionId""
+                INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = ltu.""ExecutionId""
                 {ownedJoin}
                 WHERE we.""ProjectId"" = {{0}}
                   AND ltu.""CreatedAt"" BETWEEN {{1}} AND {{2}}
