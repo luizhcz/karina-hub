@@ -39,6 +39,7 @@ const navItems: NavItem[] = [
 
 const adminItems: NavItem[] = [
   { label: 'Usuários', to: '/admin/usuarios', icon: <SettingsIcon className="h-5 w-5" /> },
+  { label: 'Auditoria', to: '/admin/auditoria', icon: <CheckIcon className="h-5 w-5" /> },
 ]
 
 export function Sidebar() {
