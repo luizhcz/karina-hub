@@ -81,13 +81,13 @@ public sealed class ChatValidationWarningCalculator
     private static bool IsChatProductionDeploy(WorkflowDefinition definition)
     {
         if (definition.Metadata is null) return false;
-        if (!definition.Metadata.TryGetValue(ChatSandboxMetadata.DeploymentKindKey, out var kind)) return false;
-        if (!string.Equals(kind, ChatSandboxMetadata.DeploymentKindChat, StringComparison.OrdinalIgnoreCase)) return false;
+        if (!definition.Metadata.TryGetValue(AgentSandboxMetadata.DeploymentKindKey, out var kind)) return false;
+        if (!string.Equals(kind, AgentSandboxMetadata.DeploymentKindChat, StringComparison.OrdinalIgnoreCase)) return false;
 
         // Chat Sandbox tem deploymentKind=chat MAS é efêmero (kind=chat-sandbox).
         // Warnings só fazem sentido em deploys reais — sandbox próprio bypass.
-        if (definition.Metadata.TryGetValue(ChatSandboxMetadata.KindKey, out var kindSpecific)
-            && string.Equals(kindSpecific, ChatSandboxMetadata.KindChatSandbox, StringComparison.OrdinalIgnoreCase))
+        if (definition.Metadata.TryGetValue(AgentSandboxMetadata.KindKey, out var kindSpecific)
+            && string.Equals(kindSpecific, AgentSandboxMetadata.KindChatSandbox, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }

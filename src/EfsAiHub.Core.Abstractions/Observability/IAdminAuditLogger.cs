@@ -180,8 +180,9 @@ public static class AdminAuditActions
 
     /// <summary>
     /// Session de teste isolado de Conversational criada via POST
-    /// /api/aihub/agents/{id}/chat-sandbox-sessions. PayloadAfter inclui
-    /// chatSandboxSessionId, agentId, agentVersionId, workflowId, conversationId.
+    /// /api/aihub/agents/{id}/sandbox-sessions (com Mode=chat derivado pelo
+    /// backend). PayloadAfter inclui chatSandboxSessionId, agentId,
+    /// agentVersionId, mode, workflowId, conversationId.
     /// </summary>
     public const string ChatSandboxSessionCreated = "chat_sandbox.session_created";
 
@@ -200,6 +201,23 @@ public static class AdminAuditActions
     /// previousValidatedAgentVersionId, newAgentVersionId.
     /// </summary>
     public const string ChatSandboxValidationInvalidated = "chat_sandbox.validation_invalidated";
+
+    /// <summary>
+    /// Session Standalone Sandbox criada pra testar agente Custom/Worker/ToolRunner
+    /// sem deploy permanente. Emitido pelo POST
+    /// /api/aihub/agents/{id}/sandbox-sessions quando agent.Type ≠ Conversational.
+    /// PayloadAfter inclui sandboxSessionId, agentId, agentType, agentVersionId,
+    /// mode, workflowId. <strong>Gate de validation não se aplica</strong>
+    /// (Standalone não tem cadeia de consumo downstream).
+    /// </summary>
+    public const string AgentSandboxStandaloneSessionCreated = "agent_sandbox.standalone_session_created";
+
+    /// <summary>
+    /// Predição isolada de intent por agente Router. Emitido pelo POST
+    /// /api/aihub/agents/{id}/predict-intent. PayloadAfter inclui agentId,
+    /// agentVersionId, inputLength, intent, latencyMs.
+    /// </summary>
+    public const string RouterIntentPredicted = "router.intent_predicted";
 
     /// <summary>
     /// Criação de Predefined Model (preset global). Emitido pelo
@@ -266,6 +284,13 @@ public static class AdminAuditResources
 
     /// <summary>Session de teste isolado de agente Conversational em chat AG-UI.</summary>
     public const string ChatSandboxSession = "chat_sandbox_session";
+
+    /// <summary>
+    /// Session de Standalone Sandbox (Custom/Worker/ToolRunner). Resource type
+    /// distinto de <see cref="ChatSandboxSession"/> pra que queries SQL filtrem
+    /// por origem (chat vs standalone) sem precisar parsear PayloadAfter.
+    /// </summary>
+    public const string AgentSandboxSession = "agent_sandbox_session";
 }
 
 /// <summary>

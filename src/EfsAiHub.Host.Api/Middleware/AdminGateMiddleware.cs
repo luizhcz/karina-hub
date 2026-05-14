@@ -253,38 +253,35 @@ public sealed class AdminGateMiddleware
         if (path.Equals("/api/aihub/me", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        // Workflow: apenas criar (POST) e editar (PUT /{id})
-        if (method.Equals("POST", StringComparison.OrdinalIgnoreCase)
-            && path.TrimEnd('/').Equals("/api/aihub/workflows", StringComparison.OrdinalIgnoreCase))
-            return true;
+        // Workflow: implantar/editar/rollback são admin-only (gerenciamento de
+        // produção). Non-admin tem leitura (listagem, detail, versões,
+        // enabled-status), invocação via /trigger (consumir agente já
+        // publicado) e leitura de execuções. Cria/edita workflow é decisão
+        // de governance — UI esconde os botões e gate enforça pra que curl
+        // direto não burle.
 
-        if (method.Equals("PUT", StringComparison.OrdinalIgnoreCase)
-            && WorkflowEditPattern.IsMatch(path))
-            return true;
-
-        // GET /api/aihub/workflows/{id} — leitura individual. Necessário pra tela de
-        // implantação detectar workflow já existente (idempotência por agentId).
+        // GET /api/aihub/workflows/{id} — leitura individual. Tela de Implantações
+        // detalha o deploy pra qualquer role.
         if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
             && WorkflowEditPattern.IsMatch(path))
             return true;
 
-        // GET /api/aihub/workflows — lista do projeto. Usado pela tela de Implantações
-        // pra mostrar o que o PM já implantou. Escopo de project/tenant garantido
-        // pelo HasQueryFilter no DbContext.
+        // GET /api/aihub/workflows — lista do projeto. Tela de Implantações
+        // mostra deploys existentes (read-only pra non-admin). Escopo de
+        // project/tenant via HasQueryFilter no DbContext.
         if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
             && path.TrimEnd('/').Equals("/api/aihub/workflows", StringComparison.OrdinalIgnoreCase))
             return true;
 
+        // POST /api/aihub/workflows/{id}/trigger — invocação on-demand de
+        // workflow já implantado. Liberado pra non-admin: WorkflowService
+        // valida ownership via HasQueryFilter por project/tenant.
         if (method.Equals("POST", StringComparison.OrdinalIgnoreCase)
             && WorkflowTriggerPattern.IsMatch(path))
             return true;
 
         if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
             && WorkflowVersionsPattern.IsMatch(path))
-            return true;
-
-        if (method.Equals("POST", StringComparison.OrdinalIgnoreCase)
-            && WorkflowRollbackPattern.IsMatch(path))
             return true;
 
         if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)

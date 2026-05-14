@@ -449,13 +449,14 @@ internal class HumanInteractionRow
     public string? ResolvedBy { get; set; }
 }
 
-internal class ChatSandboxSessionRow
+internal class AgentSandboxSessionRow
 {
-    public string ChatSandboxSessionId { get; set; } = "";
+    public string SandboxSessionId { get; set; } = "";
     public string AgentId { get; set; } = "";
     public string AgentVersionId { get; set; } = "";
+    public string Mode { get; set; } = "chat";
     public string WorkflowId { get; set; } = "";
-    public string ConversationId { get; set; } = "";
+    public string? ConversationId { get; set; }
     public string ProjectId { get; set; } = "";
     public string CreatedByUserId { get; set; } = "";
     public DateTime CreatedAt { get; set; }
@@ -691,7 +692,7 @@ public class AgentFwDbContext : DbContext
     internal DbSet<WorkflowCheckpointRow> WorkflowCheckpoints => Set<WorkflowCheckpointRow>();
     internal DbSet<HumanInteractionRow> HumanInteractions => Set<HumanInteractionRow>();
     internal DbSet<AgentSessionRow> AgentSessions => Set<AgentSessionRow>();
-    internal DbSet<ChatSandboxSessionRow> ChatSandboxSessions => Set<ChatSandboxSessionRow>();
+    internal DbSet<AgentSandboxSessionRow> AgentSandboxSessions => Set<AgentSandboxSessionRow>();
     internal DbSet<WorkflowEventAuditRow> WorkflowEventAudits => Set<WorkflowEventAuditRow>();
     internal DbSet<AdminAuditLogRow> AdminAuditLogs => Set<AdminAuditLogRow>();
     internal DbSet<McpServerRow> McpServers => Set<McpServerRow>();
@@ -1314,15 +1315,17 @@ public class AgentFwDbContext : DbContext
             b.HasIndex(e => e.ExpiresAt);
         });
 
-        modelBuilder.Entity<ChatSandboxSessionRow>(b =>
+        modelBuilder.Entity<AgentSandboxSessionRow>(b =>
         {
-            b.ToTable("chat_sandbox_sessions");
-            b.HasKey(e => e.ChatSandboxSessionId);
-            b.Property(e => e.ChatSandboxSessionId).HasMaxLength(64);
+            b.ToTable("agent_sandbox_sessions");
+            b.HasKey(e => e.SandboxSessionId);
+            b.Property(e => e.SandboxSessionId).HasMaxLength(64);
             b.Property(e => e.AgentId).HasMaxLength(256).IsRequired();
             b.Property(e => e.AgentVersionId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Mode).HasMaxLength(32).IsRequired().HasDefaultValue("chat");
             b.Property(e => e.WorkflowId).HasMaxLength(256).IsRequired();
-            b.Property(e => e.ConversationId).HasMaxLength(128).IsRequired();
+            // Nullable: sessions Standalone não criam conversation.
+            b.Property(e => e.ConversationId).HasMaxLength(128);
             b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired();
             b.Property(e => e.CreatedByUserId).HasMaxLength(256).IsRequired();
             b.Property(e => e.CreatedAt).IsRequired();

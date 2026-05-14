@@ -1,16 +1,17 @@
-using EfsAiHub.Core.Abstractions.ChatSandbox;
+using EfsAiHub.Core.Abstractions.AgentSandbox;
 using EfsAiHub.Core.Abstractions.Conversations;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Projects;
-using EfsAiHub.Host.Api.ChatSandbox;
+using EfsAiHub.Host.Api.AgentSandbox;
 using EfsAiHub.Host.Api.Services;
+using EfsAiHub.Platform.Runtime.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace EfsAiHub.Tests.Unit.ChatSandbox;
+namespace EfsAiHub.Tests.Unit.AgentSandbox;
 
 [Trait("Category", "Unit")]
-public class ChatSandboxServiceTests
+public class AgentSandboxServiceTests
 {
     private const string CallerId = "admin-tester";
 
@@ -52,10 +53,10 @@ public class ChatSandboxServiceTests
             Tools: null,
             BreakingChange: false);
 
-    private static (ChatSandboxService svc,
+    private static (AgentSandboxService svc,
                     IAgentDefinitionRepository agentRepo,
                     IAgentVersionRepository versionRepo,
-                    IChatSandboxSessionRepository sessionRepo,
+                    IAgentSandboxSessionRepository sessionRepo,
                     IWorkflowService workflowSvc,
                     IConversationLifecycle convLifecycle,
                     IChatMessageRepository messageRepo)
@@ -76,11 +77,11 @@ public class ChatSandboxServiceTests
         versionRepo.GetCurrentAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(call => Task.FromResult<AgentVersion?>(StubVersion(call.ArgAt<string>(0), "v-current")));
 
-        var sessionRepo = Substitute.For<IChatSandboxSessionRepository>();
-        sessionRepo.CreateAsync(Arg.Any<ChatSandboxSession>(), Arg.Any<CancellationToken>())
-            .Returns(call => Task.FromResult(call.Arg<ChatSandboxSession>()));
-        sessionRepo.UpdateAsync(Arg.Any<ChatSandboxSession>(), Arg.Any<CancellationToken>())
-            .Returns(call => Task.FromResult(call.Arg<ChatSandboxSession>()));
+        var sessionRepo = Substitute.For<IAgentSandboxSessionRepository>();
+        sessionRepo.CreateAsync(Arg.Any<AgentSandboxSession>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(call.Arg<AgentSandboxSession>()));
+        sessionRepo.UpdateAsync(Arg.Any<AgentSandboxSession>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(call.Arg<AgentSandboxSession>()));
 
         var workflowSvc = Substitute.For<IWorkflowService>();
         workflowSvc.CreateAsync(Arg.Any<WorkflowDefinition>(), Arg.Any<CancellationToken>())
@@ -108,10 +109,10 @@ public class ChatSandboxServiceTests
         var projectAccessor = Substitute.For<IProjectContextAccessor>();
         projectAccessor.Current.Returns(new ProjectContext("sales-trader-ai", isExplicit: true));
 
-        var options = Options.Create(new ChatSandboxOptions { SessionTtlDays = 7 });
-        var logger = Substitute.For<ILogger<ChatSandboxService>>();
+        var options = Options.Create(new AgentSandboxOptions { SessionTtlDays = 7 });
+        var logger = Substitute.For<ILogger<AgentSandboxService>>();
 
-        var svc = new ChatSandboxService(
+        var svc = new AgentSandboxService(
             sessionRepo,
             agentRepo,
             workflowSvc,
@@ -128,14 +129,14 @@ public class ChatSandboxServiceTests
     private static UserContext Caller() => new(CallerId, "admin");
 
     [Fact]
-    public async Task CreateSessionAsync_RejectsNonConversational()
+    public async Task CreateSessionAsync_RejectsRouter()
     {
-        var (svc, _, _, _, workflowSvc, _, _) = BuildService(StubAgent("agent-1", AgentType.Custom));
+        var (svc, _, _, _, workflowSvc, _, _) = BuildService(StubAgent("router-1", AgentType.Router));
 
-        var act = async () => await svc.CreateSessionAsync("agent-1", Caller(), null);
+        var act = async () => await svc.CreateSessionAsync("router-1", Caller(), null);
 
         var ex = await act.Should().ThrowAsync<InvalidOperationException>();
-        ex.Which.Message.Should().Contain("Conversational");
+        ex.Which.Message.Should().Contain("predict-intent");
         await workflowSvc.DidNotReceive().CreateAsync(Arg.Any<WorkflowDefinition>(), Arg.Any<CancellationToken>());
     }
 
@@ -168,6 +169,10 @@ public class ChatSandboxServiceTests
         var session = await svc.CreateSessionAsync("conv-1", Caller(), null);
 
         // Workflow Chat criado: InputMode=Chat, Graph, 1 agent, deploymentKind=chat, kind=chat-sandbox.
+        // A chave `chatSandboxSessionId` é a authority pra que o frontend
+        // (ChatDeploymentSandbox.tsx) detecte que é session de sandbox e
+        // habilite o botão "Marcar como validado". Trocar a chave quebra o gate
+        // silenciosamente — esta asserção previne regressão.
         await workflowSvc.Received(1).CreateAsync(
             Arg.Is<WorkflowDefinition>(w =>
                 w.Configuration.InputMode == "Chat"
@@ -177,12 +182,15 @@ public class ChatSandboxServiceTests
                 && w.Agents[0].AgentVersionId == "v-current"
                 && w.Metadata!["deploymentKind"] == "chat"
                 && w.Metadata["kind"] == "chat-sandbox"
-                && w.Metadata["transient"] == "true"),
+                && w.Metadata["transient"] == "true"
+                && w.Metadata.ContainsKey("chatSandboxSessionId")
+                && !string.IsNullOrEmpty(w.Metadata["chatSandboxSessionId"])),
             Arg.Any<CancellationToken>());
 
         session.AgentId.Should().Be("conv-1");
         session.AgentVersionId.Should().Be("v-current");
-        session.Status.Should().Be(ChatSandboxSessionStatus.Active);
+        session.Mode.Should().Be(AgentSandboxModes.Chat);
+        session.Status.Should().Be(AgentSandboxSessionStatus.Active);
         session.CreatedByUserId.Should().Be(CallerId);
         session.ConversationId.Should().Be("conv-test");
     }
@@ -197,7 +205,7 @@ public class ChatSandboxServiceTests
         var session = await svc.CreateSessionAsync(
             "conv-1",
             Caller(),
-            new ChatSandboxService.CreateSessionRequest("v-explicit"));
+            new AgentSandboxService.CreateSessionRequest("v-explicit"));
 
         session.AgentVersionId.Should().Be("v-explicit");
     }
@@ -212,10 +220,57 @@ public class ChatSandboxServiceTests
         var act = async () => await svc.CreateSessionAsync(
             "conv-1",
             Caller(),
-            new ChatSandboxService.CreateSessionRequest("v-other"));
+            new AgentSandboxService.CreateSessionRequest("v-other"));
 
         var ex = await act.Should().ThrowAsync<ArgumentException>();
         ex.Which.Message.Should().Contain("não pertence");
+    }
+
+    [Theory]
+    [InlineData(AgentType.Custom)]
+    [InlineData(AgentType.Worker)]
+    [InlineData(AgentType.ToolRunner)]
+    public async Task CreateSessionAsync_BuildsStandaloneWorkflowForNonChatTypes(AgentType type)
+    {
+        var (svc, _, _, _, workflowSvc, convLifecycle, _) = BuildService(StubAgent("a-1", type));
+
+        var session = await svc.CreateSessionAsync("a-1", Caller(), null);
+
+        // Workflow Standalone: InputMode=Standalone, Sequential, kind=standalone-sandbox.
+        // Carrega chave chatSandboxSessionId no metadata (compat com leitores legacy).
+        await workflowSvc.Received(1).CreateAsync(
+            Arg.Is<WorkflowDefinition>(w =>
+                w.Configuration.InputMode == "Standalone"
+                && w.OrchestrationMode == OrchestrationMode.Sequential
+                && w.Agents.Count == 1
+                && w.Agents[0].AgentId == "a-1"
+                && w.Metadata!["deploymentKind"] == "standalone"
+                && w.Metadata["kind"] == "standalone-sandbox"
+                && w.Metadata["transient"] == "true"
+                && w.Metadata["deployedFromAgentType"] == type.ToString()
+                && w.Metadata.ContainsKey("chatSandboxSessionId")),
+            Arg.Any<CancellationToken>());
+
+        // Standalone NÃO cria conversation — fluxo single-shot via SSE de execução.
+        await convLifecycle.DidNotReceive().CreateAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<Dictionary<string, string>?>(), Arg.Any<CancellationToken>());
+
+        session.Mode.Should().Be(AgentSandboxModes.Standalone);
+        session.ConversationId.Should().BeNull();
+        session.Status.Should().Be(AgentSandboxSessionStatus.Active);
+    }
+
+    [Fact]
+    public async Task CreateSessionAsync_RejectsDisabledAgentEvenForStandalone()
+    {
+        var (svc, _, _, _, workflowSvc, _, _) = BuildService(StubAgent("w-1", AgentType.Worker, enabled: false));
+
+        var act = async () => await svc.CreateSessionAsync("w-1", Caller(), null);
+
+        var ex = await act.Should().ThrowAsync<InvalidOperationException>();
+        ex.Which.Message.Should().Contain("desabilitado");
+        await workflowSvc.DidNotReceive().CreateAsync(Arg.Any<WorkflowDefinition>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -223,13 +278,14 @@ public class ChatSandboxServiceTests
     {
         var (svc, _, _, sessionRepo, _, _, _) = BuildService();
         sessionRepo.GetByIdAsync("s-1", Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<ChatSandboxSession?>(new ChatSandboxSession
+            .Returns(Task.FromResult<AgentSandboxSession?>(new AgentSandboxSession
             {
-                ChatSandboxSessionId = "s-1",
+                SandboxSessionId = "s-1",
                 AgentId = "a", AgentVersionId = "v", WorkflowId = "w", ConversationId = "c",
+                Mode = AgentSandboxModes.Chat,
                 ProjectId = "sales-trader-ai", CreatedByUserId = "u",
                 CreatedAt = DateTime.UtcNow, ExpiresAt = DateTime.UtcNow.AddDays(7),
-                Status = ChatSandboxSessionStatus.Validated,
+                Status = AgentSandboxSessionStatus.Validated,
             }));
 
         var act = async () => await svc.CloseSessionAsync("s-1");
@@ -237,18 +293,19 @@ public class ChatSandboxServiceTests
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
-    private static ChatSandboxSession StubActiveSession() => new()
+    private static AgentSandboxSession StubActiveSession(string mode = AgentSandboxModes.Chat) => new()
     {
-        ChatSandboxSessionId = "s-1",
+        SandboxSessionId = "s-1",
         AgentId = "conv-1",
         AgentVersionId = "v-pinned",
+        Mode = mode,
         WorkflowId = "deploy-chat-sandbox-x",
-        ConversationId = "conv-1-thread",
+        ConversationId = mode == AgentSandboxModes.Chat ? "conv-1-thread" : null,
         ProjectId = "sales-trader-ai",
         CreatedByUserId = "owner",
         CreatedAt = DateTime.UtcNow,
         ExpiresAt = DateTime.UtcNow.AddDays(7),
-        Status = ChatSandboxSessionStatus.Active,
+        Status = AgentSandboxSessionStatus.Active,
     };
 
     private static EfsAiHub.Core.Abstractions.Conversations.ChatMessage StubMessage() => new()
@@ -275,9 +332,9 @@ public class ChatSandboxServiceTests
     {
         var (svc, _, _, sessionRepo, _, _, _) = BuildService();
         var session = StubActiveSession();
-        session.Status = ChatSandboxSessionStatus.Closed;
+        session.Status = AgentSandboxSessionStatus.Closed;
         sessionRepo.GetByIdAsync("s-1", Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<ChatSandboxSession?>(session));
+            .Returns(Task.FromResult<AgentSandboxSession?>(session));
 
         var act = async () => await svc.ValidateAsync("s-1", Caller(), null);
 
@@ -290,7 +347,7 @@ public class ChatSandboxServiceTests
     {
         var (svc, _, _, sessionRepo, _, _, _) = BuildService();
         sessionRepo.GetByIdAsync("s-1", Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<ChatSandboxSession?>(StubActiveSession()));
+            .Returns(Task.FromResult<AgentSandboxSession?>(StubActiveSession()));
 
         var act = async () => await svc.ValidateAsync("s-1", Caller(), null);
 
@@ -299,18 +356,31 @@ public class ChatSandboxServiceTests
     }
 
     [Fact]
+    public async Task ValidateAsync_RejectsStandaloneSession()
+    {
+        var (svc, _, _, sessionRepo, _, _, _) = BuildService();
+        sessionRepo.GetByIdAsync("s-1", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<AgentSandboxSession?>(StubActiveSession(AgentSandboxModes.Standalone)));
+
+        var act = async () => await svc.ValidateAsync("s-1", Caller(), null);
+
+        var ex = await act.Should().ThrowAsync<InvalidOperationException>();
+        ex.Which.Message.Should().Contain("Chat");
+    }
+
+    [Fact]
     public async Task ValidateAsync_PopulatesAgentValidationAndUpdatesSession()
     {
         var (svc, agentRepo, _, sessionRepo, _, _, messageRepo) = BuildService();
         sessionRepo.GetByIdAsync("s-1", Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<ChatSandboxSession?>(StubActiveSession()));
+            .Returns(Task.FromResult<AgentSandboxSession?>(StubActiveSession()));
         messageRepo.ListAsync("conv-1-thread", 1, 0, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult((IReadOnlyList<EfsAiHub.Core.Abstractions.Conversations.ChatMessage>)
                 new[] { StubMessage() }));
 
-        var result = await svc.ValidateAsync("s-1", Caller(), new ChatSandboxService.ValidateSessionRequest("smoke"));
+        var result = await svc.ValidateAsync("s-1", Caller(), new AgentSandboxService.ValidateSessionRequest("smoke"));
 
-        result.Status.Should().Be(ChatSandboxSessionStatus.Validated);
+        result.Status.Should().Be(AgentSandboxSessionStatus.Validated);
         result.ValidatedByUserId.Should().Be(CallerId);
         result.ValidationNotes.Should().Be("smoke");
 
@@ -321,9 +391,60 @@ public class ChatSandboxServiceTests
             "v-pinned",
             Arg.Any<CancellationToken>());
         await sessionRepo.Received(1).UpdateAsync(
-            Arg.Is<ChatSandboxSession>(s => s.Status == ChatSandboxSessionStatus.Validated
+            Arg.Is<AgentSandboxSession>(s => s.Status == AgentSandboxSessionStatus.Validated
                                             && s.ValidatedByUserId == CallerId),
             Arg.Any<CancellationToken>());
+    }
+
+    // ── TryParseRouterOutput ─────────────────────────────────────────────────
+    // Parser é internal e isolado do agente — testar diretamente evita mock
+    // pesado de IAgentFactory + LLM pra cobrir os edge cases que importam.
+
+    [Fact]
+    public void TryParseRouterOutput_ValidJson_ExtractsIntentAndReasoning()
+    {
+        var (intent, reasoning) = AgentSandboxService.TryParseRouterOutput(
+            "{\"intent\":\"billing\",\"reasoning\":\"user mentioned invoice\"}");
+
+        intent.Should().Be("billing");
+        reasoning.Should().Be("user mentioned invoice");
+    }
+
+    [Fact]
+    public void TryParseRouterOutput_MalformedJson_ReturnsUnknown()
+    {
+        var (intent, reasoning) = AgentSandboxService.TryParseRouterOutput(
+            "intent: billing, not really json");
+
+        intent.Should().Be("unknown");
+        reasoning.Should().BeNull();
+    }
+
+    [Fact]
+    public void TryParseRouterOutput_JsonWithoutIntentField_ReturnsUnknown()
+    {
+        var (intent, reasoning) = AgentSandboxService.TryParseRouterOutput(
+            "{\"category\":\"support\",\"score\":0.9}");
+
+        intent.Should().Be("unknown");
+        reasoning.Should().BeNull();
+    }
+
+    [Fact]
+    public void TryParseRouterOutput_EmptyInput_ReturnsUnknown()
+    {
+        var (intent, _) = AgentSandboxService.TryParseRouterOutput("");
+        intent.Should().Be("unknown");
+    }
+
+    [Fact]
+    public void TryParseRouterOutput_JsonObjectWithIntentNoReasoning_ReturnsNullReasoning()
+    {
+        var (intent, reasoning) = AgentSandboxService.TryParseRouterOutput(
+            "{\"intent\":\"sales\"}");
+
+        intent.Should().Be("sales");
+        reasoning.Should().BeNull();
     }
 
     [Fact]
@@ -331,7 +452,7 @@ public class ChatSandboxServiceTests
     {
         var (svc, agentRepo, _, sessionRepo, _, _, messageRepo) = BuildService();
         sessionRepo.GetByIdAsync("s-1", Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<ChatSandboxSession?>(StubActiveSession()));
+            .Returns(Task.FromResult<AgentSandboxSession?>(StubActiveSession()));
         messageRepo.ListAsync("conv-1-thread", 1, 0, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult((IReadOnlyList<EfsAiHub.Core.Abstractions.Conversations.ChatMessage>)
                 new[] { StubMessage() }));

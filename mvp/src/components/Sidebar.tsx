@@ -17,6 +17,9 @@ interface NavItem {
   icon: React.ReactNode
 }
 
+// Implantações é visível a todos: non-admin consulta deploys (read-only),
+// admin gerencia. Gating das ações (Implantar / Atualizar / Testar) é feito
+// no card e na tela de detalhe via useIsAdmin.
 const items: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: <ChartIcon className="h-5 w-5" /> },
   { label: 'Agentes', to: '/agentes', icon: <AgentIcon className="h-5 w-5" /> },

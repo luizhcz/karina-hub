@@ -5,6 +5,8 @@ import { get } from './client'
 
 export interface AgentMiniRow {
   agentId: string
+  /** Nome humano hidratado via JOIN com agent_definitions. Null se o agente foi deletado. */
+  agentName?: string | null
   totalTokens: number
   costUsd: number
   calls: number

@@ -51,7 +51,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                 COALESCE(SUM(c.""TotalTokens""), 0)::bigint        AS ""Tokens"",
                 COUNT(*)::int                                      AS ""Calls""
             FROM aihub.v_llm_cost c
-            INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = c.""ExecutionId""
+            INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = c.""ExecutionId""
             {llmJoin}
             WHERE we.""ProjectId"" = {{0}}
               AND c.""CreatedAt"" BETWEEN {{1}} AND {{2}}
@@ -69,28 +69,30 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                 COUNT(*)::int                                          AS "Total",
                 COUNT(*) FILTER (WHERE "Status" = 'Completed')::int    AS "Completed",
                 COUNT(*) FILTER (WHERE "Status" = 'Failed')::int       AS "Failed"
-            FROM aihub.workflow_executions
+            FROM aihub.v_production_executions
             WHERE "ProjectId" = {0}
               AND "StartedAt" BETWEEN {1} AND {2}
             """, projectId, from, to)
             .ToListAsync(ct);
 
-        // Top 3 agentes por custo no período.
-        var topAgentJoin = ownedOnly
-            ? @"INNER JOIN aihub.agent_definitions ad ON ad.""Id"" = ltu.""AgentId"""
-            : "";
+        // Top 3 agentes por custo no período. Hidrata AgentName via LEFT JOIN
+        // com agent_definitions — usado pelo dashboard pra exibir "Cuide de
+        // Boletas" em vez de "agente-boleta-cliente". LEFT JOIN tolera agentes
+        // deletados (AgentName=null, frontend faz fallback pro AgentId).
+        var topAgentNameJoin = @"LEFT JOIN aihub.agent_definitions ad ON ad.""Id"" = ltu.""AgentId""";
         var topAgentExtraWhere = ownedOnly ? @" AND ad.""ProjectId"" = {0}" : "";
 
         var topAgentSql = $@"
             SELECT
                 ltu.""AgentId""                                AS ""AgentId"",
+                MAX(ad.""Name"")                                AS ""AgentName"",
                 COALESCE(SUM(c.""EstimatedCostUsd""), 0)::numeric AS ""CostUsd"",
                 COALESCE(SUM(c.""TotalTokens""), 0)::bigint    AS ""Tokens"",
                 COUNT(*)::int                                AS ""Calls""
             FROM aihub.v_llm_cost c
             INNER JOIN aihub.llm_token_usage ltu ON ltu.""Id"" = c.""Id""
-            INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = c.""ExecutionId""
-            {topAgentJoin}
+            INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = c.""ExecutionId""
+            {topAgentNameJoin}
             WHERE we.""ProjectId"" = {{0}}
               AND c.""CreatedAt"" BETWEEN {{1}} AND {{2}}
               {topAgentExtraWhere}
@@ -121,6 +123,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
             TopAgents = topAgentRows.Select(r => new AgentMiniRow
             {
                 AgentId = r.AgentId,
+                AgentName = r.AgentName,
                 CostUsd = r.CostUsd,
                 TotalTokens = r.Tokens,
                 Calls = r.Calls
@@ -164,7 +167,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                 COALESCE(SUM(c.""TotalTokens""), 0)::bigint                AS ""Tokens"",
                 COUNT(*)::int                                              AS ""Calls""
             FROM aihub.v_llm_cost c
-            INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = c.""ExecutionId""";
+            INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = c.""ExecutionId""";
         if (needsLtuJoin)
         {
             llmSql += $@"
@@ -203,7 +206,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                 COUNT(*)::int                                              AS ""Executions"",
                 COUNT(*) FILTER (WHERE ""Status"" = 'Completed')::int      AS ""Completed"",
                 COUNT(*) FILTER (WHERE ""Status"" = 'Failed')::int         AS ""Failed""
-            FROM aihub.workflow_executions
+            FROM aihub.v_production_executions
             WHERE ""ProjectId"" = {0}
               AND ""StartedAt"" BETWEEN {1} AND {2}
             GROUP BY 1
@@ -255,13 +258,16 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
         // agente que terminaram em Failed). LEFT JOIN garante 0 quando não
         // há execução resolvida.
 
+        // LEFT JOIN com agent_definitions na projeção final pra hidratar
+        // AgentName em todos os modos (ownedOnly ou não). Tolerante a agent
+        // deletado pós-cleanup: AgentName=null → frontend faz fallback pro Id.
         var sql = $@"
             WITH agent_calls AS (
                 SELECT ltu.""AgentId"", ltu.""ModelId"", ltu.""ExecutionId"",
                        ltu.""DurationMs"", c.""EstimatedCostUsd"", c.""TotalTokens""
                 FROM aihub.v_llm_cost c
                 INNER JOIN aihub.llm_token_usage ltu ON ltu.""Id"" = c.""Id""
-                INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = c.""ExecutionId""
+                INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = c.""ExecutionId""
                 {ownedJoin}
                 WHERE we.""ProjectId"" = {{0}}
                   AND c.""CreatedAt"" BETWEEN {{1}} AND {{2}}
@@ -270,7 +276,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
             agent_exec_status AS (
                 SELECT DISTINCT ltu.""AgentId"", we.""ExecutionId"", we.""Status""
                 FROM aihub.llm_token_usage ltu
-                INNER JOIN aihub.workflow_executions we ON we.""ExecutionId"" = ltu.""ExecutionId""
+                INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = ltu.""ExecutionId""
                 {ownedJoin}
                 WHERE we.""ProjectId"" = {{0}}
                   AND ltu.""CreatedAt"" BETWEEN {{1}} AND {{2}}
@@ -285,6 +291,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                 GROUP BY ""AgentId""
             )
             SELECT ac.""AgentId""                                                  AS ""AgentId"",
+                   MAX(adn.""Name"")                                                AS ""AgentName"",
                    MAX(ac.""ModelId"")                                              AS ""ModelId"",
                    COUNT(*)::int                                                    AS ""Calls"",
                    COALESCE(SUM(ac.""TotalTokens""), 0)::bigint                     AS ""TotalTokens"",
@@ -294,6 +301,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                    COALESCE(MAX(aer.""ErrorRate""), 0)::double precision            AS ""ErrorRate""
             FROM agent_calls ac
             LEFT JOIN agent_error_rate aer ON aer.""AgentId"" = ac.""AgentId""
+            LEFT JOIN aihub.agent_definitions adn ON adn.""Id"" = ac.""AgentId""
             GROUP BY ac.""AgentId""
             ORDER BY SUM(ac.""EstimatedCostUsd"") DESC
             LIMIT {{3}}
@@ -305,9 +313,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
         return rows.Select(r => new ProjectAgentBreakdown
         {
             AgentId = r.AgentId,
-            // AgentName fica null no repo — controller pode hidratar via
-            // IAgentDefinitionRepository se quiser. Mantemos o repo simples.
-            AgentName = null,
+            AgentName = r.AgentName,
             ModelId = r.ModelId,
             Calls = r.Calls,
             TotalTokens = r.TotalTokens,
@@ -373,6 +379,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
     private class AgentMiniRaw
     {
         public string AgentId { get; set; } = "";
+        public string? AgentName { get; set; }
         public decimal CostUsd { get; set; }
         public long Tokens { get; set; }
         public int Calls { get; set; }
@@ -397,6 +404,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
     private class AgentBreakdownRaw
     {
         public string AgentId { get; set; } = "";
+        public string? AgentName { get; set; }
         public string? ModelId { get; set; }
         public int Calls { get; set; }
         public long TotalTokens { get; set; }

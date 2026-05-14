@@ -12,6 +12,7 @@ import { AgentsList } from './routes/AgentsList'
 import { AgentEditor } from './routes/AgentEditor'
 import { AgentVersions } from './routes/AgentVersions'
 import { AgentDeploy } from './routes/AgentDeploy'
+import { RouterIntentPredictor } from './routes/RouterIntentPredictor'
 import { Implantacoes } from './routes/Implantacoes'
 import { PipelineEditor } from './routes/PipelineEditor'
 import { RoutingDeployEditor } from './routes/RoutingDeployEditor'
@@ -49,6 +50,7 @@ export function App() {
         <Route path="/agentes/novo" element={<AgentEditor mode="create" />} />
         <Route path="/agentes/:id/versoes" element={<AgentVersions />} />
         <Route path="/agentes/:id/implantar" element={<AgentDeploy />} />
+        <Route path="/agentes/:id/predict" element={<RouterIntentPredictor />} />
         <Route path="/implantacoes" element={<Implantacoes />} />
         <Route path="/implantacoes/avancada" element={<PipelineEditor />} />
         <Route path="/implantacoes/avancada/:id" element={<PipelineEditor />} />

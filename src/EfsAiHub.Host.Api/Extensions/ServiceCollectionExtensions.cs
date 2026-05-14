@@ -316,11 +316,22 @@ public static class ServiceCollectionExtensions
         services.AddScoped<EfsAiHub.Core.Orchestration.Validation.EdgeInvariantsValidator>();
         services.AddScoped<EfsAiHub.Core.Orchestration.Validation.WorkflowAgentInvariantsValidator>();
         services.AddScoped<EfsAiHub.Core.Orchestration.Validation.ChatValidationWarningCalculator>();
-        services.AddScoped<EfsAiHub.Core.Abstractions.ChatSandbox.IChatSandboxSessionRepository,
-            EfsAiHub.Infra.Persistence.Postgres.PgChatSandboxSessionRepository>();
-        services.AddScoped<EfsAiHub.Host.Api.ChatSandbox.ChatSandboxService>();
-        services.Configure<EfsAiHub.Platform.Runtime.Options.ChatSandboxOptions>(
-            configuration.GetSection("ChatSandbox"));
+        services.AddScoped<EfsAiHub.Core.Abstractions.AgentSandbox.IAgentSandboxSessionRepository,
+            EfsAiHub.Infra.Persistence.Postgres.PgAgentSandboxSessionRepository>();
+        services.AddScoped<EfsAiHub.Host.Api.AgentSandbox.AgentSandboxService>();
+        // Bind primário em "AgentSandbox"; aceita também a seção legada
+        // "ChatSandbox" pra que ambientes ainda não atualizados continuem
+        // aplicando os mesmos TTLs/intervalos sem mudança de appsettings.
+        services.Configure<EfsAiHub.Platform.Runtime.Options.AgentSandboxOptions>(
+            configuration.GetSection("AgentSandbox"));
+        services.PostConfigure<EfsAiHub.Platform.Runtime.Options.AgentSandboxOptions>(o =>
+        {
+            var legacy = configuration.GetSection("ChatSandbox");
+            if (!legacy.Exists()) return;
+            if (int.TryParse(legacy["SessionTtlDays"], out var ttl) && ttl > 0) o.SessionTtlDays = ttl;
+            if (int.TryParse(legacy["CleanupIntervalSeconds"], out var iv)) o.CleanupIntervalSeconds = iv;
+            if (int.TryParse(legacy["CleanupBatchSize"], out var bs) && bs > 0) o.CleanupBatchSize = bs;
+        });
         services.AddScoped<EfsAiHub.Platform.Runtime.Migration.EdgeMigrationReporter>(sp =>
             new EfsAiHub.Platform.Runtime.Migration.EdgeMigrationReporter(
                 sp.GetRequiredKeyedService<Npgsql.NpgsqlDataSource>("general"),
@@ -434,8 +445,9 @@ public static class ServiceCollectionExtensions
             ?? new WorkflowEngineOptions();
 
         services.AddHostedService<DatabaseBootstrapService>();
+        services.AddHostedService<AgentVersionBackfillService>();
         services.AddHostedService<AgentSessionCleanupService>();
-        services.AddHostedService<ChatSandboxCleanupService>();
+        services.AddHostedService<AgentSandboxCleanupService>();
         services.AddHostedService<LlmCostRefreshService>();
         services.AddHostedService<AuditRetentionService>();
         if (engineOpts.MultiNode)

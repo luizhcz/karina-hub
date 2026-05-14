@@ -11,7 +11,8 @@ import {
   type ApprovalHistoryEntry,
 } from '../api/agents'
 import { ApiError, friendlyError } from '../api/client'
-import { createChatSandboxSession } from '../api/chatSandbox'
+import { createAgentSandboxSession } from '../api/agentSandbox'
+import { useIsAdmin } from '../stores/me'
 import { getIdentity } from '../stores/identity'
 import {
   deployedAgentId,
@@ -99,7 +100,9 @@ export function AgentsList() {
   const [forkingId, setForkingId] = useState<string | null>(null)
   const [forkError, setForkError] = useState<string | null>(null)
 
-  // Spinner por card enquanto o POST /chat-sandbox-sessions roda.
+  // Spinner por card enquanto o POST /sandbox-sessions (ou legado
+  // /chat-sandbox-sessions) roda. Botão é universal: Conversational vai pro
+  // Chat AG-UI; Custom/Worker/ToolRunner vão pro Deployment Sandbox standalone.
   const [testingInChatId, setTestingInChatId] = useState<string | null>(null)
   const [testingInChatError, setTestingInChatError] = useState<string | null>(null)
 
@@ -290,14 +293,18 @@ export function AgentsList() {
     setTestingInChatId(agentId)
     setTestingInChatError(null)
     try {
-      const session = await createChatSandboxSession(agentId)
-      // Workflow efêmero é Chat real — reaproveita o sandbox AG-UI já existente.
-      // A continuidade do thread veio com a conversation criada pelo backend, mas
-      // o ChatDeploymentSandbox cria thread própria por mount; pra V1 isso é OK
-      // (cada visita = novo thread). PR futuro pode plumb conversationId via state.
-      navigate(`/implantacoes/chat/${session.workflowId}/sandbox`)
+      // Endpoint unificado: backend decide o mode por agent.Type. Frontend
+      // só roteia pela `mode` da response — nunca hardcoda mapping.
+      // chat → ChatDeploymentSandbox (AG-UI); standalone → DeploymentSandbox
+      // (SSE de execução). Router não é aceito (400 do backend); botão é
+      // ocultado pra Router antes de chegar aqui.
+      const session = await createAgentSandboxSession(agentId)
+      const path = session.mode === 'chat'
+        ? `/implantacoes/chat/${session.workflowId}/sandbox`
+        : `/implantacoes/${session.workflowId}/sandbox`
+      navigate(path)
     } catch (err) {
-      setTestingInChatError(friendlyError(err, 'Não foi possível abrir o Chat Sandbox.'))
+      setTestingInChatError(friendlyError(err, 'Não foi possível abrir o Sandbox.'))
     } finally {
       setTestingInChatId(null)
     }
@@ -435,6 +442,7 @@ export function AgentsList() {
           onHistory={handleOpenHistory}
           onToggleEnabled={handleOpenToggle}
           onTestInChat={handleTestInChat}
+          onPredictRouter={(id) => navigate(`/agentes/${id}/predict`)}
         />
       )}
 
@@ -565,6 +573,7 @@ interface PublishedTabProps {
   onHistory: (agent: Agent) => void
   onToggleEnabled: (agent: Agent) => void
   onTestInChat: (id: string) => void
+  onPredictRouter: (id: string) => void
 }
 
 function PublishedTab({
@@ -580,6 +589,7 @@ function PublishedTab({
   onHistory,
   onToggleEnabled,
   onTestInChat,
+  onPredictRouter,
 }: PublishedTabProps) {
   if (loading) {
     return (
@@ -620,6 +630,7 @@ function PublishedTab({
           onHistory={() => onHistory(a)}
           onToggleEnabled={() => onToggleEnabled(a)}
           onTestInChat={() => onTestInChat(a.id)}
+          onPredictRouter={() => onPredictRouter(a.id)}
         />
       ))}
     </div>
@@ -801,6 +812,7 @@ interface PublishedAgentCardProps {
   onHistory: () => void
   onToggleEnabled: () => void
   onTestInChat: () => void
+  onPredictRouter: () => void
 }
 
 function PublishedAgentCard({
@@ -813,11 +825,15 @@ function PublishedAgentCard({
   onHistory,
   onToggleEnabled,
   onTestInChat,
+  onPredictRouter,
 }: PublishedAgentCardProps) {
   const description = agent.description ?? ''
   const modelLabel = agent.model?.predefinedModelId || agent.model?.deploymentName || ''
   const toolCount = agent.tools?.length ?? 0
   const enabled = agent.enabled !== false
+  // Implantar é admin-only — autores podem criar/editar/testar agentes,
+  // mas não promovem em produção pela UI.
+  const isAdmin = useIsAdmin()
   // Router herda o accent roxo, Worker o azul (sky), Tool Runner o âmbar,
   // Conversational o rosa — espelham os cards de tipo no NewAgentModeModal/
   // TypeStep, mantendo consistência visual entre seleção e listagem. Custom
@@ -922,34 +938,51 @@ function PublishedAgentCard({
           <Button variant="secondary" size="sm" onClick={onEdit} loading={forking}>
             Editar
           </Button>
-          {isConversational && (
+          {/* Router é classificador — não tem semântica de execução isolada.
+              Caminho dedicado: /agentes/{id}/predict (stateless, sem session). */}
+          {isRouter ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onPredictRouter}
+              title="Classifica um input via LLM sem criar sandbox session (stateless)."
+            >
+              Predict intent
+            </Button>
+          ) : (
             <Button
               variant="secondary"
               size="sm"
               onClick={onTestInChat}
               loading={testingInChat}
-              title="Cria session de teste isolado em chat AG-UI (workflow efêmero, sem Router)."
+              title={
+                isConversational
+                  ? 'Cria session de teste isolado em chat AG-UI (workflow efêmero, sem Router).'
+                  : 'Cria workflow Standalone efêmero pra testar o agente sem deploy permanente.'
+              }
             >
-              Testar em Chat
+              Testar
             </Button>
           )}
-          {/* O disable abaixo é hint de UX. Authority da regra
-              "Conversational requer InputMode=Chat" vive no backend
-              (WorkflowAgentInvariantsValidator) — qualquer tentativa via API
-              direta retorna 400 com errorCode=ConversationalRequiresChat. */}
-          <Button
-            size="sm"
-            onClick={onDeploy}
-            disabled={isConversational}
-            leftIcon={<BoltIcon className="h-3.5 w-3.5" />}
-            title={
-              isConversational
-                ? 'Conversational não suporta implantação Single — use Roteamento por intent ou Pipeline.'
-                : undefined
-            }
-          >
-            Implantar
-          </Button>
+          {/* Implantar é admin-only — autores ficam na alçada de
+              criação/edição/teste do agente; promoção pra produção depende de
+              admin. O disable interno é hint de UX pra Conversational
+              (regra real vive no WorkflowAgentInvariantsValidator no backend). */}
+          {isAdmin === true && (
+            <Button
+              size="sm"
+              onClick={onDeploy}
+              disabled={isConversational}
+              leftIcon={<BoltIcon className="h-3.5 w-3.5" />}
+              title={
+                isConversational
+                  ? 'Conversational não suporta implantação Single — use Roteamento por intent ou Pipeline.'
+                  : undefined
+              }
+            >
+              Implantar
+            </Button>
+          )}
         </div>
       </div>
     </Card>

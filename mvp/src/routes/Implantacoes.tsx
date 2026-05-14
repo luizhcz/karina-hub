@@ -84,9 +84,9 @@ export function Implantacoes() {
       .then((all) => {
         if (cancelled) return
         // Lista mostra qualquer workflow nascido dos fluxos de implantação:
-        // single, pipeline, routing, chat. Filtragem por isAdmin (esconde
-        // routing/chat pra non-admin) acontece no useMemo `filtered` abaixo —
-        // mantemos todos em workflows[] pra que o contador mostre o real.
+        // single, pipeline, routing, chat. Non-admin enxerga tudo (read-only);
+        // ações (Implantar/Atualizar/Testar) são gatadas por isAdmin no card
+        // e na tela de detalhe.
         const deployments = all.filter(
           (w) =>
             isAgentDeployment(w)
@@ -102,8 +102,6 @@ export function Implantacoes() {
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
-    // isAdmin agora vem do hook `useIsAdmin()` no topo do componente —
-    // cache singleton em stores/me.ts evita refetch entre telas.
     return () => {
       cancelled = true
     }
@@ -181,9 +179,12 @@ export function Implantacoes() {
             Cada implantação expõe um agente — ou uma sequência de agentes — para consumo via API.
           </p>
         </div>
-        <Button leftIcon={<PlusIcon className="h-4 w-4" />} onClick={() => setChooserOpen(true)}>
-          Nova implantação
-        </Button>
+        {/* Implantar é ação admin-only — non-admin vê a lista mas não cria. */}
+        {isAdmin === true && (
+          <Button leftIcon={<PlusIcon className="h-4 w-4" />} onClick={() => setChooserOpen(true)}>
+            Nova implantação
+          </Button>
+        )}
       </div>
 
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
