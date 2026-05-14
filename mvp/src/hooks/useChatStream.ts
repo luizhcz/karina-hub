@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { applyPatch, type Operation } from 'fast-json-patch'
-import { getIdentity } from '../stores/identity'
+import { getAuthHeaders } from '../auth/headers'
 
 // Hook que consome o stream SSE do AG-UI (POST /api/aihub/chat/ag-ui/stream).
 // EventSource só fala GET, então usamos fetch + ReadableStream + parser SSE
@@ -565,13 +565,11 @@ export function useChatStream({
       const controller = new AbortController()
       abortRef.current = controller
 
-      const identity = getIdentity()
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
+        ...getAuthHeaders(),
       }
-      if (identity?.account) headers['x-efs-account'] = identity.account
-      if (identity?.projectId) headers['x-project-id'] = identity.projectId
       headers['x-workflow-id'] = workflowId
       // Header `x-version` pina a execução numa WorkflowVersion específica.
       // Empty/whitespace = backend lê o estado mutável atual.
@@ -618,10 +616,10 @@ export function useChatStream({
     const execId = executionIdRef.current
     abortRef.current?.abort()
     if (!execId) return
-    const identity = getIdentity()
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (identity?.account) headers['x-efs-account'] = identity.account
-    if (identity?.projectId) headers['x-project-id'] = identity.projectId
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    }
     try {
       await fetch(`${BASE}/chat/ag-ui/cancel`, {
         method: 'POST',
@@ -634,10 +632,10 @@ export function useChatStream({
   }, [])
 
   const resolveHitl = useCallback(async (toolCallId: string, response: string) => {
-    const identity = getIdentity()
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (identity?.account) headers['x-efs-account'] = identity.account
-    if (identity?.projectId) headers['x-project-id'] = identity.projectId
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    }
     await fetch(`${BASE}/chat/ag-ui/resolve-hitl`, {
       method: 'POST',
       headers,

@@ -104,7 +104,11 @@ export function Onboarding() {
     return undefined
   }, [account, loading, projects.length, projectId])
 
-  const canSubmit = !!(name.trim() && account.trim() && projectId)
+  // Quando o backend devolve lista vazia (non-admin sem nenhum vínculo),
+  // permitimos continuar sem projeto — o RequireAccessOrWelcome redireciona
+  // pra /bem-vindo na primeira renderização do Layout.
+  const noProjectsAvailable = !loading && account.trim().length > 0 && projects.length === 0
+  const canSubmit = !!(name.trim() && account.trim() && (projectId || noProjectsAvailable))
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -113,7 +117,7 @@ export function Onboarding() {
     setIdentity({
       name: name.trim(),
       account: account.trim(),
-      projectId,
+      projectId: projectId || '',
       projectName: selected?.name ?? '',
       chatDeploymentAllowed: selected?.chatDeploymentAllowed ?? false,
     })
@@ -166,16 +170,23 @@ export function Onboarding() {
             />
 
             <Button type="submit" disabled={!canSubmit} className="w-full">
-              Continuar
+              {noProjectsAvailable ? 'Continuar mesmo assim' : 'Continuar'}
             </Button>
           </form>
         </Card>
 
         {error && <ErrorMessage message={error} className="mt-4" />}
 
-        <p className="mt-6 text-center text-[11px] text-fg-dim">
-          Você pode trocar de projeto a qualquer momento pelo ícone de configurações.
-        </p>
+        {noProjectsAvailable ? (
+          <p className="mt-6 text-center text-[11px] text-fg-dim">
+            Você ainda não tem projetos vinculados. Continue para acessar a área
+            de boas-vindas — solicite o vínculo a um administrador.
+          </p>
+        ) : (
+          <p className="mt-6 text-center text-[11px] text-fg-dim">
+            Você pode trocar de projeto a qualquer momento pelo ícone de configurações.
+          </p>
+        )}
       </div>
     </div>
   )

@@ -1,4 +1,4 @@
-import { getIdentity } from '../stores/identity'
+import { getAuthHeaders } from '../auth/headers'
 
 const BASE = '/api/aihub'
 
@@ -8,16 +8,6 @@ export class ApiError extends Error {
     super(message)
     this.status = status
   }
-}
-
-// Headers obrigatórios pra cada request — backend escora identidade via
-// `x-efs-account` (userType=cliente) e scope de projeto via `x-project-id`.
-function identityHeaders(): Record<string, string> {
-  const id = getIdentity()
-  const headers: Record<string, string> = {}
-  if (id?.account) headers['x-efs-account'] = id.account
-  if (id?.projectId) headers['x-project-id'] = id.projectId
-  return headers
 }
 
 async function extractError(res: Response): Promise<string> {
@@ -33,7 +23,7 @@ async function extractError(res: Response): Promise<string> {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const merged: Record<string, string> = {
-    ...identityHeaders(),
+    ...getAuthHeaders(),
     ...(init?.headers as Record<string, string> | undefined),
   }
   const res = await fetch(`${BASE}${path}`, { ...init, headers: merged })
