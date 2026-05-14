@@ -61,3 +61,23 @@ export const closeAgentSandboxSession = (sessionId: string) =>
 
 export const validateAgentSandboxSession = (sessionId: string, body: AgentSandboxValidateBody = {}) =>
   post<AgentSandboxSession>(`/sandbox-sessions/${sessionId}/validate`, body)
+
+/**
+ * Predict-only de Router: classifica o input via LLM e devolve intent +
+ * reasoning sem criar session. Backend rejeita (400) se agent não é Router.
+ */
+export interface RouterPredictBody {
+  input: string
+  agentVersionId?: string | null
+}
+
+export interface RouterPredictResult {
+  intent: string
+  reasoning: string | null
+  rawOutput: string
+  latencyMs: number
+  agentVersionId: string
+}
+
+export const predictRouterIntent = (agentId: string, body: RouterPredictBody) =>
+  post<RouterPredictResult>(`/agents/${agentId}/predict-intent`, body)

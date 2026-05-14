@@ -1,9 +1,14 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using EfsAiHub.Core.Abstractions.AgentSandbox;
 using EfsAiHub.Core.Abstractions.Conversations;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Abstractions.Projects;
 using EfsAiHub.Core.Agents;
+using EfsAiHub.Core.Agents.Execution;
 using EfsAiHub.Core.Orchestration.Enums;
 using EfsAiHub.Core.Orchestration.Interfaces;
 using EfsAiHub.Core.Orchestration.Validation;
@@ -11,6 +16,7 @@ using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Host.Api.Services;
 using EfsAiHub.Platform.Runtime.Interfaces;
 using EfsAiHub.Platform.Runtime.Options;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.Options;
 
 namespace EfsAiHub.Host.Api.AgentSandbox;
@@ -38,6 +44,7 @@ public sealed class AgentSandboxService
     private readonly IWorkflowService _workflowService;
     private readonly IConversationLifecycle _conversationLifecycle;
     private readonly IChatMessageRepository _messageRepo;
+    private readonly IAgentFactory? _agentFactory;
     private readonly IAdminAuditLogger? _auditLogger;
     private readonly AdminAuditContext? _auditContext;
     private readonly IProjectContextAccessor _projectAccessor;
@@ -54,6 +61,7 @@ public sealed class AgentSandboxService
         IOptions<AgentSandboxOptions> options,
         ILogger<AgentSandboxService> logger,
         IAgentVersionRepository? agentVersionRepo = null,
+        IAgentFactory? agentFactory = null,
         IAdminAuditLogger? auditLogger = null,
         AdminAuditContext? auditContext = null)
     {
@@ -67,6 +75,7 @@ public sealed class AgentSandboxService
         _options = options;
         _logger = logger;
         _agentVersionRepo = agentVersionRepo;
+        _agentFactory = agentFactory;
         _auditLogger = auditLogger;
     }
 
@@ -400,6 +409,129 @@ public sealed class AgentSandboxService
                 ["deployedFromAgentId"] = agent.Id,
             },
         };
+    }
+
+    public sealed record RouterPredictRequest(string Input, string? AgentVersionId);
+
+    public sealed record RouterPredictResult(
+        string Intent,
+        string? Reasoning,
+        string RawOutput,
+        long LatencyMs,
+        string AgentVersionId);
+
+    /// <summary>
+    /// Classificação stateless do intent por agente Router. Não cria sandbox
+    /// session — não há workflow nem persistência. Chama o LLM diretamente
+    /// via <see cref="IAgentFactory"/> + <see cref="AIAgent.RunAsync"/>.
+    /// <para>
+    /// Output esperado segue o schema canônico de Router (<c>intent</c> enum
+    /// + <c>reasoning</c> opcional). Se o LLM cuspir JSON malformado, devolve
+    /// <c>RawOutput</c> + <c>Intent="unknown"</c> em vez de explodir —
+    /// owners testam pra ver justamente esse caso.
+    /// </para>
+    /// </summary>
+    public async Task<RouterPredictResult> PredictRouterIntentAsync(
+        string agentId,
+        RouterPredictRequest request,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Input))
+            throw new ArgumentException("Input é obrigatório pra predict-intent.", nameof(request));
+
+        if (_agentFactory is null)
+            throw new InvalidOperationException(
+                "IAgentFactory não está disponível — registro de DI incompleto.");
+
+        var agent = await _agentRepo.GetByIdAsync(agentId, ct)
+            ?? throw new KeyNotFoundException($"Agente '{agentId}' não encontrado.");
+
+        if (agent.Type != AgentType.Router)
+            throw new InvalidOperationException(
+                $"predict-intent só está disponível pra agentes Router (tipo atual: {agent.Type}).");
+
+        if (!agent.Enabled)
+            throw new InvalidOperationException(
+                $"Agente '{agentId}' está desabilitado — habilite antes de testar.");
+
+        var resolvedVersionId = await ResolveAgentVersionIdAsync(agentId, request.AgentVersionId, ct);
+
+        // Popula DelegateExecutor pra middlewares per-projeto (Blocklist,
+        // TokenTracking) terem ProjectId. Padrão mesmo do AgentSessionService.
+        var ctx = _projectAccessor.Current;
+        if (!ctx.IsExplicit)
+            throw new InvalidOperationException(
+                "ProjectContext deve ser populado pelo ProjectMiddleware antes de predict-intent.");
+
+        var executionId = Guid.NewGuid().ToString("N");
+        DelegateExecutor.Current.Value = new EfsAiHub.Core.Agents.Execution.ExecutionContext(
+            ExecutionId: executionId,
+            WorkflowId: $"router-predict:{agentId}",
+            Input: request.Input,
+            PromptVersions: new ConcurrentDictionary<string, string>(),
+            NodeCallback: null,
+            Budget: new ExecutionBudget(maxTokensPerExecution: 0),
+            UserId: null,
+            GuardMode: AccountGuardMode.None,
+            AgentVersions: new ConcurrentDictionary<string, string>(),
+            ProjectId: ctx.ProjectId);
+
+        // Build agent + run single-shot. isStandaloneFlow=true desabilita
+        // composição com operationalMemory (Router não tem schema interno).
+        var sw = Stopwatch.StartNew();
+        var aiAgent = (AIAgent)(await _agentFactory.CreateAgentAsync(agent, ct, isStandaloneFlow: true)).Value;
+        var session = await aiAgent.CreateSessionAsync(ct);
+        var response = await aiAgent.RunAsync(request.Input, session, cancellationToken: ct);
+        sw.Stop();
+
+        var rawOutput = response?.ToString() ?? string.Empty;
+        var (intent, reasoning) = TryParseRouterOutput(rawOutput);
+
+        await TryAuditAsync(
+            AdminAuditActions.RouterIntentPredicted,
+            agentId,
+            payloadAfter: new
+            {
+                agentId,
+                agentVersionId = resolvedVersionId,
+                inputLength = request.Input.Length,
+                intent,
+                latencyMs = sw.ElapsedMilliseconds,
+            },
+            ct);
+
+        _logger.LogInformation(
+            "[AgentSandbox] Router '{AgentId}@{VersionId}' classificou intent='{Intent}' em {Latency}ms.",
+            agentId, resolvedVersionId, intent, sw.ElapsedMilliseconds);
+
+        return new RouterPredictResult(intent, reasoning, rawOutput, sw.ElapsedMilliseconds, resolvedVersionId);
+    }
+
+    /// <summary>
+    /// Extrai <c>intent</c>/<c>reasoning</c> do output do Router. Se o JSON
+    /// tá malformado ou sem <c>intent</c>, devolve <c>"unknown"</c> em vez de
+    /// throw — predict-intent é ferramenta de diagnóstico, owner precisa ver
+    /// que o agent gerou lixo.
+    /// </summary>
+    private static (string Intent, string? Reasoning) TryParseRouterOutput(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return ("unknown", null);
+        try
+        {
+            var node = JsonNode.Parse(raw);
+            if (node is JsonObject obj)
+            {
+                var intent = obj["intent"]?.GetValue<string>();
+                var reasoning = obj["reasoning"]?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(intent))
+                    return (intent, reasoning);
+            }
+        }
+        catch (JsonException)
+        {
+            // JSON inválido — fall through.
+        }
+        return ("unknown", null);
     }
 
     private WorkflowDefinition BuildStandaloneSandboxWorkflow(

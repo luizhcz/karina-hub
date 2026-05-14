@@ -441,6 +441,7 @@ export function AgentsList() {
           onHistory={handleOpenHistory}
           onToggleEnabled={handleOpenToggle}
           onTestInChat={handleTestInChat}
+          onPredictRouter={(id) => navigate(`/agentes/${id}/predict`)}
         />
       )}
 
@@ -571,6 +572,7 @@ interface PublishedTabProps {
   onHistory: (agent: Agent) => void
   onToggleEnabled: (agent: Agent) => void
   onTestInChat: (id: string) => void
+  onPredictRouter: (id: string) => void
 }
 
 function PublishedTab({
@@ -586,6 +588,7 @@ function PublishedTab({
   onHistory,
   onToggleEnabled,
   onTestInChat,
+  onPredictRouter,
 }: PublishedTabProps) {
   if (loading) {
     return (
@@ -626,6 +629,7 @@ function PublishedTab({
           onHistory={() => onHistory(a)}
           onToggleEnabled={() => onToggleEnabled(a)}
           onTestInChat={() => onTestInChat(a.id)}
+          onPredictRouter={() => onPredictRouter(a.id)}
         />
       ))}
     </div>
@@ -807,6 +811,7 @@ interface PublishedAgentCardProps {
   onHistory: () => void
   onToggleEnabled: () => void
   onTestInChat: () => void
+  onPredictRouter: () => void
 }
 
 function PublishedAgentCard({
@@ -819,6 +824,7 @@ function PublishedAgentCard({
   onHistory,
   onToggleEnabled,
   onTestInChat,
+  onPredictRouter,
 }: PublishedAgentCardProps) {
   const description = agent.description ?? ''
   const modelLabel = agent.model?.predefinedModelId || agent.model?.deploymentName || ''
@@ -928,9 +934,18 @@ function PublishedAgentCard({
           <Button variant="secondary" size="sm" onClick={onEdit} loading={forking}>
             Editar
           </Button>
-          {/* Router não suporta sandbox (precisa de branches). PR #3 oferece
-              "Predict intent" como caminho dedicado de classificação stateless. */}
-          {!isRouter && (
+          {/* Router é classificador — não tem semântica de execução isolada.
+              Caminho dedicado: /agentes/{id}/predict (stateless, sem session). */}
+          {isRouter ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onPredictRouter}
+              title="Classifica um input via LLM sem criar sandbox session (stateless)."
+            >
+              Predict intent
+            </Button>
+          ) : (
             <Button
               variant="secondary"
               size="sm"
