@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { refreshMe, useMe } from '../stores/me'
 import { clearIdentity } from '../stores/identity'
-import { Button, Card, EmptyState, LogoIcon, Spinner, ThemeToggle } from '../ui'
+import { Button, Card, EmptyState, LogoIcon, Spinner } from '../ui'
 
 /**
  * Tela exibida quando o usuário ainda não tem nenhum projeto vinculado.
@@ -42,16 +42,12 @@ export function Welcome() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center px-6">
-      <div className="absolute right-6 top-6">
-        <ThemeToggle />
-      </div>
-
+    <div className="flex min-h-full flex-col items-center justify-center px-6 py-12">
       <div className="w-full max-w-md">
         <Card>
           <EmptyState
             icon={<LogoIcon className="h-6 w-6" />}
-            title={me?.displayName ? `Olá, ${me.displayName}` : 'Bem-vindo ao AI Hub'}
+            title="Bem-vindo"
             description="Você ainda não tem projetos vinculados. Solicite a um administrador o vínculo aos seus projetos e clique em Atualizar quando estiver pronto."
             action={
               <div className="flex flex-col items-center gap-2">
