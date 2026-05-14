@@ -159,7 +159,7 @@ export function UserMembershipsModal({ userId, onClose, onSaved }: Props) {
     >
       {loading ? (
         <div className="flex justify-center py-10">
-          <Spinner />
+          <Spinner className="h-6 w-6 text-fg-muted" />
         </div>
       ) : !detail ? (
         <ErrorMessage message={error ?? 'Usuário não encontrado.'} />
