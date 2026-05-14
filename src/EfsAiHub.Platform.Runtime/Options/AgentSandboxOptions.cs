@@ -17,4 +17,12 @@ public sealed class AgentSandboxOptions
 
     /// <summary>Limite de sessions cleanadas por ciclo (paginação).</summary>
     public int CleanupBatchSize { get; set; } = 100;
+
+    /// <summary>
+    /// Tamanho máximo (em caracteres) aceito pelo input do endpoint
+    /// <c>POST /agents/{id}/predict-intent</c>. Default 8000 cobre prompts
+    /// realistas (intent classification não exige paragrafadas) sem expor o
+    /// backend a payloads abusivos. Configurável via <c>AgentSandbox:PredictIntentMaxInputChars</c>.
+    /// </summary>
+    public int PredictIntentMaxInputChars { get; set; } = 8000;
 }

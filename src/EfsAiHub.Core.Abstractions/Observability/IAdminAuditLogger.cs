@@ -283,6 +283,13 @@ public static class AdminAuditResources
 
     /// <summary>Session de teste isolado de agente Conversational em chat AG-UI.</summary>
     public const string ChatSandboxSession = "chat_sandbox_session";
+
+    /// <summary>
+    /// Session de Standalone Sandbox (Custom/Worker/ToolRunner). Resource type
+    /// distinto de <see cref="ChatSandboxSession"/> pra que queries SQL filtrem
+    /// por origem (chat vs standalone) sem precisar parsear PayloadAfter.
+    /// </summary>
+    public const string AgentSandboxSession = "agent_sandbox_session";
 }
 
 /// <summary>

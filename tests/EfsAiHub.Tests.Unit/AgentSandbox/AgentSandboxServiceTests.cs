@@ -396,6 +396,57 @@ public class AgentSandboxServiceTests
             Arg.Any<CancellationToken>());
     }
 
+    // ── TryParseRouterOutput ─────────────────────────────────────────────────
+    // Parser é internal e isolado do agente — testar diretamente evita mock
+    // pesado de IAgentFactory + LLM pra cobrir os edge cases que importam.
+
+    [Fact]
+    public void TryParseRouterOutput_ValidJson_ExtractsIntentAndReasoning()
+    {
+        var (intent, reasoning) = AgentSandboxService.TryParseRouterOutput(
+            "{\"intent\":\"billing\",\"reasoning\":\"user mentioned invoice\"}");
+
+        intent.Should().Be("billing");
+        reasoning.Should().Be("user mentioned invoice");
+    }
+
+    [Fact]
+    public void TryParseRouterOutput_MalformedJson_ReturnsUnknown()
+    {
+        var (intent, reasoning) = AgentSandboxService.TryParseRouterOutput(
+            "intent: billing, not really json");
+
+        intent.Should().Be("unknown");
+        reasoning.Should().BeNull();
+    }
+
+    [Fact]
+    public void TryParseRouterOutput_JsonWithoutIntentField_ReturnsUnknown()
+    {
+        var (intent, reasoning) = AgentSandboxService.TryParseRouterOutput(
+            "{\"category\":\"support\",\"score\":0.9}");
+
+        intent.Should().Be("unknown");
+        reasoning.Should().BeNull();
+    }
+
+    [Fact]
+    public void TryParseRouterOutput_EmptyInput_ReturnsUnknown()
+    {
+        var (intent, _) = AgentSandboxService.TryParseRouterOutput("");
+        intent.Should().Be("unknown");
+    }
+
+    [Fact]
+    public void TryParseRouterOutput_JsonObjectWithIntentNoReasoning_ReturnsNullReasoning()
+    {
+        var (intent, reasoning) = AgentSandboxService.TryParseRouterOutput(
+            "{\"intent\":\"sales\"}");
+
+        intent.Should().Be("sales");
+        reasoning.Should().BeNull();
+    }
+
     [Fact]
     public async Task ValidateAsync_FailsWhenAgentMissing()
     {

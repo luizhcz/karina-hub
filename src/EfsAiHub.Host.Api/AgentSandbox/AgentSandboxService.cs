@@ -162,6 +162,7 @@ public sealed class AgentSandboxService
         // pra adicionar — readers que não conhecem ignoram.
         await TryAuditAsync(
             AdminAuditActions.ChatSandboxSessionCreated,
+            AdminAuditResources.ChatSandboxSession,
             session.SandboxSessionId,
             payloadAfter: new
             {
@@ -219,6 +220,7 @@ public sealed class AgentSandboxService
 
         await TryAuditAsync(
             AdminAuditActions.AgentSandboxStandaloneSessionCreated,
+            AdminAuditResources.AgentSandboxSession,
             session.SandboxSessionId,
             payloadAfter: new
             {
@@ -317,6 +319,7 @@ public sealed class AgentSandboxService
 
         await TryAuditAsync(
             AdminAuditActions.ChatSandboxValidated,
+            AdminAuditResources.ChatSandboxSession,
             session.SandboxSessionId,
             payloadAfter: new
             {
@@ -439,6 +442,15 @@ public sealed class AgentSandboxService
         if (string.IsNullOrWhiteSpace(request.Input))
             throw new ArgumentException("Input é obrigatório pra predict-intent.", nameof(request));
 
+        // Cap defensivo contra payloads abusivos: Router classifica intent, não
+        // recebe livros. LLM cap propagaria o erro do provedor com mensagem
+        // confusa; aqui rejeitamos antecipadamente com 400 acionável.
+        var maxInputChars = _options.Value.PredictIntentMaxInputChars;
+        if (maxInputChars > 0 && request.Input.Length > maxInputChars)
+            throw new ArgumentException(
+                $"Input excede o limite de {maxInputChars} caracteres ({request.Input.Length} recebido).",
+                nameof(request));
+
         if (_agentFactory is null)
             throw new InvalidOperationException(
                 "IAgentFactory não está disponível — registro de DI incompleto.");
@@ -489,6 +501,7 @@ public sealed class AgentSandboxService
 
         await TryAuditAsync(
             AdminAuditActions.RouterIntentPredicted,
+            AdminAuditResources.Agent,
             agentId,
             payloadAfter: new
             {
@@ -512,8 +525,14 @@ public sealed class AgentSandboxService
     /// tá malformado ou sem <c>intent</c>, devolve <c>"unknown"</c> em vez de
     /// throw — predict-intent é ferramenta de diagnóstico, owner precisa ver
     /// que o agent gerou lixo.
+    /// <para>
+    /// Visibilidade <c>internal</c> pra que <c>EfsAiHub.Tests.Unit</c> possa
+    /// cobrir edge cases (JSON válido, malformado, sem intent) sem precisar
+    /// mockar <see cref="IAgentFactory"/> + LLM. Host.Api expõe via
+    /// <c>InternalsVisibleTo</c>.
+    /// </para>
     /// </summary>
-    private static (string Intent, string? Reasoning) TryParseRouterOutput(string raw)
+    internal static (string Intent, string? Reasoning) TryParseRouterOutput(string raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return ("unknown", null);
         try
@@ -588,7 +607,12 @@ public sealed class AgentSandboxService
         };
     }
 
-    private async Task TryAuditAsync(string action, string resourceId, object payloadAfter, CancellationToken ct)
+    private async Task TryAuditAsync(
+        string action,
+        string resourceType,
+        string resourceId,
+        object payloadAfter,
+        CancellationToken ct)
     {
         if (_auditLogger is null || _auditContext is null) return;
         try
@@ -596,7 +620,7 @@ public sealed class AgentSandboxService
             await _auditLogger.RecordAsync(
                 _auditContext.Build(
                     action,
-                    AdminAuditResources.ChatSandboxSession,
+                    resourceType,
                     resourceId,
                     payloadAfter: AdminAuditContext.Snapshot(payloadAfter)),
                 ct);
@@ -604,8 +628,9 @@ public sealed class AgentSandboxService
         catch (Exception ex)
         {
             // Audit não pode bloquear o fluxo — só loga.
-            _logger.LogWarning(ex, "[AgentSandbox] Falha ao registrar audit '{Action}' pra '{ResourceId}'.",
-                action, resourceId);
+            _logger.LogWarning(ex,
+                "[AgentSandbox] Falha ao registrar audit '{Action}' ({ResourceType}={ResourceId}).",
+                action, resourceType, resourceId);
         }
     }
 }
