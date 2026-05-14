@@ -25,14 +25,13 @@ public static class AgentSandboxMetadata
     /// <summary>Valor pro <c>kind</c> de workflows efêmeros de Standalone Sandbox.</summary>
     public const string KindStandaloneSandbox = "standalone-sandbox";
 
-    /// <summary>Chave: <c>sandboxSessionId</c>. Ref pra session que criou o workflow.</summary>
-    public const string SessionIdKey = "sandboxSessionId";
-
     /// <summary>
-    /// Chave legada <c>chatSandboxSessionId</c>. Workflows criados antes do rename
-    /// usam essa chave; o cleanup/calculator lê ambos pra retrocompat.
+    /// Chave: <c>chatSandboxSessionId</c>. Ref pra session que criou o workflow.
+    /// Mantida com nome legado pra preservar leitores existentes
+    /// (frontend ChatDeploymentSandbox + queries de audit). O conceito hoje é
+    /// "Agent Sandbox" — o rename da chave entra junto com o frontend update.
     /// </summary>
-    public const string LegacySessionIdKey = "chatSandboxSessionId";
+    public const string SessionIdKey = "chatSandboxSessionId";
 
     /// <summary>Chave: <c>transient</c>. Flag textual "true" pra cleanup detectar.</summary>
     public const string TransientKey = "transient";

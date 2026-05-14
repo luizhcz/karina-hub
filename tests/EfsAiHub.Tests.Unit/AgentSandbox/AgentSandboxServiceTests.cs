@@ -169,6 +169,10 @@ public class AgentSandboxServiceTests
         var session = await svc.CreateSessionAsync("conv-1", Caller(), null);
 
         // Workflow Chat criado: InputMode=Chat, Graph, 1 agent, deploymentKind=chat, kind=chat-sandbox.
+        // A chave `chatSandboxSessionId` é a authority pra que o frontend
+        // (ChatDeploymentSandbox.tsx) detecte que é session de sandbox e
+        // habilite o botão "Marcar como validado". Trocar a chave quebra o gate
+        // silenciosamente — esta asserção previne regressão.
         await workflowSvc.Received(1).CreateAsync(
             Arg.Is<WorkflowDefinition>(w =>
                 w.Configuration.InputMode == "Chat"
@@ -178,7 +182,9 @@ public class AgentSandboxServiceTests
                 && w.Agents[0].AgentVersionId == "v-current"
                 && w.Metadata!["deploymentKind"] == "chat"
                 && w.Metadata["kind"] == "chat-sandbox"
-                && w.Metadata["transient"] == "true"),
+                && w.Metadata["transient"] == "true"
+                && w.Metadata.ContainsKey("chatSandboxSessionId")
+                && !string.IsNullOrEmpty(w.Metadata["chatSandboxSessionId"])),
             Arg.Any<CancellationToken>());
 
         session.AgentId.Should().Be("conv-1");

@@ -129,12 +129,16 @@ public sealed class AgentSandboxService
 
         await _sandboxRepo.CreateAsync(session, ct);
 
+        // Schema do payload preserva o nome legado <c>chatSandboxSessionId</c>
+        // pra que queries existentes sobre admin_audit_log continuem batendo
+        // (rows pré-rename usam essa chave). Campo <c>mode</c> é novo e seguro
+        // pra adicionar — readers que não conhecem ignoram.
         await TryAuditAsync(
             AdminAuditActions.ChatSandboxSessionCreated,
             session.SandboxSessionId,
             payloadAfter: new
             {
-                sandboxSessionId = session.SandboxSessionId,
+                chatSandboxSessionId = session.SandboxSessionId,
                 agentId = session.AgentId,
                 agentVersionId = session.AgentVersionId,
                 mode = session.Mode,
@@ -232,7 +236,7 @@ public sealed class AgentSandboxService
             session.SandboxSessionId,
             payloadAfter: new
             {
-                sandboxSessionId = session.SandboxSessionId,
+                chatSandboxSessionId = session.SandboxSessionId,
                 agentId = session.AgentId,
                 agentVersionId = session.AgentVersionId,
                 validatedByUserId = caller.UserId,
