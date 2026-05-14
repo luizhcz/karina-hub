@@ -8,8 +8,13 @@ const ACCESS_TOKEN_STORAGE_KEY = 'efs-access-token'
 
 /**
  * Único ponto onde a app frontend resolve quais headers de identidade enviar
- * pro backend. Hoje devolve:
- *   - `x-efs-account`: identifica o usuário no diretório (legacy header).
+ * pro backend. Devolve:
+ *   - `x-efs-account` OU `x-efs-user-profile-id`: identificador do usuário.
+ *     A escolha depende de `identity.userType` (cliente → account, admin →
+ *     profile id). Backend usa o header pra classificar a origem (`UserType`
+ *     do user) — afeta ChatRouting default, persona schema (ClientPersona vs
+ *     AdminPersona) e templates de prompt. Gating admin (IsAdmin) é
+ *     independente e vem do DB.
  *   - `x-project-id`: scope de projeto vigente.
  *   - `app_origin`: canal de origem (`web-mvp`) — propagado pro downstream.
  *   - `access_token`: bearer opaco do IdP do consumidor (quando presente).
@@ -29,7 +34,10 @@ export function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     app_origin: APP_ORIGIN,
   }
-  if (id?.account) headers['x-efs-account'] = id.account
+  if (id?.account) {
+    const headerName = id.userType === 'admin' ? 'x-efs-user-profile-id' : 'x-efs-account'
+    headers[headerName] = id.account
+  }
   if (id?.projectId) headers['x-project-id'] = id.projectId
 
   const token = readAccessToken()
