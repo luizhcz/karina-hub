@@ -88,6 +88,11 @@ export function HowToConsumeWorkflow({
           </Section>
           <Section label="Headers">
             <HeadersTable headers={headers} />
+            <p className="mt-2 text-[11px] leading-relaxed text-fg-dim">
+              <span className="font-mono">x-version</span> (opcional): pinna a execução numa
+              <code className="ml-1 font-mono">WorkflowVersion</code> específica para canary/A-B.
+              Sem o header, roda no estado corrente do workflow.
+            </p>
           </Section>
           <Section label="Body (request)">
             <CodeBlock value={bodyExample} />
