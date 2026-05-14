@@ -62,6 +62,14 @@ public class AgentService : IAgentService
     {
         definition.ProjectId = _projectAccessor.Current.ProjectId;
 
+        // Conversational é sempre global por design: agentes de chat são
+        // consumidos por projetos especializados (ex.: Sales Trader AI) que
+        // precisam enxergar Conversationals criados em outros projetos do
+        // tenant. Forçamos aqui em vez de deixar como configuração opcional
+        // pra eliminar a chance de produzir um Conversational invisível.
+        if (definition.Type == AgentType.Conversational)
+            definition.Visibility = "global";
+
         // Template preenche campos auto-gerados por tipo (ex.: wrap canônico
         // do Conversational, middleware StructuredOutputState, bloco fixo
         // nas instructions). Roda antes da validação pra que o validator
@@ -121,6 +129,12 @@ public class AgentService : IAgentService
         definition.ProjectId = existing.ProjectId;
         definition.TenantId = existing.TenantId;
         definition.Visibility = existing.Visibility;
+        // Conversational tem invariante hard: sempre global. Aplica também no
+        // update pra migrar registros legacy (criados antes da regra) na
+        // primeira edição. PATCH /visibility continua disponível mas inócuo
+        // pra Conversational — qualquer save derruba pra global.
+        if (existing.Type == AgentType.Conversational)
+            definition.Visibility = "global";
         // Type também é preservado: clientes legados sem o campo no body fariam
         // request.ToDomain() default pra Custom e zerariam um Router existente.
         // Mudança de tipo é semântica (invalida outras invariantes — Router exige
@@ -210,6 +224,15 @@ public class AgentService : IAgentService
         if (!AgentDefinition.AllowedVisibilities.Contains(newVisibility))
             throw new ArgumentException(
                 $"Visibility '{newVisibility}' inválida. Permitidos: {string.Join(", ", AgentDefinition.AllowedVisibilities)}.");
+
+        // Conversational tem invariante hard de visibility=global. Bloqueia
+        // qualquer tentativa de rebaixar pra 'project' explicitamente — admin
+        // que tenta isso via PATCH provavelmente está enganado, e silenciar
+        // (UpdateAsync força global no próximo save) confundiria mais.
+        if (existing.Type == AgentType.Conversational
+            && !string.Equals(newVisibility, "global", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException(
+                "Agentes do tipo Conversational têm visibility=global obrigatória.");
 
         // Idempotência: sem mudança, retorna existing sem audit/cache churn.
         if (string.Equals(existing.Visibility, newVisibility, StringComparison.OrdinalIgnoreCase))
