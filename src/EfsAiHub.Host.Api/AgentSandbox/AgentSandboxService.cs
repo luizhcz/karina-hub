@@ -360,7 +360,10 @@ public sealed class AgentSandboxService
 
         var current = await _agentVersionRepo.GetCurrentAsync(agentId, ct)
             ?? throw new InvalidOperationException(
-                $"Agente '{agentId}' não tem nenhuma AgentVersion publicada — publique antes de criar sandbox.");
+                $"Agente '{agentId}' não tem nenhuma AgentVersion publicada. " +
+                "Versionamento é requisito pra testar (sandbox ou predict-intent). " +
+                "Edite e republique o agente pelo fluxo de aprovação ou execute o backfill " +
+                "de versões se ele foi inserido via seed.");
         return current.AgentVersionId;
     }
 

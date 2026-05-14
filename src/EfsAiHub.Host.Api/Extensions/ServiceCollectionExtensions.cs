@@ -445,6 +445,7 @@ public static class ServiceCollectionExtensions
             ?? new WorkflowEngineOptions();
 
         services.AddHostedService<DatabaseBootstrapService>();
+        services.AddHostedService<AgentVersionBackfillService>();
         services.AddHostedService<AgentSessionCleanupService>();
         services.AddHostedService<AgentSandboxCleanupService>();
         services.AddHostedService<LlmCostRefreshService>();

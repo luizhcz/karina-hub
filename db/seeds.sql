@@ -15,6 +15,13 @@
 --
 -- Aplicar DEPOIS de schemas.sql + views.sql.
 -- Re-executar é no-op (ON CONFLICT DO NOTHING / WHERE NOT EXISTS).
+--
+-- NOTA: Este seed NÃO popula aihub.agent_versions. A revision inicial
+-- (Revision=1) é criada automaticamente no startup pelo
+-- AgentVersionBackfillService — IHostedService idempotente que detecta
+-- agents sem version e chama AgentVersion.FromDefinition + AppendAsync.
+-- Sem isso, qualquer caller que pina versão (sandbox, predict-intent,
+-- exactAgentPin) falharia com "agente não tem AgentVersion publicada".
 -- =============================================================================
 
 SET search_path TO aihub, public;
