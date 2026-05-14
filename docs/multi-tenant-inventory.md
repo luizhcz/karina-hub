@@ -62,8 +62,8 @@ design não devem filtrar por `ProjectId` corrente:
   passado como filtro)
 
 Autorização dessas queries é feita pelo `DefaultProjectGuard` (só
-admin cadastrados em `Admin:AccountIds` podem acessar endpoints que
-invocam isso).
+usuários com `IsAdmin=true` em `aihub.users` podem acessar endpoints
+que invocam isso).
 
 ---
 

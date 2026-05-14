@@ -282,6 +282,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IProjectAnalyticsRepository, PgProjectAnalyticsRepository>();
         services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger, PgAdminAuditLogRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.McpServers.IMcpServerRepository, PgMcpServerRepository>();
+        services.AddSingleton<EfsAiHub.Core.Abstractions.Users.IUserDirectory, PgUserDirectory>();
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentExtractionRepository, PgDocumentExtractionRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentIntelligenceService, EfsAiHub.Platform.Runtime.Services.DocumentIntelligenceService>();
         services.AddSingleton<EfsAiHub.Platform.Runtime.Executors.DocumentIntelligenceFunctions>();
@@ -445,6 +446,10 @@ public static class ServiceCollectionExtensions
             ?? new WorkflowEngineOptions();
 
         services.AddHostedService<DatabaseBootstrapService>();
+        // UserBootstrap roda DEPOIS do DatabaseBootstrap (schema deve existir) e
+        // ANTES de qualquer middleware HTTP receber tráfego. IHostedService.StartAsync
+        // executa sequencialmente, então a ordem de AddHostedService define a cadeia.
+        services.AddHostedService<EfsAiHub.Host.Api.Services.UserBootstrapHostedService>();
         services.AddHostedService<AgentVersionBackfillService>();
         services.AddHostedService<AgentSessionCleanupService>();
         services.AddHostedService<AgentSandboxCleanupService>();

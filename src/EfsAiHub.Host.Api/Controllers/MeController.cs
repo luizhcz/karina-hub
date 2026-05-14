@@ -1,30 +1,26 @@
-using EfsAiHub.Host.Api.Configuration;
+using EfsAiHub.Core.Abstractions.Users;
 using EfsAiHub.Host.Api.Models.Responses;
-using EfsAiHub.Host.Api.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.Annotations;
 
 namespace EfsAiHub.Host.Api.Controllers;
 
 /// <summary>
-/// Endpoint público que resolve a identidade do caller a partir dos headers
-/// e responde com <c>{ accountId, isAdmin }</c>. Existe pro frontend descobrir
-/// se a conta atual é admin SEM precisar bater num endpoint admin-only e
-/// receber 403 (que polui o console do navegador).
+/// Endpoint público que devolve a identidade do caller resolvida pelo
+/// <c>UserProvisioningMiddleware</c> + flag <c>isAdmin</c> lida do diretório
+/// (tabela aihub.users). Existe pro frontend descobrir se a conta atual é
+/// admin SEM precisar bater num endpoint admin-only e receber 403.
 /// </summary>
 [ApiController]
 [Route("api/aihub/me")]
 [Produces("application/json")]
 public class MeController : ControllerBase
 {
-    private readonly UserIdentityResolver _resolver;
-    private readonly HashSet<string> _adminAccountIds;
+    private readonly IUserContextAccessor _userAccessor;
 
-    public MeController(UserIdentityResolver resolver, IOptions<AdminOptions> adminOptions)
+    public MeController(IUserContextAccessor userAccessor)
     {
-        _resolver = resolver;
-        _adminAccountIds = new HashSet<string>(adminOptions.Value.AccountIds, StringComparer.Ordinal);
+        _userAccessor = userAccessor;
     }
 
     [HttpGet]
@@ -32,8 +28,8 @@ public class MeController : ControllerBase
     [ProducesResponseType(typeof(MeResponse), StatusCodes.Status200OK)]
     public IActionResult Get()
     {
-        var identity = _resolver.TryResolve(Request.Headers, out _);
-        if (identity is null)
+        var user = _userAccessor.Current;
+        if (user is null)
         {
             return Ok(new MeResponse
             {
@@ -43,15 +39,13 @@ public class MeController : ControllerBase
             });
         }
 
-        // AccountIds vazio = gate desabilitado → todo mundo é admin
-        // (mesma lógica de AdminGateMiddleware.IsAdminAccount).
-        var isAdmin = _adminAccountIds.Count == 0 || _adminAccountIds.Contains(identity.UserId);
-
         return Ok(new MeResponse
         {
-            AccountId = identity.UserId,
-            UserType = identity.UserType,
-            IsAdmin = isAdmin,
+            AccountId = user.ExternalUserId,
+            UserType = user.UserType,
+            IsAdmin = user.IsAdmin,
+            UserId = user.Id,
+            DisplayName = user.DisplayName ?? user.ExternalUserId,
         });
     }
 }

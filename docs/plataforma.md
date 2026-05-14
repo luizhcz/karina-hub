@@ -215,7 +215,7 @@ Controla acesso a endpoints administrativos:
 - `GET /api/aihub/projects`, `GET /api/aihub/projects/{id}`
 - `GET /api/aihub/enums`
 
-**Tudo mais:** Requer que o userId esteja em `Admin:AccountIds`.
+**Tudo mais:** Requer que o usuário esteja persistido em `aihub.users` com `IsAdmin = TRUE`. A coluna é a única fonte de verdade do gate em runtime — config só seeda admins iniciais no startup via `Admin:BootstrapAdminExternalUserIds`.
 
 ### Trust Boundary e Requisitos de Deploy
 
@@ -232,7 +232,7 @@ O sistema é projetado para rodar **atrás de um API Gateway** (Azure APIM, Kong
 - Em ambientes de desenvolvimento, headers podem ser enviados diretamente (sem Gateway) para facilitar testes
 - O `ProjectMiddleware` suporta JWT claim `project_id` como fallback para cenários onde o Gateway injeta via token
 
-**Gate desabilitado:** Se `AccountIds` está vazio (modo dev/test).
+**Gate desabilitado:** Se `Admin:GateEnabled` está `false` (modo dev/test). Default `true`.
 
 ### Admin Audit Trail
 
@@ -1314,7 +1314,7 @@ Configurado via `OpenTelemetry:OtlpEndpoint` — suporta Jaeger, Tempo, etc.
 | `ChatRateLimitOptions` | `ChatRateLimit` | MaxMessages (10), WindowSeconds (60), per-conversation limits |
 | `ChatRoutingOptions` | `ChatRouting` | DefaultWorkflows (map userType → workflowId) |
 | `DocumentIntelligenceOptions` | `DocumentIntelligence` | Endpoint, ApiKey, UseManagedIdentity, MaxFileSizeBytes, timeouts, CacheTtlDays |
-| `AdminOptions` | `Admin` | AccountIds (lista de admins) |
+| `AdminOptions` | `Admin` | GateEnabled (default true), BootstrapAdminExternalUserIds (seed inicial), BootstrapTenantId, BootstrapUserType |
 | `ObservabilityOptions` | `OpenTelemetry` | ServiceName, OtlpEndpoint, EnableSensitiveData |
 | `OpenAIOptions` | `OpenAI` | ApiKey, OrgId |
 | `AzureAIOptions` | `Azure:AI` | Endpoint, ApiKey, DeploymentId |

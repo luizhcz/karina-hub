@@ -1,6 +1,7 @@
-using EfsAiHub.Host.Api.Services;
-using EfsAiHub.Host.Api.Configuration;
 using EfsAiHub.Core.Abstractions.Identity;
+using EfsAiHub.Core.Abstractions.Users;
+using EfsAiHub.Host.Api.Configuration;
+using EfsAiHub.Host.Api.Services;
 using Microsoft.Extensions.Options;
 
 namespace EfsAiHub.Host.Api.Middleware;
@@ -8,7 +9,8 @@ namespace EfsAiHub.Host.Api.Middleware;
 /// <summary>
 /// Bloqueia qualquer request cujo ProjectId resolvido seja "default" para usuários
 /// não-administradores. Garante que o projeto "default" seja acessível apenas por admins.
-/// A identidade é resolvida via <see cref="UserIdentityResolver"/> (suporta ambos os headers).
+/// A flag IsAdmin vem do <see cref="IUserContextAccessor"/>, populado pelo
+/// <see cref="UserProvisioningMiddleware"/>.
 ///
 /// Rotas globais (não escopadas por projeto) são isentas:
 ///   - /api/aihub/agents/*        (definições de agente e prompts)
@@ -17,27 +19,33 @@ namespace EfsAiHub.Host.Api.Middleware;
 ///   - /api/aihub/notifications/* (bell de notificações — visibility via HasQueryFilter)
 ///   - /dev                 (developer portal)
 ///
-/// Deve ser registrado APÓS ProjectMiddleware (que resolve o ProjectId) e ANTES de
+/// Deve ser registrado APÓS ProjectMiddleware (que resolve o ProjectId) e
+/// UserProvisioningMiddleware (que popula o IUserContextAccessor), ANTES de
 /// ProjectRateLimitMiddleware na pipeline.
-/// Gate desabilitado quando <see cref="AdminOptions.AccountIds"/> for vazio (dev/test).
+/// Gate desabilitado quando <see cref="AdminOptions.GateEnabled"/> for false (dev/test).
 /// </summary>
 public sealed class DefaultProjectGuard
 {
     private readonly RequestDelegate _next;
-    private readonly HashSet<string> _adminAccountIds;
     private readonly UserIdentityResolver _identityResolver;
+    private readonly bool _gateEnabled;
 
     public DefaultProjectGuard(RequestDelegate next, IOptions<AdminOptions> options, UserIdentityResolver identityResolver)
     {
         _next = next;
-        _adminAccountIds = new HashSet<string>(options.Value.AccountIds, StringComparer.Ordinal);
         _identityResolver = identityResolver;
+        _gateEnabled = options.Value.GateEnabled;
     }
 
-    public async Task InvokeAsync(HttpContext context, IProjectContextAccessor accessor)
+    public async Task InvokeAsync(
+        HttpContext context,
+        IProjectContextAccessor accessor,
+        IUserContextAccessor userAccessor,
+        ITenantContextAccessor tenantAccessor,
+        IUserDirectory directory)
     {
         // Gate desabilitado (dev/test) ou projeto não é "default"
-        if (_adminAccountIds.Count == 0 || accessor.Current.ProjectId != "default")
+        if (!_gateEnabled || accessor.Current.ProjectId != "default")
         {
             await _next(context);
             return;
@@ -50,19 +58,30 @@ public sealed class DefaultProjectGuard
             return;
         }
 
-        // Projeto "default" requer identidade admin.
-        // Para rotas SSE (path /stream), aceita query param fallback porque
-        // EventSource no browser não envia headers customizados. Restrito a
-        // /stream pra evitar vazar identidade em URLs de outras rotas.
-        var path = context.Request.Path.Value ?? string.Empty;
-        var isSseRoute = path.EndsWith("/stream", StringComparison.OrdinalIgnoreCase);
-        var identity = isSseRoute
-            ? _identityResolver.TryResolve(context.Request, out _)
-            : _identityResolver.TryResolve(context.Request.Headers, out _);
-        if (identity != null && _adminAccountIds.Contains(identity.UserId))
+        // Caminho principal: UserProvisioningMiddleware já populou o accessor.
+        if (userAccessor.Current?.IsAdmin == true)
         {
             await _next(context);
             return;
+        }
+
+        // Fallback SSE: EventSource no browser não envia headers customizados,
+        // então o provisioning middleware não populou o accessor. Buscamos
+        // identidade via query param e consultamos o diretório direto.
+        var path = context.Request.Path.Value ?? string.Empty;
+        if (path.EndsWith("/stream", StringComparison.OrdinalIgnoreCase))
+        {
+            var identity = _identityResolver.TryResolve(context.Request, out _);
+            if (identity is not null)
+            {
+                var user = await directory.GetByExternalIdAsync(
+                    identity.UserId, tenantAccessor.Current.TenantId, context.RequestAborted);
+                if (user?.IsAdmin == true)
+                {
+                    await _next(context);
+                    return;
+                }
+            }
         }
 
         context.Response.StatusCode = StatusCodes.Status403Forbidden;

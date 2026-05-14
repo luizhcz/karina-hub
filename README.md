@@ -157,7 +157,7 @@ O chat funciona com streaming SSE usando o protocolo AG-UI:
 | `x-efs-account` | Identifica a conta do usuário |
 
 - Cada projeto pode ter LLM config própria, budget e rate limits
-- O projeto `default` é restrito a contas admin (configuradas em `Admin:AccountIds`)
+- O projeto `default` é restrito a usuários com `IsAdmin=true` em `aihub.users` (admins iniciais são seedados no startup via `Admin:BootstrapAdminExternalUserIds`)
 - Workflows, agentes e skills são isolados por projeto
 
 ---
@@ -266,7 +266,10 @@ Principais seções do `appsettings.json`:
     "DefinitionCacheTtlSeconds": 300
   },
   "Admin": {
-    "AccountIds": ["011982329"]
+    "GateEnabled": true,
+    "BootstrapAdminExternalUserIds": ["011982329"],
+    "BootstrapTenantId": "default",
+    "BootstrapUserType": "admin"
   },
   "CircuitBreaker": {
     "Enabled": true,

@@ -1,6 +1,7 @@
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Abstractions.Projects;
+using EfsAiHub.Core.Abstractions.Users;
 using EfsAiHub.Host.Api.Configuration;
 using EfsAiHub.Host.Api.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -28,21 +29,21 @@ public sealed class ProjectAnalyticsController : ControllerBase
     private readonly IProjectAnalyticsRepository _repo;
     private readonly IProjectContextAccessor _projectCtx;
     private readonly IProjectRepository _projectRepo;
-    private readonly UserIdentityResolver _identityResolver;
-    private readonly HashSet<string> _adminAccountIds;
+    private readonly IUserContextAccessor _userAccessor;
+    private readonly bool _gateEnabled;
 
     public ProjectAnalyticsController(
         IProjectAnalyticsRepository repo,
         IProjectContextAccessor projectCtx,
         IProjectRepository projectRepo,
-        UserIdentityResolver identityResolver,
+        IUserContextAccessor userAccessor,
         IOptions<AdminOptions> adminOptions)
     {
         _repo = repo;
         _projectCtx = projectCtx;
         _projectRepo = projectRepo;
-        _identityResolver = identityResolver;
-        _adminAccountIds = new HashSet<string>(adminOptions.Value.AccountIds, StringComparer.Ordinal);
+        _userAccessor = userAccessor;
+        _gateEnabled = adminOptions.Value.GateEnabled;
     }
 
     [HttpGet("{projectId}/overview")]
@@ -148,8 +149,7 @@ public sealed class ProjectAnalyticsController : ControllerBase
     /// <summary>
     /// Bate 403 quando non-admin tenta ler projeto diferente do current. 404
     /// quando o projeto não existe (HasQueryFilter já isola por tenant).
-    /// Admins (account no AdminOptions.AccountIds) podem ler qualquer um —
-    /// mesmo padrão do AdminGateMiddleware.
+    /// IsAdmin lê do IUserContextAccessor populado pelo UserProvisioningMiddleware.
     /// </summary>
     private async Task<IActionResult?> EnsureProjectAccessAsync(string projectId, CancellationToken ct)
     {
@@ -169,16 +169,10 @@ public sealed class ProjectAnalyticsController : ControllerBase
         return null;
     }
 
-    /// <summary>
-    /// Resolve admin do request via UserIdentityResolver + AdminOptions.
-    /// Mesmo critério do AdminGateMiddleware — não duplicamos lógica de gate
-    /// global aqui, apenas a identificação binária admin/não-admin.
-    /// </summary>
     private bool ResolveIsAdmin()
     {
-        if (_adminAccountIds.Count == 0) return true; // gate desabilitado (dev)
-        var identity = _identityResolver.TryResolve(Request.Headers, out _);
-        return identity is not null && _adminAccountIds.Contains(identity.UserId);
+        if (!_gateEnabled) return true;
+        return _userAccessor.Current?.IsAdmin == true;
     }
 
     /// <summary>Default: mês corrente até agora. Aceita override via query.</summary>

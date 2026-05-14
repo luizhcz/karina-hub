@@ -73,11 +73,14 @@ public sealed class IntegrationWebApplicationFactory : WebApplicationFactory<Pro
 
         builder.ConfigureServices(services =>
         {
-            // .NET 10 ficou estrito sobre merge de arrays na configuração: o
-            // appsettings.json da API (com Admin:AccountIds:["011982329"]) não
-            // é mais sobrescrito por uma chave vazia em appsettings.Test.json.
-            // Forçamos lista vazia via post-configure pra desabilitar o gate em testes.
-            services.PostConfigure<EfsAiHub.Host.Api.Configuration.AdminOptions>(o => o.AccountIds.Clear());
+            // Desativa o gate em testes integrados: AdminOptions.GateEnabled=false
+            // faz AdminGate e DefaultProjectGuard tratarem qualquer request como
+            // admin, evitando dependência de seeding em aihub.users no setup.
+            services.PostConfigure<EfsAiHub.Host.Api.Configuration.AdminOptions>(o =>
+            {
+                o.GateEnabled = false;
+                o.BootstrapAdminExternalUserIds.Clear();
+            });
 
             // ── Override Postgres DbContextFactory ───────────────────────────
             services.RemoveAll<IDbContextFactory<AgentFwDbContext>>();
@@ -180,18 +183,22 @@ public sealed class IntegrationWebApplicationFactory : WebApplicationFactory<Pro
         })).CreateClient();
 
     /// <summary>
-    /// Creates a client where the DefaultProjectGuard is active with the given admin account.
-    /// Use this only in tests that specifically test the default-project protection gate.
+    /// Creates a client where DefaultProjectGuard/AdminGate are active e o
+    /// usuário com o externalId fornecido é admin no diretório (aihub.users).
+    /// Use só em testes que exercitam o gate end-to-end.
     /// </summary>
-    public HttpClient CreateClientWithAdminGate(string adminAccountId) =>
+    public HttpClient CreateClientWithAdminGate(string adminExternalUserId) =>
         WithWebHostBuilder(b => b.ConfigureServices(services =>
         {
-            // Re-popula AccountIds APÓS o PostConfigure do factory base que limpa.
-            // Múltiplos PostConfigure rodam em ordem de registro, e este é o último.
+            // Reativa o gate APÓS o PostConfigure do factory base que desliga.
+            // Múltiplos PostConfigure rodam em ordem de registro — este é o último.
             services.PostConfigure<EfsAiHub.Host.Api.Configuration.AdminOptions>(o =>
             {
-                o.AccountIds.Clear();
-                o.AccountIds.Add(adminAccountId);
+                o.GateEnabled = true;
+                o.BootstrapAdminExternalUserIds.Clear();
+                o.BootstrapAdminExternalUserIds.Add(adminExternalUserId);
+                o.BootstrapTenantId = "default";
+                o.BootstrapUserType = "admin";
             });
         })).CreateClient();
 }

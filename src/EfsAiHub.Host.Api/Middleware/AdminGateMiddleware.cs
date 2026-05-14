@@ -1,14 +1,15 @@
-using EfsAiHub.Host.Api.Services;
+using EfsAiHub.Core.Abstractions.Users;
 using EfsAiHub.Host.Api.Configuration;
+using EfsAiHub.Host.Api.Services;
 using Microsoft.Extensions.Options;
 using System.Text.RegularExpressions;
 
 namespace EfsAiHub.Host.Api.Middleware;
 
 /// <summary>
-/// Bloqueia acesso a endpoints não-públicos para requests cuja identidade
-/// (resolvida via <see cref="UserIdentityResolver"/>) não conste em
-/// <see cref="AdminOptions.AccountIds"/>.
+/// Bloqueia acesso a endpoints não-públicos para requests cujo usuário
+/// resolvido pelo <see cref="UserProvisioningMiddleware"/> não tenha
+/// <see cref="User.IsAdmin"/> = true.
 ///
 /// Endpoints públicos (sem restrição):
 ///   - /health/*                            (k8s liveness/readiness probes)
@@ -24,13 +25,15 @@ namespace EfsAiHub.Host.Api.Middleware;
 ///   - GET  /api/aihub/notifications/*      (bell de notificações renderiza pra qualquer user)
 ///                                    (sub-rotas como /blocklist NÃO são públicas)
 ///
-/// Retorna 403 Forbidden para demais endpoints sem account admin.
-/// Gate desabilitado se <see cref="AdminOptions.AccountIds"/> for vazia.
+/// Retorna 403 Forbidden para demais endpoints quando o usuário corrente
+/// não tem IsAdmin=true na tabela aihub.users. Identidade é resolvida
+/// pelo UserProvisioningMiddleware antes deste middleware na pipeline —
+/// IUserContextAccessor.Current é null quando o request veio sem header
+/// de identidade (rotas públicas continuam liberadas pela whitelist).
 /// </summary>
 public sealed class AdminGateMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly HashSet<string> _adminAccountIds;
     private readonly UserIdentityResolver _identityResolver;
 
     // PUT /api/aihub/workflows/{id} — exatamente 3 segmentos (não inclui /rollback, /validate, etc.)
@@ -188,17 +191,23 @@ public sealed class AdminGateMiddleware
     private static readonly Regex ProjectsReadPattern =
         new(@"^/api/aihub/projects(/[^/]+)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    public AdminGateMiddleware(RequestDelegate next, IOptions<AdminOptions> options, UserIdentityResolver identityResolver)
+    private readonly bool _gateEnabled;
+
+    public AdminGateMiddleware(RequestDelegate next, UserIdentityResolver identityResolver, IOptions<AdminOptions> adminOptions)
     {
         _next = next;
-        _adminAccountIds = new HashSet<string>(options.Value.AccountIds, StringComparer.Ordinal);
         _identityResolver = identityResolver;
+        _gateEnabled = adminOptions.Value.GateEnabled;
     }
 
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(
+        HttpContext context,
+        IUserContextAccessor userAccessor,
+        IUserDirectory directory,
+        EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor tenantAccessor)
     {
-        // Gate desabilitado (dev/test)
-        if (_adminAccountIds.Count == 0)
+        // Escape hatch dev/test — GateEnabled=false em appsettings desativa o gate.
+        if (!_gateEnabled)
         {
             await _next(context);
             return;
@@ -210,18 +219,32 @@ public sealed class AdminGateMiddleware
             return;
         }
 
-        // Rotas SSE (EventSource no browser não envia headers customizados):
-        // aceita identidade via query param como fallback. Restrito a /stream
-        // pra evitar vazar identidade em URLs de outras rotas.
-        var path = context.Request.Path.Value ?? string.Empty;
-        var isSseRoute = path.EndsWith("/stream", StringComparison.OrdinalIgnoreCase);
-        var identity = isSseRoute
-            ? _identityResolver.TryResolve(context.Request, out _)
-            : _identityResolver.TryResolve(context.Request.Headers, out _);
-        if (identity != null && _adminAccountIds.Contains(identity.UserId))
+        // Caminho principal: UserProvisioningMiddleware já populou o accessor.
+        if (userAccessor.Current?.IsAdmin == true)
         {
             await _next(context);
             return;
+        }
+
+        // Fallback SSE: EventSource no browser não envia headers customizados
+        // e o provisioning middleware não populou o accessor (sem identidade
+        // resolvida). Buscamos identidade via query param e checamos IsAdmin
+        // direto no diretório. Restrito a /stream pra evitar vazar identidade
+        // em URLs de outras rotas.
+        var path = context.Request.Path.Value ?? string.Empty;
+        if (path.EndsWith("/stream", StringComparison.OrdinalIgnoreCase))
+        {
+            var identity = _identityResolver.TryResolve(context.Request, out _);
+            if (identity is not null)
+            {
+                var tenantId = tenantAccessor.Current.TenantId;
+                var user = await directory.GetByExternalIdAsync(identity.UserId, tenantId, context.RequestAborted);
+                if (user?.IsAdmin == true)
+                {
+                    await _next(context);
+                    return;
+                }
+            }
         }
 
         context.Response.StatusCode = StatusCodes.Status403Forbidden;

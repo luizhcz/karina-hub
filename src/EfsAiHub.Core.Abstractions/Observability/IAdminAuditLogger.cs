@@ -255,6 +255,29 @@ public static class AdminAuditActions
     /// Descarte explícito de Generic Tool. Emitido pelo DELETE /api/aihub/generic-tools/{id}.
     /// </summary>
     public const string GenericToolDeleted = "generic_tool.deleted";
+
+    /// <summary>
+    /// Usuário auto-provisionado pelo UserProvisioningMiddleware no primeiro
+    /// request com headers de identidade. PayloadAfter inclui userId,
+    /// externalUserId, userType, tenantId. Emitido apenas no INSERT real —
+    /// re-upserts subsequentes (LastSeenAt bump) não geram audit.
+    /// </summary>
+    public const string UserAutoProvisioned = "user.auto_provisioned";
+
+    /// <summary>
+    /// Promoção ou rebaixamento de IsAdmin. Emitido por
+    /// PATCH /api/aihub/admin/users/{id} e pelo UserBootstrapHostedService no
+    /// startup quando IsAdmin estava false. PayloadBefore/After incluem
+    /// userId, externalUserId, isAdmin (before/after).
+    /// </summary>
+    public const string UserAdminFlagChanged = "user.admin_flag_changed";
+
+    /// <summary>
+    /// Edição do nome humano de um usuário. Emitido por
+    /// PATCH /api/aihub/admin/users/{id}. PayloadBefore/After incluem
+    /// userId, displayName (before/after).
+    /// </summary>
+    public const string UserDisplayNameChanged = "user.display_name_changed";
 }
 
 public static class AdminAuditResources
@@ -291,6 +314,12 @@ public static class AdminAuditResources
     /// por origem (chat vs standalone) sem precisar parsear PayloadAfter.
     /// </summary>
     public const string AgentSandboxSession = "agent_sandbox_session";
+
+    /// <summary>
+    /// Usuário no diretório (tabela aihub.users). Cobre auto-provision,
+    /// promoção/rebaixamento de admin e edição de display name.
+    /// </summary>
+    public const string User = "user";
 }
 
 /// <summary>

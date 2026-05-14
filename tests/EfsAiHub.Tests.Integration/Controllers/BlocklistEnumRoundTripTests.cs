@@ -14,9 +14,9 @@ namespace EfsAiHub.Tests.Integration.Controllers;
 [Trait("Category", "Integration")]
 public class BlocklistEnumRoundTripTests(IntegrationWebApplicationFactory factory)
 {
-    // appsettings.json popula Admin:AccountIds com '123456789' — test factory herda
-    // a config porque appsettings.Test.json não sobrescreve. WithAdminAccount injeta
-    // o header pra passar pelo AdminGate.
+    // IntegrationWebApplicationFactory desativa o AdminGate via GateEnabled=false,
+    // então qualquer x-efs-account passa. Mantemos o header pra que o
+    // UserIdentityResolver popule audit/CreatedBy com um valor estável.
     private readonly HttpClient _client = factory.CreateClient().WithAdminAccount("123456789");
 
     /// <summary>

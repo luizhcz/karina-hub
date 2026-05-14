@@ -7,6 +7,7 @@ using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Abstractions.Projects;
 using EfsAiHub.Core.Abstractions.Secrets;
+using EfsAiHub.Core.Abstractions.Users;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.Annotations;
@@ -21,8 +22,8 @@ public class ProjectsController : ControllerBase
 {
     private readonly IProjectRepository _repo;
     private readonly ITenantContextAccessor _tenantAccessor;
-    private readonly HashSet<string> _adminAccountIds;
-    private readonly UserIdentityResolver _identityResolver;
+    private readonly IUserContextAccessor _userAccessor;
+    private readonly bool _gateEnabled;
     private readonly IAdminAuditLogger _audit;
     private readonly AdminAuditContext _auditContext;
 
@@ -30,23 +31,22 @@ public class ProjectsController : ControllerBase
         IProjectRepository repo,
         ITenantContextAccessor tenantAccessor,
         IOptions<AdminOptions> adminOptions,
-        UserIdentityResolver identityResolver,
+        IUserContextAccessor userAccessor,
         IAdminAuditLogger audit,
         AdminAuditContext auditContext)
     {
         _repo = repo;
         _tenantAccessor = tenantAccessor;
-        _adminAccountIds = new HashSet<string>(adminOptions.Value.AccountIds, StringComparer.Ordinal);
-        _identityResolver = identityResolver;
+        _userAccessor = userAccessor;
+        _gateEnabled = adminOptions.Value.GateEnabled;
         _audit = audit;
         _auditContext = auditContext;
     }
 
     private bool IsAdmin()
     {
-        if (_adminAccountIds.Count == 0) return true; // gate desabilitado (dev/test)
-        var identity = _identityResolver.TryResolve(HttpContext.Request.Headers, out _);
-        return identity != null && _adminAccountIds.Contains(identity.UserId);
+        if (!_gateEnabled) return true; // gate desabilitado (dev/test)
+        return _userAccessor.Current?.IsAdmin == true;
     }
 
     [HttpPost]
