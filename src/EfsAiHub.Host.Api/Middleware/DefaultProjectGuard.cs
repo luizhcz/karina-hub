@@ -99,6 +99,17 @@ public sealed class DefaultProjectGuard
     {
         var path = ctx.Request.Path.Value ?? string.Empty;
 
+        // k8s liveness/readiness probes não enviam identidade — bloquear faria
+        // o pod ser marcado unhealthy.
+        if (path.StartsWith("/health/", StringComparison.OrdinalIgnoreCase)
+            || path.Equals("/health", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Endpoints admin-only não dependem de projeto — AdminGate quem bloqueia
+        // não-admin com 403 + mensagem correta.
+        if (path.StartsWith("/api/aihub/admin/", StringComparison.OrdinalIgnoreCase))
+            return true;
+
         if (path.StartsWith("/api/aihub/agents", StringComparison.OrdinalIgnoreCase))
             return true;
         if (path.StartsWith("/api/aihub/workflows", StringComparison.OrdinalIgnoreCase))
