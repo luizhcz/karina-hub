@@ -1,0 +1,76 @@
+{
+  "type": "array",
+  "description": "Array de ordens da memória operacional. Sempre array, mesmo com 1 ordem.",
+  "items": {
+    "type": "object",
+    "properties": {
+      "RequestType": {
+        "type": "string",
+        "enum": ["C", "M", "X", "PC", "PM"],
+        "description": "C=Create (nova boleta — padrão), M=Modify, X=Cancel, PC=PushCreate, PM=PushModify."
+      },
+      "Strategy": {
+        "type": "string",
+        "enum": ["P", ""],
+        "description": "P=Position (vinculada à posição). String vazia quando não aplicável."
+      },
+      "Symbol": {
+        "type": "string",
+        "description": "Ticker do ativo em MAIÚSCULAS (ex.: PETR4, BPAC11, VALE3)."
+      },
+      "Account": {
+        "type": "string",
+        "description": "Identificador de conta. No fluxo cliente vem do [CONTEXT].conta. No fluxo assessor, vem da pergunta ao usuário. String vazia até informada e válida."
+      },
+      "Side": {
+        "type": "string",
+        "enum": ["B", "S"],
+        "description": "B=Compra, S=Venda."
+      },
+      "PriceType": {
+        "type": "string",
+        "enum": ["M", "L", "ML", "F"],
+        "description": "M=Mercado, L=Limite, ML=Limite Mercado, F=ordem por valor financeiro em BRL."
+      },
+      "Price": {
+        "type": ["number", "null"],
+        "description": "Preço limite por ativo. Obrigatório quando PriceType=L. null quando PriceType=M ou F."
+      },
+      "Quantity": {
+        "type": ["number", "null"],
+        "description": "Quantidade de cotas/ações quando ordem é por quantidade. null quando PriceType=F (use Volume)."
+      },
+      "Volume": {
+        "type": ["number", "null"],
+        "description": "Valor financeiro em BRL quando PriceType=F. null quando ordem é por quantidade."
+      },
+      "QuantityDisplay": {
+        "type": ["number", "null"],
+        "description": "Quantidade visível (ordem iceberg). null quando não houver."
+      },
+      "ExpireType": {
+        "type": "string",
+        "enum": ["DAY", "FOK", "IOC", "GTC", "GTD", "GTT", "ATO", "ATC", "GFA"],
+        "description": "DAY=Hoje, FOK=Tudo ou nada, IOC=Executa ou cancela, GTC=Até cancelar, GTD=Até a data, GTT=Até o horário, ATO=Abertura, ATC=Fechamento, GFA=Leilão."
+      },
+      "ExpireDate": {
+        "type": ["string", "null"],
+        "description": "ISO 8601 (YYYY-MM-DD ou YYYY-MM-DDTHH:MM:SS) quando ExpireType exigir (GTD, GTT etc.). null nos demais casos."
+      }
+    },
+    "required": [
+      "RequestType",
+      "Symbol",
+      "Account",
+      "Side",
+      "PriceType",
+      "Price",
+      "Quantity",
+      "Volume",
+      "QuantityDisplay",
+      "ExpireType",
+      "ExpireDate"
+    ],
+    "additionalProperties": false
+  }
+}
