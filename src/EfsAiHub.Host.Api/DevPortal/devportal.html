@@ -444,7 +444,9 @@ x-efs-user-profile-id: P-00123</code></pre>
 # - Troque por -H "x-efs-user-profile-id: P-00123" se o caller for assessor (admin).
 # - access_token é opcional — só é necessário se a conversa pode chamar generic tools
 #   marcadas como IsExclusive=true (ver seção Generic Tools).
-# - Sem x-project-id, o backend usa o projeto "default" (admin-only).</code></pre>
+# - Sem x-project-id, o backend usa o projeto "default" (admin-only).
+# - Pra pinar uma WorkflowVersion específica (canary/A-B): adicione
+#   -H "x-version: wfv_01HXY..." (ver seção Pin de versão).</code></pre>
         </div>
       </div>
       <div class="step">
@@ -477,9 +479,9 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
   <section id="auth">
     <h2>Autenticação e Identidade</h2>
     <p>
-      Endpoints AG-UI são públicos no AdminGate — não exigem token JWT validado,
-      mas exigem headers de identidade pra rotear conversa, escolher prompt e
-      autorizar generic tools downstream.
+      Endpoints AG-UI não exigem token de autenticação validado pela
+      plataforma, mas exigem headers de identidade pra rotear conversa,
+      escolher prompt e autorizar chamadas a generic tools downstream.
     </p>
 
     <h3>Tabela canônica de headers</h3>
@@ -516,6 +518,12 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
           <td>Opcional</td>
           <td>Pina um workflow específico em <code>/stream</code> (alternativa ao body)</td>
           <td><code>atendimento-cliente</code></td>
+        </tr>
+        <tr>
+          <td><code>x-version</code></td>
+          <td>Opcional</td>
+          <td>Pina a execução numa <code>WorkflowVersion</code> específica (canary / A-B / rollback). Vazio ou ausente = backend lê a versão ativa atual. Ver <a href="#workflow-version-pin">Pin de versão</a> pra detalhes.</td>
+          <td><code>wfv_01HXY…</code></td>
         </tr>
         <tr>
           <td><code>app_origin</code></td>
@@ -581,38 +589,36 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
 
   <!-- Permissões e ACL -->
   <section id="permissoes">
-    <h2>Permissões e ACL de Projeto</h2>
+    <h2>Permissões e Acesso a Projeto</h2>
     <p>
-      Existem duas camadas de autorização que o consumidor AG-UI precisa
-      entender porque ambas podem responder <strong>403 Forbidden</strong>:
+      Existem dois caminhos onde o consumidor AG-UI pode receber
+      <strong>403 Forbidden</strong>. Os dois são resolvidos pelo mesmo
+      contrato: <code>GET /api/aihub/me</code>.
     </p>
 
-    <h3>1. AdminGate — gating de rotas administrativas</h3>
+    <h3>1. Endpoint administrativo</h3>
     <p>
       Rotas sob <code>/api/aihub/admin/…</code> (ex.: <code>/admin/users</code>,
-      <code>/admin/audit-log</code>) exigem que o usuário corrente tenha
-      <code>IsAdmin=true</code> no diretório do backend
-      (tabela <code>aihub.users</code>). <code>userType</code> do header
-      <strong>não</strong> influencia esse gate — é o flag DB que decide.
+      <code>/admin/audit-log</code>) só respondem 2xx quando o usuário corrente
+      é administrador. O campo <code>isAdmin</code> em <code>/me</code> é a
+      fonte de verdade — <code>userType</code> do header <strong>não</strong>
+      influencia esse gate.
     </p>
     <p>
-      Rotas <code>/chat/ag-ui/*</code> são públicas no AdminGate, então
-      consumidor AG-UI <strong>não</strong> bate nesse gate diretamente. Mas
-      ferramentas administrativas do app (ex.: tela de auditoria) sim.
+      Endpoints AG-UI (<code>/chat/ag-ui/*</code>) não estão sob esse gate,
+      então a app de chat funciona pra qualquer usuário identificado.
     </p>
 
-    <h3>2. ACL por projeto — vínculo usuário ↔ projetos</h3>
+    <h3>2. Acesso a projeto</h3>
     <p>
       Quando o consumidor envia <code>x-project-id</code> apontando pra um
-      projeto não-default, o <code>ProjectMiddleware</code> verifica se o
-      usuário tem vínculo com aquele projeto na tabela
-      <code>aihub.user_projects</code>. Admin (com <code>IsAdmin=true</code>)
-      tem <strong>bypass total</strong> — vê todos os projetos do tenant.
-      Non-admin só enxerga projetos onde existe vínculo explícito.
+      projeto que o usuário não pode acessar, a resposta vem 403 com texto
+      amigável. Administradores enxergam todos os projetos; demais usuários
+      só enxergam os projetos listados em <code>/me.projects</code>.
     </p>
 
     <div class="hitl-flow">
-<span class="comment">// Non-admin envia x-project-id que não tem vínculo:</span>
+<span class="comment">// Usuário envia x-project-id que ele não pode acessar:</span>
 <span class="arrow">→</span> <span class="event">POST</span> /api/aihub/chat/ag-ui/stream
    <span class="resolve">x-efs-account: 123456789</span>
    <span class="resolve">x-project-id: projeto-restrito</span>
@@ -623,16 +629,15 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
     <h3>Como o frontend deve tratar</h3>
     <p>
       Antes de qualquer chamada AG-UI, busque <code>GET /api/aihub/me</code>.
-      Esse endpoint é público (não passa pelo AdminGate) e sempre retorna 200
-      — quando não há identidade resolvida, devolve campos null + lista vazia.
-      Schema da resposta:
+      Esse endpoint é público e sempre retorna 200 — quando não há identidade
+      resolvida, devolve campos null + lista vazia. Schema da resposta:
     </p>
 
     <pre class="language-json"><code class="language-json">{
   "accountId":   "123456789",        // valor literal do header de identidade enviado
   "userType":    "cliente",          // 'cliente' | 'admin' | null (sem identidade)
-  "isAdmin":     false,              // flag DB — independente do header
-  "userId":      "7616cc79-...",     // UUID interno do diretório
+  "isAdmin":     false,              // privilégio administrativo (independente do userType)
+  "userId":      "7616cc79-...",     // identificador interno opaco
   "displayName": "Ana Souza",        // nome humano (default = accountId)
   "projects": [
     { "id": "investimentos", "name": "Investimentos" },
@@ -645,14 +650,13 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
     </p>
     <ul>
       <li><code>userType</code> decide qual header de identidade enviar (cliente → <code>x-efs-account</code>, admin → <code>x-efs-user-profile-id</code>).</li>
-      <li><code>isAdmin</code> habilita telas/UI administrativas no frontend (apenas hint visual — backend reenforça via AdminGate).</li>
-      <li><code>projects</code> é a lista válida pro seletor de projeto. Para non-admin é só o set vinculado; para admin é tudo do tenant exceto <code>default</code>. <strong>Lista vazia em non-admin = usuário sem nenhum projeto</strong> — mostre tela de boas-vindas pedindo vínculo, não envie <code>x-project-id</code>.</li>
+      <li><code>isAdmin</code> habilita UI administrativa no frontend — hint visual; o backend reenforça em toda chamada.</li>
+      <li><code>projects</code> é a lista válida pro seletor de projeto. <strong>Lista vazia em non-admin = usuário sem nenhum projeto</strong> — mostre tela de boas-vindas, não envie <code>x-project-id</code>.</li>
     </ul>
     <p>
       Quando recebido um 403 inesperado mesmo após validar via <code>/me</code>
-      (ex.: admin revogou o vínculo durante a sessão), trate como sinal pra
-      recarregar <code>/me</code> e potencialmente redirecionar pro fluxo de
-      boas-vindas.
+      (ex.: revogação durante a sessão), trate como sinal pra recarregar
+      <code>/me</code> e potencialmente redirecionar pro fluxo de boas-vindas.
     </p>
   </section>
 
@@ -1503,6 +1507,7 @@ function authHeaders() {
   const externalId = localStorage.getItem('externalUserId')  <span class="comment">// '123456789' ou 'P-00123'</span>
   const projectId = localStorage.getItem('projectId')  <span class="comment">// 'investimentos'</span>
   const accessToken = localStorage.getItem('accessToken')  <span class="comment">// bearer do IdP, opcional</span>
+  const workflowVersionId = sessionStorage.getItem('workflowVersionId')  <span class="comment">// pin opcional (canary/A-B)</span>
 
   const headers = { 'app_origin': 'web-mvp' }
   <span class="comment">// Envia EXATAMENTE um dos dois headers de identidade, conforme userType.</span>
@@ -1510,6 +1515,7 @@ function authHeaders() {
   else headers['x-efs-account'] = externalId
   if (projectId) headers['x-project-id'] = projectId
   if (accessToken) headers['access_token'] = accessToken  <span class="comment">// só usado se a conversa chamar tool IsExclusive</span>
+  if (workflowVersionId) headers['x-version'] = workflowVersionId  <span class="comment">// pina a WorkflowVersion — ver #workflow-version-pin</span>
   return headers
 }
 
@@ -2283,12 +2289,11 @@ while (true) {
 
     <h3>401 — caso especial das Generic Tools</h3>
     <p>
-      O endpoint <code>POST /chat/ag-ui/stream</code> em si não retorna 401
-      porque AG-UI é público no AdminGate. Mas o stream pode trazer um
-      <code>TOOL_CALL_RESULT</code> com mensagem amigável quando uma generic
-      tool exclusive bater 401 ou 403 no downstream — ver
-      <a href="#generic-tools">Generic Tools</a>. Esse caso é semântico, não
-      transiente — não retentar.
+      O endpoint <code>POST /chat/ag-ui/stream</code> em si não retorna 401.
+      Mas o stream pode trazer um <code>TOOL_CALL_RESULT</code> com mensagem
+      amigável quando uma generic tool exclusive bater 401 ou 403 no
+      downstream — ver <a href="#generic-tools">Generic Tools</a>. Esse caso
+      é semântico, não transiente — não retentar.
     </p>
 
     <h3>Erros durante o stream — RUN_ERROR vs SAFETY_VIOLATION</h3>
