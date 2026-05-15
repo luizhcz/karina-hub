@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# db/apply.sh — aplica schemas → views → seeds em sequência fixa.
+# db/apply.sh — aplica schemas → views → seeds → migrations em sequência fixa.
 #
 # Uso:
 #   ./db/apply.sh                                    # PG* env defaults
@@ -25,4 +25,15 @@ for f in schemas.sql views.sql seeds.sql; do
   echo "  ▸ $f"
   psql "${PSQL_ARGS[@]}" -f "$SCRIPT_DIR/$f" >/dev/null
 done
+
+# Migrations incrementais (ordem alfabética = ordem de execução). Cada arquivo
+# é idempotente via ON CONFLICT DO UPDATE/DO NOTHING — re-roda sem efeito.
+if [ -d "$SCRIPT_DIR/migrations" ]; then
+  for f in "$SCRIPT_DIR"/migrations/*.sql; do
+    [ -f "$f" ] || continue
+    echo "  ▸ migrations/$(basename "$f")"
+    psql "${PSQL_ARGS[@]}" -f "$f" >/dev/null
+  done
+fi
+
 echo "✓ aplicado."
