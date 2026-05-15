@@ -1,4 +1,4 @@
-import { get, patch, post } from './client'
+import { get, patch, post, put } from './client'
 import type { AgentDraft, AgentToolDefinition } from './agentDrafts'
 
 // Tipos espelham AgentResponse do backend (camelCase via API). Campos com '?'
@@ -26,6 +26,16 @@ export interface AgentProvider {
   [key: string]: unknown
 }
 
+// Entry de definition.middlewares[]. Espelha EfsAiHub.Core.Agents.AgentMiddlewareConfig.
+// `type` ∈ ValidMiddlewareTypes do backend ("AccountGuard" | "StructuredOutputState" |
+// "SecurityGuardrails"). Settings é dict key→value string (defaults vêm do catálogo
+// em GET /functions middlewareTypes[].settings[].defaultValue).
+export interface AgentMiddleware {
+  type: string
+  enabled: boolean
+  settings: Record<string, string>
+}
+
 export interface AgentOperationalMemory {
   /**
    * JSON Schema do payload da memória. Quando presente, ativa o middleware
@@ -45,6 +55,7 @@ export interface Agent {
   instructions?: string | null
   tools?: AgentToolDefinition[] | null
   operationalMemory?: AgentOperationalMemory | null
+  middlewares?: AgentMiddleware[] | null
   visibility: AgentVisibility
   enabled: boolean
   originProjectId?: string | null
@@ -129,3 +140,32 @@ export interface UpdateAgentEnabledBody {
 
 export const updateAgentEnabled = (id: string, body: UpdateAgentEnabledBody) =>
   patch<Agent>(`/agents/${id}/enabled`, body)
+
+// PUT admin direto — atualiza agente publicado bypassando draft+approval.
+// Backend (AgentsController.Update) registra Action='AdminOverride' em
+// agent_approval_history + AdminAuditLog. 403 pra non-admin.
+//
+// Shape espelha CreateAgentRequest do backend: enviar o agente completo;
+// AgentService.UpdateAsync preserva Type/Visibility/ProjectId/TenantId do
+// existing (não precisa enviar). breakingChange=false (default) trata como
+// patch — workflows pinados em ancestors recebem propagação automática.
+export interface UpdateAgentFullBody {
+  /** Id do agente (precisa bater com o path do PUT — backend valida). */
+  id: string
+  name: string
+  description?: string | null
+  model: AgentModel
+  provider?: AgentProvider
+  instructions?: string | null
+  tools?: AgentToolDefinition[]
+  middlewares?: AgentMiddleware[]
+  structuredOutput?: unknown
+  operationalMemory?: unknown
+  metadata?: Record<string, string>
+  /** Obrigatório no PUT (≥10 chars). Vai pro audit como AdminOverride.Feedback. */
+  changeReason: string
+  breakingChange?: boolean
+}
+
+export const updateAgentFull = (id: string, body: UpdateAgentFullBody) =>
+  put<Agent>(`/agents/${id}`, body)

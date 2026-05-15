@@ -26,6 +26,7 @@ import { Dashboard } from './routes/Dashboard'
 import { Welcome } from './routes/Welcome'
 import { UsuariosList } from './routes/admin/UsuariosList'
 import { AuditoriaList } from './routes/admin/AuditoriaList'
+import { MiddlewaresList } from './routes/admin/MiddlewaresList'
 import { getIdentity, subscribeIdentity } from './stores/identity'
 
 export function App() {
@@ -51,6 +52,7 @@ export function App() {
         {/* Rotas admin-only: gating é da página + AdminGate backend. */}
         <Route path="/admin/usuarios" element={<UsuariosList />} />
         <Route path="/admin/auditoria" element={<AuditoriaList />} />
+        <Route path="/admin/middlewares" element={<MiddlewaresList />} />
 
         {/* Rotas que exigem projeto vinculado: redirecionam pra /bem-vindo
             quando non-admin tem projects=[]. Admin passa sempre. */}
