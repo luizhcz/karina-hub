@@ -8,6 +8,7 @@ import '@blocknote/mantine/style.css'
 import { useTheme } from '../../theme/ThemeProvider'
 import { cn } from '../../ui'
 import type { FormState } from './types'
+import { useMarkdownPasteIntent } from './useMarkdownPasteIntent'
 
 interface WorkerProfileStepProps {
   form: FormState
@@ -41,6 +42,7 @@ const schema = BlockNoteSchema.create({ blockSpecs: defaultBlockSpecs })
 export function WorkerProfileStep({ form, setForm, readonly }: WorkerProfileStepProps) {
   const { theme } = useTheme()
   const editor = useCreateBlockNote({ schema })
+  const { hostRef, banner } = useMarkdownPasteIntent(editor, { readonly })
 
   // Mesmo padrão do ProfileStep (Custom): guard contra loop de
   // hidratação ↔ onChange. userEditedRef vira true só após edição real;
@@ -75,7 +77,9 @@ export function WorkerProfileStep({ form, setForm, readonly }: WorkerProfileStep
   return (
     <div className="space-y-5">
       <WorkerHelpCard />
+      {banner}
       <div
+        ref={hostRef}
         className={cn(
           'rounded-lg border border-border bg-surface py-6',
           'profile-blocknote-host',
