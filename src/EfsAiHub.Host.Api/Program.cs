@@ -59,6 +59,8 @@ builder.Services.Configure<ChatRateLimitOptions>(
     builder.Configuration.GetSection(ChatRateLimitOptions.SectionName));
 builder.Services.Configure<AdminOptions>(
     builder.Configuration.GetSection(AdminOptions.SectionName));
+builder.Services.Configure<UserProvisioningOptions>(
+    builder.Configuration.GetSection(UserProvisioningOptions.SectionName));
 builder.Services.Configure<EfsAiHub.Platform.Runtime.Options.DocumentIntelligenceOptions>(
     builder.Configuration.GetSection(EfsAiHub.Platform.Runtime.Options.DocumentIntelligenceOptions.SectionName));
 builder.Services.Configure<EfsAiHub.Platform.Runtime.Configuration.GenericToolsOptions>(
@@ -239,6 +241,19 @@ app.RegisterAtivoExecutors();
 app.RegisterRedemptionTools();
 app.RegisterPixExecutors();
 app.RegisterDocumentIntelligenceExecutor();
+
+// Loga o modo de provisioning ativo — facilita debug em prod quando alguém
+// pergunta "por que o user X que chama AG-UI não aparece em aihub.users?".
+{
+    var provisioningOptions = app.Services
+        .GetRequiredService<Microsoft.Extensions.Options.IOptions<UserProvisioningOptions>>()
+        .Value;
+    var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+    startupLogger.LogInformation(
+        "[UserProvisioning] SkipAnonymousRoutes={Enabled} SkipPathPrefixes=[{Prefixes}]",
+        provisioningOptions.SkipAnonymousRoutes,
+        string.Join(", ", provisioningOptions.SkipPathPrefixes));
+}
 
 // Smoke: gera os JSON Schemas de todos os code executors tipados no startup.
 // Tipos com problemas no JsonSchemaExporter (generics abertos, polymorphism sem

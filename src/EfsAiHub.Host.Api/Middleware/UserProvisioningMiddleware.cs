@@ -1,8 +1,10 @@
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Abstractions.Users;
+using EfsAiHub.Host.Api.Configuration;
 using EfsAiHub.Host.Api.Services;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 
 namespace EfsAiHub.Host.Api.Middleware;
 
@@ -50,6 +52,7 @@ public sealed class UserProvisioningMiddleware
         IRequestAuthContextAccessor authContext,
         IMemoryCache cache,
         IAdminAuditLogger audit,
+        IOptions<UserProvisioningOptions> options,
         ILogger<UserProvisioningMiddleware> logger)
     {
         // app_origin e access_token são populados independente de identidade
@@ -62,6 +65,20 @@ public sealed class UserProvisioningMiddleware
         var identity = identityProvider.Resolve(context, out _);
         if (identity is null)
         {
+            await _next(context);
+            return;
+        }
+
+        // Rotas externas (ex.: AG-UI trigger) trazem header de identidade só
+        // pra audit/threads — não devem inflar aihub.users com consumers que
+        // nunca vão usar a UI. Pula apenas o UPSERT; demais downstream segue
+        // (AdminGate trata Current=null como non-admin, e a whitelist de rota
+        // pública é aplicada no próprio AdminGate).
+        if (ShouldSkipProvisioning(context.Request.Path, options.Value))
+        {
+            logger.LogDebug(
+                "UserProvisioning skipped (path em SkipPathPrefixes) externalUserId={ExternalUserId} path={Path}",
+                identity.ExternalUserId, context.Request.Path.Value);
             await _next(context);
             return;
         }
@@ -143,6 +160,24 @@ public sealed class UserProvisioningMiddleware
 
     private static string BuildCacheKey(string tenantId, string externalUserId)
         => $"user-provisioning:{tenantId}:{externalUserId}";
+
+    private static bool ShouldSkipProvisioning(PathString requestPath, UserProvisioningOptions options)
+    {
+        if (!options.SkipAnonymousRoutes) return false;
+        if (options.SkipPathPrefixes is not { Count: > 0 } prefixes) return false;
+        var path = requestPath.Value;
+        if (string.IsNullOrEmpty(path)) return false;
+        foreach (var prefix in prefixes)
+        {
+            if (string.IsNullOrEmpty(prefix)) continue;
+            if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            // Exige boundary de segmento: evita que prefixo "/api/aihub/chat/ag-ui"
+            // case acidentalmente um path tipo "/api/aihub/chat/ag-uianything".
+            if (path.Length == prefix.Length) return true;
+            if (path[prefix.Length] == '/') return true;
+        }
+        return false;
+    }
 
     private static string? ReadFirstNonEmptyHeader(HttpRequest request, string headerName)
     {
