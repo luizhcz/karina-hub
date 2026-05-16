@@ -192,7 +192,7 @@ CREATE TABLE IF NOT EXISTS aihub.agent_approval_history (
     CONSTRAINT "CK_agent_approval_history_Action"
         CHECK ("Action" IN ('Submitted', 'Resubmitted', 'Approved', 'Rejected', 'AutoApproved', 'AdminOverride')),
     CONSTRAINT "CK_agent_approval_history_Tier"
-        CHECK ("Tier" IS NULL OR "Tier" IN ('Cosmetic', 'Behavioral'))
+        CHECK ("Tier" IS NULL OR "Tier" IN ('Cosmetic', 'Behavioral', 'TypeBypass'))
 );
 
 CREATE INDEX IF NOT EXISTS "IX_agent_approval_history_DraftId"

@@ -592,11 +592,14 @@ export function buildPayload(
   } else {
     delete (payload as Record<string, unknown>).routerIntentIds
   }
-  // Conversational tem invariante hard de visibility=global (consumidores
-  // cross-projeto como o Sales Trader AI dependem disso). Backend força,
-  // mas declaramos explícito no payload pra deixar a intenção visível no
-  // wire + audit log, sem depender só do default.
-  if (form.type === 'Conversational') {
+  // Conversational e Router têm invariante hard de visibility=global:
+  //   - Conversational: consumidores cross-projeto como o Sales Trader AI
+  //     dependem de enxergar agentes de chat de outros projetos.
+  //   - Router: orquestra agentes via intents; workflows cross-projeto
+  //     referenciam Router globalmente.
+  // Backend força em AgentService, mas declaramos no payload pra deixar
+  // a intenção visível no wire + audit log, sem depender só do default.
+  if (form.type === 'Conversational' || form.type === 'Router') {
     payload.visibility = 'global'
   }
   return payload

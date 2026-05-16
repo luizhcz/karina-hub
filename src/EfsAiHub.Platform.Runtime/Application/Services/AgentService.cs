@@ -62,18 +62,11 @@ public class AgentService : IAgentService
     {
         definition.ProjectId = _projectAccessor.Current.ProjectId;
 
-        // Conversational é sempre global por design: agentes de chat são
-        // consumidos por projetos especializados (ex.: Sales Trader AI) que
-        // precisam enxergar Conversationals criados em outros projetos do
-        // tenant. Forçamos aqui em vez de deixar como configuração opcional
-        // pra eliminar a chance de produzir um Conversational invisível.
-        if (definition.Type == AgentType.Conversational)
-            definition.Visibility = "global";
-
         // Template preenche campos auto-gerados por tipo (ex.: wrap canônico
         // do Conversational, middleware StructuredOutputState, bloco fixo
-        // nas instructions). Roda antes da validação pra que o validator
-        // verifique o resultado final, não o input cru do caller.
+        // nas instructions) E aplica invariantes globais (ex.: Visibility=global
+        // pra Conversational/Router). Roda antes da validação pra que o
+        // validator verifique o resultado final, não o input cru do caller.
         definition = _templateService.Apply(definition);
 
         var (isValid, errors, _) = await ValidateAsync(definition, ct);
@@ -129,11 +122,11 @@ public class AgentService : IAgentService
         definition.ProjectId = existing.ProjectId;
         definition.TenantId = existing.TenantId;
         definition.Visibility = existing.Visibility;
-        // Conversational tem invariante hard: sempre global. Aplica também no
-        // update pra migrar registros legacy (criados antes da regra) na
-        // primeira edição. PATCH /visibility continua disponível mas inócuo
-        // pra Conversational — qualquer save derruba pra global.
-        if (existing.Type == AgentType.Conversational)
+        // Conversational e Router têm invariante hard: sempre globais. Aplica
+        // também no update pra migrar registros legacy (criados antes da regra)
+        // na primeira edição. PATCH /visibility continua disponível mas inócuo
+        // pra esses tipos — qualquer save derruba pra global.
+        if (existing.Type is AgentType.Conversational or AgentType.Router)
             definition.Visibility = "global";
         // Type também é preservado: clientes legados sem o campo no body fariam
         // request.ToDomain() default pra Custom e zerariam um Router existente.

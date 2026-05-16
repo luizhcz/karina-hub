@@ -66,6 +66,14 @@ public sealed class AgentTemplateService : IAgentTemplateService
 
     public AgentDefinition Apply(AgentDefinition definition)
     {
+        // Invariante de visibility: Conversational e Router são sempre globais
+        // por design. Aplicado aqui (e não só em AgentService.CreateAsync) pra
+        // cobrir TODOS os caminhos de publicação — inclusive ApproveAsync do
+        // draft, que persiste via IAgentDefinitionRepository sem passar pelo
+        // service. Idempotente: re-aplicar não muda nada.
+        if (definition.Type is AgentType.Conversational or AgentType.Router)
+            definition.Visibility = "global";
+
         return definition.Type switch
         {
             AgentType.Conversational => ApplyConversational(definition),

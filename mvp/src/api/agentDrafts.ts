@@ -122,11 +122,14 @@ export const updateAgentDraft = (id: string, body: UpdateAgentDraftBody) =>
 export interface SubmitAgentDraftResult {
   draft: AgentDraft
   autoApproved: boolean
-  tier?: 'Cosmetic' | 'Behavioral' | null
+  tier?: 'Cosmetic' | 'Behavioral' | 'TypeBypass' | null
 }
 
-export const submitAgentDraft = (id: string) =>
-  post<SubmitAgentDraftResult>(`${BASE}/${id}/submit`, {})
+// changeReason é opcional no contrato HTTP, mas a UI exige (≥10 chars)
+// quando o tipo do agente bypassa aprovação (Router) — o BE registra esse
+// texto em agent_approval_history pra manter audit forte.
+export const submitAgentDraft = (id: string, changeReason?: string) =>
+  post<SubmitAgentDraftResult>(`${BASE}/${id}/submit`, { changeReason })
 
 // Gera GUID pra novo rascunho. Mesma estratégia do ToolEditor — backend aceita
 // qualquer string como Id (slug user-friendly também funciona), mas a tela
