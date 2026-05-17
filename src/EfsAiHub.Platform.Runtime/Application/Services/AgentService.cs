@@ -1,6 +1,7 @@
 using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
+using EfsAiHub.Core.Agents.RouterIntents;
 
 namespace EfsAiHub.Platform.Runtime.Services;
 
@@ -31,6 +32,7 @@ public class AgentService : IAgentService
     private readonly IAgentVersionRepository? _versionRepo;
     private readonly IAdminAuditLogger? _auditLogger;
     private readonly IAgentRouterIntentLinkRepository? _intentLinkRepo;
+    private readonly IRouterIntentRepository? _intentRepo;
     private readonly ILogger<AgentService> _logger;
 
     public AgentService(
@@ -41,7 +43,8 @@ public class AgentService : IAgentService
         ILogger<AgentService> logger,
         IAgentVersionRepository? versionRepo = null,
         IAdminAuditLogger? auditLogger = null,
-        IAgentRouterIntentLinkRepository? intentLinkRepo = null)
+        IAgentRouterIntentLinkRepository? intentLinkRepo = null,
+        IRouterIntentRepository? intentRepo = null)
     {
         _repository = repository;
         _promptRepo = promptRepo;
@@ -50,6 +53,7 @@ public class AgentService : IAgentService
         _versionRepo = versionRepo;
         _auditLogger = auditLogger;
         _intentLinkRepo = intentLinkRepo;
+        _intentRepo = intentRepo;
         _logger = logger;
     }
 
@@ -62,18 +66,11 @@ public class AgentService : IAgentService
     {
         definition.ProjectId = _projectAccessor.Current.ProjectId;
 
-        // Conversational é sempre global por design: agentes de chat são
-        // consumidos por projetos especializados (ex.: Sales Trader AI) que
-        // precisam enxergar Conversationals criados em outros projetos do
-        // tenant. Forçamos aqui em vez de deixar como configuração opcional
-        // pra eliminar a chance de produzir um Conversational invisível.
-        if (definition.Type == AgentType.Conversational)
-            definition.Visibility = "global";
-
         // Template preenche campos auto-gerados por tipo (ex.: wrap canônico
         // do Conversational, middleware StructuredOutputState, bloco fixo
-        // nas instructions). Roda antes da validação pra que o validator
-        // verifique o resultado final, não o input cru do caller.
+        // nas instructions) E aplica invariantes globais (ex.: Visibility=global
+        // pra Conversational/Router). Roda antes da validação pra que o
+        // validator verifique o resultado final, não o input cru do caller.
         definition = _templateService.Apply(definition);
 
         var (isValid, errors, _) = await ValidateAsync(definition, ct);
@@ -129,11 +126,11 @@ public class AgentService : IAgentService
         definition.ProjectId = existing.ProjectId;
         definition.TenantId = existing.TenantId;
         definition.Visibility = existing.Visibility;
-        // Conversational tem invariante hard: sempre global. Aplica também no
-        // update pra migrar registros legacy (criados antes da regra) na
-        // primeira edição. PATCH /visibility continua disponível mas inócuo
-        // pra Conversational — qualquer save derruba pra global.
-        if (existing.Type == AgentType.Conversational)
+        // Conversational e Router têm invariante hard: sempre globais. Aplica
+        // também no update pra migrar registros legacy (criados antes da regra)
+        // na primeira edição. PATCH /visibility continua disponível mas inócuo
+        // pra esses tipos — qualquer save derruba pra global.
+        if (existing.Type is AgentType.Conversational or AgentType.Router)
             definition.Visibility = "global";
         // Type também é preservado: clientes legados sem o campo no body fariam
         // request.ToDomain() default pra Custom e zerariam um Router existente.
@@ -539,6 +536,13 @@ public class AgentService : IAgentService
         List<string> warnings,
         CancellationToken ct)
     {
+        // Auto-link da intent reservada "out_of_scope" — garantia P1 de que
+        // todo Router sabe classificar mensagens fora do escopo declarado,
+        // independente de o admin lembrar de incluir no set. Resolve via
+        // lookup por Name+Tenant na pool (intent é seedada por
+        // migration 004). Idempotente: se já estiver no set, no-op.
+        await EnsureOutOfScopeLinkedAsync(definition, ct);
+
         // Count vem do request (transient `RouterIntentIds`) quando o caller
         // está propondo um set novo, ou do link repo quando é validação após
         // o save (set vivo no DB).
@@ -569,8 +573,10 @@ public class AgentService : IAgentService
         if (definition.Tools.Count > 0)
             warnings.Add("Tools em Router são incomuns — se o agente precisa invocar ferramentas, considere o tipo Tool Runner.");
 
-        if (definition.OperationalMemory?.Schema is not null)
-            warnings.Add("OperationalMemory raramente é útil em Router; pra contexto de chat, prefira workflow com 'InputMode=Chat'.");
+        // OperationalMemory agora é canônica em todo Router (preenchida via
+        // AgentTemplateService.ApplyRouter quando ausente). Persiste
+        // last_intent + last_reason a cada turno via OperationalMemoryChatClient.
+        // Não emite warning — é parte da forma esperada.
 
         // Consistência declarativa do "Router pra chat": quando a flag
         // metadata['x-router-for-chat']='true' está ativa, o middleware
@@ -600,6 +606,47 @@ public class AgentService : IAgentService
                 "Middleware 'StructuredOutputState' presente, mas a flag 'x-router-for-chat' não " +
                 "está marcada. Configuração órfã — marque a flag no step Identificação se o Router " +
                 "for usado em chat, ou remova o middleware.");
+        }
+    }
+
+    /// <summary>
+    /// Garante que <c>out_of_scope</c> (intent reservada do sistema) está no
+    /// set de intents do Router. Mutação direta em <c>RouterIntentIds</c> —
+    /// caller persiste depois via <c>IAgentRouterIntentLinkRepository</c>.
+    /// No-op quando o repo de intents não está injetado (testes) ou quando a
+    /// intent reservada não foi seedada no tenant.
+    /// </summary>
+    private async Task EnsureOutOfScopeLinkedAsync(AgentDefinition definition, CancellationToken ct)
+    {
+        if (_intentRepo is null) return;
+
+        // Lookup por Name+Tenant. O repo já filtra por tenant via query filter.
+        var pool = await _intentRepo.ListAsync(ct);
+        var outOfScope = pool.FirstOrDefault(i =>
+            string.Equals(i.Name, SystemIntents.OutOfScopeName, StringComparison.OrdinalIgnoreCase));
+
+        if (outOfScope is null)
+        {
+            // Tenant não tem out_of_scope seedada — migration 004 deveria ter
+            // criado. Log e segue (não bloqueia save).
+            _logger.LogWarning(
+                "[AgentService] Tenant não tem intent reservada '{Name}' seedada. " +
+                "Router '{AgentId}' não terá auto-fallback. Aplicar migration 004.",
+                SystemIntents.OutOfScopeName, definition.Id);
+            return;
+        }
+
+        var currentIds = definition.RouterIntentIds is null
+            ? new List<string>()
+            : new List<string>(definition.RouterIntentIds);
+
+        if (!currentIds.Contains(outOfScope.Id, StringComparer.Ordinal))
+        {
+            currentIds.Add(outOfScope.Id);
+            definition.RouterIntentIds = currentIds;
+            _logger.LogInformation(
+                "[AgentService] Auto-link '{Name}' (Id={IntentId}) ao Router '{AgentId}'.",
+                SystemIntents.OutOfScopeName, outOfScope.Id, definition.Id);
         }
     }
 

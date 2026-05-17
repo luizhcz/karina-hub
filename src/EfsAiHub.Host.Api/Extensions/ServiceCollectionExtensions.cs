@@ -139,10 +139,10 @@ public static class ServiceCollectionExtensions
             });
             registry.RegisterSchema("unwrap_post_processor_output", typeof(PostProcessorResult), typeof(string));
 
-            // Router fallback — terminal alcançado quando router classifica target_agent="texto".
-            registry.Register<RouterOutput, EfsAiHub.Core.Agents.Trading.OutputAtendimento>(
-                "router_fallback",
-                (r, ct) => RouterFallback.WrapAsync(r, ct));
+            // router_fallback foi removido — workflows agora roteiam o case
+            // `$.intent == "out_of_scope"` direto pro agente `fallback-atendimento`
+            // (persona real, resposta natural). Migration 004 reescreve os
+            // Switches existentes.
 
             // revisao_classificador — wrappa output em texto livre do agente revisor-analise-ativo.
             registry.Register<string, EfsAiHub.Core.Agents.Trading.RevisaoResultado>(
@@ -360,6 +360,21 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ToolInvocationPersistenceService>();
         services.AddSingleton<IToolInvocationSink>(sp => sp.GetRequiredService<ToolInvocationPersistenceService>());
         services.AddHostedService(sp => sp.GetRequiredService<ToolInvocationPersistenceService>());
+
+        // LLM Prompt Inspector — captura runtime-toggleable.
+        services.AddScoped<EfsAiHub.Core.Agents.Capture.ILlmCaptureConfigRepository,
+            EfsAiHub.Infra.Persistence.Postgres.PgLlmCaptureConfigRepository>();
+        services.AddScoped<EfsAiHub.Core.Agents.Capture.ILlmInvocationLogRepository,
+            EfsAiHub.Infra.Persistence.Postgres.PgLlmInvocationLogRepository>();
+        services.AddScoped<EfsAiHub.Platform.Runtime.Services.LlmCaptureConfigService>();
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Sanitization.ILlmPayloadSanitizer,
+            EfsAiHub.Platform.Runtime.Sanitization.RegexLlmPayloadSanitizer>();
+        services.AddSingleton<EfsAiHub.Host.Worker.Services.LlmInvocationLogPersistenceService>();
+        services.AddSingleton<EfsAiHub.Core.Orchestration.Interfaces.ILlmInvocationLogSink>(
+            sp => sp.GetRequiredService<EfsAiHub.Host.Worker.Services.LlmInvocationLogPersistenceService>());
+        services.AddHostedService(sp => sp.GetRequiredService<EfsAiHub.Host.Worker.Services.LlmInvocationLogPersistenceService>());
+        services.AddHostedService<EfsAiHub.Host.Worker.Services.LlmInvocationLogRetentionJob>();
+        services.AddHostedService<EfsAiHub.Host.Worker.Services.LlmCaptureConfigExpiryJob>();
         services.AddSingleton<NodePersistenceService>();
         services.AddHostedService(sp => sp.GetRequiredService<NodePersistenceService>());
         services.AddSingleton<IHumanInteractionRepository, PgHumanInteractionRepository>();

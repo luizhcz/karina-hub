@@ -100,7 +100,13 @@ public partial class ConversationService
     {
         var workflowDef = await _workflowDefRepo.GetByIdAsync(conversation.WorkflowId, ct);
         var config = workflowDef?.Configuration;
-        var maxHistory = config?.MaxHistoryMessages ?? 20;
+        // Carrega pelo MAIOR exigido entre global e overrides per-agente do
+        // workflow. Slice per-agente acontece depois no ChatTurnContextMapper
+        // — aqui só garantimos que o histórico carregado cobre o agente mais
+        // exigente (Conversational com override 50, p.ex.). Router=5 nunca
+        // puxa o máximo (sempre <= global), mas a regra é genérica.
+        var maxHistory = EfsAiHub.Platform.Runtime.Application.Services
+            .WorkflowAgentHistoryResolver.MaxRequired(config, workflowDef?.Agents);
         var maxHistoryTokens = config?.MaxHistoryTokens;
 
         var history = await _msgRepo.GetContextWindowAsync(

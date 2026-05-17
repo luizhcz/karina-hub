@@ -25,4 +25,15 @@ for f in schemas.sql views.sql seeds.sql; do
   echo "  ▸ $f"
   psql "${PSQL_ARGS[@]}" -f "$SCRIPT_DIR/$f" >/dev/null
 done
+
+# Migrations incrementais (DDL pra DBs já provisionados). Cada arquivo é
+# idempotente (DROP IF EXISTS + recreate / IF NOT EXISTS). Ordem alfabética
+# numerada (001_*, 002_*, ...).
+if compgen -G "$SCRIPT_DIR/migrations/*.sql" > /dev/null; then
+  for f in "$SCRIPT_DIR/migrations/"*.sql; do
+    echo "  ▸ migrations/$(basename "$f")"
+    psql "${PSQL_ARGS[@]}" -f "$f" >/dev/null
+  done
+fi
+
 echo "✓ aplicado."

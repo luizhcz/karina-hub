@@ -40,7 +40,18 @@ public sealed class DynamicGenericAIFunction : AIFunction
         foreach (var (key, value) in arguments)
             args[key] = value;
 
-        var result = await _executor.ExecuteAsync(_tool, args, cancellationToken).ConfigureAwait(false);
-        return JsonSerializer.Serialize(result);
+        try
+        {
+            var result = await _executor.ExecuteAsync(_tool, args, cancellationToken).ConfigureAwait(false);
+            return JsonSerializer.Serialize(result);
+        }
+        catch (ResponseSchemaViolationException ex)
+        {
+            // Sem isso o framework MEAI usaria ex.Message (texto humano) como
+            // tool-result — quebra a promessa de "erro estruturado pro LLM".
+            // Aqui serializamos o ToJson() já com {error, tool, details, hint}
+            // que o LLM consegue decompor pra decidir próximo passo.
+            return ex.ToJson();
+        }
     }
 }

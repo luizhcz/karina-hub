@@ -526,10 +526,12 @@ public sealed class AgentSandboxService
     }
 
     /// <summary>
-    /// Extrai <c>intent</c>/<c>reasoning</c> do output do Router. Se o JSON
+    /// Extrai <c>intent</c>/<c>reason</c> do output canônico do Router
+    /// (<c>{ intent, confidence, reason, operationalMemory }</c>). Se o JSON
     /// tá malformado ou sem <c>intent</c>, devolve <c>"unknown"</c> em vez de
     /// throw — predict-intent é ferramenta de diagnóstico, owner precisa ver
-    /// que o agent gerou lixo.
+    /// que o agent gerou lixo. Compat: aceita o nome legado <c>reasoning</c>
+    /// caso um payload antigo apareça no histórico.
     /// <para>
     /// Visibilidade <c>internal</c> pra que <c>EfsAiHub.Tests.Unit</c> possa
     /// cobrir edge cases (JSON válido, malformado, sem intent) sem precisar
@@ -546,9 +548,10 @@ public sealed class AgentSandboxService
             if (node is JsonObject obj)
             {
                 var intent = obj["intent"]?.GetValue<string>();
-                var reasoning = obj["reasoning"]?.GetValue<string>();
+                var reason = obj["reason"]?.GetValue<string>()
+                             ?? obj["reasoning"]?.GetValue<string>();
                 if (!string.IsNullOrWhiteSpace(intent))
-                    return (intent, reasoning);
+                    return (intent, reason);
             }
         }
         catch (JsonException)

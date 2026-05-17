@@ -33,9 +33,18 @@ export interface GenericTool {
    * (false, default) não recebe esses headers.
    */
   isExclusive: boolean
+  /**
+   * Controla validação + projeção do response contra `outputSchema` antes do
+   * LLM (e do tester) receber. Default 'Off' preserva o comportamento legacy
+   * de tools cadastradas antes da feature; admin opta in via o select no
+   * ToolEditor.
+   */
+  outputProjectionMode: OutputProjectionMode
   createdAt: string
   updatedAt: string
 }
+
+export type OutputProjectionMode = 'Off' | 'Project' | 'Strict'
 
 export interface CreateGenericToolBody {
   id?: string
@@ -53,6 +62,7 @@ export interface CreateGenericToolBody {
   timeoutSecondsOverride: number | null
   whenToUse: string | null
   isExclusive: boolean
+  outputProjectionMode: OutputProjectionMode
 }
 
 export interface UpdateGenericToolBody extends Omit<CreateGenericToolBody, 'id'> {
@@ -81,6 +91,12 @@ export interface GenericToolTestResult {
   responseTruncated: boolean
   responseHeaders: Record<string, string>
   parsedData: unknown
+  /** Response após drop-extras + validação contra outputSchema. Null quando há schemaErrors. */
+  projectedData: unknown
+  /** Violations detectadas (vazio quando passa ou modo Off). */
+  schemaErrors: string[]
+  /** True quando o projector NÃO aplicou validação (modo Off, schema ausente, parse falhou). */
+  projectionBypassed: boolean
   error: string | null
 }
 

@@ -23,10 +23,14 @@ public sealed class GenericToolTester : IGenericToolTester
     private const string ClientName = "generic-tool-tester";
 
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly GenericResponseProjector _projector;
 
-    public GenericToolTester(IHttpClientFactory httpClientFactory)
+    public GenericToolTester(
+        IHttpClientFactory httpClientFactory,
+        GenericResponseProjector projector)
     {
         _httpClientFactory = httpClientFactory;
+        _projector = projector;
     }
 
     public async Task<GenericToolTestResult> TestAsync(
@@ -85,6 +89,13 @@ public sealed class GenericToolTester : IGenericToolTester
                 }
             }
 
+            // Projection roda mesmo em modo Off (devolve bypass) pra padronizar
+            // o envelope retornado ao tester. Aqui NÃO lançamos exception em
+            // violation — só preenchemos SchemaErrors pra UI renderizar.
+            var projection = parsed is not null
+                ? _projector.Project(parsed, tool.OutputSchema, tool.OutputProjectionMode, tool.Name)
+                : ProjectionResult.AsBypass(null);
+
             sw.Stop();
 
             return new GenericToolTestResult
@@ -100,6 +111,10 @@ public sealed class GenericToolTester : IGenericToolTester
                 ResponseTruncated = truncated,
                 ResponseHeaders = responseHeaders,
                 ParsedData = parsed,
+                ProjectedData = projection.HasErrors ? null : projection.Projected,
+                SchemaErrors = projection.Errors,
+                ProjectionBypassed = projection.Bypassed,
+                Truncation = projection.Truncation,
                 Error = parseError ?? (response.IsSuccessStatusCode
                     ? null
                     : $"Upstream retornou HTTP {(int)response.StatusCode} {response.ReasonPhrase}"),
@@ -147,6 +162,10 @@ public sealed class GenericToolTester : IGenericToolTester
         ResponseTruncated = false,
         ResponseHeaders = new Dictionary<string, string>(),
         ParsedData = null,
+        ProjectedData = null,
+        SchemaErrors = Array.Empty<string>(),
+        ProjectionBypassed = true,
+        Truncation = null,
         Error = error,
     };
 

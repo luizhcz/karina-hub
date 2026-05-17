@@ -1,7 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { friendlyError } from '../api/client'
 import {
   formatRevisionLabel,
@@ -30,6 +28,8 @@ import {
   Spinner,
   cn,
 } from '../ui'
+import { extractConversationalDisplay } from '../utils/conversationalDisplay'
+import { OutputDetails, TypingDots, UiComponentChip } from '../components/ConversationalExtras'
 
 const HITL_TOOL_NAME = 'request_approval'
 const VERSION_CURRENT = ''
@@ -483,6 +483,14 @@ function BubbleRow({
   streaming: boolean
 }) {
   const isUser = bubble.role === 'user'
+  // Durante streaming os chunks chegam parciais e o parse JSON falha — exibimos
+  // o cru. Quando o turno fecha, extractConversationalDisplay separa
+  // message/ui_component/output e mostra cada parte no seu lugar (em vez do
+  // JSON inteiro vazar na bolha).
+  const display = !isUser && !streaming
+    ? extractConversationalDisplay(bubble.content)
+    : { message: bubble.content, uiComponent: null, output: undefined, structured: false }
+  const showTyping = !isUser && streaming && bubble.content.length === 0
   return (
     <div className={cn('flex flex-col', isUser ? 'items-end' : 'items-start')}>
       {/* Header pequeno: tipo + agentId pra dar contexto de quem respondeu.
@@ -503,13 +511,18 @@ function BubbleRow({
       >
         {isUser ? (
           <span className="whitespace-pre-wrap">{bubble.content}</span>
+        ) : showTyping ? (
+          <TypingDots />
         ) : (
-          <div className="prose prose-sm dark:prose-invert max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{bubble.content || ' '}</ReactMarkdown>
-          </div>
-        )}
-        {streaming && !isUser && (
-          <span className="ml-1 inline-block h-3 w-1 animate-pulse bg-fg-muted align-middle" aria-hidden />
+          <>
+            {display.uiComponent && (
+              <div className="mb-1.5">
+                <UiComponentChip value={display.uiComponent} />
+              </div>
+            )}
+            <div className="whitespace-pre-wrap break-words">{display.message}</div>
+            {display.structured && <OutputDetails value={display.output} />}
+          </>
         )}
       </div>
     </div>

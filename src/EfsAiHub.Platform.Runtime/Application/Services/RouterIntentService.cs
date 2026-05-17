@@ -92,6 +92,12 @@ public sealed class RouterIntentService : IRouterIntentService
         var existing = await _repo.GetByIdAsync(id, ct)
             ?? throw new KeyNotFoundException($"RouterIntent '{id}' não encontrada.");
 
+        // System intents (out_of_scope, etc.) são imutáveis: forma canônica
+        // depende de o pool sempre ter as mesmas chaves. Caller deveria
+        // detectar IsSystem na UI e desabilitar o form de edit.
+        if (existing.IsSystem)
+            throw new SystemIntentImmutableException(existing.Name);
+
         if (!string.IsNullOrWhiteSpace(patch.ProjectId))
             existing.ProjectId = patch.ProjectId.Trim();
 
@@ -126,6 +132,13 @@ public sealed class RouterIntentService : IRouterIntentService
 
     public async Task<bool> DeleteAsync(string id, CancellationToken ct = default)
     {
+        // Bloqueio anterior ao check de uso: system intents NUNCA podem ser
+        // deletadas, mesmo que ninguém esteja usando — elas representam o
+        // contrato do canônico.
+        var existing = await _repo.GetByIdAsync(id, ct);
+        if (existing is not null && existing.IsSystem)
+            throw new SystemIntentImmutableException(existing.Name);
+
         var usage = await _linkRepo.ListAgentsForIntentAsync(id, ct);
         if (usage.Count > 0)
             throw new RouterIntentInUseException(id, usage.Select(u => u.AgentId).ToList());

@@ -42,6 +42,22 @@ public sealed class RouterIntent
 
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Intent reservada do sistema. Auto-linkada em todo Router pelo
+    /// <c>AgentService.ValidateRouterAsync</c> e protegida contra delete/rename
+    /// pelo <c>RouterIntentService</c>. A intent canônica <c>out_of_scope</c>
+    /// (uma por tenant) usa essa flag — garante que todo Router consegue
+    /// classificar mensagens fora do escopo declarado.
+    /// </summary>
+    public bool IsSystem { get; init; } = false;
+}
+
+public sealed class SystemIntentImmutableException : Exception
+{
+    public SystemIntentImmutableException(string name)
+        : base($"Intent '{name}' é reservada do sistema — não pode ser editada nem deletada.")
+    { }
 }
 
 public sealed class RouterIntentNameConflictException : Exception

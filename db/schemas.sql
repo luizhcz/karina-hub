@@ -192,7 +192,7 @@ CREATE TABLE IF NOT EXISTS aihub.agent_approval_history (
     CONSTRAINT "CK_agent_approval_history_Action"
         CHECK ("Action" IN ('Submitted', 'Resubmitted', 'Approved', 'Rejected', 'AutoApproved', 'AdminOverride')),
     CONSTRAINT "CK_agent_approval_history_Tier"
-        CHECK ("Tier" IS NULL OR "Tier" IN ('Cosmetic', 'Behavioral'))
+        CHECK ("Tier" IS NULL OR "Tier" IN ('Cosmetic', 'Behavioral', 'TypeBypass'))
 );
 
 CREATE INDEX IF NOT EXISTS "IX_agent_approval_history_DraftId"
@@ -1518,6 +1518,29 @@ CREATE TABLE IF NOT EXISTS aihub.generic_tools (
 ALTER TABLE aihub.generic_tools
     ADD COLUMN IF NOT EXISTS "IsExclusive" BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- OutputProjectionMode: controla validação + projeção do response contra
+-- OutputSchema antes de chegar ao LLM (e ao tester do ToolEditor).
+--   'Off'     = bypass total (comportamento legacy).
+--   'Project' = drop silencioso de extras + fail-loud em required/type.
+--   'Strict'  = Project + fail-loud em extras (additionalProperties:false virtual).
+-- Default 'Off' preserva tools existentes; admin opta in pelo ToolEditor.
+ALTER TABLE aihub.generic_tools
+    ADD COLUMN IF NOT EXISTS "OutputProjectionMode" VARCHAR(16) NOT NULL DEFAULT 'Off';
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_schema = 'aihub'
+          AND table_name = 'generic_tools'
+          AND constraint_name = 'CK_generic_tools_OutputProjectionMode'
+    ) THEN
+        ALTER TABLE aihub.generic_tools
+            ADD CONSTRAINT "CK_generic_tools_OutputProjectionMode"
+            CHECK ("OutputProjectionMode" IN ('Off', 'Project', 'Strict'));
+    END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS "IX_generic_tools_ProjectId_TenantId"
     ON aihub.generic_tools ("ProjectId", "TenantId");
 
@@ -1546,6 +1569,7 @@ CREATE TABLE IF NOT EXISTS aihub.router_intents (
     "DisplayName" TEXT         NULL,
     "Description" TEXT         NOT NULL,
     "Examples"    JSONB        NOT NULL DEFAULT '[]'::jsonb,
+    "IsSystem"    BOOLEAN      NOT NULL DEFAULT FALSE,
     "CreatedAt"   TIMESTAMPTZ  NOT NULL,
     "UpdatedAt"   TIMESTAMPTZ  NOT NULL,
     CONSTRAINT "PK_router_intents" PRIMARY KEY ("Id"),
@@ -1556,6 +1580,7 @@ CREATE TABLE IF NOT EXISTS aihub.router_intents (
 
 -- Compat para deploys existentes (DDL idempotente).
 ALTER TABLE aihub.router_intents ADD COLUMN IF NOT EXISTS "DisplayName" TEXT NULL;
+ALTER TABLE aihub.router_intents ADD COLUMN IF NOT EXISTS "IsSystem" BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Unique por (TenantId, Name) — pool é por tenant, não por projeto. Dois
 -- projetos do mesmo tenant não podem ter intents homônimas.

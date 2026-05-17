@@ -152,7 +152,7 @@ public class AgentDraftsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> Submit(string id, CancellationToken ct)
+    public async Task<IActionResult> Submit(string id, [FromBody] SubmitDraftBody? body, CancellationToken ct)
     {
         try
         {
@@ -162,7 +162,11 @@ public class AgentDraftsController : ControllerBase
             var actorUserId = _auditContext.GetActorUserId() ?? "anonymous";
             var wasResubmit = before.Status == AgentDraftStatus.Rejected;
 
-            var result = await _draftService.SubmitForApprovalAsync(id, actorUserId, ct);
+            // changeReason é opcional aqui (BE tolera null com fallback), mas
+            // FE envia obrigatoriamente pros tipos que bypassam aprovação
+            // (Router) — o modal valida ≥10 chars antes do submit.
+            var changeReason = body?.ChangeReason?.Trim();
+            var result = await _draftService.SubmitForApprovalAsync(id, actorUserId, changeReason, ct);
             var submitted = result.Draft;
 
             await _audit.RecordAsync(_auditContext.Build(
@@ -208,4 +212,14 @@ public class AgentDraftsController : ControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
         }
     }
+}
+
+/// <summary>
+/// Body opcional do POST /agent-drafts/{id}/submit. <c>ChangeReason</c>
+/// é exigido pela UI quando o tipo do agente bypassa aprovação (Router),
+/// pra manter audit forte mesmo sem checkpoint de governança humana.
+/// </summary>
+public sealed class SubmitDraftBody
+{
+    public string? ChangeReason { get; set; }
 }

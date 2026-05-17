@@ -66,11 +66,88 @@ public sealed class AgentTemplateService : IAgentTemplateService
 
     public AgentDefinition Apply(AgentDefinition definition)
     {
+        // Invariante de visibility: Conversational e Router são sempre globais
+        // por design. Aplicado aqui (e não só em AgentService.CreateAsync) pra
+        // cobrir TODOS os caminhos de publicação — inclusive ApproveAsync do
+        // draft, que persiste via IAgentDefinitionRepository sem passar pelo
+        // service. Idempotente: re-aplicar não muda nada.
+        if (definition.Type is AgentType.Conversational or AgentType.Router)
+            definition.Visibility = "global";
+
         return definition.Type switch
         {
             AgentType.Conversational => ApplyConversational(definition),
+            AgentType.Router => ApplyRouter(definition),
             _ => definition,
         };
+    }
+
+    /// <summary>
+    /// Auto-defaults canônicos do Router: <c>StructuredOutput</c> com schema
+    /// <c>{ intent, confidence, reason, operationalMemory }</c> e
+    /// <c>OperationalMemory</c> com schema <c>{ last_intent, last_reason }</c>.
+    /// Aplicado apenas quando o admin não cadastrou schema próprio — preserva
+    /// customização. Idempotente: re-aplicar com canônico já presente não muda
+    /// nada (o template detecta presença de "intent" no top-level).
+    /// </summary>
+    private AgentDefinition ApplyRouter(AgentDefinition def)
+    {
+        var structuredOutput = def.StructuredOutput;
+        var hasCanonicalSchema = HasRouterCanonicalSchema(structuredOutput);
+        if (!hasCanonicalSchema)
+            structuredOutput = EfsAiHub.Core.Agents.RouterIntents.RouterDefaults.OutputSchema();
+
+        var operationalMemory = def.OperationalMemory
+            ?? EfsAiHub.Core.Agents.RouterIntents.RouterDefaults.OperationalMemoryV1();
+
+        return new AgentDefinition
+        {
+            Id = def.Id,
+            Name = def.Name,
+            Description = def.Description,
+            Type = def.Type,
+            RouterIntentIds = def.RouterIntentIds,
+            Model = def.Model,
+            Provider = def.Provider,
+            Instructions = def.Instructions,
+            Tools = def.Tools,
+            StructuredOutput = structuredOutput,
+            OperationalMemory = operationalMemory,
+            Middlewares = def.Middlewares,
+            FallbackProvider = def.FallbackProvider,
+            Resilience = def.Resilience,
+            CostBudget = def.CostBudget,
+            SkillRefs = def.SkillRefs,
+            Metadata = def.Metadata,
+            Visibility = def.Visibility,
+            AllowedProjectIds = def.AllowedProjectIds,
+            Enabled = def.Enabled,
+            ProjectId = def.ProjectId,
+            TenantId = def.TenantId,
+            CreatedAt = def.CreatedAt,
+            UpdatedAt = def.UpdatedAt,
+            RegressionTestSetId = def.RegressionTestSetId,
+            RegressionEvaluatorConfigVersionId = def.RegressionEvaluatorConfigVersionId,
+        };
+    }
+
+    private static bool HasRouterCanonicalSchema(AgentStructuredOutputDefinition? structured)
+    {
+        if (structured?.Schema is null) return false;
+        try
+        {
+            var root = structured.Schema.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return false;
+            if (!root.TryGetProperty("properties", out var props)) return false;
+            // Marker mínimo: o canônico exige "intent" no top-level + "operationalMemory".
+            // Se admin renomeou ou usou shape diferente, deixamos como está.
+            return props.TryGetProperty("intent", out _)
+                && props.TryGetProperty("operationalMemory", out _);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private AgentDefinition ApplyConversational(AgentDefinition def)

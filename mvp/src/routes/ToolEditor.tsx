@@ -12,6 +12,7 @@ import {
   type HttpMethodType,
   type InputContentType,
   type OutputContentType,
+  type OutputProjectionMode,
   type ParamDefinition,
 } from '../api/genericTools'
 import { friendlyError } from '../api/client'
@@ -75,6 +76,7 @@ interface FormState {
   outputDescription: string
   timeoutSeconds: string
   isExclusive: boolean
+  outputProjectionMode: OutputProjectionMode
 }
 
 function emptyForm(): FormState {
@@ -98,6 +100,9 @@ function emptyForm(): FormState {
     outputDescription: '',
     timeoutSeconds: '',
     isExclusive: false,
+    // Default 'Project' pra tools novas via UI — admin opta out conscientemente
+    // pra 'Off'. Tools existentes preservam 'Off' via fromTool (vindo do BE).
+    outputProjectionMode: 'Project',
   }
 }
 
@@ -165,6 +170,7 @@ function fromTool(tool: GenericTool): FormState {
     outputDescription: tool.outputContentType === 'Text' ? tool.outputSchema || '' : '',
     timeoutSeconds: tool.timeoutSecondsOverride?.toString() ?? '',
     isExclusive: tool.isExclusive,
+    outputProjectionMode: tool.outputProjectionMode,
   }
 }
 
@@ -328,6 +334,9 @@ export function ToolEditor({ mode }: Props) {
       outputSchema,
       timeoutSecondsOverride: timeout,
       isExclusive: form.isExclusive,
+      // Text não tem shape pra projetar — força Off no payload pra evitar
+      // 400 do EnsureInvariants. Demais content-types respeitam a escolha.
+      outputProjectionMode: form.outputContentType === 'Text' ? 'Off' : form.outputProjectionMode,
     }
   }
 
@@ -428,6 +437,27 @@ export function ToolEditor({ mode }: Props) {
             </p>
           </div>
         </label>
+
+        {form.outputContentType !== 'Text' && (
+          <div className="mt-2 rounded-lg border border-border bg-bg-soft p-3">
+            <label className="block">
+              <span className="text-sm font-medium text-fg">Validação do response (Output projection)</span>
+              <p className="mt-0.5 text-[11px] text-fg-muted">
+                Decide o que o agente recebe quando o endpoint responde. Schema declarado em
+                {' '}<strong>Output</strong> é usado pra filtrar/validar antes do LLM ver.
+              </p>
+              <select
+                value={form.outputProjectionMode}
+                onChange={(e) => set('outputProjectionMode', e.target.value as OutputProjectionMode)}
+                className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-fg"
+              >
+                <option value="Off">Off — entrega o response cru (sem validação)</option>
+                <option value="Project">Project — drop silencioso de campos extras + falha em required ausente</option>
+                <option value="Strict">Strict — Project + falha em qualquer campo extra</option>
+              </select>
+            </label>
+          </div>
+        )}
       </Card>
 
       {/* URL bar estilo Postman */}
@@ -842,6 +872,9 @@ function TestToolModal({ open, onClose, toolId, form }: TestToolModalProps) {
         responseTruncated: false,
         responseHeaders: {},
         parsedData: null,
+        projectedData: null,
+        schemaErrors: [],
+        projectionBypassed: true,
         error: friendlyError(err, 'Falha ao chamar o endpoint de teste.'),
       })
     } finally {
@@ -929,6 +962,15 @@ function TestResultPanel({ result }: { result: GenericToolTestResult }) {
     }
   }, [result.parsedData])
 
+  const projectedJson = useMemo(() => {
+    if (result.projectedData === null || result.projectedData === undefined) return null
+    try {
+      return JSON.stringify(result.projectedData, null, 2)
+    } catch {
+      return String(result.projectedData)
+    }
+  }, [result.projectedData])
+
   return (
     <div className="space-y-3 border-t border-border pt-4">
       <div className={cn('flex items-center justify-between rounded-lg border px-3 py-2 text-[11px]', toneClass)}>
@@ -960,10 +1002,36 @@ function TestResultPanel({ result }: { result: GenericToolTestResult }) {
         </div>
       )}
 
+      {/* Projetada: response após filtro/validação contra outputSchema. É o
+          que o LLM efetivamente vê em runtime (em modo Project/Strict). UI
+          esconde quando projection foi bypass (modo Off ou schema ausente)
+          pra não duplicar a tab "Resposta parseada". */}
+      {!result.projectionBypassed && result.schemaErrors.length > 0 && (
+        <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
+          <div className="mb-1 font-semibold uppercase tracking-wider">Schema violation</div>
+          <ul className="ml-4 list-disc space-y-0.5">
+            {result.schemaErrors.map((err, i) => (
+              <li key={i} className="font-mono">{err}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {!result.projectionBypassed && projectedJson && (
+        <details open className="rounded-lg border border-accent/40 bg-accent/[0.04]">
+          <summary className="cursor-pointer px-3 py-2 text-[11px] uppercase tracking-wider text-accent hover:text-accent">
+            Projetada (o que o LLM vai receber)
+          </summary>
+          <pre className="max-h-72 overflow-auto px-3 pb-3 font-mono text-[11px] leading-5 text-fg">
+            {projectedJson}
+          </pre>
+        </details>
+      )}
+
       {parsedJson && (
-        <details open className="rounded-lg border border-border bg-bg-soft">
+        <details open={result.projectionBypassed} className="rounded-lg border border-border bg-bg-soft">
           <summary className="cursor-pointer px-3 py-2 text-[11px] uppercase tracking-wider text-fg-muted hover:text-fg">
-            Resposta parseada
+            Resposta parseada {!result.projectionBypassed && <span className="text-fg-dim">(antes da projeção)</span>}
           </summary>
           <pre className="max-h-72 overflow-auto px-3 pb-3 font-mono text-[11px] leading-5 text-fg">
             {parsedJson}

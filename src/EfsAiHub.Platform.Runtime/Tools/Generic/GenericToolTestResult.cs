@@ -38,6 +38,35 @@ public sealed record GenericToolTestResult
     /// </summary>
     public object? ParsedData { get; init; }
 
+    /// <summary>
+    /// Response após projeção pelo <see cref="GenericResponseProjector"/> usando
+    /// o <c>OutputSchema</c> + <c>OutputProjectionMode</c> da tool. Null quando
+    /// <see cref="SchemaErrors"/> contém violações (a UI mostra os erros em vez
+    /// dos dados). Em modo Off ou schema ausente, é o mesmo que <see cref="ParsedData"/>
+    /// e <see cref="ProjectionBypassed"/> é true.
+    /// </summary>
+    public object? ProjectedData { get; init; }
+
+    /// <summary>
+    /// Violações detectadas na validação contra <c>OutputSchema</c>. Vazio
+    /// quando passa ou quando projeção foi bypass.
+    /// </summary>
+    public IReadOnlyList<string> SchemaErrors { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// True quando o projector NÃO aplicou validação (modo Off, schema ausente,
+    /// ou response não-parseável). UI usa pra desabilitar tab "Projetada" com tooltip.
+    /// </summary>
+    public bool ProjectionBypassed { get; init; }
+
+    /// <summary>
+    /// Quando array do response foi truncado pela projeção (ver
+    /// <see cref="GenericResponseProjector.MaxArrayItemsProjected"/>),
+    /// expõe contagens original e projetada pra UI avisar o admin. Null
+    /// quando não houve truncamento.
+    /// </summary>
+    public TruncationInfo? Truncation { get; init; }
+
     /// <summary>Mensagem detalhada de erro pra debug humano (ao contrário do executor de runtime).</summary>
     public string? Error { get; init; }
 }

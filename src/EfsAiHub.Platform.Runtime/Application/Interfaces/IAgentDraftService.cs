@@ -47,6 +47,9 @@ public interface IAgentDraftService
     ///   <item><b>Edit-draft cosmético</b> (só Description/Metadata mudaram):
     ///         <see cref="SubmitForApprovalResult.AutoApproved"/> — pula a fila,
     ///         publica direto e escreve <c>AutoApproved</c> no history.</item>
+    ///   <item><b>Tipo que bypassa aprovação</b> (ex.: Router): auto-aprovado com
+    ///         <c>Tier=TypeBypass</c>. <paramref name="changeReason"/> obrigatório
+    ///         por contrato de UX (FE pede modal); BE aceita null e usa fallback.</item>
     ///   <item><b>Edit-draft comportamental</b>: vai pra PendingApproval normal.</item>
     /// </list>
     /// Owner gate: só projeto dono submete.
@@ -54,6 +57,7 @@ public interface IAgentDraftService
     Task<SubmitForApprovalResult> SubmitForApprovalAsync(
         string id,
         string actorUserId,
+        string? changeReason = null,
         CancellationToken ct = default);
 
     /// <summary>

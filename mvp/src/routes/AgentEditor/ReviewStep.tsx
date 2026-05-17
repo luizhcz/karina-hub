@@ -8,13 +8,15 @@ import type { PredefinedModel } from '../../api/predefinedModels'
 import { listRouterIntents, type RouterIntent } from '../../api/routerIntents'
 import { encodeInstructions } from './instructionsCodec'
 import {
-  buildToolDescriptors,
   encodeConversationalInstructions,
   encodeRouterInstructions,
   encodeToolRunnerInstructions,
   encodeWorkerInstructions,
 } from './formCodec'
 import type { FormState } from './types'
+import { buildEnrichedDescriptors } from './preview/toolDescriptors'
+import { ToolsPreview } from './preview/ToolsPreview'
+import { ToolCallExample } from './preview/ToolCallExample'
 
 interface ReviewStepProps {
   form: FormState
@@ -30,8 +32,12 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
   const inputForCodec = form.input.mode === 'structured' ? form.input : { description: '', schema: '' }
   const outputForCodec = form.output.mode === 'structured' ? form.output : { description: '', schema: '' }
 
-  const toolDocs = useMemo(
-    () => buildToolDescriptors(form.toolIds, form.mcpIds, tools, mcps),
+  // Descritores ricos das tools/MCPs anexados. Vão pra <ToolsPreview> +
+  // <ToolCallExample> renderizarem visão estruturada (JSON Schema, badges,
+  // exemplo de tool_call) — não pro prompt (tools chegam ao LLM via
+  // function-calling nativo, não como texto concatenado).
+  const enrichedTools = useMemo(
+    () => buildEnrichedDescriptors(form.toolIds, form.mcpIds, tools, mcps),
     [form.toolIds, form.mcpIds, tools, mcps],
   )
 
@@ -45,28 +51,18 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
             ? encodeToolRunnerInstructions(form.name)
             : form.type === 'Conversational'
               ? encodeConversationalInstructions(form.profile)
-              : encodeInstructions(form.profile, inputForCodec, outputForCodec, toolDocs, includeStructured),
+              : encodeInstructions(form.profile, inputForCodec, outputForCodec, includeStructured),
     [
       form.type,
       form.name,
       form.profile,
       inputForCodec,
       outputForCodec,
-      toolDocs,
       includeStructured,
     ],
   )
 
   const selectedModel = models.find((m) => m.id === form.predefinedModelId) ?? null
-
-  const selectedTools = useMemo(
-    () => tools.filter((t) => form.toolIds.includes(t.id)),
-    [tools, form.toolIds],
-  )
-  const selectedMcps = useMemo(
-    () => mcps.filter((m) => form.mcpIds.includes(m.id)),
-    [mcps, form.mcpIds],
-  )
 
   const [copied, setCopied] = useState(false)
 
@@ -133,11 +129,11 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
 
       <Card className="space-y-4">
         <CardHeader
-          title="Prompt do agente"
-          description="Texto completo que o agente vai ler antes de cada resposta — o que você escreveu + a documentação das ferramentas + as regras de formato."
+          title="System prompt"
+          description="Texto que vai como instrução do agente. As ferramentas anexadas (próximo bloco) NÃO entram aqui — são entregues ao modelo separadamente via function calling."
           actions={
             <Button variant="secondary" size="sm" onClick={onCopy} disabled={!prompt}>
-              {copied ? 'Copiado!' : 'Copiar'}
+              {copied ? 'Copiado!' : 'Copiar system prompt'}
             </Button>
           }
         />
@@ -150,47 +146,9 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
         )}
       </Card>
 
-      <Card className="space-y-3">
-        <CardHeader
-          title="Ferramentas e integrações externas"
-          description="Recursos que o agente pode usar durante a conversa pra buscar dados ou executar ações."
-        />
-        <div className="space-y-3">
-          <div>
-            <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">Ferramentas</p>
-            {selectedTools.length === 0 ? (
-              <p className="text-sm text-fg-muted">Nenhuma selecionada.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {selectedTools.map((t) => (
-                  <Badge key={t.id} tone="accent">
-                    {t.name || t.id}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-          <div>
-            <p
-              className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim"
-              title="MCPs (Model Context Protocol) — servidores externos que expõem ferramentas e dados pro agente consumir."
-            >
-              Integrações externas
-            </p>
-            {selectedMcps.length === 0 ? (
-              <p className="text-sm text-fg-muted">Nenhuma selecionada.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {selectedMcps.map((m) => (
-                  <Badge key={m.id} tone="accent">
-                    {m.name || m.id}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </Card>
+      <ToolsPreview tools={enrichedTools} />
+
+      <ToolCallExample tools={enrichedTools} />
     </div>
   )
 }

@@ -29,6 +29,15 @@ namespace EfsAiHub.Host.Api.Middleware;
 ///
 /// Deve rodar DEPOIS de TenantMiddleware (precisa do TenantId resolvido)
 /// e ANTES de AdminGateMiddleware (que lê IUserContextAccessor.Current).
+///
+/// IMPORTANTE — rotas em <see cref="UserProvisioningOptions.SkipPathPrefixes"/>:
+/// pra essas rotas o UPSERT é pulado e <see cref="IUserContextAccessor.Current"/>
+/// fica null mesmo com headers de identidade presentes. Handlers que atendem
+/// essas rotas precisam resolver identity por conta própria
+/// (<see cref="IUserIdentityProvider"/> / <c>UserIdentityResolver.TryResolve</c>)
+/// em vez de consumir <c>IUserContextAccessor.Current</c> — caso contrário vão
+/// ver request anônimo. Default skip-list cobre o AG-UI stream, que já segue
+/// esse padrão (resolve no próprio endpoint).
 /// </summary>
 public sealed class UserProvisioningMiddleware
 {

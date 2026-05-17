@@ -48,6 +48,7 @@ import { MemoryStep } from './MemoryStep'
 import { OutputStep } from './OutputStep'
 import { ModelStep } from './ModelStep'
 import { ReviewStep } from './ReviewStep'
+import { ChangeReasonModal } from './ChangeReasonModal'
 import { AssistantDrawer } from './AssistantDrawer'
 import { buildPayload, emptyFormState, fromDraft } from './formCodec'
 import { AGENT_TEMPLATES } from './templates'
@@ -261,6 +262,10 @@ export function AgentEditor({ mode }: Props) {
   const [submitting, setSubmitting] = useState(false)
   const [submittingApproval, setSubmittingApproval] = useState(false)
   const [confirmSubmit, setConfirmSubmit] = useState(false)
+  // Router bypassa aprovação — em vez do modal genérico de confirmação,
+  // abrimos um modal específico que exige motivo (≥10 chars) pra manter
+  // audit forte. State separado pra não conflitar com o fluxo normal.
+  const [routerReasonOpen, setRouterReasonOpen] = useState(false)
 
   const [models, setModels] = useState<PredefinedModel[]>([])
   const [modelsLoading, setModelsLoading] = useState(true)
@@ -636,7 +641,7 @@ export function AgentEditor({ mode }: Props) {
     setSubmitting(true)
     try {
       if (mode === 'edit' && id && draft) {
-        const payload = buildPayload(draft.payload, form, tools, mcps)
+        const payload = buildPayload(draft.payload, form)
         const updated = await updateAgentDraft(id, {
           payload,
           expectedUpdatedAt: draft.updatedAt,
@@ -644,7 +649,7 @@ export function AgentEditor({ mode }: Props) {
         setDraft(updated)
         setForm((prev) => ({ ...fromDraft(updated), currentStep: prev.currentStep, agentMode: prev.agentMode }))
       } else {
-        const payload = buildPayload(undefined, form, tools, mcps)
+        const payload = buildPayload(undefined, form)
         const created = await createAgentDraft({ id: generateDraftId(), payload })
         navigate(`/agentes/${created.id}`, { replace: true })
       }
@@ -702,10 +707,16 @@ export function AgentEditor({ mode }: Props) {
       setConfirmFrustration(true)
       return
     }
+    // Router: modal dedicado pede motivo obrigatório (≥10 chars). Demais
+    // tipos seguem o modal de confirmação genérico.
+    if (form.type === 'Router') {
+      setRouterReasonOpen(true)
+      return
+    }
     setConfirmSubmit(true)
   }
 
-  const onConfirmSubmit = async () => {
+  const onConfirmSubmit = async (changeReason?: string) => {
     const validation = validateForSubmit()
     if (validation) {
       setError(validation)
@@ -719,29 +730,36 @@ export function AgentEditor({ mode }: Props) {
       if (mode === 'create' || !draftId) {
         // Create mode: cria o draft inline antes de submeter (1 fluxo, sem
         // viagem extra pra /agentes/{id} no meio).
-        const payload = buildPayload(undefined, form, tools, mcps)
+        const payload = buildPayload(undefined, form)
         const created = await createAgentDraft({ id: generateDraftId(), payload })
         draftId = created.id
         setDraft(created)
       } else if (draft) {
-        const payload = buildPayload(draft.payload, form, tools, mcps)
+        const payload = buildPayload(draft.payload, form)
         const updated = await updateAgentDraft(draftId, {
           payload,
           expectedUpdatedAt: draft.updatedAt,
         })
         setDraft(updated)
       }
-      const result = await submitAgentDraft(draftId!)
+      const result = await submitAgentDraft(draftId!, changeReason)
       setConfirmSubmit(false)
+      setRouterReasonOpen(false)
       // Flash de confirmação consumido pelo AgentsList via location.state.
       // Garante feedback explícito de "submeti, e agora?" — sem isso o user
       // vê só a lista e não sabe se a ação chegou.
       const flash = result.autoApproved
-        ? {
-            tone: 'success' as const,
-            title: 'Edição cosmética aprovada automaticamente',
-            body: 'A nova versão do agente já está em produção.',
-          }
+        ? result.tier === 'TypeBypass'
+          ? {
+              tone: 'success' as const,
+              title: 'Agente Router publicado em produção',
+              body: 'Routers não passam pela fila de aprovação. O motivo informado ficou registrado no histórico.',
+            }
+          : {
+              tone: 'success' as const,
+              title: 'Edição cosmética aprovada automaticamente',
+              body: 'A nova versão do agente já está em produção.',
+            }
         : {
             tone: 'accent' as const,
             title: 'Rascunho enviado para aprovação',
@@ -761,6 +779,7 @@ export function AgentEditor({ mode }: Props) {
         setError(friendlyError(err, 'Não foi possível submeter o rascunho.'))
       }
       setConfirmSubmit(false)
+      setRouterReasonOpen(false)
     } finally {
       setSubmittingApproval(false)
     }
@@ -1106,7 +1125,7 @@ export function AgentEditor({ mode }: Props) {
             <Button variant="ghost" onClick={() => setConfirmSubmit(false)}>
               Cancelar
             </Button>
-            <Button onClick={onConfirmSubmit} loading={submittingApproval}>
+            <Button onClick={() => onConfirmSubmit()} loading={submittingApproval}>
               Submeter
             </Button>
           </div>
@@ -1116,6 +1135,14 @@ export function AgentEditor({ mode }: Props) {
           Vamos salvar as alterações em aberto e enviar este rascunho para aprovação. Tudo certo?
         </p>
       </Modal>
+
+      <ChangeReasonModal
+        open={routerReasonOpen}
+        agentType="Router"
+        submitting={submittingApproval}
+        onClose={() => setRouterReasonOpen(false)}
+        onConfirm={(reason) => onConfirmSubmit(reason)}
+      />
 
       <Modal
         open={confirmFrustration}
@@ -1132,7 +1159,9 @@ export function AgentEditor({ mode }: Props) {
               onClick={() => {
                 frustrationDismissedRef.current = true
                 setConfirmFrustration(false)
-                setConfirmSubmit(true)
+                // Router pula o modal genérico — abre o modal de motivo.
+                if (form.type === 'Router') setRouterReasonOpen(true)
+                else setConfirmSubmit(true)
               }}
             >
               Submeter mesmo assim
