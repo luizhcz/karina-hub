@@ -78,21 +78,11 @@ public sealed class ChatValidationWarningCalculator
         return warnings;
     }
 
+    // Critério "é deploy produtivo de chat?" mora em AgentSandboxMetadata
+    // — o mesmo helper é consumido pelo gate WorkflowService.
+    // EnsureChatDeploymentAllowedAsync. Single source of truth.
     private static bool IsChatProductionDeploy(WorkflowDefinition definition)
-    {
-        if (definition.Metadata is null) return false;
-        if (!definition.Metadata.TryGetValue(AgentSandboxMetadata.DeploymentKindKey, out var kind)) return false;
-        if (!string.Equals(kind, AgentSandboxMetadata.DeploymentKindChat, StringComparison.OrdinalIgnoreCase)) return false;
-
-        // Chat Sandbox tem deploymentKind=chat MAS é efêmero (kind=chat-sandbox).
-        // Warnings só fazem sentido em deploys reais — sandbox próprio bypass.
-        if (definition.Metadata.TryGetValue(AgentSandboxMetadata.KindKey, out var kindSpecific)
-            && string.Equals(kindSpecific, AgentSandboxMetadata.KindChatSandbox, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-        return true;
-    }
+        => AgentSandboxMetadata.IsChatProductionDeploy(definition);
 
     private async Task<int?> ResolveRevisionAsync(string agentVersionId, CancellationToken ct)
     {

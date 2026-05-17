@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using EfsAiHub.Core.Abstractions.Users;
 using EfsAiHub.Core.Agents.GenericTools;
 using EfsAiHub.Platform.Runtime.Configuration;
 using EfsAiHub.Platform.Runtime.Tools.Generic;
@@ -48,6 +49,7 @@ public class GenericToolExecutorTests
         return new GenericToolExecutor(
             new SingleClientFactory(handler),
             Options.Create(opts ?? new GenericToolsOptions { DefaultTimeoutSeconds = 5, MaxTimeoutSeconds = 10 }),
+            Substitute.For<IRequestAuthContextAccessor>(),
             NullLogger<GenericToolExecutor>.Instance);
     }
 

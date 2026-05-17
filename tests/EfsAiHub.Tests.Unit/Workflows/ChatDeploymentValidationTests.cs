@@ -98,6 +98,30 @@ public class ChatDeploymentValidationTests
         Agents = [new WorkflowAgentReference { AgentId = "agent-1", AgentVersionId = "v-1" }],
     };
 
+    // Espelha BuildChatDeployment, mas marca kind=chat-sandbox + transient=true
+    // (igual ao que o AgentSandboxService grava). É o caminho do bug original:
+    // workflow efêmero criado pelo botão "Testar" no AgentEditor.
+    private static WorkflowDefinition BuildChatSandboxDeployment(string projectId) => new()
+    {
+        Id = $"deploy-chat-sandbox-{Guid.NewGuid():N}",
+        Name = "Chat sandbox test",
+        OrchestrationMode = OrchestrationMode.Graph,
+        ProjectId = projectId,
+        TenantId = TenantId,
+        Configuration = new WorkflowConfiguration { InputMode = "Chat" },
+        Metadata = new Dictionary<string, string>
+        {
+            [AgentSandboxMetadata.DeploymentKindKey] = AgentSandboxMetadata.DeploymentKindChat,
+            [AgentSandboxMetadata.KindKey] = AgentSandboxMetadata.KindChatSandbox,
+            [AgentSandboxMetadata.TransientKey] = "true",
+            [AgentSandboxMetadata.SessionIdKey] = Guid.NewGuid().ToString("N"),
+        },
+        Agents =
+        [
+            new WorkflowAgentReference { AgentId = "conv-1", AgentVersionId = "v-1", Role = "EntryPoint" },
+        ],
+    };
+
     [Fact]
     public async Task CreateAsync_ChatDeployment_RejectsWhenProjectNotAllowed()
     {
@@ -165,5 +189,100 @@ public class ChatDeploymentValidationTests
 
         (caught as UnauthorizedAccessException).Should().BeNull();
         await projectRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateAsync_ChatSandboxWorkflow_BypassesGate_WhenProjectNotAllowed()
+    {
+        // Cenário do bug original: usuário tenta testar um Conversational em
+        // projeto sem ChatDeploymentAllowed. Sandbox tem kind=chat-sandbox e
+        // por isso bypassa o gate — não é deploy de produção.
+        var project = new Project
+        {
+            Id = BlockedProjectId,
+            Name = "Default",
+            TenantId = TenantId,
+            ChatDeploymentAllowed = false,
+        };
+        var (service, projectRepo, _) = BuildService(project);
+
+        var def = BuildChatSandboxDeployment(BlockedProjectId);
+
+        var caught = await Record.ExceptionAsync(() => service.CreateAsync(def));
+
+        (caught as UnauthorizedAccessException).Should().BeNull();
+        // Sandbox passa antes de chegar no _projectRepo.GetByIdAsync — confirma
+        // que o gate sequer foi consultado pra deploy não-produtivo.
+        await projectRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateAsync_ChatSandboxWorkflow_BypassesGate_WhenProjectAllowed()
+    {
+        // Sanity check: sandbox passa direto independente do flag do projeto.
+        var project = new Project
+        {
+            Id = AllowedProjectId,
+            Name = "Sales Trader AI",
+            TenantId = TenantId,
+            ChatDeploymentAllowed = true,
+        };
+        var (service, projectRepo, _) = BuildService(project);
+
+        var def = BuildChatSandboxDeployment(AllowedProjectId);
+
+        var caught = await Record.ExceptionAsync(() => service.CreateAsync(def));
+
+        (caught as UnauthorizedAccessException).Should().BeNull();
+        await projectRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UpdateAsync_RemovingChatSandboxMarker_ReengagesGate()
+    {
+        // Regression: admin que tira metadata.kind=chat-sandbox via PUT em projeto
+        // não autorizado deve receber 401 — o gate reativa porque o workflow
+        // deixa de ser sandbox.
+        var project = new Project
+        {
+            Id = BlockedProjectId,
+            Name = "Default",
+            TenantId = TenantId,
+            ChatDeploymentAllowed = false,
+        };
+        var (service, projectRepo, defRepo) = BuildService(project);
+
+        var existing = BuildChatSandboxDeployment(BlockedProjectId);
+        // Simula workflow sandbox já publicado.
+        defRepo.GetByIdAsync(existing.Id, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<WorkflowDefinition?>(existing));
+
+        // Update: mantém deploymentKind=chat mas REMOVE kind=chat-sandbox —
+        // simula promoção fora do AgentSandbox. Sem o marcador, vira deploy
+        // produtivo e o gate reativa.
+        var promoted = new WorkflowDefinition
+        {
+            Id = existing.Id,
+            Name = existing.Name,
+            OrchestrationMode = OrchestrationMode.Graph,
+            ProjectId = BlockedProjectId,
+            TenantId = TenantId,
+            Configuration = new WorkflowConfiguration { InputMode = "Chat" },
+            Metadata = new Dictionary<string, string>
+            {
+                [AgentSandboxMetadata.DeploymentKindKey] = AgentSandboxMetadata.DeploymentKindChat,
+            },
+            Agents =
+            [
+                new WorkflowAgentReference { AgentId = "conv-1", AgentVersionId = "v-1", Role = "EntryPoint" },
+            ],
+        };
+
+        var act = async () => await service.UpdateAsync(promoted);
+
+        var ex = await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        ex.Which.Message.Should().Contain("chat_deployment_allowed=true");
+
+        await projectRepo.Received(1).GetByIdAsync(BlockedProjectId, Arg.Any<CancellationToken>());
     }
 }

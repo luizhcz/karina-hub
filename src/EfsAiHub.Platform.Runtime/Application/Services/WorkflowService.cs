@@ -1,6 +1,7 @@
 using EfsAiHub.Platform.Runtime.Interfaces;
 using EfsAiHub.Core.Orchestration.Enums;
 using EfsAiHub.Core.Orchestration.Coordination;
+using EfsAiHub.Core.Orchestration.Validation;
 using EfsAiHub.Core.Abstractions.Execution;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Projects;
@@ -62,23 +63,44 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
     }
 
     /// <summary>
-    /// Defense-in-depth: implantação tipo Chat só pode ser criada/editada por
-    /// projetos com <c>chat_deployment_allowed=true</c>. Frontend já filtra,
-    /// mas validar aqui evita criação via API direta. Detecta deploy Chat
-    /// quando <c>metadata['deploymentKind']='chat'</c> OU
-    /// <c>Configuration.InputMode='Chat'</c> + Graph orchestration.
+    /// Defense-in-depth: implantação tipo Chat <b>de produção</b> só pode ser
+    /// criada/editada por projetos com <c>chat_deployment_allowed=true</c>.
+    /// Frontend já filtra, mas validar aqui evita criação via API direta.
+    ///
+    /// Sandbox (workflow efêmero criado pelo AgentSandbox quando o user clica
+    /// "Testar" num agente Conversational) tem <c>deploymentKind=chat</c> mas
+    /// também <c>kind=chat-sandbox</c> — é teste local, não deploy real, e
+    /// passa direto pelo gate. A diferenciação vive em
+    /// <see cref="AgentSandboxMetadata.IsChatProductionDeploy"/>.
+    ///
+    /// Caminho legado (workflow com <c>InputMode='Chat'</c> + Graph mas sem
+    /// <c>deploymentKind</c>) também é tratado: bloqueia, a menos que esteja
+    /// explicitamente marcado como sandbox.
     /// </summary>
     private async Task EnsureChatDeploymentAllowedAsync(
         WorkflowDefinition definition, CancellationToken ct)
     {
         if (_projectRepo is null) return; // backwards-compat com DI antigo
 
-        var isChatDeploy =
-            (definition.Metadata?.TryGetValue("deploymentKind", out var kind) == true
-                && string.Equals(kind, "chat", StringComparison.OrdinalIgnoreCase))
+        var isChatProductionDeploy =
+            AgentSandboxMetadata.IsChatProductionDeploy(definition)
             || (string.Equals(definition.Configuration?.InputMode, "Chat", StringComparison.OrdinalIgnoreCase)
-                && definition.OrchestrationMode == OrchestrationMode.Graph);
-        if (!isChatDeploy) return;
+                && definition.OrchestrationMode == OrchestrationMode.Graph
+                && !AgentSandboxMetadata.IsChatSandbox(definition));
+        if (!isChatProductionDeploy)
+        {
+            // Log explícito do bypass de sandbox — sem isso operador não tem
+            // como auditar quantos sandbox foram criados em projeto sem
+            // chat_deployment_allowed. Non-chat continua silente (não é bypass,
+            // é fluxo normal).
+            if (AgentSandboxMetadata.IsChatSandbox(definition))
+            {
+                _logger.LogDebug(
+                    "[ChatGate] Sandbox bypass — workflowId={WorkflowId} projectId={ProjectId}",
+                    definition.Id, definition.ProjectId);
+            }
+            return;
+        }
 
         var project = await _projectRepo.GetByIdAsync(definition.ProjectId, ct);
         if (project is null || !project.ChatDeploymentAllowed)
