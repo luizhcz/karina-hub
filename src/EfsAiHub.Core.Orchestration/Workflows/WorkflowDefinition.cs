@@ -169,6 +169,17 @@ public class WorkflowAgentReference
     /// <c>PATCH /api/aihub/workflows/{id}/agents/{agentId}/pin</c> sem rebuild do agregado.
     /// </summary>
     public string? AgentVersionId { get; set; }
+
+    /// <summary>
+    /// Override declarativo da janela de histórico passada a este agent no
+    /// workflow. Null = usa o default per-tipo aplicado pelo
+    /// <c>WorkflowAgentHistoryResolver</c> (Router=5 hardcoded, demais herdam
+    /// <see cref="WorkflowConfiguration.MaxHistoryMessages"/>). Manter como
+    /// override per-(workflow,agent) — não em <c>AgentDefinition</c> — porque
+    /// o mesmo agente pode ser referenciado em workflows distintos com
+    /// requisitos diferentes de contexto.
+    /// </summary>
+    public int? HistoryOverride { get; init; }
 }
 
 /// <summary>

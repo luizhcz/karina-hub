@@ -170,6 +170,15 @@ internal class RouterIntentRow
 
     public string Description { get; set; } = "";
     public string Examples { get; set; } = "[]";
+
+    /// <summary>
+    /// Intent reservada do sistema (ex.: <c>out_of_scope</c>). Auto-linkada
+    /// em todo Router pelo AgentService e protegida contra delete/edit pelo
+    /// RouterIntentService. Default false — só intents seedadas pela
+    /// migration 004 ficam true.
+    /// </summary>
+    public bool IsSystem { get; set; } = false;
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
@@ -940,6 +949,7 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.DisplayName).HasColumnType("text");
             b.Property(e => e.Description).HasColumnType("text").IsRequired();
             b.Property(e => e.Examples).HasColumnType("jsonb").IsRequired();
+            b.Property(e => e.IsSystem).HasDefaultValue(false).IsRequired();
             b.Property(e => e.CreatedAt).IsRequired();
             b.Property(e => e.UpdatedAt).IsRequired();
             b.HasIndex(e => new { e.TenantId, e.Name })

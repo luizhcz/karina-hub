@@ -132,6 +132,7 @@ public sealed class PgRouterIntentRepository : IRouterIntentRepository
             DisplayName = r.DisplayName,
             Description = r.Description,
             Examples = examples,
+            IsSystem = r.IsSystem,
             CreatedAt = r.CreatedAt,
             UpdatedAt = r.UpdatedAt,
         };

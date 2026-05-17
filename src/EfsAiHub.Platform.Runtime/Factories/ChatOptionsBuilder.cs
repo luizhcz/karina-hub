@@ -158,8 +158,10 @@ public static class ChatOptionsBuilder
         sb.Append("# Intenções disponíveis\n\n");
         sb.Append(
             "Escolha **exatamente uma** categoria do enum `intent` para cada input. " +
-            "Não invente categorias. Não combine. Se nenhuma encaixar bem, escolha a mais próxima " +
-            "e devolva `confidence < 0.5` para o workflow decidir.\n\n");
+            "Não invente categorias. Não combine. **Quando nenhuma intent de negócio combinar " +
+            $"(saudações, perguntas genéricas, fora do domínio do agente), escolha `{EfsAiHub.Core.Agents.RouterIntents.SystemIntents.OutOfScopeName}` " +
+            "com `confidence >= 0.7`**. Não force uma intent de negócio com confidence baixa — " +
+            "isso é um sintoma de classificação ruim, use a intent de fora-de-escopo.\n\n");
 
         foreach (var intent in resolvedRouterIntents)
         {
@@ -184,6 +186,19 @@ public static class ChatOptionsBuilder
                     sb.Append($"  • \"{example}\"\n");
             }
         }
+
+        // Cláusula de OperationalMemory — instrui o LLM a preencher o
+        // sub-objeto canônico do output. O OperationalMemoryChatClient extrai
+        // esse campo do JSON pós-call e persiste em aihub.operational_memory.
+        // Sem esta instrução, o LLM pode omitir o campo mesmo com schema
+        // declarado, e a memória nunca grava.
+        sb.Append("\n# Memória operacional\n\n");
+        sb.Append(
+            "No campo `operationalMemory` do output, **sempre preencha**:\n" +
+            "- `last_intent`: copie o valor de `intent` que você escolheu.\n" +
+            "- `last_reason`: copie o valor de `reason` (até 200 chars).\n\n" +
+            "Esta memória é persistida e injetada no próximo turno como contexto. " +
+            "Não invente outros campos.\n");
 
         return sb.ToString();
     }
@@ -405,8 +420,24 @@ public static class ChatOptionsBuilder
         if (definition.Type == AgentType.Router
             && resolvedRouterIntents is { Count: > 0 })
         {
-            var raw = structuredOutput.Schema!.RootElement.GetRawText();
-            var node = JsonNode.Parse(raw) as JsonObject;
+            // Try/catch defensivo: schema persistido pode ter shape inesperado
+            // (ex: JSON malformado migrado de um seed antigo, edição manual
+            // direta no DB). Caía em FormatException antes — agora cai no
+            // fallback do else.
+            JsonObject? node = null;
+            try
+            {
+                var raw = structuredOutput.Schema!.RootElement.GetRawText();
+                node = JsonNode.Parse(raw) as JsonObject;
+            }
+            catch (Exception ex) when (ex is System.Text.Json.JsonException or FormatException)
+            {
+                logger.LogWarning(ex,
+                    "[ChatOptionsBuilder] Router '{AgentId}' StructuredOutput.Schema é malformado — " +
+                    "caindo no schema persistido sem enriquecer enum.",
+                    definition.Id);
+            }
+
             if (node is not null
                 && node["properties"] is JsonObject props
                 && props["intent"] is JsonObject intentNode)
@@ -500,12 +531,12 @@ public static class ChatOptionsBuilder
             root["properties"] = properties;
         }
 
-        if (properties.ContainsKey(MemoryFieldName))
-            throw new InvalidOperationException(
-                $"Agent '{definition.Id}': StructuredOutput.Schema já contém property '{MemoryFieldName}' — " +
-                "remove do schema do agente ou desative OperationalMemory pra evitar colisão.");
-
-        properties[MemoryFieldName] = memNode;
+        // Canônico do Router e agentes customizados podem já declarar
+        // `operationalMemory` no schema (necessário pra que o LLM saiba emitir
+        // o campo). Nesses casos só passamos o schema adiante — o middleware
+        // continua ativo e extrai o sub-objeto do output normalmente.
+        if (!properties.ContainsKey(MemoryFieldName))
+            properties[MemoryFieldName] = memNode;
 
         var required = root["required"] as JsonArray ?? new JsonArray();
         if (!required.Any(n => n is JsonValue v && v.TryGetValue<string>(out var s) && s == MemoryFieldName))

@@ -25,11 +25,18 @@ public static class ChatTurnContextMapper
     /// mensagem do usuário (trailing). Usado para reforço curto de persona
     /// (combate lost-in-the-middle). Só opera em chamadas com ChatTurnContext
     /// expandido — inputs crus recebem o mesmo tratamento no caller.
+    ///
+    /// <paramref name="historyWindow"/>: quando setado e &gt; 0, fatia o
+    /// histórico nas últimas N mensagens antes do append. Slice acontece aqui
+    /// (não no ConversationService) pra que cada agente do mesmo workflow
+    /// receba a janela apropriada — Router=5 enquanto Conversational mantém
+    /// a janela global do workflow.
     /// </summary>
     public static List<AiChatMessage>? TryExpand(
         string? rawInput,
         string? userReinforcement = null,
-        JsonSerializerOptions? opts = null)
+        JsonSerializerOptions? opts = null,
+        int? historyWindow = null)
     {
         if (string.IsNullOrWhiteSpace(rawInput) || rawInput[0] != '{')
             return null;
@@ -48,7 +55,7 @@ public static class ChatTurnContextMapper
         if (ctx is null || ctx.Metadata.Count == 0)
             return null;
 
-        return BuildMessages(ctx, userReinforcement);
+        return BuildMessages(ctx, userReinforcement, historyWindow);
     }
 
     /// <summary>
@@ -80,7 +87,10 @@ public static class ChatTurnContextMapper
         }
     }
 
-    private static List<AiChatMessage> BuildMessages(ChatTurnContext ctx, string? userReinforcement = null)
+    private static List<AiChatMessage> BuildMessages(
+        ChatTurnContext ctx,
+        string? userReinforcement = null,
+        int? historyWindow = null)
     {
         var messages = new List<AiChatMessage>();
 
@@ -103,8 +113,12 @@ public static class ChatTurnContextMapper
             catch { /* state inválido — ignora silenciosamente */ }
         }
 
-        // 3. Histórico como mensagens User/Assistant reais
-        foreach (var msg in ctx.History)
+        // 3. Histórico como mensagens User/Assistant reais (com slice opcional)
+        IEnumerable<ChatTurnMessage> historySource = ctx.History;
+        if (historyWindow is { } window && window > 0 && ctx.History.Count > window)
+            historySource = ctx.History.Skip(ctx.History.Count - window);
+
+        foreach (var msg in historySource)
         {
             var role = msg.Role.ToLowerInvariant() switch
             {

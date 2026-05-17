@@ -1569,6 +1569,7 @@ CREATE TABLE IF NOT EXISTS aihub.router_intents (
     "DisplayName" TEXT         NULL,
     "Description" TEXT         NOT NULL,
     "Examples"    JSONB        NOT NULL DEFAULT '[]'::jsonb,
+    "IsSystem"    BOOLEAN      NOT NULL DEFAULT FALSE,
     "CreatedAt"   TIMESTAMPTZ  NOT NULL,
     "UpdatedAt"   TIMESTAMPTZ  NOT NULL,
     CONSTRAINT "PK_router_intents" PRIMARY KEY ("Id"),
@@ -1579,6 +1580,7 @@ CREATE TABLE IF NOT EXISTS aihub.router_intents (
 
 -- Compat para deploys existentes (DDL idempotente).
 ALTER TABLE aihub.router_intents ADD COLUMN IF NOT EXISTS "DisplayName" TEXT NULL;
+ALTER TABLE aihub.router_intents ADD COLUMN IF NOT EXISTS "IsSystem" BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Unique por (TenantId, Name) — pool é por tenant, não por projeto. Dois
 -- projetos do mesmo tenant não podem ter intents homônimas.

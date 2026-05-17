@@ -1,3 +1,7 @@
+using EfsAiHub.Core.Agents;
+using EfsAiHub.Core.Agents.RouterIntents;
+using EfsAiHub.Core.Orchestration.Enums;
+using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Platform.Runtime.Interfaces;
 
 namespace EfsAiHub.Platform.Runtime.Services;
@@ -49,8 +53,61 @@ public class WorkflowValidator
         ValidateEdges(definition, agentIdSet, errors);
         ValidateConfiguration(definition, errors);
         await ValidateAgentReferencesAsync(definition, errors, ct);
+        await ValidateRouterSwitchFallbackAsync(definition, errors, ct);
 
         return (errors.Count == 0, errors);
+    }
+
+    /// <summary>
+    /// Garante que todo Switch cuja origem é um agente Router tem um caminho
+    /// de fallback — seja via <c>IsDefault=true</c> em algum case, seja via
+    /// case com predicate <c>$.intent Eq "out_of_scope"</c>. Sem isso, o
+    /// runtime pode receber um <c>intent</c> que não bate com nenhum case e
+    /// travar/responder vazio.
+    /// </summary>
+    private async Task ValidateRouterSwitchFallbackAsync(
+        WorkflowDefinition definition,
+        List<string> errors,
+        CancellationToken ct)
+    {
+        var switchEdges = definition.Edges
+            .Where(e => e.EdgeType == WorkflowEdgeType.Switch && !string.IsNullOrEmpty(e.From))
+            .ToList();
+        if (switchEdges.Count == 0) return;
+
+        foreach (var edge in switchEdges)
+        {
+            var agent = await _agentRepo.GetByIdAsync(edge.From!, ct);
+            if (agent is null || agent.Type != AgentType.Router) continue;
+
+            var hasDefault = edge.Cases.Any(c => c.IsDefault);
+            var hasOutOfScopeCase = edge.Cases.Any(c =>
+                c.Predicate is { } p
+                && p.Operator == EdgeOperator.Eq
+                && IsIntentPath(p.Path)
+                && IsOutOfScopeValue(p.Value));
+
+            if (!hasDefault && !hasOutOfScopeCase)
+            {
+                errors.Add(
+                    $"Switch a partir do Router '{edge.From}' não tem caminho de fallback. " +
+                    $"Adicione um caso com IsDefault=true OU um caso com predicate " +
+                    $"`$.intent Eq \"{SystemIntents.OutOfScopeName}\"` apontando pro agente de fallback.");
+            }
+        }
+    }
+
+    private static bool IsIntentPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        return string.Equals(path, "$.intent", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsOutOfScopeValue(System.Text.Json.JsonElement? value)
+    {
+        if (value is not { } v || v.ValueKind != System.Text.Json.JsonValueKind.String)
+            return false;
+        return string.Equals(v.GetString(), SystemIntents.OutOfScopeName, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ValidateVisibility(WorkflowDefinition definition, List<string> errors)

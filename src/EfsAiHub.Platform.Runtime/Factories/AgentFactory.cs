@@ -454,7 +454,16 @@ public class AgentFactory : IAgentFactory
             // Senão, usa o input como mensagem User única (comportamento original).
             // O reforço de persona (≤15 tokens) é anexado à última user message pelo
             // ChatTurnContextMapper quando há expansão; em inputs crus o factory append aqui.
-            var expanded = ChatTurnContextMapper.TryExpand(input, composedPersona.UserReinforcement);
+            // historyWindow per-agente: Router=5 (canônico), demais herdam o
+            // global do workflow (=null no mapper, sem slice). Override
+            // declarativo via WorkflowAgentReference fica como follow-up —
+            // hoje o factory não tem o workflowRef em escopo.
+            var historyWindow = EfsAiHub.Platform.Runtime.Application.Services
+                .WorkflowAgentHistoryResolver.Resolve(definition.Type, workflowRef: null, workflowConfig: null);
+            var expanded = ChatTurnContextMapper.TryExpand(
+                input,
+                composedPersona.UserReinforcement,
+                historyWindow: historyWindow);
             if (expanded is not null)
                 messages.AddRange(expanded);
             else
