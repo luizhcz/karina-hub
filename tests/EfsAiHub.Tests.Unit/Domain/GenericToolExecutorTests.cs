@@ -50,6 +50,7 @@ public class GenericToolExecutorTests
             new SingleClientFactory(handler),
             Options.Create(opts ?? new GenericToolsOptions { DefaultTimeoutSeconds = 5, MaxTimeoutSeconds = 10 }),
             Substitute.For<IRequestAuthContextAccessor>(),
+            new GenericResponseProjector(new SchemaCache()),
             NullLogger<GenericToolExecutor>.Instance);
     }
 
@@ -437,5 +438,72 @@ public class GenericToolExecutorTests
         Func<Task> act = () => executor.ExecuteAsync(tool, new Dictionary<string, object?>(), cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ProjectMode_ReturnsFilteredResponse()
+    {
+        // Response upstream tem campo extra `ghost` que não está no schema.
+        // Mode=Project deve dropar silenciosamente e devolver só os campos
+        // declarados pro LLM.
+        const string outputSchema = """
+            {"type":"object","properties":{"id":{"type":"string"}}}
+            """;
+        var handler = new StubHandler((_, _) =>
+            Task.FromResult(Json(HttpStatusCode.OK, """{"id":"abc","ghost":"x"}""")));
+        var executor = BuildExecutor(handler);
+
+        var tool = new GenericTool
+        {
+            Id = "t",
+            ProjectId = "p",
+            TenantId = "tnt",
+            Name = "x",
+            HttpMethod = HttpMethodType.GET,
+            UrlTemplate = "https://api.test/x",
+            OutputContentType = OutputContentType.Json,
+            OutputSchema = outputSchema,
+            OutputProjectionMode = OutputProjectionMode.Project,
+        };
+
+        var result = await executor.ExecuteAsync(tool, new Dictionary<string, object?>());
+
+        result.Success.Should().BeTrue();
+        var json = System.Text.Json.JsonSerializer.Serialize(result.Data);
+        json.Should().Contain("\"id\":\"abc\"");
+        json.Should().NotContain("ghost");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_StrictMode_ThrowsSchemaViolation()
+    {
+        // Mode=Strict + property extra → ResponseSchemaViolationException
+        // estruturada. Framework de tool-calling captura e serializa pro LLM.
+        const string outputSchema = """
+            {"type":"object","properties":{"id":{"type":"string"}}}
+            """;
+        var handler = new StubHandler((_, _) =>
+            Task.FromResult(Json(HttpStatusCode.OK, """{"id":"abc","ghost":"x"}""")));
+        var executor = BuildExecutor(handler);
+
+        var tool = new GenericTool
+        {
+            Id = "t",
+            ProjectId = "p",
+            TenantId = "tnt",
+            Name = "tool-strict",
+            HttpMethod = HttpMethodType.GET,
+            UrlTemplate = "https://api.test/x",
+            OutputContentType = OutputContentType.Json,
+            OutputSchema = outputSchema,
+            OutputProjectionMode = OutputProjectionMode.Strict,
+        };
+
+        Func<Task> act = () => executor.ExecuteAsync(tool, new Dictionary<string, object?>());
+
+        var ex = await act.Should().ThrowAsync<ResponseSchemaViolationException>();
+        ex.Which.ToolName.Should().Be("tool-strict");
+        ex.Which.Details.Should().NotBeEmpty();
+        ex.Which.ToJson().Should().Contain("response_schema_violation");
     }
 }

@@ -17,17 +17,20 @@ public sealed class GenericToolExecutor : IGenericToolExecutor
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOptions<GenericToolsOptions> _options;
     private readonly IRequestAuthContextAccessor _authContext;
+    private readonly GenericResponseProjector _projector;
     private readonly ILogger<GenericToolExecutor> _logger;
 
     public GenericToolExecutor(
         IHttpClientFactory httpClientFactory,
         IOptions<GenericToolsOptions> options,
         IRequestAuthContextAccessor authContext,
+        GenericResponseProjector projector,
         ILogger<GenericToolExecutor> logger)
     {
         _httpClientFactory = httpClientFactory;
         _options = options;
         _authContext = authContext;
+        _projector = projector;
         _logger = logger;
     }
 
@@ -94,8 +97,29 @@ public sealed class GenericToolExecutor : IGenericToolExecutor
                 .ParseAsync(response.Content, tool.OutputContentType, cts.Token)
                 .ConfigureAwait(false);
 
+            // Output projection: valida + projeta contra OutputSchema antes
+            // do LLM ver. Modo Off (default pra tools legacy) é bypass total.
+            // Violation lança ResponseSchemaViolationException; o framework
+            // de tool-calling captura e serializa pro LLM como erro estruturado.
+            var projection = _projector.Project(
+                data, tool.OutputSchema, tool.OutputProjectionMode, tool.Name);
+
+            if (projection.HasErrors)
+            {
+                _logger.LogWarning(
+                    "[GenericToolExecutor] Tool '{ToolId}' response não casa com OutputSchema (mode={Mode}): {Errors}",
+                    tool.Id, tool.OutputProjectionMode, string.Join("; ", projection.Errors));
+                throw new ResponseSchemaViolationException(tool.Name, projection.Errors);
+            }
+
             success = true;
-            return ToolExecutionResult.Ok(data);
+            return ToolExecutionResult.Ok(projection.Projected ?? data);
+        }
+        catch (ResponseSchemaViolationException)
+        {
+            // Re-throw — framework de tool-calling converte em mensagem estruturada
+            // pro LLM. Marcado como falha nas métricas via finally (success=false).
+            throw;
         }
         catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {

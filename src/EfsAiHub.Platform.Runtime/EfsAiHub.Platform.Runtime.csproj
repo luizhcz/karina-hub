@@ -36,6 +36,11 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.6" />
     <PackageReference Include="OpenTelemetry.Api" Version="1.15.3" />
     <PackageReference Include="StackExchange.Redis" Version="2.12.14" />
+    <!-- JsonSchema.Net (json-everything, MIT). Usado pelo GenericResponseProjector
+         pra validar + projetar response de tools HTTP contra OutputSchema. Pin
+         exato pra forçar revisão consciente em bumps (specs JSON Schema evoluem
+         entre drafts e default changes podem mudar semântica). -->
+    <PackageReference Include="JsonSchema.Net" Version="7.4.0" />
   </ItemGroup>
 
   <ItemGroup>

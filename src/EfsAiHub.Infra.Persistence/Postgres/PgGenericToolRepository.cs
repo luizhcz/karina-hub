@@ -78,6 +78,7 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
             TimeoutSecondsOverride = tool.TimeoutSecondsOverride,
             WhenToUse = tool.WhenToUse,
             IsExclusive = tool.IsExclusive,
+            OutputProjectionMode = tool.OutputProjectionMode.ToString(),
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -129,6 +130,7 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
         current.TimeoutSecondsOverride = tool.TimeoutSecondsOverride;
         current.WhenToUse = tool.WhenToUse;
         current.IsExclusive = tool.IsExclusive;
+        current.OutputProjectionMode = tool.OutputProjectionMode.ToString();
         current.UpdatedAt = now;
 
         try
@@ -174,6 +176,7 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
             TimeoutSecondsOverride = row.TimeoutSecondsOverride,
             WhenToUse = row.WhenToUse,
             IsExclusive = row.IsExclusive,
+            OutputProjectionMode = ParseEnum(row.OutputProjectionMode, OutputProjectionMode.Off, nameof(row.OutputProjectionMode), row.Id),
             CreatedAt = row.CreatedAt,
             UpdatedAt = row.UpdatedAt,
         };

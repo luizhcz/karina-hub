@@ -125,6 +125,11 @@ builder.Services.AddScoped<EfsAiHub.Core.Agents.IGenericToolRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgGenericToolRepository>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IOperationalMemoryRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgOperationalMemoryRepository>();
+// SchemaCache compartilhado entre executor (runtime) e tester (UI) — schemas
+// parseados ficam cacheados in-process por hash do JSON. Singleton porque o
+// cache é stateful por instância e cross-request é desejado.
+builder.Services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.Generic.SchemaCache>();
+builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.GenericResponseProjector>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolExecutor,
     EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolExecutor>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolTester,
