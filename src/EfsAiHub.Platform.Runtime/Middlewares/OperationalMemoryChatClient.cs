@@ -114,8 +114,22 @@ public sealed class OperationalMemoryChatClient : AgentMiddlewareBase
             $"{OpenMarker}\n{payloadJson}\n{CloseMarker}");
 
         var enriched = messages.ToList();
+        var preambleIndex = enriched.Count;
         enriched.Add(preambleMsg);
+        var memoryIndex = enriched.Count;
         enriched.Add(memoryMsg);
+
+        EfsAiHub.Core.Agents.Composition.PromptCompositionAmbient.Track(
+            source: "operationalMemory.preamble",
+            contributorType: nameof(OperationalMemoryChatClient),
+            messageIndex: preambleIndex,
+            note: $"scope={scopeType}/{scopeId}");
+        EfsAiHub.Core.Agents.Composition.PromptCompositionAmbient.Track(
+            source: "operationalMemory.state",
+            contributorType: nameof(OperationalMemoryChatClient),
+            messageIndex: memoryIndex,
+            note: record is null ? "miss" : $"v={record.Version}, {payloadJson.Length}B");
+
         return enriched;
     }
 

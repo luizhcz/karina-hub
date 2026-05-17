@@ -27,6 +27,9 @@ import { Welcome } from './routes/Welcome'
 import { UsuariosList } from './routes/admin/UsuariosList'
 import { AuditoriaList } from './routes/admin/AuditoriaList'
 import { MiddlewaresList } from './routes/admin/MiddlewaresList'
+import { LlmCaptureControl } from './routes/admin/LlmCaptureControl'
+import { LlmCallsList } from './routes/admin/LlmCallsList'
+import { LlmCallDetailPage } from './routes/admin/LlmCallDetail'
 import { getIdentity, subscribeIdentity } from './stores/identity'
 
 export function App() {
@@ -53,6 +56,9 @@ export function App() {
         <Route path="/admin/usuarios" element={<UsuariosList />} />
         <Route path="/admin/auditoria" element={<AuditoriaList />} />
         <Route path="/admin/middlewares" element={<MiddlewaresList />} />
+        <Route path="/admin/llm-capture" element={<LlmCaptureControl />} />
+        <Route path="/admin/llm-calls" element={<LlmCallsList />} />
+        <Route path="/admin/llm-calls/:id" element={<LlmCallDetailPage />} />
 
         {/* Rotas que exigem projeto vinculado: redirecionam pra /bem-vindo
             quando non-admin tem projects=[]. Admin passa sempre. */}

@@ -71,6 +71,14 @@ public class AgentFactory : IAgentFactory
     // do schema. Optional: agentes !=Router não tocam.
     private readonly IAgentRouterIntentLinkRepository? _routerIntentLinkRepo;
 
+    // LLM Prompt Inspector — captura runtime-toggleable. Os 3 são Optional
+    // por design pra preservar BC com testes que não envolvem captura.
+    // Quando capture config está OFF (default), middleware bypassa e overhead
+    // é ~1 consulta Redis no caminho do request.
+    private readonly EfsAiHub.Platform.Runtime.Services.LlmCaptureConfigService? _captureConfig;
+    private readonly EfsAiHub.Platform.Runtime.Sanitization.ILlmPayloadSanitizer? _payloadSanitizer;
+    private readonly EfsAiHub.Core.Orchestration.Interfaces.ILlmInvocationLogSink? _captureSink;
+
     // Throttle pra cross_project_invoke audit. Capacity 1000, janela 60s,
     // emite métrica ao despejar. Static singleton: factory é registrado scoped em DI
     // mas o throttle precisa ser process-wide pra evitar duplicar logs entre scopes.
@@ -106,7 +114,10 @@ public class AgentFactory : IAgentFactory
         IGenericToolBinder? genericToolBinder = null,
         IPredefinedModelBinder? predefinedModelBinder = null,
         EfsAiHub.Core.Agents.IOperationalMemoryRepository? operationalMemoryRepo = null,
-        IAgentRouterIntentLinkRepository? routerIntentLinkRepo = null)
+        IAgentRouterIntentLinkRepository? routerIntentLinkRepo = null,
+        EfsAiHub.Platform.Runtime.Services.LlmCaptureConfigService? captureConfig = null,
+        EfsAiHub.Platform.Runtime.Sanitization.ILlmPayloadSanitizer? payloadSanitizer = null,
+        EfsAiHub.Core.Orchestration.Interfaces.ILlmInvocationLogSink? captureSink = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
@@ -135,6 +146,9 @@ public class AgentFactory : IAgentFactory
         _predefinedModelBinder = predefinedModelBinder;
         _operationalMemoryRepo = operationalMemoryRepo;
         _routerIntentLinkRepo = routerIntentLinkRepo;
+        _captureConfig = captureConfig;
+        _payloadSanitizer = payloadSanitizer;
+        _captureSink = captureSink;
     }
 
     public async Task<ExecutableWorkflow> CreateAgentAsync(
@@ -417,6 +431,26 @@ public class AgentFactory : IAgentFactory
 
         chatClient = WrapWithMiddlewares(chatClient, definition, isStandaloneFlow);
 
+        // LlmInvocationCapture no caminho Graph — wrapper mais externo do
+        // chatClient. Opt-in via DI; quando captura está OFF (default), o
+        // middleware curto-circuita pra inner sem alocação extra.
+        // P1-8: reusa agentVersionId já resolvido na linha 415 — evita lookup
+        // duplicado no DB.
+        if (_captureConfig is not null && _payloadSanitizer is not null && _captureSink is not null)
+        {
+            var captureModelId = definition.Model.DeploymentName ?? "unknown";
+            chatClient = new EfsAiHub.Platform.Runtime.Middlewares.LlmInvocationCaptureChatClient(
+                chatClient,
+                agentId: definition.Id,
+                agentVersionId: agentVersionId,
+                modelId: captureModelId,
+                provider: definition.Provider.Type,
+                configService: _captureConfig,
+                sanitizer: _payloadSanitizer,
+                writer: _captureSink.Writer,
+                logger: _logger);
+        }
+
         var promptResult = await _promptRepo.GetActivePromptWithVersionAsync(definition.Id, ct);
         var instructions = promptResult?.Content ?? definition.Instructions;
         var promptVersionId = promptResult?.VersionId;
@@ -429,6 +463,21 @@ public class AgentFactory : IAgentFactory
 
         return async (input, cancellationToken) =>
         {
+            // Pré-ativa o PromptComposition AsyncLocal pra que contribuidores
+            // que rodam ANTES do middleware capture (SystemMessageBuilder,
+            // ChatOptionsBuilder, AgentFactory history/input track) consigam
+            // anotar suas seções. O middleware capture detecta presença prévia
+            // via flag `ownsComposition` e preserva — não sobrescreve. Quando
+            // captura está OFF, ambient continua null (zero overhead).
+            var compositionAlreadySet = EfsAiHub.Core.Agents.Composition.PromptCompositionAmbient.Current is not null;
+            var captureActive = !compositionAlreadySet
+                && _captureConfig is not null
+                && await IsCaptureLiveAsync(definition, cancellationToken);
+            if (captureActive)
+                EfsAiHub.Core.Agents.Composition.PromptCompositionAmbient.Current = new EfsAiHub.Core.Agents.Composition.PromptComposition();
+
+            try
+            {
             var messages = new List<Microsoft.Extensions.AI.ChatMessage>();
 
             // Persona: resolvida lazy a partir do ExecutionContext corrente
@@ -464,6 +513,10 @@ public class AgentFactory : IAgentFactory
                 input,
                 composedPersona.UserReinforcement,
                 historyWindow: historyWindow);
+
+            // Anota provenance per-message: cada item adicionado é tracable
+            // pela posição no array final de `messages`.
+            var expansionStart = messages.Count;
             if (expanded is not null)
                 messages.AddRange(expanded);
             else
@@ -473,6 +526,12 @@ public class AgentFactory : IAgentFactory
                     : $"{input}\n\n{composedPersona.UserReinforcement}";
                 messages.Add(new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, userText));
             }
+
+            TrackHistoryAndInputProvenance(
+                messages,
+                fromIndex: expansionStart,
+                hasReinforcement: !string.IsNullOrEmpty(composedPersona.UserReinforcement),
+                historyWindow: historyWindow);
 
             var sw = Stopwatch.StartNew();
             var response = await chatClient.GetResponseAsync(messages, chatOptions, cancellationToken);
@@ -508,7 +567,93 @@ public class AgentFactory : IAgentFactory
             });
 
             return response.Text ?? string.Empty;
+            }
+            finally
+            {
+                if (captureActive)
+                    EfsAiHub.Core.Agents.Composition.PromptCompositionAmbient.Current = null;
+            }
         };
+    }
+
+    /// <summary>
+    /// Consulta o <see cref="LlmCaptureConfigService"/> pra decidir se vale
+    /// a pena ativar o <c>PromptComposition</c> ambient pré-handler. Falha
+    /// silenciosa retorna false — capture é debug, perder uma turn é OK.
+    /// </summary>
+    private async Task<bool> IsCaptureLiveAsync(AgentDefinition definition, CancellationToken ct)
+    {
+        if (_captureConfig is null) return false;
+        try
+        {
+            var cfg = await _captureConfig.GetCurrentAsync(ct).ConfigureAwait(false);
+            var execCtx = EfsAiHub.Core.Orchestration.Executors.DelegateExecutor.Current.Value;
+            return cfg.Matches(
+                projectId: execCtx?.ProjectId ?? definition.ProjectId,
+                agentId: definition.Id,
+                workflowId: execCtx?.WorkflowId);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Anota provenance per-message pra <c>history.*</c>, <c>input.user</c> e
+    /// reforço de persona. Chamado após o <c>ChatTurnContextMapper.TryExpand</c>
+    /// ou o append direto do input cru. No-op quando captura está OFF
+    /// (PromptCompositionAmbient.Current=null).
+    /// </summary>
+    private static void TrackHistoryAndInputProvenance(
+        IReadOnlyList<Microsoft.Extensions.AI.ChatMessage> messages,
+        int fromIndex,
+        bool hasReinforcement,
+        int? historyWindow)
+    {
+        if (EfsAiHub.Core.Agents.Composition.PromptCompositionAmbient.Current is null) return;
+
+        // Última user message = input atual; user/assistant anteriores = history.
+        // System messages dentro deste range (raros — só vêm do mapper expanding
+        // metadata da sessão) marcamos como "context.metadata".
+        int lastUserIndex = -1;
+        for (int i = messages.Count - 1; i >= fromIndex; i--)
+        {
+            if (messages[i].Role == Microsoft.Extensions.AI.ChatRole.User)
+            {
+                lastUserIndex = i;
+                break;
+            }
+        }
+
+        for (int i = fromIndex; i < messages.Count; i++)
+        {
+            var m = messages[i];
+            string source;
+            string? note = null;
+            if (m.Role == Microsoft.Extensions.AI.ChatRole.System)
+            {
+                source = "context.metadata";
+                note = "mapper expansion";
+            }
+            else if (i == lastUserIndex)
+            {
+                source = "input.user";
+                if (hasReinforcement) note = "with persona reinforcement";
+            }
+            else
+            {
+                source = m.Role == Microsoft.Extensions.AI.ChatRole.Assistant
+                    ? "history.assistant"
+                    : "history.user";
+                if (historyWindow is { } w) note = $"window={w}";
+            }
+            EfsAiHub.Core.Agents.Composition.PromptCompositionAmbient.Track(
+                source: source,
+                contributorType: nameof(AgentFactory),
+                messageIndex: i,
+                note: note);
+        }
     }
 
     private ILlmClientProvider ResolveProvider(AgentDefinition definition)
@@ -713,6 +858,27 @@ public class AgentFactory : IAgentFactory
             current = new CircuitBreakerChatClient(
                 current, _circuitBreaker, providerKey, _logger,
                 fallbackClient, fallbackProviderType);
+        }
+
+        // LlmInvocationCapture posicionado entre CircuitBreaker (dentro) e
+        // Retrying (fora) — vê o request final que efetivamente chega no
+        // provider e cada tentativa de retry vira uma row distinta com mesmo
+        // TurnId. Opt-in dependency: quando os 3 não estão injetados,
+        // middleware não envolve (mantém BC com testes).
+        if (_captureConfig is not null && _payloadSanitizer is not null && _captureSink is not null)
+        {
+            var versionId = EfsAiHub.Core.Orchestration.Executors.DelegateExecutor.Current.Value?
+                .AgentVersions?.TryGetValue(definition.Id, out var v) == true ? v : null;
+            current = new EfsAiHub.Platform.Runtime.Middlewares.LlmInvocationCaptureChatClient(
+                current,
+                agentId: definition.Id,
+                agentVersionId: versionId,
+                modelId: modelId,
+                provider: definition.Provider.Type,
+                configService: _captureConfig,
+                sanitizer: _payloadSanitizer,
+                writer: _captureSink.Writer,
+                logger: _logger);
         }
 
         return new RetryingChatClient(current, definition.Id, modelId, _logger, definition.Resilience);

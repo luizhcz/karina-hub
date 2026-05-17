@@ -1,5 +1,6 @@
 using System.Text;
 using EfsAiHub.Core.Abstractions.Identity.Persona;
+using EfsAiHub.Core.Agents.Composition;
 
 namespace EfsAiHub.Platform.Runtime.Factories;
 
@@ -18,15 +19,38 @@ public sealed class SystemMessageBuilder : ISystemMessageBuilder
 {
     public string Build(string agentInstructions, ComposedPersonaPrompt personaPrompt)
     {
+        var instructionsLen = agentInstructions?.Length ?? 0;
         if (string.IsNullOrEmpty(personaPrompt.SystemSection))
+        {
+            // Sem persona: o system message inteiro veio de agent.instructions.
+            PromptCompositionAmbient.Track(
+                source: "agent.instructions",
+                contributorType: nameof(SystemMessageBuilder),
+                charOffset: 0,
+                charLength: instructionsLen);
             return agentInstructions ?? string.Empty;
+        }
 
-        var sb = new StringBuilder((agentInstructions?.Length ?? 0) + personaPrompt.SystemSection.Length + 4);
+        var sb = new StringBuilder(instructionsLen + personaPrompt.SystemSection.Length + 4);
         sb.Append(agentInstructions ?? string.Empty);
         if (!agentInstructions?.EndsWith('\n') ?? true)
             sb.AppendLine();
         sb.AppendLine();
+        var personaOffset = sb.Length;
         sb.Append(personaPrompt.SystemSection);
+
+        PromptCompositionAmbient.Track(
+            source: "agent.instructions",
+            contributorType: nameof(SystemMessageBuilder),
+            charOffset: 0,
+            charLength: instructionsLen);
+        PromptCompositionAmbient.Track(
+            source: "persona.system",
+            contributorType: nameof(SystemMessageBuilder),
+            charOffset: personaOffset,
+            charLength: personaPrompt.SystemSection.Length,
+            note: "persona composer");
+
         return sb.ToString();
     }
 }

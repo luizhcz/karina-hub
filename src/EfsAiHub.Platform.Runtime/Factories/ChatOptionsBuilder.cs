@@ -155,6 +155,11 @@ public static class ChatOptionsBuilder
             sb.Append("\n\n");
         }
 
+        // Anota offset onde o bloco "# Intenções disponíveis" começa pra que
+        // a UI admin consiga destacar a seção colorida. baseInstructions já
+        // foi tracada pelo SystemMessageBuilder (se este builder rodou antes);
+        // aqui anotamos só o bloco que ESTE compositor injeta.
+        var routerBlockOffset = sb.Length;
         sb.Append("# Intenções disponíveis\n\n");
         sb.Append(
             "Escolha **exatamente uma** categoria do enum `intent` para cada input. " +
@@ -187,6 +192,9 @@ public static class ChatOptionsBuilder
             }
         }
 
+        // Antes da memória, traca o bloco de routerIntents inteiro.
+        var memoryBlockOffset = sb.Length;
+
         // Cláusula de OperationalMemory — instrui o LLM a preencher o
         // sub-objeto canônico do output. O OperationalMemoryChatClient extrai
         // esse campo do JSON pós-call e persiste em aihub.operational_memory.
@@ -199,6 +207,24 @@ public static class ChatOptionsBuilder
             "- `last_reason`: copie o valor de `reason` (até 200 chars).\n\n" +
             "Esta memória é persistida e injetada no próximo turno como contexto. " +
             "Não invente outros campos.\n");
+
+        // P1-6: tracar apenas quando o bloco realmente teve conteúdo (>= 1
+        // intent). Header sozinho é ruído pra UI.
+        if (resolvedRouterIntents.Count > 0)
+        {
+            EfsAiHub.Core.Agents.Composition.PromptCompositionAmbient.Track(
+                source: "agent.routerIntents",
+                contributorType: nameof(ChatOptionsBuilder),
+                charOffset: routerBlockOffset,
+                charLength: memoryBlockOffset - routerBlockOffset,
+                note: $"{resolvedRouterIntents.Count} intents resolvidas");
+        }
+        EfsAiHub.Core.Agents.Composition.PromptCompositionAmbient.Track(
+            source: "agent.operationalMemoryInstructions",
+            contributorType: nameof(ChatOptionsBuilder),
+            charOffset: memoryBlockOffset,
+            charLength: sb.Length - memoryBlockOffset,
+            note: "cláusula preencher operationalMemory");
 
         return sb.ToString();
     }
@@ -232,9 +258,17 @@ public static class ChatOptionsBuilder
             sb.Append("\n\n");
         }
 
+        var scopeOffset = sb.Length;
         sb.Append("# Domínio de análise\n\n");
         sb.Append(trimmedScope);
         sb.Append("\n\n---");
+
+        EfsAiHub.Core.Agents.Composition.PromptCompositionAmbient.Track(
+            source: "agent.workerScope",
+            contributorType: nameof(ChatOptionsBuilder),
+            charOffset: scopeOffset,
+            charLength: sb.Length - scopeOffset,
+            note: $"scope: {trimmedScope.Substring(0, Math.Min(40, trimmedScope.Length))}");
 
         return sb.ToString();
     }

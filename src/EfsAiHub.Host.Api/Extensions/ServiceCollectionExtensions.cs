@@ -360,6 +360,21 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ToolInvocationPersistenceService>();
         services.AddSingleton<IToolInvocationSink>(sp => sp.GetRequiredService<ToolInvocationPersistenceService>());
         services.AddHostedService(sp => sp.GetRequiredService<ToolInvocationPersistenceService>());
+
+        // LLM Prompt Inspector — captura runtime-toggleable.
+        services.AddScoped<EfsAiHub.Core.Agents.Capture.ILlmCaptureConfigRepository,
+            EfsAiHub.Infra.Persistence.Postgres.PgLlmCaptureConfigRepository>();
+        services.AddScoped<EfsAiHub.Core.Agents.Capture.ILlmInvocationLogRepository,
+            EfsAiHub.Infra.Persistence.Postgres.PgLlmInvocationLogRepository>();
+        services.AddScoped<EfsAiHub.Platform.Runtime.Services.LlmCaptureConfigService>();
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Sanitization.ILlmPayloadSanitizer,
+            EfsAiHub.Platform.Runtime.Sanitization.RegexLlmPayloadSanitizer>();
+        services.AddSingleton<EfsAiHub.Host.Worker.Services.LlmInvocationLogPersistenceService>();
+        services.AddSingleton<EfsAiHub.Core.Orchestration.Interfaces.ILlmInvocationLogSink>(
+            sp => sp.GetRequiredService<EfsAiHub.Host.Worker.Services.LlmInvocationLogPersistenceService>());
+        services.AddHostedService(sp => sp.GetRequiredService<EfsAiHub.Host.Worker.Services.LlmInvocationLogPersistenceService>());
+        services.AddHostedService<EfsAiHub.Host.Worker.Services.LlmInvocationLogRetentionJob>();
+        services.AddHostedService<EfsAiHub.Host.Worker.Services.LlmCaptureConfigExpiryJob>();
         services.AddSingleton<NodePersistenceService>();
         services.AddHostedService(sp => sp.GetRequiredService<NodePersistenceService>());
         services.AddSingleton<IHumanInteractionRepository, PgHumanInteractionRepository>();
