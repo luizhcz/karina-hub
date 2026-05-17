@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import {
   getProjectAgents,
   getProjectBudget,
@@ -17,63 +18,135 @@ import {
   Card,
   CardHeader,
   ErrorMessage,
+  Input,
   Spinner,
   cn,
 } from '../ui'
+import {
+  aggregateByMonth,
+  currentPeriod,
+  formatPeriodLabel,
+  isCurrentMonth,
+  parsePeriod,
+  periodToRange,
+  type Period,
+  type PeriodKind,
+} from '../utils/period'
 
 type Granularity = 'day' | 'hour'
 type ChartType = 'line' | 'bar'
 
-interface DashboardData {
-  overview: ProjectOverview
-  timeseries: ProjectTimeseriesBucket[]
-  agents: ProjectAgentBreakdown[]
-  budget: ProjectBudgetStatus
+interface SlotState<T> {
+  data: T | null
+  loading: boolean
+  error: string | null
+}
+
+const initialSlot = <T,>(): SlotState<T> => ({ data: null, loading: true, error: null })
+
+function currentYear(): number {
+  return new Date().getUTCFullYear()
+}
+
+function currentYYYYMM(): string {
+  const now = new Date()
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
 export function Dashboard() {
   const identity = useMemo(() => getIdentity(), [])
   const projectId = identity?.projectId ?? null
 
+  const [searchParams, setSearchParams] = useSearchParams()
+  const period = useMemo(() => parsePeriod(searchParams.get('period')), [searchParams])
+  const periodLabel = useMemo(() => formatPeriodLabel(period), [period])
+
+  // URL chegou com period inválido/futuro → parsePeriod coerce pro corrente.
+  // Reescreve a URL pra ficar consistente com o estado renderizado.
+  useEffect(() => {
+    const raw = searchParams.get('period')
+    if (raw !== null && raw !== period.value) {
+      const next = new URLSearchParams(searchParams)
+      next.set('period', period.value)
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, period.value, setSearchParams])
+
   const [granularity, setGranularity] = useState<Granularity>('day')
   const [chartType, setChartType] = useState<ChartType>('line')
-  const [data, setData] = useState<DashboardData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [refreshNonce, setRefreshNonce] = useState(0)
+
+  // Slots independentes — overview/timeseries/agents/budget renderizam quando
+  // cada um chega. Falha em um não derruba os outros (Promise.allSettled).
+  const [overview, setOverview] = useState<SlotState<ProjectOverview>>(initialSlot)
+  const [timeseries, setTimeseries] = useState<SlotState<ProjectTimeseriesBucket[]>>(initialSlot)
+  const [agents, setAgents] = useState<SlotState<ProjectAgentBreakdown[]>>(initialSlot)
+  const [budget, setBudget] = useState<SlotState<ProjectBudgetStatus>>(initialSlot)
   const [forbidden, setForbidden] = useState(false)
 
-  const reload = async (signalGranularity: Granularity) => {
-    if (!projectId) return
-    setLoading(true)
-    setError(null)
-    setForbidden(false)
-    try {
-      // Backend já filtra por agentes do próprio ProjectId via ownedOnly=true —
-      // métricas LLM (cost/tokens/calls) e topAgents do overview, agentes da
-      // tabela e buckets do timeseries. Métricas de execução continuam
-      // project-wide porque granularidade é por workflow, não por agent.
-      const [overview, timeseries, agents, budget] = await Promise.all([
-        getProjectOverview(projectId, undefined, undefined, true),
-        getProjectTimeseries(projectId, signalGranularity, undefined, undefined, undefined, true),
-        getProjectAgents(projectId, 20, undefined, undefined, true),
-        getProjectBudget(projectId),
-      ])
-      setData({ overview, timeseries, agents, budget })
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 403) {
-        setForbidden(true)
-        setData(null)
-      } else {
-        setError(friendlyError(err, 'Não foi possível carregar o dashboard.'))
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    void reload(granularity)
-  }, [projectId, granularity])
+    if (!projectId) return
+    let cancelled = false
+    // Debounce 250ms — quando usuário clica as setas do <Input type="month">
+    // rapidamente, sem debounce viram 10+ req/s × 3 endpoints. O cancelled flag
+    // sozinho só cancela no cliente; o backend ainda executaria as queries.
+    const timer = setTimeout(() => {
+      const { from, to } = periodToRange(period)
+      const effectiveGranularity: Granularity = period.kind === 'year' ? 'day' : granularity
+      const budgetVisible = isCurrentMonth(period)
+
+      setOverview((s) => ({ ...s, loading: true, error: null }))
+      setTimeseries((s) => ({ ...s, loading: true, error: null }))
+      setAgents((s) => ({ ...s, loading: true, error: null }))
+      setBudget((s) => ({ ...s, loading: budgetVisible, error: null }))
+      setForbidden(false)
+
+      void (async () => {
+        const results = await Promise.allSettled([
+          getProjectOverview(projectId, from, to, true),
+          getProjectTimeseries(projectId, effectiveGranularity, from, to, undefined, true),
+          getProjectAgents(projectId, 20, from, to, true),
+          budgetVisible ? getProjectBudget(projectId) : Promise.resolve(null),
+        ])
+        if (cancelled) return
+
+        // 403 em qualquer slot => sem permissão no projeto inteiro
+        const fb = results.some(
+          (r) => r.status === 'rejected' && r.reason instanceof ApiError && r.reason.status === 403,
+        )
+        if (fb) {
+          setForbidden(true)
+          setOverview({ data: null, loading: false, error: null })
+          setTimeseries({ data: null, loading: false, error: null })
+          setAgents({ data: null, loading: false, error: null })
+          setBudget({ data: null, loading: false, error: null })
+          return
+        }
+
+        const [ovRes, tsRes, agRes, bgRes] = results
+        setOverview(applyResult(ovRes, 'overview'))
+        setTimeseries(applyResult(tsRes, 'timeseries'))
+        setAgents(applyResult(agRes, 'agents'))
+        setBudget(
+          budgetVisible
+            ? applyResult(bgRes as PromiseSettledResult<ProjectBudgetStatus>, 'budget')
+            : { data: null, loading: false, error: null },
+        )
+      })()
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [projectId, period.kind, period.value, granularity, refreshNonce])
+
+  // Pré-agregação: em modo Ano forçamos groupBy=day → backend devolve até 365
+  // buckets, ilegíveis no Spark. Colapsa pra 12 mensais antes do chart.
+  const displayBuckets = useMemo(() => {
+    const buckets = timeseries.data ?? []
+    if (period.kind === 'month') return buckets
+    return aggregateByMonth(buckets)
+  }, [timeseries.data, period.kind])
 
   if (!projectId) {
     return (
@@ -85,22 +158,67 @@ export function Dashboard() {
     )
   }
 
+  const isInitialLoad =
+    overview.data === null
+    && timeseries.data === null
+    && agents.data === null
+    && (overview.loading || timeseries.loading || agents.loading)
+
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-8 flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-[28px] font-semibold tracking-tight">Dashboard</h1>
-          <p className="mt-2 text-sm text-fg-muted">
-            Uso e custo do seu projeto no mês corrente. Dados defasados em até 30 minutos
-            (refresh do agregador de custos).
-          </p>
+      <div className="mb-6">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h1 className="text-[28px] font-semibold tracking-tight">Dashboard</h1>
+            <p className="mt-2 text-sm text-fg-muted">
+              Uso e custo do seu projeto em {periodLabel}. Dados defasados em até 30 minutos
+              (refresh do agregador de custos).
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setRefreshNonce((n) => n + 1)}
+          >
+            Atualizar
+          </Button>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => reload(granularity)}>
-          Atualizar
-        </Button>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <PeriodKindToggle
+            value={period.kind}
+            onChange={(kind) => updatePeriod(searchParams, setSearchParams, currentPeriod(kind))}
+          />
+          {period.kind === 'month' ? (
+            <Input
+              type="month"
+              value={period.value}
+              max={currentYYYYMM()}
+              onChange={(e) => {
+                const v = e.target.value
+                if (!v) return
+                updatePeriod(searchParams, setSearchParams, { kind: 'month', value: v })
+              }}
+              className="w-44"
+            />
+          ) : (
+            <Input
+              type="number"
+              value={period.value}
+              min={currentYear() - 2}
+              max={currentYear()}
+              step={1}
+              onChange={(e) => {
+                const v = e.target.value
+                if (!/^\d{4}$/.test(v)) return
+                updatePeriod(searchParams, setSearchParams, { kind: 'year', value: v })
+              }}
+              className="w-28"
+            />
+          )}
+        </div>
       </div>
 
-      {loading && !data && (
+      {isInitialLoad && (
         <Card className="flex items-center justify-center py-12">
           <Spinner className="h-6 w-6 text-fg-muted" />
         </Card>
@@ -112,28 +230,40 @@ export function Dashboard() {
         />
       )}
 
-      {error && <ErrorMessage message={error} />}
-
-      {data && (
+      {!isInitialLoad && !forbidden && (
         <div className="space-y-6">
-          <OverviewCards overview={data.overview} />
+          <SlotCard slot={overview} renderEmpty={null}>
+            {(data) => <OverviewCards overview={data} periodLabel={periodLabel} />}
+          </SlotCard>
 
           <Card className="space-y-4">
             <div className="flex items-end justify-between gap-3">
               <CardHeader
                 title="Custo e execuções no período"
                 description={
-                  chartType === 'line'
-                    ? 'Cada ponto representa o intervalo escolhido (dia ou hora).'
-                    : 'Cada barra representa o intervalo escolhido (dia ou hora).'
+                  period.kind === 'year'
+                    ? `Cada ${chartType === 'line' ? 'ponto' : 'barra'} representa um mês de ${period.value}.`
+                    : chartType === 'line'
+                      ? 'Cada ponto representa o intervalo escolhido (dia ou hora).'
+                      : 'Cada barra representa o intervalo escolhido (dia ou hora).'
                 }
               />
               <div className="flex shrink-0 items-center gap-2">
                 <ChartTypeToggle value={chartType} onChange={setChartType} />
-                <GranularityToggle value={granularity} onChange={setGranularity} />
+                {period.kind === 'month' && (
+                  <GranularityToggle value={granularity} onChange={setGranularity} />
+                )}
               </div>
             </div>
-            <Spark buckets={data.timeseries} mode={chartType} />
+            {timeseries.loading && timeseries.data === null ? (
+              <div className="flex h-40 items-center justify-center">
+                <Spinner className="h-5 w-5 text-fg-muted" />
+              </div>
+            ) : timeseries.error ? (
+              <ErrorMessage message={timeseries.error} />
+            ) : (
+              <Spark buckets={displayBuckets} mode={chartType} />
+            )}
             <p className="text-[11px] leading-relaxed text-fg-dim">
               Custo, tokens e LLM calls são só dos agentes do projeto. Execuções/falhas
               continuam project-wide (granularidade por workflow).
@@ -145,32 +275,112 @@ export function Dashboard() {
               title="Agentes do projeto"
               description="Top 20 por custo no período. p95 reflete a duração das chamadas LLM no agente; error rate é por execução do workflow envolvendo o agente."
             />
-            <AgentsTable rows={data.agents} />
+            {agents.loading && agents.data === null ? (
+              <div className="flex h-24 items-center justify-center">
+                <Spinner className="h-5 w-5 text-fg-muted" />
+              </div>
+            ) : agents.error ? (
+              <ErrorMessage message={agents.error} />
+            ) : (
+              <AgentsTable rows={agents.data ?? []} />
+            )}
           </Card>
 
-          <BudgetCard status={data.budget} />
+          {isCurrentMonth(period) && budget.data && <BudgetCard status={budget.data} />}
         </div>
       )}
     </div>
   )
 }
 
-interface OverviewCardsProps {
-  overview: ProjectOverview
+function updatePeriod(
+  searchParams: URLSearchParams,
+  setSearchParams: (next: URLSearchParams, opts?: { replace?: boolean }) => void,
+  next: Period,
+) {
+  const params = new URLSearchParams(searchParams)
+  params.set('period', next.value)
+  setSearchParams(params, { replace: true })
 }
 
-function OverviewCards({ overview }: OverviewCardsProps) {
+function applyResult<T>(
+  res: PromiseSettledResult<T>,
+  label: string,
+): SlotState<T> {
+  if (res.status === 'fulfilled') {
+    return { data: res.value, loading: false, error: null }
+  }
+  return {
+    data: null,
+    loading: false,
+    error: friendlyError(res.reason, `Não foi possível carregar ${label}.`),
+  }
+}
+
+function SlotCard<T>({
+  slot,
+  renderEmpty,
+  children,
+}: {
+  slot: SlotState<T>
+  renderEmpty: React.ReactNode
+  children: (data: T) => React.ReactNode
+}) {
+  if (slot.loading && slot.data === null) {
+    return (
+      <Card className="flex items-center justify-center py-8">
+        <Spinner className="h-5 w-5 text-fg-muted" />
+      </Card>
+    )
+  }
+  if (slot.error) return <ErrorMessage message={slot.error} />
+  if (slot.data === null) return <>{renderEmpty}</>
+  return <>{children(slot.data)}</>
+}
+
+interface PeriodKindToggleProps {
+  value: PeriodKind
+  onChange: (next: PeriodKind) => void
+}
+
+function PeriodKindToggle({ value, onChange }: PeriodKindToggleProps) {
+  return (
+    <div className="inline-flex shrink-0 rounded-lg border border-border bg-surface p-0.5">
+      {(['month', 'year'] as const).map((k) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => onChange(k)}
+          className={cn(
+            'rounded-md px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30',
+            value === k ? 'bg-accent text-accent-contrast' : 'text-fg-muted hover:text-fg',
+          )}
+          aria-pressed={value === k}
+        >
+          {k === 'month' ? 'Mês' : 'Ano'}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+interface OverviewCardsProps {
+  overview: ProjectOverview
+  periodLabel: string
+}
+
+function OverviewCards({ overview, periodLabel }: OverviewCardsProps) {
   const successPct = overview.completed + overview.failed > 0 ? overview.successRate : null
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <KpiCard
-        label="Custo MTD"
+        label={`Custo em ${periodLabel}`}
         value={formatUsd(overview.totalCostUsd)}
         secondary={`${formatNumber(overview.totalCalls)} chamada${overview.totalCalls === 1 ? '' : 's'} de LLM`}
       />
       <KpiCard
-        label="Tokens MTD"
+        label={`Tokens em ${periodLabel}`}
         value={formatNumber(overview.totalTokens)}
         secondary="entrada + saída"
       />
