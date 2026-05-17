@@ -3,7 +3,9 @@ namespace EfsAiHub.Tests.Unit.Versioning;
 [Trait("Category", "Unit")]
 public class AgentVersionSnapshotTests
 {
-    private static AgentDefinition BuildDefinition(string id = "agent-test") => new()
+    private static AgentDefinition BuildDefinition(
+        string id = "agent-test",
+        AgentOperationalMemoryDefinition? memory = null) => new()
     {
         Id = id,
         Name = "Agente Teste",
@@ -13,6 +15,7 @@ public class AgentVersionSnapshotTests
         [
             new AgentToolDefinition { Type = "function", Name = "search_asset" }
         ],
+        OperationalMemory = memory,
     };
 
     [Fact]
@@ -104,5 +107,91 @@ public class AgentVersionSnapshotTests
         var v2 = AgentVersion.FromDefinition(def, revision: 2, promptContent: null, promptVersionId: null);
 
         v1.ContentHash.Should().Be(v2.ContentHash);
+    }
+
+    private static AgentOperationalMemoryDefinition BuildMemory(string schemaJson, int? maxBytes = null) =>
+        new()
+        {
+            Schema = System.Text.Json.JsonDocument.Parse(schemaJson),
+            MaxBytes = maxBytes,
+        };
+
+    [Fact]
+    public void FromDefinition_OperationalMemoryPresente_CapturadoNoSnapshot()
+    {
+        // Regressão: antes, AgentVersion.FromDefinition NÃO incluía OperationalMemory
+        // no canonical do ContentHash nem no snapshot. Como AppendAsync dedup por
+        // hash, mudanças em memory passavam batido — runtime continuava com a
+        // versão antiga sem schema e o middleware OperationalMemory não ativava.
+        var def = BuildDefinition(
+            memory: BuildMemory("""{"type":"object","properties":{"ultimo_ticker":{"type":"string"}}}""", maxBytes: 4096));
+
+        var version = AgentVersion.FromDefinition(def, revision: 1, promptContent: null, promptVersionId: null);
+
+        version.OperationalMemory.Should().NotBeNull();
+        version.OperationalMemory!.SchemaJson.Should().Contain("ultimo_ticker");
+        version.OperationalMemory.MaxBytes.Should().Be(4096);
+    }
+
+    [Fact]
+    public void FromDefinition_MesmoConteudoComEsemMemory_HashDiferente()
+    {
+        // Regressão direta: ativar memory tem que produzir hash distinto pra
+        // que AppendAsync crie nova revision em vez de fazer dedup silencioso.
+        var defSemMemory = BuildDefinition();
+        var defComMemory = BuildDefinition(
+            memory: BuildMemory("""{"type":"object","properties":{"x":{"type":"string"}}}"""));
+
+        var vSem = AgentVersion.FromDefinition(defSemMemory, revision: 1, promptContent: null, promptVersionId: null);
+        var vCom = AgentVersion.FromDefinition(defComMemory, revision: 1, promptContent: null, promptVersionId: null);
+
+        vSem.ContentHash.Should().NotBe(vCom.ContentHash);
+    }
+
+    [Fact]
+    public void RoundTrip_ToDefinition_ComMemory_PreservaSchema()
+    {
+        // FromDefinition → ToDefinition deve preservar OperationalMemory byte-a-byte.
+        var def = BuildDefinition(
+            memory: BuildMemory("""{"type":"object","properties":{"cliente_id":{"type":"string"},"ultimo_ticker":{"type":"string"}}}""", maxBytes: 2048));
+
+        var snapshot = AgentVersion.FromDefinition(def, revision: 1, promptContent: null, promptVersionId: null);
+        var hydrated = snapshot.ToDefinition();
+
+        hydrated.OperationalMemory.Should().NotBeNull();
+        hydrated.OperationalMemory!.MaxBytes.Should().Be(2048);
+        hydrated.OperationalMemory.Schema!.RootElement.GetRawText()
+            .Should().Contain("cliente_id")
+            .And.Contain("ultimo_ticker");
+    }
+
+    [Fact]
+    public void ToDefinition_SnapshotLegacySemMemory_HidrataNull()
+    {
+        // Snapshot persistido ANTES do fix não tem OperationalMemory no JSON.
+        // Construindo direto com default null garantimos retrocompat — campo
+        // ausente vira null em ToDefinition sem disparar exception.
+        var snapshot = new AgentVersion(
+            AgentVersionId: "v-legacy",
+            AgentDefinitionId: "agent-legacy",
+            Revision: 1,
+            CreatedAt: System.DateTime.UtcNow,
+            CreatedBy: null,
+            ChangeReason: null,
+            Status: AgentVersionStatus.Published,
+            PromptContent: "instr",
+            PromptVersionId: null,
+            Model: new AgentModelSnapshot("gpt-4o", 0.1f, null, null),
+            Provider: new AgentProviderSnapshot("AzureOpenAI", "ChatCompletion", null, false),
+            MiddlewarePipeline: new List<AgentMiddlewareSnapshot>(),
+            OutputSchema: null,
+            Resilience: null,
+            CostBudget: null,
+            SkillRefs: new List<EfsAiHub.Core.Agents.Skills.SkillRef>(),
+            ContentHash: "deadbeef");
+        // OperationalMemory default null — não passamos.
+
+        var hydrated = snapshot.ToDefinition();
+        hydrated.OperationalMemory.Should().BeNull();
     }
 }

@@ -38,7 +38,8 @@ public sealed record AgentVersion(
     IReadOnlyDictionary<string, string>? Metadata = null,
     AgentProviderSnapshot? FallbackProvider = null,
     IReadOnlyList<AgentToolSnapshot>? Tools = null,
-    bool BreakingChange = false)
+    bool BreakingChange = false,
+    AgentOperationalMemorySnapshot? OperationalMemory = null)
 {
     /// <summary>
     /// Constrói um snapshot a partir de uma AgentDefinition viva + conteúdo de prompt resolvido.
@@ -150,6 +151,14 @@ public sealed record AgentVersion(
                 definition.StructuredOutput.Schema?.RootElement.GetRawText());
         }
 
+        AgentOperationalMemorySnapshot? operationalMemory = null;
+        if (definition.OperationalMemory is not null)
+        {
+            operationalMemory = new AgentOperationalMemorySnapshot(
+                definition.OperationalMemory.Schema?.RootElement.GetRawText(),
+                definition.OperationalMemory.MaxBytes);
+        }
+
         IReadOnlyDictionary<string, string>? metadata = definition.Metadata.Count == 0
             ? null
             : new Dictionary<string, string>(definition.Metadata);
@@ -180,6 +189,10 @@ public sealed record AgentVersion(
             tools = canonicalTools,
             middlewares,
             outputSchema,
+            // Sem operationalMemory no canonical, mudanças em memory passam
+            // pelo dedup do AppendAsync (mesmo ContentHash) e o runtime
+            // continua usando snapshot anterior sem schema — bug invisível.
+            operationalMemory,
             resilience = definition.Resilience,
             costBudget = definition.CostBudget,
             skills = skillRefs ?? (IReadOnlyList<SkillRef>)definition.SkillRefs
@@ -209,7 +222,8 @@ public sealed record AgentVersion(
             Metadata: metadata,
             FallbackProvider: fallbackProvider,
             Tools: tools,
-            BreakingChange: breakingChange);
+            BreakingChange: breakingChange,
+            OperationalMemory: operationalMemory);
     }
 
     /// <summary>
@@ -261,8 +275,25 @@ public sealed record AgentVersion(
                 ResponseFormat = output.ResponseFormat,
                 SchemaName = output.SchemaName,
                 SchemaDescription = output.SchemaDescription,
-                Schema = output.SchemaJson is null ? null : JsonDocument.Parse(output.SchemaJson),
+                Schema = TryParseSchema(output.SchemaJson),
             };
+        }
+
+        AgentOperationalMemoryDefinition? memoryDef = null;
+        if (OperationalMemory is { } memory && memory.SchemaJson is not null)
+        {
+            var parsed = TryParseSchema(memory.SchemaJson);
+            if (parsed is not null)
+            {
+                memoryDef = new AgentOperationalMemoryDefinition
+                {
+                    Schema = parsed,
+                    MaxBytes = memory.MaxBytes,
+                };
+            }
+            // Snapshot com SchemaJson malformado é incidente raro (DB corruption ou
+            // serializer bug em release antigo). Degrada silenciosamente pra
+            // memory desligada em vez de derrubar a hidratação do agente inteiro.
         }
 
         var middlewares = MiddlewarePipeline
@@ -294,6 +325,7 @@ public sealed record AgentVersion(
             Instructions = PromptContent,
             Tools = tools,
             StructuredOutput = outputDef,
+            OperationalMemory = memoryDef,
             Middlewares = middlewares,
             Resilience = Resilience,
             CostBudget = CostBudget,
@@ -315,6 +347,27 @@ public sealed record AgentVersion(
     /// Valida invariantes do snapshot. Idempotente.
     /// </summary>
     /// <exception cref="DomainException">Quando alguma invariante é violada.</exception>
+    /// <summary>
+    /// Tenta parsear o JSON Schema persistido no snapshot. Retorna null em
+    /// payload malformado pra degradar silenciosamente em vez de derrubar a
+    /// hidratação do agente inteiro. Snapshot corrompido em DB é incidente
+    /// raro (rollback de seed antigo, corruption manual); não justifica
+    /// indisponibilizar o agente — perder OutputSchema/OperationalMemory
+    /// volta o agente pro modo legacy sem essa configuração.
+    /// </summary>
+    private static JsonDocument? TryParseSchema(string? schemaJson)
+    {
+        if (string.IsNullOrWhiteSpace(schemaJson)) return null;
+        try
+        {
+            return JsonDocument.Parse(schemaJson);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     public void EnsureInvariants()
     {
         if (string.IsNullOrWhiteSpace(AgentVersionId))
@@ -422,3 +475,14 @@ public sealed record AgentStructuredOutputSnapshot(
     string? SchemaName,
     string? SchemaDescription,
     string? SchemaJson);
+
+/// <summary>
+/// Snapshot lossless de <see cref="AgentOperationalMemoryDefinition"/>. Sem
+/// este snapshot, mudanças em memory ficam fora do <c>ContentHash</c> e
+/// <c>AgentVersionRepository.AppendAsync</c> faz dedup silencioso da
+/// revisão — runtime continua usando a versão antiga sem schema e o
+/// middleware <c>OperationalMemoryChatClient</c> não ativa.
+/// </summary>
+public sealed record AgentOperationalMemorySnapshot(
+    string? SchemaJson,
+    int? MaxBytes);
