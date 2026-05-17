@@ -30,6 +30,8 @@ import {
   Spinner,
   cn,
 } from '../ui'
+import { extractConversationalDisplay } from '../utils/conversationalDisplay'
+import { OutputDetails, UiComponentChip } from '../components/ConversationalExtras'
 
 const HITL_TOOL_NAME = 'request_approval'
 const VERSION_CURRENT = ''
@@ -483,16 +485,30 @@ function BubbleRow({
   streaming: boolean
 }) {
   const isUser = bubble.role === 'user'
+  // Durante streaming os chunks chegam parciais e o parse JSON falha — caímos
+  // no fallback (texto cru) e deixamos o ReactMarkdown lidar. Quando o turno
+  // fecha, extractConversationalDisplay separa message/ui_component/output e
+  // mostra cada parte no seu lugar (em vez do JSON inteiro vazar na bolha).
+  const display = !isUser && !streaming
+    ? extractConversationalDisplay(bubble.content)
+    : { message: bubble.content, uiComponent: null, output: undefined, structured: false }
   return (
     <div className={cn('flex flex-col', isUser ? 'items-end' : 'items-start')}>
       {/* Header pequeno: tipo + agentId pra dar contexto de quem respondeu.
           Só pra bubbles assistant — user não precisa de header. */}
-      {!isUser && bubble.agentId && agentType && (
+      {!isUser && bubble.agentId && agentType ? (
         <div className="mb-1 flex items-center gap-1.5 px-1 text-[10px] text-fg-muted">
           <AgentTypeBadge type={agentType} />
           <span className="font-mono">{bubble.agentId}</span>
+          {display.uiComponent && <UiComponentChip value={display.uiComponent} />}
         </div>
-      )}
+      ) : !isUser && display.uiComponent ? (
+        // Sem agentType/agentId, ainda mostramos o chip pra não perder o sinal
+        // de qual renderer o agente sugeriu.
+        <div className="mb-1 px-1">
+          <UiComponentChip value={display.uiComponent} />
+        </div>
+      ) : null}
       <div
         className={cn(
           'max-w-[80%] rounded-2xl px-4 py-2 text-sm leading-relaxed',
@@ -504,9 +520,12 @@ function BubbleRow({
         {isUser ? (
           <span className="whitespace-pre-wrap">{bubble.content}</span>
         ) : (
-          <div className="prose prose-sm dark:prose-invert max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{bubble.content || ' '}</ReactMarkdown>
-          </div>
+          <>
+            <div className="prose prose-sm dark:prose-invert max-w-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{display.message || ' '}</ReactMarkdown>
+            </div>
+            {display.structured && <OutputDetails value={display.output} />}
+          </>
         )}
         {streaming && !isUser && (
           <span className="ml-1 inline-block h-3 w-1 animate-pulse bg-fg-muted align-middle" aria-hidden />

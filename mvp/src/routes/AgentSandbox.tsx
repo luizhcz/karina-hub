@@ -21,6 +21,8 @@ import {
   Spinner,
   cn,
 } from '../ui'
+import { extractConversationalDisplay } from '../utils/conversationalDisplay'
+import { OutputDetails, UiComponentChip } from '../components/ConversationalExtras'
 
 interface UserMsg {
   kind: 'user'
@@ -521,7 +523,13 @@ function UserBubble({ msg }: { msg: UserMsg }) {
 
 function AssistantBubble({ msg }: { msg: AssistantMsg }) {
   const showTyping = msg.streaming && msg.content.length === 0 && msg.toolCalls.length === 0
-  const display = msg.streaming ? msg.content : extractDisplayText(msg.content)
+  // Durante streaming exibimos o cru (chunks parciais não parseiam). No turno
+  // final, extractConversationalDisplay reconhece tanto o canônico do
+  // Conversational ({ ui_component, message, output }) quanto o legacy do
+  // Custom ({ response }), evitando o JSON inteiro vazar pra bolha.
+  const display = msg.streaming
+    ? { message: msg.content, uiComponent: null, output: undefined, structured: false }
+    : extractConversationalDisplay(msg.content)
 
   return (
     <div className="flex justify-start">
@@ -529,7 +537,7 @@ function AssistantBubble({ msg }: { msg: AssistantMsg }) {
         {msg.toolCalls.map((call) => (
           <ToolCallChip key={call.id} call={call} />
         ))}
-        {(display.length > 0 || msg.errored || showTyping) && (
+        {(display.message.length > 0 || display.structured || msg.errored || showTyping) && (
           <div
             className={cn(
               'rounded-2xl rounded-bl-sm border px-4 py-2.5 text-sm leading-relaxed shadow-card',
@@ -538,42 +546,24 @@ function AssistantBubble({ msg }: { msg: AssistantMsg }) {
                 : 'border-border bg-surface text-fg',
             )}
           >
-            {showTyping ? <TypingDots /> : <div className="whitespace-pre-wrap break-words">{display}</div>}
+            {showTyping ? (
+              <TypingDots />
+            ) : (
+              <>
+                {display.uiComponent && (
+                  <div className="mb-1.5">
+                    <UiComponentChip value={display.uiComponent} />
+                  </div>
+                )}
+                <div className="whitespace-pre-wrap break-words">{display.message}</div>
+                {display.structured && <OutputDetails value={display.output} />}
+              </>
+            )}
           </div>
         )}
       </div>
     </div>
   )
-}
-
-/**
- * Extrai o texto exibível do output de um agente. Quando o agent emite JSON
- * estruturado (caso típico de structuredOutput=json_schema ou agente com
- * memória operacional), o caller recebe `{"response":"texto"}` envelopado.
- * Esta função faz parse seguro e devolve só o campo `response`. Em caso de
- * texto puro ou JSON malformado (ex.: chunk parcial durante streaming),
- * devolve o conteúdo cru sem alteração.
- *
- * Também resolve escapes Unicode (`—` → `—`) automaticamente via
- * <c>JSON.parse</c>.
- */
-function extractDisplayText(raw: string): string {
-  const trimmed = raw.trim()
-  if (!trimmed.startsWith('{')) return raw
-  try {
-    const parsed: unknown = JSON.parse(trimmed)
-    if (
-      parsed !== null
-      && typeof parsed === 'object'
-      && 'response' in parsed
-      && typeof (parsed as { response: unknown }).response === 'string'
-    ) {
-      return (parsed as { response: string }).response
-    }
-  } catch {
-    // JSON inválido — pode ser texto puro ou chunk parcial. Devolve cru.
-  }
-  return raw
 }
 
 function ToolCallChip({ call }: { call: ToolCall }) {
