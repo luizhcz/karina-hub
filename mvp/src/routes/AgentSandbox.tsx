@@ -22,7 +22,7 @@ import {
   cn,
 } from '../ui'
 import { extractConversationalDisplay } from '../utils/conversationalDisplay'
-import { OutputDetails, UiComponentChip } from '../components/ConversationalExtras'
+import { OutputDetails, TypingDots, UiComponentChip } from '../components/ConversationalExtras'
 
 interface UserMsg {
   kind: 'user'
@@ -596,16 +596,6 @@ function ToolCallChip({ call }: { call: ToolCall }) {
         </pre>
       )}
     </details>
-  )
-}
-
-function TypingDots() {
-  return (
-    <span className="flex h-5 items-center gap-1">
-      <span className="h-1.5 w-1.5 rounded-full bg-fg-dim animate-bounce [animation-delay:0ms]" />
-      <span className="h-1.5 w-1.5 rounded-full bg-fg-dim animate-bounce [animation-delay:150ms]" />
-      <span className="h-1.5 w-1.5 rounded-full bg-fg-dim animate-bounce [animation-delay:300ms]" />
-    </span>
   )
 }
 

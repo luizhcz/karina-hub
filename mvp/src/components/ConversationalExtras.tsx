@@ -1,6 +1,22 @@
 import { cn } from '../ui'
 
 /**
+ * Indicador de "agente digitando" usado enquanto o stream chega vazio (sem
+ * conteúdo nem tool calls). Três bolinhas que pulsam em sequência — comum
+ * em chats. Centralizado aqui pra ser reusado no AgentSandbox e no
+ * ChatDeploymentSandbox sem duplicação.
+ */
+export function TypingDots() {
+  return (
+    <span className="flex h-5 items-center gap-1">
+      <span className="h-1.5 w-1.5 rounded-full bg-fg-dim animate-bounce [animation-delay:0ms]" />
+      <span className="h-1.5 w-1.5 rounded-full bg-fg-dim animate-bounce [animation-delay:150ms]" />
+      <span className="h-1.5 w-1.5 rounded-full bg-fg-dim animate-bounce [animation-delay:300ms]" />
+    </span>
+  )
+}
+
+/**
  * Chip compacto que exibe o renderer escolhido pelo Conversational
  * (campo <c>ui_component</c>). Aparece no header da bolha de chat — sinaliza
  * pro user que o agente decidiu uma forma específica de exibição, mesmo
