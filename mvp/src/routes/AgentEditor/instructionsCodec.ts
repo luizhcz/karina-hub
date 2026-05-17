@@ -1,17 +1,25 @@
 // Encoder/decoder da string canônica de `payload.instructions`. O profile do
 // agente é uma string markdown livre que o usuário edita no BlockNote — o
 // codec NÃO decompõe em campos. Apenas separa blocos auto-gerados pelo
-// próprio wizard (ferramentas, schemas de input/output, contrato de resposta)
-// do markdown autoral, pra que round-trips não duplem esses blocos.
+// próprio wizard (schemas de input/output, contrato de resposta) do markdown
+// autoral, pra que round-trips não duplem esses blocos.
+//
+// Ferramentas NÃO são concatenadas no prompt: o framework entrega tools ao
+// LLM via function-calling nativo (Microsoft.Agents.AI `FunctionTool`),
+// portanto colocá-las no texto do system prompt seria redundante e enganoso
+// (PM pode acreditar que edita o schema editando o texto). O cabeçalho
+// `TOOLS_HEADER` permanece declarado pra que o decoder drene blocos legados
+// que vieram do encoder antigo — round-trip idempotente sem migration manual.
 
 export const INPUT_HEADER = 'Input estruturado'
 export const OUTPUT_HEADER = 'Output estruturado'
-export const TOOLS_HEADER = 'Ferramentas disponíveis'
+const TOOLS_HEADER = 'Ferramentas disponíveis'
 export const RESPONSE_FORMAT_HEADER = 'Formato da resposta'
 
-// Headers que o codec gera no save (tools, schemas, contrato JSON-only). No
-// decode são descartados do `profile` — pra preservar idempotência no
-// round-trip, eles só voltam quando o save regenera a partir do estado atual.
+// Headers que o codec gera no save (schemas, contrato JSON-only). No decode
+// são descartados do `profile` pra preservar idempotência. TOOLS_HEADER
+// permanece na lista exclusivamente pra absorver o bloco legado de agentes
+// salvos antes da limpeza — o encoder atual não regenera essa seção.
 const AUTO_GENERATED_HEADERS: ReadonlySet<string> = new Set([
   INPUT_HEADER,
   OUTPUT_HEADER,
@@ -23,29 +31,11 @@ const AUTO_GENERATED_HEADERS: ReadonlySet<string> = new Set([
   'Formato de resposta',
 ])
 
-// Aviso fixo no topo da seção de ferramentas. Reforça que o agente deve seguir
-// o fluxo mesmo quando uma tool falha — comportamento padrão pra evitar travar
-// a conversa em erros de integração.
-const TOOLS_DISCLAIMER =
-  'Você tem acesso às ferramentas abaixo. **Se uma ferramenta falhar ou retornar erro, siga adiante sem ela** — explique ao usuário que essa informação específica não está disponível agora, ofereça uma alternativa quando possível e continue a tarefa com o que conseguir das demais.'
-
 // Contrato fixo apendado quando o agente tem output estruturado. Reforça a
 // regra "responda APENAS com JSON" — sem esse aviso modelos costumam vazar
 // preâmbulo conversacional ("Claro! Aqui vai…") antes do JSON.
 const OUTPUT_CONTRACT =
   'Responda **exclusivamente** com um objeto JSON válido conforme o schema definido em "Output estruturado" acima. Não inclua texto, prosa, markdown ou comentários fora do JSON. Verifique que todas as propriedades marcadas como `required` estão presentes antes de responder.'
-
-export interface ToolDescriptor {
-  name: string
-  description: string
-  // Bloco markdown self-contained com toda a doc (endpoint/params/body pra HTTP;
-  // tools list/aprovação pra MCP). Vem com seus próprios labels — o encoder
-  // não envolve em "**Input esperado:**" pra evitar bold-em-bold.
-  details?: string
-  // Quando preenchido, fica destacado como "Use quando" embaixo da descrição —
-  // orienta o LLM sobre o gatilho de uso da tool.
-  whenToUse?: string
-}
 
 export interface DecodedInstructions {
   profile: string
@@ -157,29 +147,6 @@ function encodeStructuredBlock(
   return parts.join('\n')
 }
 
-function encodeToolsBlock(tools: ToolDescriptor[]): string | null {
-  if (tools.length === 0) return null
-
-  const lines: string[] = [`## ${TOOLS_HEADER}`, '', TOOLS_DISCLAIMER]
-  for (const tool of tools) {
-    lines.push('')
-    lines.push(`### ${tool.name}`)
-    if (tool.description.trim().length > 0) {
-      lines.push('')
-      lines.push(tool.description.trim())
-    }
-    if (tool.whenToUse && tool.whenToUse.trim().length > 0) {
-      lines.push('')
-      lines.push(`**Use quando:** ${tool.whenToUse.trim()}`)
-    }
-    if (tool.details && tool.details.trim().length > 0) {
-      lines.push('')
-      lines.push(tool.details.trim())
-    }
-  }
-  return lines.join('\n')
-}
-
 function hasOutputContent(output: { description: string; schema: string }): boolean {
   return output.description.trim().length > 0 || output.schema.trim().length > 0
 }
@@ -188,18 +155,12 @@ export function encodeInstructions(
   profile: string,
   input: { description: string; schema: string },
   output: { description: string; schema: string },
-  tools: ToolDescriptor[],
   includeStructured: boolean,
 ): string {
   const blocks: string[] = []
 
   const profileTrim = profile.trim()
   if (profileTrim) blocks.push(profileTrim)
-
-  // Tools entram independente do modo basic/advanced — todo agente pode ter
-  // tools/MCPs, então documentamos sempre que existir seleção.
-  const toolsBlock = encodeToolsBlock(tools)
-  if (toolsBlock) blocks.push(toolsBlock)
 
   if (includeStructured) {
     const inputBlock = encodeStructuredBlock(INPUT_HEADER, input)

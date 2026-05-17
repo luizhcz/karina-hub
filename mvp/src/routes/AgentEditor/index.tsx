@@ -641,7 +641,7 @@ export function AgentEditor({ mode }: Props) {
     setSubmitting(true)
     try {
       if (mode === 'edit' && id && draft) {
-        const payload = buildPayload(draft.payload, form, tools, mcps)
+        const payload = buildPayload(draft.payload, form)
         const updated = await updateAgentDraft(id, {
           payload,
           expectedUpdatedAt: draft.updatedAt,
@@ -649,7 +649,7 @@ export function AgentEditor({ mode }: Props) {
         setDraft(updated)
         setForm((prev) => ({ ...fromDraft(updated), currentStep: prev.currentStep, agentMode: prev.agentMode }))
       } else {
-        const payload = buildPayload(undefined, form, tools, mcps)
+        const payload = buildPayload(undefined, form)
         const created = await createAgentDraft({ id: generateDraftId(), payload })
         navigate(`/agentes/${created.id}`, { replace: true })
       }
@@ -730,12 +730,12 @@ export function AgentEditor({ mode }: Props) {
       if (mode === 'create' || !draftId) {
         // Create mode: cria o draft inline antes de submeter (1 fluxo, sem
         // viagem extra pra /agentes/{id} no meio).
-        const payload = buildPayload(undefined, form, tools, mcps)
+        const payload = buildPayload(undefined, form)
         const created = await createAgentDraft({ id: generateDraftId(), payload })
         draftId = created.id
         setDraft(created)
       } else if (draft) {
-        const payload = buildPayload(draft.payload, form, tools, mcps)
+        const payload = buildPayload(draft.payload, form)
         const updated = await updateAgentDraft(draftId, {
           payload,
           expectedUpdatedAt: draft.updatedAt,

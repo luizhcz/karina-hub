@@ -1,8 +1,6 @@
 import type { AgentDraft, AgentDraftPayload, AgentToolDefinition, AgentType } from '../../api/agentDrafts'
-import type { GenericTool, ParamDefinition } from '../../api/genericTools'
-import type { McpServer } from '../../api/mcpServers'
 import type { KvRow } from '../../components/PostmanEditor/KvTable'
-import { decodeInstructions, encodeInstructions, type ToolDescriptor } from './instructionsCodec'
+import { decodeInstructions, encodeInstructions } from './instructionsCodec'
 import type { FormState, StructuredSection } from './types'
 
 // Type discriminante de uma entry de payload.middlewares[]. Espelha
@@ -89,120 +87,10 @@ export function mergeTools(
   return next
 }
 
-function describeParam(name: string, def: ParamDefinition, location: 'path' | 'query'): string {
-  const required = def.required ? 'obrigatório' : 'opcional'
-  const type = def.type || 'string'
-  const desc = def.description ? ` — ${def.description}` : ''
-  return `- \`${name}\` (${location}, ${type}, ${required})${desc}`
-}
-
-// Constrói o bloco completo de doc da tool HTTP: endpoint + parâmetros (path/
-// query) + body (quando aplicável) + resposta. Self-contained com seus próprios
-// labels — o encoder não envolve em "**Input esperado:**" pra evitar bold-em-
-// bold no markdown final.
-function formatGenericToolDetails(tool: GenericTool): string | undefined {
-  const parts: string[] = []
-  parts.push(`**Endpoint:** \`${tool.httpMethod} ${tool.urlTemplate}\``)
-
-  const pathEntries = Object.entries(tool.pathParams)
-  const queryEntries = Object.entries(tool.queryParams)
-  if (pathEntries.length > 0 || queryEntries.length > 0) {
-    parts.push('')
-    parts.push('**Parâmetros:**')
-    for (const [name, def] of pathEntries) {
-      parts.push(describeParam(name, def, 'path'))
-    }
-    for (const [name, def] of queryEntries) {
-      parts.push(describeParam(name, def, 'query'))
-    }
-  }
-
-  if (tool.inputContentType === 'Json' && tool.inputSchema) {
-    parts.push('')
-    parts.push('**Body (JSON):**')
-    parts.push('```json')
-    parts.push(tool.inputSchema)
-    parts.push('```')
-  } else if (tool.inputContentType === 'FormUrlEncoded' && tool.inputSchema) {
-    parts.push('')
-    parts.push('**Body (form-urlencoded):**')
-    parts.push('```json')
-    parts.push(tool.inputSchema)
-    parts.push('```')
-  } else if (tool.inputContentType === 'Text' && tool.inputSchema) {
-    parts.push('')
-    parts.push(`**Body:** texto puro (campo \`${tool.inputSchema}\`)`)
-  }
-
-  if (tool.outputContentType === 'Json' && tool.outputSchema) {
-    parts.push('')
-    parts.push('**Resposta (JSON):**')
-    parts.push('```json')
-    parts.push(tool.outputSchema)
-    parts.push('```')
-  } else if (tool.outputContentType === 'Csv' && tool.outputSchema) {
-    parts.push('')
-    parts.push('**Resposta (CSV):**')
-    parts.push('```json')
-    parts.push(tool.outputSchema)
-    parts.push('```')
-  } else if (tool.outputContentType === 'Text' && tool.outputSchema) {
-    parts.push('')
-    parts.push(`**Resposta:** ${tool.outputSchema}`)
-  }
-
-  return parts.join('\n')
-}
-
-function genericToolToDescriptor(tool: GenericTool): ToolDescriptor {
-  return {
-    name: tool.name,
-    description: tool.description,
-    whenToUse: tool.whenToUse ?? undefined,
-    details: formatGenericToolDetails(tool),
-  }
-}
-
-function mcpToDescriptor(mcp: McpServer): ToolDescriptor {
-  const parts: string[] = []
-  if (mcp.allowedTools.length > 0) {
-    parts.push(
-      `**Tools disponíveis:** ${mcp.allowedTools.map((t) => `\`${t}\``).join(', ')}`,
-    )
-  } else {
-    parts.push('**Tools disponíveis:** descobertas dinamicamente pelo servidor.')
-  }
-  if (mcp.requireApproval === 'always') {
-    parts.push('')
-    parts.push('⚠️ **Requer aprovação humana** antes de cada execução.')
-  }
-  return {
-    name: mcp.name || mcp.serverLabel,
-    description: mcp.description ?? '',
-    details: parts.length > 0 ? parts.join('\n') : undefined,
-  }
-}
-
-// Constrói descritores na ordem (tools genéricas primeiro, depois MCPs) com
-// base na seleção atual e no catálogo carregado. Ids que não baterem com o
-// catálogo (tool deletada externamente, etc.) são silenciosamente ignorados.
-export function buildToolDescriptors(
-  toolIds: string[],
-  mcpIds: string[],
-  toolsCatalog: GenericTool[],
-  mcpsCatalog: McpServer[],
-): ToolDescriptor[] {
-  const result: ToolDescriptor[] = []
-  for (const id of toolIds) {
-    const t = toolsCatalog.find((x) => x.id === id)
-    if (t) result.push(genericToolToDescriptor(t))
-  }
-  for (const id of mcpIds) {
-    const m = mcpsCatalog.find((x) => x.id === id)
-    if (m) result.push(mcpToDescriptor(m))
-  }
-  return result
-}
+// Descritores ricos pra a preview do ReviewStep (estruturados por tipo,
+// não markdown) ficam em `./preview/toolDescriptors.ts` — esses dados não
+// vão pro `instructions` salvo no agente, são consumidos apenas pelo
+// frontend pra renderizar a seção "Ferramentas disponíveis" da revisão.
 
 function emptySection(): StructuredSection {
   return { mode: 'text', description: '', schema: '' }
@@ -495,13 +383,15 @@ export function fromDraft(draft: AgentDraft): FormState {
 export function buildPayload(
   prev: AgentDraftPayload | undefined,
   form: FormState,
-  toolsCatalog: GenericTool[],
-  mcpsCatalog: McpServer[],
 ): AgentDraftPayload {
+  // Tools e MCPs viajam em campos próprios do payload (`payload.tools`,
+  // `payload.middlewares`/metadata) — o framework entrega ao LLM via
+  // FunctionTool factory em runtime. Concatenar descritores no
+  // `instructions` seria redundante e enganoso (PM editaria o markdown
+  // achando que altera o schema entregue ao modelo, que não acontece).
   const includeStructured = form.agentMode === 'advanced'
   const inputForCodec = form.input.mode === 'structured' ? form.input : { description: '', schema: '' }
   const outputForCodec = form.output.mode === 'structured' ? form.output : { description: '', schema: '' }
-  const toolDocs = buildToolDescriptors(form.toolIds, form.mcpIds, toolsCatalog, mcpsCatalog)
 
   // Router usa placeholder deterministico — runtime (ChatOptionsBuilder)
   // resolve o conteúdo real ao montar o prompt baseado no set vivo do join
@@ -524,7 +414,6 @@ export function buildPayload(
                 form.profile,
                 inputForCodec,
                 outputForCodec,
-                toolDocs,
                 includeStructured,
               )
 
@@ -756,7 +645,6 @@ export function encodeConversationalInstructions(profile: string): string {
     profile,
     { description: '', schema: '' },
     { description: '', schema: '' },
-    [],
     false,
   )
 }
