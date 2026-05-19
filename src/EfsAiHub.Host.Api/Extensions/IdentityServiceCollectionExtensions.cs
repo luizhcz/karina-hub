@@ -16,6 +16,8 @@ public static class IdentityServiceCollectionExtensions
         services.AddSingleton<IUserIdentityProvider, HeaderUserIdentityProvider>();
         services.AddSingleton<IUserContextAccessor, UserContextAccessor>();
         services.AddSingleton<IRequestAuthContextAccessor, RequestAuthContextAccessor>();
+        services.AddSingleton<IAdminPermissionEvaluator, AdminPermissionEvaluator>();
+        services.AddHostedService<AdminPermissionsStartupValidator>();
         services.AddHttpContextAccessor();
         services.AddScoped<AdminAuditContext>();
         return services;

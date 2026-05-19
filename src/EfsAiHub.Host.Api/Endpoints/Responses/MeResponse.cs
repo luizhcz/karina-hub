@@ -2,9 +2,9 @@ namespace EfsAiHub.Host.Api.Models.Responses;
 
 /// <summary>
 /// Resposta do <c>GET /api/aihub/me</c>. Identidade resolvida do caller +
-/// flag de admin + metadados do usuário persistido. Sempre 200; quando
-/// headers de identificação estão ausentes, retorna campos null +
-/// <c>IsAdmin=false</c>.
+/// flag de admin + permissions ecoadas do header + metadados do usuário
+/// persistido. Sempre 200; quando headers de identificação estão ausentes,
+/// retorna campos null + <c>IsAdmin=false</c> + <c>Permissions=[]</c>.
 /// </summary>
 public sealed class MeResponse
 {
@@ -16,9 +16,15 @@ public sealed class MeResponse
     /// vem via <c>x-efs-user-profile-id</c>. Null sem identidade.</summary>
     public string? UserType { get; init; }
 
-    /// <summary>True quando o usuário persistido tem <c>IsAdmin=true</c>.
-    /// Falso sem identidade ou quando o provisioning falhou.</summary>
+    /// <summary>True quando a interseção entre <see cref="Permissions"/> e
+    /// <c>Admin:AdminPermissions</c> é não-vazia. False sem identidade ou
+    /// quando o usuário não tem permission admin.</summary>
     public bool IsAdmin { get; init; }
+
+    /// <summary>Permissions resolvidas do header <c>x-efs-permissions</c>
+    /// (normalizadas: lowercase, dedupe). Lista vazia quando o usuário está
+    /// autenticado sem nenhuma permission, ou quando o request veio anônimo.</summary>
+    public IReadOnlyList<string> Permissions { get; init; } = [];
 
     /// <summary>Id interno do usuário no diretório (aihub.users.Id). Null
     /// quando o request veio sem identidade.</summary>

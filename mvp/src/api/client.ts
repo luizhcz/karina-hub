@@ -1,6 +1,7 @@
 import { getAuthHeaders } from '../auth/headers'
+import { API_BASE_URL } from './baseUrl'
 
-const BASE = '/api/aihub'
+const BASE = API_BASE_URL
 
 export class ApiError extends Error {
   status: number

@@ -265,14 +265,6 @@ public static class AdminAuditActions
     public const string UserAutoProvisioned = "user.auto_provisioned";
 
     /// <summary>
-    /// Promoção ou rebaixamento de IsAdmin. Emitido por
-    /// PATCH /api/aihub/admin/users/{id} e pelo UserBootstrapHostedService no
-    /// startup quando IsAdmin estava false. PayloadBefore/After incluem
-    /// userId, externalUserId, isAdmin (before/after).
-    /// </summary>
-    public const string UserAdminFlagChanged = "user.admin_flag_changed";
-
-    /// <summary>
     /// Substituição do set de projetos vinculados a um usuário. Emitido por
     /// PUT /api/aihub/admin/users/{id}/projects. PayloadBefore/After incluem
     /// projectIds (antes e depois) — vínculos novos = After - Before; removidos

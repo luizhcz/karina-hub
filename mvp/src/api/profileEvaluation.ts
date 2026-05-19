@@ -1,4 +1,5 @@
 import { post, get } from './client'
+import { API_BASE_URL } from './baseUrl'
 import { getIdentity } from '../stores/identity'
 
 export type AutoDeployPreset = 'basic' | 'medium' | 'advanced'
@@ -127,8 +128,8 @@ export function streamEvalRun(
 ): () => void {
   const id = getIdentity()
   const url = id?.projectId
-    ? `/api/aihub/evaluations/runs/${encodeURIComponent(runId)}/stream?projectId=${encodeURIComponent(id.projectId)}`
-    : `/api/aihub/evaluations/runs/${encodeURIComponent(runId)}/stream`
+    ? `${API_BASE_URL}/evaluations/runs/${encodeURIComponent(runId)}/stream?projectId=${encodeURIComponent(id.projectId)}`
+    : `${API_BASE_URL}/evaluations/runs/${encodeURIComponent(runId)}/stream`
 
   const es = new EventSource(url)
   const close = () => es.close()

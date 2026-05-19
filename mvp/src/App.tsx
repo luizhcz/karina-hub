@@ -31,16 +31,24 @@ import { LlmCaptureControl } from './routes/admin/LlmCaptureControl'
 import { LlmCallsList } from './routes/admin/LlmCallsList'
 import { LlmCallDetailPage } from './routes/admin/LlmCallDetail'
 import { getIdentity, subscribeIdentity } from './stores/identity'
+import { readAccessToken } from './auth/headers'
+import { useMe } from './stores/me'
 
 export function App() {
   const [identity, setLocalIdentity] = useState(() => getIdentity())
 
   useEffect(() => subscribeIdentity(() => setLocalIdentity(getIdentity())), [])
 
-  // Considera "logado" só quando o user já confirmou nome + conta. ProjectId
-  // pode ficar vazio quando o user não tem nenhum projeto vinculado — nesse
-  // caso o Welcome.tsx + RequireAccessOrWelcome cuidam do redirect.
+  // 3 caminhos:
+  //   1. Identity completa (account presente) → app normal.
+  //   2. Sem identity + access_token salvo (fluxo via proxy/URL) → dispara /me
+  //      via useMe pra hidratar identity; exibe splash enquanto isso. /me com
+  //      accountId chama setIdentity (stores/me.ts → syncIdentityFromMe).
+  //   3. Sem identity + sem token (dev local sem proxy) → Onboarding manual.
   if (!identity || !identity.account) {
+    if (readAccessToken()) {
+      return <BootstrappingIdentity />
+    }
     return (
       <Routes>
         <Route path="*" element={<Onboarding />} />
@@ -103,5 +111,22 @@ function GuardedOutlet() {
     <RequireAccessOrWelcome>
       <Outlet />
     </RequireAccessOrWelcome>
+  )
+}
+
+/**
+ * Splash exibido enquanto o /me hidrata a identity após o bootstrap por URL.
+ * Dispara o /me via useMe; quando a resposta volta com accountId, o store
+ * (stores/me.ts → syncIdentityFromMe) chama setIdentity, o App re-renderiza
+ * e cai no caminho normal. Se /me devolver accountId=null (proxy não
+ * resolveu o token), o splash fica indefinido — fail-safe: melhor mostrar
+ * "carregando" que cair num Onboarding enganoso pra quem veio com SSO.
+ */
+function BootstrappingIdentity() {
+  useMe()
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <div className="text-sm text-fg-muted">Carregando sessão…</div>
+    </div>
   )
 }

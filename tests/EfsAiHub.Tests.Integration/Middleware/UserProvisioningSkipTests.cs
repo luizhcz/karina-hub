@@ -21,6 +21,7 @@ public class UserProvisioningSkipTests(IntegrationWebApplicationFactory factory)
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/aihub/chat/ag-ui/stream");
         request.Headers.Add("x-efs-account", externalUserId);
+        request.Headers.Add("x-efs-permissions", "efs.cliente");
         request.Content = JsonContent.Create(new
         {
             messages = new[] { new { role = "user", content = "Olá" } }
@@ -40,6 +41,7 @@ public class UserProvisioningSkipTests(IntegrationWebApplicationFactory factory)
         var externalUserId = $"ext-{Guid.NewGuid():N}";
         using var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Add("x-efs-account", externalUserId);
+        client.DefaultRequestHeaders.Add("x-efs-permissions", "efs.cliente");
 
         // /me não está em SkipPathPrefixes — middleware deve fazer upsert
         // normal. Status do response não importa pro objetivo do teste.

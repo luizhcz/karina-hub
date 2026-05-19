@@ -18,14 +18,21 @@ namespace EfsAiHub.Host.Api.Middleware;
 /// Headers consumidos:
 ///   - <c>x-efs-account</c> / <c>x-efs-user-profile-id</c> → identidade
 ///     (resolvida via <see cref="IUserIdentityProvider"/>).
-///   - <c>app_origin</c> → canal do caller (ex.: web-mvp). Pass-through
-///     pras chamadas downstream de generic-tools.
-///   - <c>access_token</c> → token opaco do IdP do consumidor. Não é
-///     validado aqui; serve como bearer pras chamadas downstream.
+///   - <c>x-efs-permissions</c> → CSV de permissões resolvidas pelo proxy.
+///     Obrigatório quando identidade é fornecida (vazio é válido — autenticado
+///     sem permissão). Ausente quando identidade existe → 400 BadRequest.
+///   - <c>app_origin</c> → canal do caller (ex.: web-mvp). Pass-through.
+///   - <c>access_token</c> → token opaco do IdP do consumidor. Não é validado
+///     aqui; serve como bearer pras chamadas downstream.
 ///
 /// Sem identidade no request: middleware é no-op (rotas públicas como
 /// /health/* continuam funcionando sem usuário associado). Falha de DB
 /// também é no-op + log — auth não pode derrubar request path.
+///
+/// IsAdmin e Permissions do <see cref="User"/> retornado são populados pelo
+/// <see cref="IAdminPermissionEvaluator"/> a cada request — inclusive em cache
+/// hit, pra que mudança de permission no proxy reflita imediatamente sem
+/// esperar TTL.
 ///
 /// Deve rodar DEPOIS de TenantMiddleware (precisa do TenantId resolvido)
 /// e ANTES de AdminGateMiddleware (que lê IUserContextAccessor.Current).
@@ -59,6 +66,7 @@ public sealed class UserProvisioningMiddleware
         IUserContextAccessor userAccessor,
         ITenantContextAccessor tenantAccessor,
         IRequestAuthContextAccessor authContext,
+        IAdminPermissionEvaluator adminEvaluator,
         IMemoryCache cache,
         IAdminAuditLogger audit,
         IOptions<UserProvisioningOptions> options,
@@ -71,9 +79,18 @@ public sealed class UserProvisioningMiddleware
         authContext.AppOrigin = ReadFirstNonEmptyHeader(context.Request, AppOriginHeader);
         authContext.AccessToken = ReadFirstNonEmptyHeader(context.Request, AccessTokenHeader);
 
-        var identity = identityProvider.Resolve(context, out _);
+        var identity = identityProvider.Resolve(context, out var identityError);
         if (identity is null)
         {
+            // Erro descritivo (ex.: x-efs-permissions ausente, headers ambíguos)
+            // só vira 400 quando o caller enviou ALGUMA identidade — request
+            // totalmente anônimo (sem nenhum header de auth) segue como public.
+            if (!string.IsNullOrEmpty(identityError) && HasAnyIdentityInput(context.Request))
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await context.Response.WriteAsJsonAsync(new { error = identityError });
+                return;
+            }
             await _next(context);
             return;
         }
@@ -108,7 +125,6 @@ public sealed class UserProvisioningMiddleware
                     displayName: null,
                     context.RequestAborted);
 
-                // Audit apenas no INSERT real — re-upserts (LastSeenAt bump) silenciam.
                 if (result.Created)
                 {
                     try
@@ -154,21 +170,48 @@ public sealed class UserProvisioningMiddleware
         }
 
         if (user is not null)
-            userAccessor.Current = user;
+        {
+            // Permissions/IsAdmin vêm do header — sobrescreve o objeto cacheado
+            // pra que mudança de papel no proxy reflita imediatamente, sem
+            // esperar o TTL de 60s do diretório.
+            userAccessor.Current = new User
+            {
+                Id = user.Id,
+                ExternalUserId = user.ExternalUserId,
+                UserType = user.UserType,
+                TenantId = user.TenantId,
+                DisplayName = user.DisplayName,
+                CreatedAt = user.CreatedAt,
+                LastSeenAt = user.LastSeenAt,
+                Permissions = identity.Permissions,
+                IsAdmin = adminEvaluator.IsAdmin(identity.Permissions),
+            };
+        }
 
         await _next(context);
     }
 
     /// <summary>
     /// Invalida a entrada de cache pra um par (tenant, externalUserId).
-    /// Admin chama isso após mudar IsAdmin/DisplayName via UI pra que a
-    /// próxima request enxergue o estado novo sem esperar o TTL.
+    /// Admin chama isso após mudar DisplayName via UI pra que a próxima
+    /// request enxergue o estado novo sem esperar o TTL.
     /// </summary>
     public static void InvalidateCache(IMemoryCache cache, string tenantId, string externalUserId)
         => cache.Remove(BuildCacheKey(tenantId, externalUserId));
 
     private static string BuildCacheKey(string tenantId, string externalUserId)
         => $"user-provisioning:{tenantId}:{externalUserId}";
+
+    private static bool HasAnyIdentityInput(HttpRequest request)
+    {
+        var account = request.Headers[UserIdentityResolver.Headers.Account].FirstOrDefault();
+        var profileId = request.Headers[UserIdentityResolver.Headers.UserProfileId].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(account) || !string.IsNullOrWhiteSpace(profileId))
+            return true;
+        var accountQ = request.Query[UserIdentityResolver.QueryParams.Account].FirstOrDefault();
+        var profileIdQ = request.Query[UserIdentityResolver.QueryParams.UserProfileId].FirstOrDefault();
+        return !string.IsNullOrWhiteSpace(accountQ) || !string.IsNullOrWhiteSpace(profileIdQ);
+    }
 
     private static bool ShouldSkipProvisioning(PathString requestPath, UserProvisioningOptions options)
     {

@@ -99,10 +99,9 @@ public class ProjectsController : ControllerBase
         if (!IsAdmin())
         {
             var user = _userAccessor.Current;
-            var visible = user is null
+            IReadOnlyList<string> visible = user is null
                 ? Array.Empty<string>()
-                : await _membership.GetVisibleProjectIdsAsync(user.ExternalUserId, tenantId, ct)
-                  ?? Array.Empty<string>();
+                : await _membership.GetVisibleProjectIdsAsync(user.ExternalUserId, tenantId, ct);
             var visibleSet = new HashSet<string>(visible, StringComparer.Ordinal);
             result = result.Where(p =>
                 !p.Id.Equals("default", StringComparison.OrdinalIgnoreCase)

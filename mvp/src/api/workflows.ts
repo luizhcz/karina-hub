@@ -1,4 +1,5 @@
 import { generateDraftId } from './agentDrafts'
+import { API_BASE_URL } from './baseUrl'
 import { get, post, put } from './client'
 
 // Marca workflows criados pelo editor de pipeline (sequência de N agentes) pra
@@ -7,6 +8,19 @@ import { get, post, put } from './client'
 export const PIPELINE_DEPLOYMENT_KIND = 'pipeline'
 export const ROUTING_DEPLOYMENT_KIND = 'routing'
 export const CHAT_DEPLOYMENT_KIND = 'chat'
+
+// Valores de metadata.kind que marcam workflows efêmeros criados pelo
+// AgentSandboxService quando o user clica "Testar". Eles compartilham id
+// prefix (`deploy-chat-sandbox-…`) e metadata.deploymentKind=chat com deploys
+// de produção — a única forma de distinguir é via metadata.kind.
+const CHAT_SANDBOX_KIND = 'chat-sandbox'
+const STANDALONE_SANDBOX_KIND = 'standalone-sandbox'
+
+function isSandboxWorkflow(workflow: Workflow): boolean {
+  const md = (workflow as { metadata?: Record<string, string> | null }).metadata
+  const kind = md?.kind
+  return kind === CHAT_SANDBOX_KIND || kind === STANDALONE_SANDBOX_KIND
+}
 
 export const pipelineWorkflowId = () => `deploy-pipeline-${generateDraftId()}`
 export const routingWorkflowId = () => `deploy-routing-${generateDraftId()}`
@@ -115,6 +129,7 @@ export const createWorkflow = (body: CreateWorkflowBody) =>
 // nasceu do fluxo de implantação.
 export function isAgentDeployment(workflow: Workflow): boolean {
   if (!workflow.id.startsWith('deploy-')) return false
+  if (isSandboxWorkflow(workflow)) return false
   const md = (workflow as { metadata?: Record<string, string> | null }).metadata
   return !!md?.deployedFromAgentId
 }
@@ -149,6 +164,7 @@ export function isRoutingDeployment(workflow: Workflow): boolean {
 // chat_deployment_allowed=true conseguem criar. Reconhecido por
 // `deploy-chat-{guid}` no id ou metadata.deploymentKind === 'chat'.
 export function isChatDeployment(workflow: Workflow): boolean {
+  if (isSandboxWorkflow(workflow)) return false
   if (workflow.id.startsWith('deploy-chat-')) return true
   const md = (workflow as { metadata?: Record<string, string> | null }).metadata
   return md?.deploymentKind === CHAT_DEPLOYMENT_KIND
@@ -344,5 +360,5 @@ export type StreamEventType = (typeof STREAM_EVENT_TYPES)[number]
 // param — EventSource API não envia headers custom no browser.
 export function executionStreamUrl(executionId: string, account: string): string {
   const qs = new URLSearchParams({ account }).toString()
-  return `/api/aihub/executions/${executionId}/stream?${qs}`
+  return `${API_BASE_URL}/executions/${executionId}/stream?${qs}`
 }

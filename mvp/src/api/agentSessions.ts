@@ -1,4 +1,5 @@
 import { ApiError, post } from './client'
+import { API_BASE_URL } from './baseUrl'
 import { getAuthHeaders } from '../auth/headers'
 
 export interface AgentSession {
@@ -48,7 +49,7 @@ export async function* streamRun(
     ...getAuthHeaders(),
   }
 
-  const response = await fetch(`/api/aihub/agents/${agentId}/sessions/${sessionId}/stream`, {
+  const response = await fetch(`${API_BASE_URL}/agents/${agentId}/sessions/${sessionId}/stream`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ message }),

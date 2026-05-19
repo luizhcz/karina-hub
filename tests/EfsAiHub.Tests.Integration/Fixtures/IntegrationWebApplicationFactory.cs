@@ -79,7 +79,7 @@ public sealed class IntegrationWebApplicationFactory : WebApplicationFactory<Pro
             services.PostConfigure<EfsAiHub.Host.Api.Configuration.AdminOptions>(o =>
             {
                 o.GateEnabled = false;
-                o.BootstrapAdminExternalUserIds.Clear();
+                o.AdminPermissions = new List<string> { "efs.admin" };
             });
 
             // ── Override Postgres DbContextFactory ───────────────────────────
@@ -183,24 +183,24 @@ public sealed class IntegrationWebApplicationFactory : WebApplicationFactory<Pro
         })).CreateClient();
 
     /// <summary>
-    /// Creates a client where DefaultProjectGuard/AdminGate are active e o
-    /// usuário com o externalId fornecido é admin no diretório (aihub.users).
-    /// Use só em testes que exercitam o gate end-to-end.
+    /// Creates a client where DefaultProjectGuard/AdminGate are active. Caller
+    /// vira admin enviando `x-efs-permissions: efs.admin` (extension
+    /// <see cref="HttpClientProjectExtensions.WithPermissions"/>) — o parâmetro
+    /// <paramref name="adminExternalUserId"/> é mantido só pra compatibilidade
+    /// com os call sites históricos (não influencia mais o gating).
     /// </summary>
-    public HttpClient CreateClientWithAdminGate(string adminExternalUserId) =>
-        WithWebHostBuilder(b => b.ConfigureServices(services =>
+    public HttpClient CreateClientWithAdminGate(string adminExternalUserId)
+    {
+        _ = adminExternalUserId;
+        return WithWebHostBuilder(b => b.ConfigureServices(services =>
         {
-            // Reativa o gate APÓS o PostConfigure do factory base que desliga.
-            // Múltiplos PostConfigure rodam em ordem de registro — este é o último.
             services.PostConfigure<EfsAiHub.Host.Api.Configuration.AdminOptions>(o =>
             {
                 o.GateEnabled = true;
-                o.BootstrapAdminExternalUserIds.Clear();
-                o.BootstrapAdminExternalUserIds.Add(adminExternalUserId);
-                o.BootstrapTenantId = "default";
-                o.BootstrapUserType = "admin";
+                o.AdminPermissions = new List<string> { "efs.admin" };
             });
         })).CreateClient();
+    }
 }
 
 [CollectionDefinition("Integration")]
@@ -222,6 +222,20 @@ public static class HttpClientProjectExtensions
     {
         client.DefaultRequestHeaders.Remove("x-efs-account");
         client.DefaultRequestHeaders.Add("x-efs-account", accountId);
+        if (!client.DefaultRequestHeaders.Contains("x-efs-permissions"))
+            client.DefaultRequestHeaders.Add("x-efs-permissions", "efs.admin");
+        return client;
+    }
+
+    /// <summary>
+    /// Override do header <c>x-efs-permissions</c>. CSV de permissions
+    /// resolvidas — match contra <c>Admin:AdminPermissions</c> concede admin.
+    /// Use string vazia pra simular usuário autenticado sem permission.
+    /// </summary>
+    public static HttpClient WithPermissions(this HttpClient client, params string[] permissions)
+    {
+        client.DefaultRequestHeaders.Remove("x-efs-permissions");
+        client.DefaultRequestHeaders.Add("x-efs-permissions", string.Join(",", permissions));
         return client;
     }
 }

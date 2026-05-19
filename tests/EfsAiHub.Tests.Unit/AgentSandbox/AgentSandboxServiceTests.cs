@@ -293,6 +293,58 @@ public class AgentSandboxServiceTests
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
+    [Fact]
+    public async Task CloseSessionAsync_DeletesWorkflowImmediately()
+    {
+        var (svc, _, _, sessionRepo, workflowSvc, _, _) = BuildService();
+        sessionRepo.GetByIdAsync("s-1", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<AgentSandboxSession?>(StubActiveSession()));
+
+        await svc.CloseSessionAsync("s-1");
+
+        // Update vem antes do Delete: se o delete crashar, session já está
+        // marcada Closed e cleanup background cobre o workflow órfão.
+        Received.InOrder(() =>
+        {
+            sessionRepo.UpdateAsync(
+                Arg.Is<AgentSandboxSession>(s => s.Status == AgentSandboxSessionStatus.Closed),
+                Arg.Any<CancellationToken>());
+            workflowSvc.DeleteAsync("deploy-chat-sandbox-x", Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Fact]
+    public async Task CloseSessionAsync_SwallowsWorkflowDeleteFailure()
+    {
+        var (svc, _, _, sessionRepo, workflowSvc, _, _) = BuildService();
+        sessionRepo.GetByIdAsync("s-1", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<AgentSandboxSession?>(StubActiveSession()));
+        workflowSvc.DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("boom")));
+
+        var act = async () => await svc.CloseSessionAsync("s-1");
+
+        await act.Should().NotThrowAsync();
+        await sessionRepo.Received(1).UpdateAsync(
+            Arg.Is<AgentSandboxSession>(s => s.Status == AgentSandboxSessionStatus.Closed),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CloseSessionAsync_NoOpWhenAlreadyClosed()
+    {
+        var (svc, _, _, sessionRepo, workflowSvc, _, _) = BuildService();
+        var closed = StubActiveSession();
+        closed.Status = AgentSandboxSessionStatus.Closed;
+        sessionRepo.GetByIdAsync("s-1", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<AgentSandboxSession?>(closed));
+
+        await svc.CloseSessionAsync("s-1");
+
+        await workflowSvc.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await sessionRepo.DidNotReceive().UpdateAsync(Arg.Any<AgentSandboxSession>(), Arg.Any<CancellationToken>());
+    }
+
     private static AgentSandboxSession StubActiveSession(string mode = AgentSandboxModes.Chat) => new()
     {
         SandboxSessionId = "s-1",

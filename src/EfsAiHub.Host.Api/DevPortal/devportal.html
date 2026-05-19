@@ -414,13 +414,15 @@
           <div class="step-connector"></div>
         </div>
         <div class="step-body">
-          <div class="step-title">Defina o header de identidade</div>
-          <div class="step-desc">Escolha entre conta de cliente ou ID de assessor. Sem header, o usuário é <code>anonymous</code>.</div>
+          <div class="step-title">Defina os headers de identidade</div>
+          <div class="step-desc">Escolha entre conta de cliente ou ID de assessor + envie a lista de permissions resolvida pelo proxy/IdP. Sem headers de identidade, o usuário é <code>anonymous</code>; com identidade, <code>x-efs-permissions</code> é <strong>obrigatório</strong> (string vazia significa "autenticado, sem permissão").</div>
           <pre class="language-bash" style="margin-top:10px"><code class="language-bash"># Cliente (conta de investimento)
 x-efs-account: 123456789
+x-efs-permissions: efs.cliente
 
 # Assessor
-x-efs-user-profile-id: P-00123</code></pre>
+x-efs-user-profile-id: P-00123
+x-efs-permissions: efs.admin,efs.workflows.editor</code></pre>
         </div>
       </div>
       <div class="step">
@@ -434,6 +436,7 @@ x-efs-user-profile-id: P-00123</code></pre>
           <pre class="language-bash" style="margin-top:10px"><code class="language-bash">curl -X POST http://localhost:5189/api/aihub/chat/ag-ui/stream \
   -H "Content-Type: application/json" \
   -H "x-efs-account: 123456789" \
+  -H "x-efs-permissions: efs.cliente" \
   -H "x-project-id: investimentos" \
   -H "app_origin: web-mvp" \
   -H "access_token: $ACCESS_TOKEN" \
@@ -441,7 +444,8 @@ x-efs-user-profile-id: P-00123</code></pre>
   --no-buffer
 
 # Notas:
-# - Troque por -H "x-efs-user-profile-id: P-00123" se o caller for assessor (admin).
+# - Troque por -H "x-efs-user-profile-id: P-00123" + -H "x-efs-permissions: efs.admin"
+#   se o caller for assessor (admin).
 # - access_token é opcional — só é necessário se a conversa pode chamar generic tools
 #   marcadas como IsExclusive=true (ver seção Generic Tools).
 # - Sem x-project-id, o backend usa o projeto "default" (admin-only).
@@ -506,6 +510,12 @@ data: {"type":"RUN_FINISHED","runId":"exec-abc","threadId":"conv-xyz"}</code></p
           <td><strong>Condicional</strong></td>
           <td>Quando <code>userType=admin</code> (assessor / interno)</td>
           <td><code>P-00123</code></td>
+        </tr>
+        <tr>
+          <td><code>x-efs-permissions</code></td>
+          <td><strong>Obrigatório com identidade</strong></td>
+          <td>CSV de permissions resolvidas pelo proxy/IdP. Admin é derivado de match contra <code>Admin:AdminPermissions</code> em appsettings. String vazia = autenticado sem permission.</td>
+          <td><code>efs.admin,efs.workflows.editor</code></td>
         </tr>
         <tr>
           <td><code>x-project-id</code></td>

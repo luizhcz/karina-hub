@@ -12,7 +12,9 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// <summary>
 /// Endpoints admin-only pra gerenciar o diretório de usuários e seus
 /// vínculos de projeto. Gating é feito pelo AdminGateMiddleware — qualquer
-/// rota sob /api/aihub/admin/users requer IsAdmin=true no usuário corrente.
+/// rota sob /api/aihub/admin/users requer permission admin no header
+/// <c>x-efs-permissions</c>. IsAdmin não é mutável via API: o vínculo
+/// admin vem do IdP/proxy, não do DB.
 /// </summary>
 [ApiController]
 [Route("api/aihub/admin/users")]
@@ -75,7 +77,6 @@ public class AdminUsersController : ControllerBase
                 ExternalUserId = u.ExternalUserId,
                 UserType = u.UserType,
                 DisplayName = u.DisplayName ?? u.ExternalUserId,
-                IsAdmin = u.IsAdmin,
                 CreatedAt = u.CreatedAt,
                 LastSeenAt = u.LastSeenAt,
                 ProjectCount = projectCounts.GetValueOrDefault(u.Id),
@@ -100,7 +101,6 @@ public class AdminUsersController : ControllerBase
             ExternalUserId = user.ExternalUserId,
             UserType = user.UserType,
             DisplayName = user.DisplayName ?? user.ExternalUserId,
-            IsAdmin = user.IsAdmin,
             CreatedAt = user.CreatedAt,
             LastSeenAt = user.LastSeenAt,
             ProjectIds = projects,
@@ -141,7 +141,6 @@ public class AdminUsersController : ControllerBase
             ExternalUserId = user.ExternalUserId,
             UserType = user.UserType,
             DisplayName = user.DisplayName ?? user.ExternalUserId,
-            IsAdmin = user.IsAdmin,
             CreatedAt = user.CreatedAt,
             LastSeenAt = user.LastSeenAt,
             ProjectIds = after,
@@ -149,7 +148,7 @@ public class AdminUsersController : ControllerBase
     }
 
     [HttpPatch("{id:guid}")]
-    [SwaggerOperation(Summary = "Atualiza IsAdmin e/ou DisplayName.")]
+    [SwaggerOperation(Summary = "Atualiza DisplayName do usuário.")]
     [ProducesResponseType(typeof(AdminUserDetailResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Patch(Guid id, [FromBody] PatchUserRequest request, CancellationToken ct)
@@ -158,37 +157,19 @@ public class AdminUsersController : ControllerBase
         if (user is null || user.TenantId != _tenantAccessor.Current.TenantId)
             return NotFound();
 
-        var auditEntries = new List<AdminAuditEntry>();
-
-        if (request.IsAdmin.HasValue && request.IsAdmin.Value != user.IsAdmin)
-        {
-            await _directory.SetAdminAsync(user.Id, request.IsAdmin.Value, ct);
-            auditEntries.Add(_auditContext.Build(
-                AdminAuditActions.UserAdminFlagChanged,
-                AdminAuditResources.User,
-                user.Id.ToString(),
-                payloadBefore: AdminAuditContext.Snapshot(new { isAdmin = user.IsAdmin }),
-                payloadAfter: AdminAuditContext.Snapshot(new { isAdmin = request.IsAdmin.Value })));
-        }
-
         if (!string.IsNullOrWhiteSpace(request.DisplayName) && request.DisplayName != user.DisplayName)
         {
             await _directory.SetDisplayNameAsync(user.Id, request.DisplayName, ct);
-            auditEntries.Add(_auditContext.Build(
+            await _audit.RecordAsync(_auditContext.Build(
                 AdminAuditActions.UserDisplayNameChanged,
                 AdminAuditResources.User,
                 user.Id.ToString(),
                 payloadBefore: AdminAuditContext.Snapshot(new { displayName = user.DisplayName }),
-                payloadAfter: AdminAuditContext.Snapshot(new { displayName = request.DisplayName })));
+                payloadAfter: AdminAuditContext.Snapshot(new { displayName = request.DisplayName })), ct);
         }
 
-        // Invalida caches do user pra que próxima request enxergue o estado novo
-        // sem esperar o TTL — sobretudo crítico pra promoções/rebaixamentos de admin.
         UserProvisioningMiddleware.InvalidateCache(_cache, user.TenantId, user.ExternalUserId);
         _membership.InvalidateForUser(user.TenantId, user.ExternalUserId);
-
-        foreach (var entry in auditEntries)
-            await _audit.RecordAsync(entry, ct);
 
         var refreshed = await _directory.GetByIdAsync(user.Id, ct);
         var projects = await _membership.GetProjectsForUserAsync(user.Id, ct);
@@ -198,7 +179,6 @@ public class AdminUsersController : ControllerBase
             ExternalUserId = refreshed.ExternalUserId,
             UserType = refreshed.UserType,
             DisplayName = refreshed.DisplayName ?? refreshed.ExternalUserId,
-            IsAdmin = refreshed.IsAdmin,
             CreatedAt = refreshed.CreatedAt,
             LastSeenAt = refreshed.LastSeenAt,
             ProjectIds = projects,
@@ -220,7 +200,6 @@ public sealed class AdminUserSummary
     public required string ExternalUserId { get; init; }
     public required string UserType { get; init; }
     public required string DisplayName { get; init; }
-    public required bool IsAdmin { get; init; }
     public required DateTime CreatedAt { get; init; }
     public required DateTime LastSeenAt { get; init; }
     public required int ProjectCount { get; init; }
@@ -232,7 +211,6 @@ public sealed class AdminUserDetailResponse
     public required string ExternalUserId { get; init; }
     public required string UserType { get; init; }
     public required string DisplayName { get; init; }
-    public required bool IsAdmin { get; init; }
     public required DateTime CreatedAt { get; init; }
     public required DateTime LastSeenAt { get; init; }
     public required IReadOnlyList<string> ProjectIds { get; init; }
@@ -245,6 +223,5 @@ public sealed class SetProjectsRequest
 
 public sealed class PatchUserRequest
 {
-    public bool? IsAdmin { get; set; }
     public string? DisplayName { get; set; }
 }

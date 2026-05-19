@@ -204,6 +204,7 @@ public sealed class AdminGateMiddleware
         HttpContext context,
         IUserContextAccessor userAccessor,
         IUserDirectory directory,
+        IAdminPermissionEvaluator adminEvaluator,
         EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor tenantAccessor)
     {
         // Escape hatch dev/test — GateEnabled=false em appsettings desativa o gate.
@@ -227,19 +228,21 @@ public sealed class AdminGateMiddleware
         }
 
         // Fallback SSE: EventSource no browser não envia headers customizados
-        // e o provisioning middleware não populou o accessor (sem identidade
-        // resolvida). Buscamos identidade via query param e checamos IsAdmin
-        // direto no diretório. Restrito a /stream pra evitar vazar identidade
-        // em URLs de outras rotas.
+        // e o provisioning middleware não populou o accessor. Resolver lê
+        // identidade + permissions via query param (?account=...&permissions=...).
+        // Restrito a /stream pra evitar vazar identidade em URLs de outras rotas.
         var path = context.Request.Path.Value ?? string.Empty;
         if (path.EndsWith("/stream", StringComparison.OrdinalIgnoreCase))
         {
             var identity = _identityResolver.TryResolve(context.Request, out _);
-            if (identity is not null)
+            if (identity is not null && adminEvaluator.IsAdmin(identity.Permissions))
             {
                 var tenantId = tenantAccessor.Current.TenantId;
+                // Sanity check: garante que o user existe no diretório antes
+                // de liberar a rota — admin sem row em aihub.users é estado
+                // anômalo e deve cair em 403.
                 var user = await directory.GetByExternalIdAsync(identity.UserId, tenantId, context.RequestAborted);
-                if (user?.IsAdmin == true)
+                if (user is not null)
                 {
                     await _next(context);
                     return;

@@ -10,9 +10,8 @@ namespace EfsAiHub.Infra.Persistence.Postgres;
 /// pra UI admin. Invalida explicitamente quando o set muda
 /// (<see cref="AssignProjectsAsync"/> ou <see cref="InvalidateForUser"/>).
 ///
-/// Admin bypass: <see cref="GetVisibleProjectIdsAsync"/> retorna null e
-/// <see cref="IsAuthorizedAsync"/> retorna true sem tocar user_projects —
-/// admin enxerga tudo do tenant.
+/// Não diferencia admin — bypass é responsabilidade dos callers. Service
+/// responde apenas sobre vínculos concretos em aihub.user_projects.
 /// </summary>
 public sealed class PgUserMembershipService : IUserMembershipService
 {
@@ -28,11 +27,10 @@ public sealed class PgUserMembershipService : IUserMembershipService
         _cache = cache;
     }
 
-    public async Task<IReadOnlyList<string>?> GetVisibleProjectIdsAsync(string externalUserId, string tenantId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<string>> GetVisibleProjectIdsAsync(string externalUserId, string tenantId, CancellationToken ct = default)
     {
         var user = await _directory.GetByExternalIdAsync(externalUserId, tenantId, ct);
         if (user is null) return Array.Empty<string>();
-        if (user.IsAdmin) return null;
 
         var cacheKey = VisibleProjectsKey(tenantId, externalUserId);
         if (_cache.TryGetValue<IReadOnlyList<string>>(cacheKey, out var cached) && cached is not null)
@@ -48,7 +46,6 @@ public sealed class PgUserMembershipService : IUserMembershipService
         if (string.IsNullOrWhiteSpace(projectId)) return false;
 
         var visible = await GetVisibleProjectIdsAsync(externalUserId, tenantId, ct);
-        if (visible is null) return true; // admin bypass
         return visible.Contains(projectId, StringComparer.Ordinal);
     }
 

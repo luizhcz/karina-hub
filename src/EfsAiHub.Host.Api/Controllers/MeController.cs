@@ -49,6 +49,7 @@ public class MeController : ControllerBase
                 AccountId = null,
                 UserType = null,
                 IsAdmin = false,
+                Permissions = [],
                 Projects = [],
             });
         }
@@ -67,8 +68,7 @@ public class MeController : ControllerBase
         }
         else
         {
-            var visibleIds = await _membership.GetVisibleProjectIdsAsync(user.ExternalUserId, tenantId, ct)
-                             ?? Array.Empty<string>();
+            var visibleIds = await _membership.GetVisibleProjectIdsAsync(user.ExternalUserId, tenantId, ct);
             var idSet = new HashSet<string>(visibleIds, StringComparer.Ordinal);
             visibleProjects = allProjects.Where(p => idSet.Contains(p.Id));
         }
@@ -78,6 +78,7 @@ public class MeController : ControllerBase
             AccountId = user.ExternalUserId,
             UserType = user.UserType,
             IsAdmin = user.IsAdmin,
+            Permissions = user.Permissions,
             UserId = user.Id,
             DisplayName = user.DisplayName ?? user.ExternalUserId,
             Projects = visibleProjects

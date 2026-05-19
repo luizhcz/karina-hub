@@ -1,10 +1,10 @@
 namespace EfsAiHub.Core.Abstractions.Users;
 
 /// <summary>
-/// Gating de visibilidade de projeto por usuário. Admin tem bypass total —
-/// <see cref="GetVisibleProjectIdsAsync"/> retorna null pra sinalizar "todos
-/// os projetos do tenant" sem materializar a lista. Non-admin recebe só o
-/// set vinculado em aihub.user_projects.
+/// Gating de visibilidade de projeto por usuário non-admin. Retorna o set
+/// vinculado em aihub.user_projects. Bypass de admin é responsabilidade dos
+/// callers (que conhecem a permission do request via <c>IUserContextAccessor</c>)
+/// — service só responde sobre o vínculo concreto.
 ///
 /// Implementações devem cachear o resultado de <see cref="IsAuthorizedAsync"/>
 /// por (externalUserId, projectId) com TTL curto (60s) pra absorver o custo
@@ -13,15 +13,15 @@ namespace EfsAiHub.Core.Abstractions.Users;
 public interface IUserMembershipService
 {
     /// <summary>
-    /// Retorna a lista de project ids visíveis ao usuário. Null = admin
-    /// (sem restrição — caller deve interpretar como "todos do tenant").
-    /// Lista vazia = non-admin sem vínculo nenhum.
+    /// Retorna a lista de project ids vinculados ao usuário (lista vazia
+    /// quando o caller ainda não tem nenhum vínculo). Não diferencia admin —
+    /// chame só pelo caminho non-admin.
     /// </summary>
-    Task<IReadOnlyList<string>?> GetVisibleProjectIdsAsync(string externalUserId, string tenantId, CancellationToken ct = default);
+    Task<IReadOnlyList<string>> GetVisibleProjectIdsAsync(string externalUserId, string tenantId, CancellationToken ct = default);
 
     /// <summary>
-    /// True quando admin OU quando o non-admin tem vínculo com o projeto.
-    /// Resultado cacheado por TTL curto.
+    /// True quando o usuário tem vínculo concreto com o projeto. Resultado
+    /// cacheado por TTL curto.
     /// </summary>
     Task<bool> IsAuthorizedAsync(string externalUserId, string tenantId, string projectId, CancellationToken ct = default);
 
@@ -36,9 +36,9 @@ public interface IUserMembershipService
     Task AssignProjectsAsync(Guid userId, IReadOnlyList<string> projectIds, string actorExternalUserId, CancellationToken ct = default);
 
     /// <summary>
-    /// Limpa cache pra um par (tenant, externalUserId). Chamado quando a
-    /// flag IsAdmin muda pra que a próxima request enxergue o estado novo
-    /// sem esperar o TTL.
+    /// Limpa cache pra um par (tenant, externalUserId). Chamado quando os
+    /// vínculos mudam pra que a próxima request enxergue o estado novo sem
+    /// esperar o TTL.
     /// </summary>
     void InvalidateForUser(string tenantId, string externalUserId);
 }

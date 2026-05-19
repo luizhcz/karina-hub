@@ -267,7 +267,22 @@ public sealed class AgentSandboxService
         session.Status = AgentSandboxSessionStatus.Closed;
         await _sandboxRepo.UpdateAsync(session, ct);
 
-        _logger.LogInformation("[AgentSandbox] Session '{SessionId}' fechada.", sessionId);
+        // Workflow efêmero some imediatamente — evita poluir a tela de
+        // Implantações até o TTL bater. Falha do delete não desfaz o close:
+        // cleanup background eventualmente cobre via TTL+ExpiresAt.
+        try
+        {
+            await _workflowService.DeleteAsync(session.WorkflowId, ct);
+            _logger.LogInformation(
+                "[AgentSandbox] Session '{SessionId}' fechada e workflow '{WorkflowId}' removido.",
+                sessionId, session.WorkflowId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "[AgentSandbox] Session '{SessionId}' fechada mas falha ao deletar workflow '{WorkflowId}'; cleanup background tentará no ciclo seguinte.",
+                sessionId, session.WorkflowId);
+        }
     }
 
     public sealed record ValidateSessionRequest(string? Notes);

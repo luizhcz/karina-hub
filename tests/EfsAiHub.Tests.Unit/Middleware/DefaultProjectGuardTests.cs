@@ -24,7 +24,8 @@ public class DefaultProjectGuardTests
         IProjectContextAccessor projectAccessor,
         IUserContextAccessor userAccessor,
         ITenantContextAccessor tenantAccessor,
-        IUserDirectory directory)
+        IUserDirectory directory,
+        IAdminPermissionEvaluator evaluator)
         Setup(string projectId, User? currentUser = null, string? accountHeader = null, string? path = null)
     {
         var ctx = new DefaultHttpContext();
@@ -45,7 +46,10 @@ public class DefaultProjectGuardTests
 
         var directory = Substitute.For<IUserDirectory>();
 
-        return (ctx, project, user, tenant, directory);
+        var evaluator = Substitute.For<IAdminPermissionEvaluator>();
+        evaluator.IsAdmin(Arg.Any<IReadOnlyList<string>?>()).Returns(false);
+
+        return (ctx, project, user, tenant, directory, evaluator);
     }
 
     private static User AdminUser(string externalId = "admin-1") => new()
@@ -74,9 +78,9 @@ public class DefaultProjectGuardTests
     public async Task GateDesabilitado_PassaTudo()
     {
         var mw = Build(gateEnabled: false);
-        var (ctx, project, user, tenant, dir) = Setup("default");
+        var (ctx, project, user, tenant, dir, evaluator) = Setup("default");
 
-        await mw.InvokeAsync(ctx, project, user, tenant, dir);
+        await mw.InvokeAsync(ctx, project, user, tenant, dir, evaluator);
 
         ctx.Response.StatusCode.Should().Be(200);
     }
@@ -85,9 +89,9 @@ public class DefaultProjectGuardTests
     public async Task ProjetoNaoDefault_Passa()
     {
         var mw = Build();
-        var (ctx, project, user, tenant, dir) = Setup("meu-projeto");
+        var (ctx, project, user, tenant, dir, evaluator) = Setup("meu-projeto");
 
-        await mw.InvokeAsync(ctx, project, user, tenant, dir);
+        await mw.InvokeAsync(ctx, project, user, tenant, dir, evaluator);
 
         ctx.Response.StatusCode.Should().Be(200);
     }
@@ -96,9 +100,9 @@ public class DefaultProjectGuardTests
     public async Task ProjetoNaoDefault_SemUsuario_Passa()
     {
         var mw = Build();
-        var (ctx, project, user, tenant, dir) = Setup("projeto-cliente-a");
+        var (ctx, project, user, tenant, dir, evaluator) = Setup("projeto-cliente-a");
 
-        await mw.InvokeAsync(ctx, project, user, tenant, dir);
+        await mw.InvokeAsync(ctx, project, user, tenant, dir, evaluator);
 
         ctx.Response.StatusCode.Should().Be(200);
     }
@@ -107,9 +111,9 @@ public class DefaultProjectGuardTests
     public async Task ProjetoDefault_SemUsuario_Retorna403()
     {
         var mw = Build();
-        var (ctx, project, user, tenant, dir) = Setup("default");
+        var (ctx, project, user, tenant, dir, evaluator) = Setup("default");
 
-        await mw.InvokeAsync(ctx, project, user, tenant, dir);
+        await mw.InvokeAsync(ctx, project, user, tenant, dir, evaluator);
 
         ctx.Response.StatusCode.Should().Be(403);
     }
@@ -118,9 +122,9 @@ public class DefaultProjectGuardTests
     public async Task ProjetoDefault_NaoAdmin_Retorna403()
     {
         var mw = Build();
-        var (ctx, project, user, tenant, dir) = Setup("default", currentUser: NonAdminUser());
+        var (ctx, project, user, tenant, dir, evaluator) = Setup("default", currentUser: NonAdminUser());
 
-        await mw.InvokeAsync(ctx, project, user, tenant, dir);
+        await mw.InvokeAsync(ctx, project, user, tenant, dir, evaluator);
 
         ctx.Response.StatusCode.Should().Be(403);
     }
@@ -129,9 +133,9 @@ public class DefaultProjectGuardTests
     public async Task ProjetoDefault_Admin_Passa()
     {
         var mw = Build();
-        var (ctx, project, user, tenant, dir) = Setup("default", currentUser: AdminUser());
+        var (ctx, project, user, tenant, dir, evaluator) = Setup("default", currentUser: AdminUser());
 
-        await mw.InvokeAsync(ctx, project, user, tenant, dir);
+        await mw.InvokeAsync(ctx, project, user, tenant, dir, evaluator);
 
         ctx.Response.StatusCode.Should().Be(200);
     }
@@ -147,9 +151,9 @@ public class DefaultProjectGuardTests
     public async Task RotaGlobal_ProjetoDefault_SemAdmin_Passa(string path)
     {
         var mw = Build();
-        var (ctx, project, user, tenant, dir) = Setup("default", path: path);
+        var (ctx, project, user, tenant, dir, evaluator) = Setup("default", path: path);
 
-        await mw.InvokeAsync(ctx, project, user, tenant, dir);
+        await mw.InvokeAsync(ctx, project, user, tenant, dir, evaluator);
 
         ctx.Response.StatusCode.Should().Be(200);
     }
@@ -158,15 +162,16 @@ public class DefaultProjectGuardTests
     public async Task SseRoute_FallbackQuery_AdminViaDirectory_Passa()
     {
         // EventSource não envia headers customizados; middleware faz fallback
-        // pra query param + diretório direto.
+        // pra query param + evaluator + sanity check no diretório.
         var mw = Build();
-        var (ctx, project, user, tenant, dir) = Setup("default", path: "/api/aihub/executions/exec-1/stream");
-        ctx.Request.QueryString = new QueryString("?account=admin-sse");
+        var (ctx, project, user, tenant, dir, evaluator) = Setup("default", path: "/api/aihub/executions/exec-1/stream");
+        ctx.Request.QueryString = new QueryString("?account=admin-sse&permissions=efs.admin");
 
+        evaluator.IsAdmin(Arg.Is<IReadOnlyList<string>>(p => p.Contains("efs.admin"))).Returns(true);
         dir.GetByExternalIdAsync("admin-sse", "default", Arg.Any<CancellationToken>())
             .Returns(AdminUser("admin-sse"));
 
-        await mw.InvokeAsync(ctx, project, user, tenant, dir);
+        await mw.InvokeAsync(ctx, project, user, tenant, dir, evaluator);
 
         ctx.Response.StatusCode.Should().Be(200);
     }

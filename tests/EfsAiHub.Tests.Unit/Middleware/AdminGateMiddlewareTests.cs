@@ -19,7 +19,7 @@ public class AdminGateMiddlewareTests
         return new AdminGateMiddleware(_ => Task.CompletedTask, _resolver, options);
     }
 
-    private static (HttpContext ctx, IUserContextAccessor accessor, IUserDirectory dir, ITenantContextAccessor tenant) Setup(
+    private static (HttpContext ctx, IUserContextAccessor accessor, IUserDirectory dir, IAdminPermissionEvaluator evaluator, ITenantContextAccessor tenant) Setup(
         string method,
         string path,
         User? currentUser = null,
@@ -38,10 +38,13 @@ public class AdminGateMiddlewareTests
 
         var directory = Substitute.For<IUserDirectory>();
 
+        var evaluator = Substitute.For<IAdminPermissionEvaluator>();
+        evaluator.IsAdmin(Arg.Any<IReadOnlyList<string>?>()).Returns(false);
+
         var tenant = Substitute.For<ITenantContextAccessor>();
         tenant.Current.Returns(new TenantContext(tenantId));
 
-        return (ctx, accessor, directory, tenant);
+        return (ctx, accessor, directory, evaluator, tenant);
     }
 
     private static User AdminUser(string externalId = "admin-1") => new()
@@ -70,9 +73,9 @@ public class AdminGateMiddlewareTests
     public async Task GateDesabilitado_PassaTudo()
     {
         var mw = Build(gateEnabled: false);
-        var (ctx, accessor, dir, tenant) = Setup("GET", "/api/aihub/admin/secret");
+        var (ctx, accessor, dir, evaluator, tenant) = Setup("GET", "/api/aihub/admin/secret");
 
-        await mw.InvokeAsync(ctx, accessor, dir, tenant);
+        await mw.InvokeAsync(ctx, accessor, dir, evaluator, tenant);
 
         ctx.Response.StatusCode.Should().Be(200);
     }
@@ -81,9 +84,9 @@ public class AdminGateMiddlewareTests
     public async Task RotaPublica_AgUi_PassaSemUsuario()
     {
         var mw = Build();
-        var (ctx, accessor, dir, tenant) = Setup("POST", "/api/aihub/chat/ag-ui/stream");
+        var (ctx, accessor, dir, evaluator, tenant) = Setup("POST", "/api/aihub/chat/ag-ui/stream");
 
-        await mw.InvokeAsync(ctx, accessor, dir, tenant);
+        await mw.InvokeAsync(ctx, accessor, dir, evaluator, tenant);
 
         ctx.Response.StatusCode.Should().Be(200);
     }
@@ -92,9 +95,9 @@ public class AdminGateMiddlewareTests
     public async Task PostWorkflows_AdminOnly_BloqueiaNaoAdmin()
     {
         var mw = Build();
-        var (ctx, accessor, dir, tenant) = Setup("POST", "/api/aihub/workflows", currentUser: NonAdminUser());
+        var (ctx, accessor, dir, evaluator, tenant) = Setup("POST", "/api/aihub/workflows", currentUser: NonAdminUser());
 
-        await mw.InvokeAsync(ctx, accessor, dir, tenant);
+        await mw.InvokeAsync(ctx, accessor, dir, evaluator, tenant);
 
         ctx.Response.StatusCode.Should().Be(403);
     }
@@ -103,9 +106,9 @@ public class AdminGateMiddlewareTests
     public async Task PutWorkflow_AdminOnly_BloqueiaNaoAdmin()
     {
         var mw = Build();
-        var (ctx, accessor, dir, tenant) = Setup("PUT", "/api/aihub/workflows/wf-abc", currentUser: NonAdminUser());
+        var (ctx, accessor, dir, evaluator, tenant) = Setup("PUT", "/api/aihub/workflows/wf-abc", currentUser: NonAdminUser());
 
-        await mw.InvokeAsync(ctx, accessor, dir, tenant);
+        await mw.InvokeAsync(ctx, accessor, dir, evaluator, tenant);
 
         ctx.Response.StatusCode.Should().Be(403);
     }
@@ -114,9 +117,9 @@ public class AdminGateMiddlewareTests
     public async Task RotaProtegida_SemUsuario_Retorna403()
     {
         var mw = Build();
-        var (ctx, accessor, dir, tenant) = Setup("GET", "/api/aihub/agents/agent-1/sandbox-sessions");
+        var (ctx, accessor, dir, evaluator, tenant) = Setup("GET", "/api/aihub/agents/agent-1/sandbox-sessions");
 
-        await mw.InvokeAsync(ctx, accessor, dir, tenant);
+        await mw.InvokeAsync(ctx, accessor, dir, evaluator, tenant);
 
         ctx.Response.StatusCode.Should().Be(403);
     }
@@ -125,12 +128,12 @@ public class AdminGateMiddlewareTests
     public async Task RotaProtegida_AdminUser_Passa()
     {
         var mw = Build();
-        var (ctx, accessor, dir, tenant) = Setup(
+        var (ctx, accessor, dir, evaluator, tenant) = Setup(
             "GET",
             "/api/aihub/agents/agent-1/sandbox-sessions",
             currentUser: AdminUser());
 
-        await mw.InvokeAsync(ctx, accessor, dir, tenant);
+        await mw.InvokeAsync(ctx, accessor, dir, evaluator, tenant);
 
         ctx.Response.StatusCode.Should().Be(200);
     }
@@ -139,12 +142,12 @@ public class AdminGateMiddlewareTests
     public async Task RotaProtegida_NaoAdmin_Retorna403()
     {
         var mw = Build();
-        var (ctx, accessor, dir, tenant) = Setup(
+        var (ctx, accessor, dir, evaluator, tenant) = Setup(
             "DELETE",
             "/api/aihub/agents/agent-1",
             currentUser: NonAdminUser());
 
-        await mw.InvokeAsync(ctx, accessor, dir, tenant);
+        await mw.InvokeAsync(ctx, accessor, dir, evaluator, tenant);
 
         ctx.Response.StatusCode.Should().Be(403);
     }
@@ -153,9 +156,9 @@ public class AdminGateMiddlewareTests
     public async Task RotaPublica_Conversations_PassaSemUsuario()
     {
         var mw = Build();
-        var (ctx, accessor, dir, tenant) = Setup("GET", "/api/aihub/conversations/conv-1");
+        var (ctx, accessor, dir, evaluator, tenant) = Setup("GET", "/api/aihub/conversations/conv-1");
 
-        await mw.InvokeAsync(ctx, accessor, dir, tenant);
+        await mw.InvokeAsync(ctx, accessor, dir, evaluator, tenant);
 
         ctx.Response.StatusCode.Should().Be(200);
     }
@@ -164,9 +167,9 @@ public class AdminGateMiddlewareTests
     public async Task RotaPublica_Projects_Get_PassaSemUsuario()
     {
         var mw = Build();
-        var (ctx, accessor, dir, tenant) = Setup("GET", "/api/aihub/projects");
+        var (ctx, accessor, dir, evaluator, tenant) = Setup("GET", "/api/aihub/projects");
 
-        await mw.InvokeAsync(ctx, accessor, dir, tenant);
+        await mw.InvokeAsync(ctx, accessor, dir, evaluator, tenant);
 
         ctx.Response.StatusCode.Should().Be(200);
     }
@@ -176,12 +179,12 @@ public class AdminGateMiddlewareTests
     {
         // PUT /api/aihub/workflows/{id}/rollback tem mais segmentos — não casa a whitelist.
         var mw = Build();
-        var (ctx, accessor, dir, tenant) = Setup(
+        var (ctx, accessor, dir, evaluator, tenant) = Setup(
             "PUT",
             "/api/aihub/workflows/wf-1/rollback",
             currentUser: NonAdminUser());
 
-        await mw.InvokeAsync(ctx, accessor, dir, tenant);
+        await mw.InvokeAsync(ctx, accessor, dir, evaluator, tenant);
 
         ctx.Response.StatusCode.Should().Be(403);
     }
@@ -190,18 +193,19 @@ public class AdminGateMiddlewareTests
     public async Task SseRoute_FallbackQuery_AdminViaDirectory_Passa()
     {
         // SSE: EventSource não envia headers customizados, então userAccessor.Current
-        // fica null. Middleware faz fallback: lê identidade via query param e consulta
-        // diretório direto pra ver se é admin.
+        // fica null. Middleware faz fallback: resolve identidade + permissions via
+        // query params, evaluator decide admin, diretório só confirma que a row existe.
         var mw = Build();
-        var (ctx, accessor, dir, tenant) = Setup(
+        var (ctx, accessor, dir, evaluator, tenant) = Setup(
             "GET",
             "/api/aihub/executions/exec-1/stream");
-        ctx.Request.QueryString = new QueryString("?account=admin-sse");
+        ctx.Request.QueryString = new QueryString("?account=admin-sse&permissions=efs.admin");
 
+        evaluator.IsAdmin(Arg.Is<IReadOnlyList<string>>(p => p.Contains("efs.admin"))).Returns(true);
         dir.GetByExternalIdAsync("admin-sse", "default", Arg.Any<CancellationToken>())
             .Returns(AdminUser("admin-sse"));
 
-        await mw.InvokeAsync(ctx, accessor, dir, tenant);
+        await mw.InvokeAsync(ctx, accessor, dir, evaluator, tenant);
 
         ctx.Response.StatusCode.Should().Be(200);
     }
@@ -210,15 +214,14 @@ public class AdminGateMiddlewareTests
     public async Task SseRoute_FallbackQuery_NaoAdmin_Retorna403()
     {
         var mw = Build();
-        var (ctx, accessor, dir, tenant) = Setup(
+        var (ctx, accessor, dir, evaluator, tenant) = Setup(
             "GET",
             "/api/aihub/executions/exec-1/stream");
-        ctx.Request.QueryString = new QueryString("?account=cliente-sse");
+        ctx.Request.QueryString = new QueryString("?account=cliente-sse&permissions=efs.viewer");
 
-        dir.GetByExternalIdAsync("cliente-sse", "default", Arg.Any<CancellationToken>())
-            .Returns(NonAdminUser("cliente-sse"));
+        // evaluator default já retorna false; diretório nem é consultado quando IsAdmin=false.
 
-        await mw.InvokeAsync(ctx, accessor, dir, tenant);
+        await mw.InvokeAsync(ctx, accessor, dir, evaluator, tenant);
 
         ctx.Response.StatusCode.Should().Be(403);
     }

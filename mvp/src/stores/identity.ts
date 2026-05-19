@@ -6,11 +6,15 @@ import { useSyncExternalStore } from 'react'
 //   userType=cliente; como `x-efs-user-profile-id` quando userType=admin.
 //   Backend interpreta o header como origem (cliente vs admin), o que afeta
 //   ChatRouting default + esquema de Persona (ClientPersona/AdminPersona) +
-//   templates de prompt. IsAdmin gating é independente (vive em users.IsAdmin
-//   no DB), então admin no DB pode ser "cliente" e vice-versa.
+//   templates de prompt.
 // - userType: cliente ou admin. Define qual header de identidade enviar.
 //   Default 'cliente' pra compatibilidade com identities já salvas em
 //   localStorage que não tinham o campo.
+// - permissions: lista CSV de permissions resolvidas pelo proxy. Vai como
+//   `x-efs-permissions` em todo request com identidade. Admin gating é
+//   derivado dessa lista (match contra Admin:AdminPermissions no backend).
+//   Default [] — usuário autenticado sem nenhuma permission. Em dev local,
+//   `VITE_DEV_PERMISSIONS` no .env injeta um fallback.
 // - projectId/projectName/chatDeploymentAllowed: scope de projeto + cache UI.
 
 const STORAGE_KEY = 'efs-mvp-identity'
@@ -21,6 +25,7 @@ export interface Identity {
   name: string
   account: string
   userType: UserType
+  permissions: string[]
   projectId: string
   projectName: string
   chatDeploymentAllowed: boolean
@@ -46,6 +51,7 @@ function readFromStorage(): Identity | null {
       // Identidades antigas (sem o campo) caem em 'cliente' — backward-compat
       // com o comportamento anterior (MVP sempre mandava x-efs-account).
       userType: parsed.userType === 'admin' ? 'admin' : 'cliente',
+      permissions: Array.isArray(parsed.permissions) ? parsed.permissions : [],
       projectId: parsed.projectId ?? '',
       projectName: parsed.projectName ?? '',
       // Identidades antigas (sem o campo) caem em false — fail-safe: user

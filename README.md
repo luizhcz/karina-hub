@@ -154,10 +154,13 @@ O chat funciona com streaming SSE usando o protocolo AG-UI:
 |---|---|
 | `x-tenant-id` | Identifica o tenant (organização) |
 | `x-project-id` | Identifica o projeto (ou "default") |
-| `x-efs-account` | Identifica a conta do usuário |
+| `x-efs-account` | Identifica a conta do usuário (cliente) |
+| `x-efs-user-profile-id` | Identifica o usuário admin/assessor (alternativa ao `x-efs-account`) |
+| `x-efs-permissions` | CSV de permissions resolvidas pelo proxy/IdP — obrigatório quando há identidade |
 
 - Cada projeto pode ter LLM config própria, budget e rate limits
-- O projeto `default` é restrito a usuários com `IsAdmin=true` em `aihub.users` (admins iniciais são seedados no startup via `Admin:BootstrapAdminExternalUserIds`)
+- Admin é derivado por match entre `x-efs-permissions` e a lista `Admin:AdminPermissions` em appsettings (qualquer match → admin)
+- O projeto `default` é restrito a admins
 - Workflows, agentes e skills são isolados por projeto
 
 ---
@@ -267,9 +270,7 @@ Principais seções do `appsettings.json`:
   },
   "Admin": {
     "GateEnabled": true,
-    "BootstrapAdminExternalUserIds": ["011982329"],
-    "BootstrapTenantId": "default",
-    "BootstrapUserType": "admin"
+    "AdminPermissions": ["efs.admin"]
   },
   "CircuitBreaker": {
     "Enabled": true,

@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { applyPatch, type Operation } from 'fast-json-patch'
 import { getAuthHeaders } from '../auth/headers'
+import { API_BASE_URL } from '../api/baseUrl'
 
-// Hook que consome o stream SSE do AG-UI (POST /api/aihub/chat/ag-ui/stream).
+// Hook que consome o stream SSE do AG-UI (POST /chat/ag-ui/stream).
 // EventSource só fala GET, então usamos fetch + ReadableStream + parser SSE
 // manual. Formato emitido pelo backend (AgUiSseHandler):
 //   id: {seq}\n
 //   data: {json}\n\n
 // Não há campo `event:` — o tipo discriminante vive no JSON em `Type`.
 
-const BASE = '/api/aihub'
+const BASE = API_BASE_URL
 
 export type ChatRole = 'user' | 'assistant' | 'system' | 'tool'
 

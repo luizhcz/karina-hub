@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getMe, type MeResponse, type ProjectRef } from '../api/me'
-import { subscribeIdentity, getIdentity } from './identity'
+import { subscribeIdentity, getIdentity, setIdentity } from './identity'
 
 // Cache singleton da resposta de `/api/aihub/me`. Resolve uma única vez por
 // carregamento de página — qualquer componente que chame `useIsAdmin()`,
@@ -19,11 +19,12 @@ function fetchMe(): Promise<MeResponse> {
       // Falha de rede / endpoint indisponível: assume não-admin pra fail-safe.
       // Esconder UI admin é melhor que mostrar pra quem não é. Operações reais
       // ainda são gateadas no backend via 403.
-      return { accountId: null, userType: null, isAdmin: false, projects: [] } as MeResponse
+      return { accountId: null, userType: null, isAdmin: false, permissions: [], projects: [] } as MeResponse
     })
     .then((me) => {
       cachedMe = me
       inflight = null
+      syncIdentityFromMe(me)
       subscribers.forEach((cb) => cb(me))
       return me
     })
@@ -42,6 +43,37 @@ subscribeIdentity(() => {
     inflight = null
   }
 })
+
+/**
+ * Reconcilia o identity store local com o que o backend resolveu via /me.
+ * 3 cenários:
+ *   1. Sem identity local + /me devolveu accountId → cria identity completa
+ *      (caso do fluxo via proxy: usuário entrou com access_token na URL,
+ *      proxy traduziu pra x-efs-*, /me reportou quem é).
+ *   2. Identity local com account divergente do accountId reportado → trata
+ *      como troca de usuário e sobrescreve (defesa contra estado stale).
+ *   3. Mesmo account → patch incremental de permissions.
+ * Identity sem accountId no /me (anônimo) não dispara nada — fluxo dev local
+ * sem proxy mantém o Onboarding manual.
+ */
+function syncIdentityFromMe(me: MeResponse): void {
+  if (!me.accountId || !me.userType) return
+  const current = getIdentity()
+  const fromMe = {
+    name: me.displayName ?? me.accountId,
+    account: me.accountId,
+    userType: me.userType,
+    permissions: me.permissions ?? [],
+    projectId: current?.projectId ?? '',
+    projectName: current?.projectName ?? '',
+    chatDeploymentAllowed: current?.chatDeploymentAllowed ?? false,
+  }
+  if (!current || current.account !== me.accountId) {
+    setIdentity(fromMe)
+    return
+  }
+  setIdentity({ ...current, ...fromMe })
+}
 
 /** Hook que retorna `boolean | null` — null enquanto ainda checando. */
 export function useIsAdmin(): boolean | null {

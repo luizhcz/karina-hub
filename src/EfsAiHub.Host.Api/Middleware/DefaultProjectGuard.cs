@@ -42,7 +42,8 @@ public sealed class DefaultProjectGuard
         IProjectContextAccessor accessor,
         IUserContextAccessor userAccessor,
         ITenantContextAccessor tenantAccessor,
-        IUserDirectory directory)
+        IUserDirectory directory,
+        IAdminPermissionEvaluator adminEvaluator)
     {
         // Gate desabilitado (dev/test) ou projeto não é "default"
         if (!_gateEnabled || accessor.Current.ProjectId != "default")
@@ -66,17 +67,17 @@ public sealed class DefaultProjectGuard
         }
 
         // Fallback SSE: EventSource no browser não envia headers customizados,
-        // então o provisioning middleware não populou o accessor. Buscamos
-        // identidade via query param e consultamos o diretório direto.
+        // então o provisioning middleware não populou o accessor. Resolver lê
+        // identidade + permissions via query param e o evaluator decide admin.
         var path = context.Request.Path.Value ?? string.Empty;
         if (path.EndsWith("/stream", StringComparison.OrdinalIgnoreCase))
         {
             var identity = _identityResolver.TryResolve(context.Request, out _);
-            if (identity is not null)
+            if (identity is not null && adminEvaluator.IsAdmin(identity.Permissions))
             {
                 var user = await directory.GetByExternalIdAsync(
                     identity.UserId, tenantAccessor.Current.TenantId, context.RequestAborted);
-                if (user?.IsAdmin == true)
+                if (user is not null)
                 {
                     await _next(context);
                     return;

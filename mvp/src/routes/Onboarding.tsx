@@ -31,6 +31,7 @@ export function Onboarding() {
       name: name.trim(),
       account: account.trim(),
       userType,
+      permissions: [],
       projectId: '',
       projectName: '',
       chatDeploymentAllowed: false,

@@ -196,8 +196,11 @@ src/EfsAiHub.Host.Api/Middleware/Identity/UserIdentityResolver.cs
 Resolvido dos headers:
 - `x-efs-account` → `UserType = "cliente"`
 - `x-efs-user-profile-id` → `UserType = "assessor"`
+- `x-efs-permissions` → lista CSV de permissions resolvidas pelo proxy/IdP
 
-**Regras:** Exatamente um header deve estar presente; ambos ou nenhum = erro.
+**Regras:**
+- Exatamente um header de identidade deve estar presente (`x-efs-account` OU `x-efs-user-profile-id`); ambos ou nenhum = erro.
+- `x-efs-permissions` é **obrigatório sempre que houver identidade**. String vazia é válida (autenticado sem permission); ausente é erro 400.
 
 ### AdminGateMiddleware
 
@@ -215,16 +218,16 @@ Controla acesso a endpoints administrativos:
 - `GET /api/aihub/projects`, `GET /api/aihub/projects/{id}`
 - `GET /api/aihub/enums`
 
-**Tudo mais:** Requer que o usuário esteja persistido em `aihub.users` com `IsAdmin = TRUE`. A coluna é a única fonte de verdade do gate em runtime — config só seeda admins iniciais no startup via `Admin:BootstrapAdminExternalUserIds`.
+**Tudo mais:** Requer que o caller tenha alguma permission no header `x-efs-permissions` que case com `Admin:AdminPermissions` em appsettings (match case-insensitive, OR — qualquer match concede admin). A decisão é por request, sem caching em DB — mudanças no proxy refletem imediatamente.
 
 ### Trust Boundary e Requisitos de Deploy
 
 O sistema é projetado para rodar **atrás de um API Gateway** (Azure APIM, Kong, AWS API Gateway, etc.) que funciona como ponto de autenticação e autorização. A cadeia de confiança:
 
 1. **API Gateway** valida JWT/OAuth2 do usuário final
-2. **Gateway injeta headers** `x-efs-account`, `x-efs-user-profile-id`, `x-tenant-id`, `x-project-id` na requisição
+2. **Gateway injeta headers** `x-efs-account`, `x-efs-user-profile-id`, `x-efs-permissions`, `x-tenant-id`, `x-project-id` na requisição
 3. **Backend confia nos headers** — não re-valida o JWT (evita duplicação de lógica e latência)
-4. **AdminGateMiddleware** funciona como segunda camada de autorização (valida se o userId é admin)
+4. **AdminGateMiddleware** valida se as permissions do caller incluem alguma da lista admin configurada
 
 **Requisitos de produção:**
 - O backend **não deve** receber tráfego direto da internet sem Gateway
@@ -1314,7 +1317,7 @@ Configurado via `OpenTelemetry:OtlpEndpoint` — suporta Jaeger, Tempo, etc.
 | `ChatRateLimitOptions` | `ChatRateLimit` | MaxMessages (10), WindowSeconds (60), per-conversation limits |
 | `ChatRoutingOptions` | `ChatRouting` | DefaultWorkflows (map userType → workflowId) |
 | `DocumentIntelligenceOptions` | `DocumentIntelligence` | Endpoint, ApiKey, UseManagedIdentity, MaxFileSizeBytes, timeouts, CacheTtlDays |
-| `AdminOptions` | `Admin` | GateEnabled (default true), BootstrapAdminExternalUserIds (seed inicial), BootstrapTenantId, BootstrapUserType |
+| `AdminOptions` | `Admin` | GateEnabled (default true), AdminPermissions (lista de permissions que concedem admin via match contra `x-efs-permissions`) |
 | `ObservabilityOptions` | `OpenTelemetry` | ServiceName, OtlpEndpoint, EnableSensitiveData |
 | `OpenAIOptions` | `OpenAI` | ApiKey, OrgId |
 | `AzureAIOptions` | `Azure:AI` | Endpoint, ApiKey, DeploymentId |

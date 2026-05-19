@@ -462,10 +462,6 @@ public static class ServiceCollectionExtensions
             ?? new WorkflowEngineOptions();
 
         services.AddHostedService<DatabaseBootstrapService>();
-        // UserBootstrap roda DEPOIS do DatabaseBootstrap (schema deve existir) e
-        // ANTES de qualquer middleware HTTP receber tráfego. IHostedService.StartAsync
-        // executa sequencialmente, então a ordem de AddHostedService define a cadeia.
-        services.AddHostedService<EfsAiHub.Host.Api.Services.UserBootstrapHostedService>();
         services.AddHostedService<AgentVersionBackfillService>();
         services.AddHostedService<AgentSessionCleanupService>();
         services.AddHostedService<AgentSandboxCleanupService>();

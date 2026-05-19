@@ -5,10 +5,10 @@ namespace EfsAiHub.Host.Api.Services;
 
 /// <summary>
 /// Lê identidade dos headers HTTP — delega pro UserIdentityResolver clássico
-/// pra preservar o comportamento atual (precedência de header, fallback SSE
-/// via query param, validação de ambiguidade). Quando o login migrar pra
-/// access_token, registrar um JwtUserIdentityProvider no lugar — o restante
-/// do sistema consome IUserIdentityProvider e não sabe a origem da identidade.
+/// pra preservar precedência de header, fallback SSE via query param e
+/// validação de ambiguidade. Quando o login migrar pra access_token, registrar
+/// um JwtUserIdentityProvider no lugar — o restante do sistema consome
+/// IUserIdentityProvider e não sabe a origem da identidade.
 /// </summary>
 public sealed class HeaderUserIdentityProvider : IUserIdentityProvider
 {
@@ -23,6 +23,6 @@ public sealed class HeaderUserIdentityProvider : IUserIdentityProvider
     {
         var resolved = _resolver.TryResolve(context.Request, out errorMessage);
         if (resolved is null) return null;
-        return new UserIdentity(resolved.UserId, resolved.UserType);
+        return new UserIdentity(resolved.UserId, resolved.UserType, resolved.Permissions);
     }
 }

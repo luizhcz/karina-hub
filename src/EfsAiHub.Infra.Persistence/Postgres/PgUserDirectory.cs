@@ -8,6 +8,7 @@ namespace EfsAiHub.Infra.Persistence.Postgres;
 /// de EF query filter por tenant — admin lista/edita explicitando o tenant
 /// e o middleware de provisioning lookup por (ExternalUserId, TenantId).
 /// Upsert é idempotente via UNIQUE constraint UQ_users_ExternalUserId_TenantId.
+/// IsAdmin/Permissions não são persistidos — vêm do header em cada request.
 /// </summary>
 public sealed class PgUserDirectory : IUserDirectory
 {
@@ -27,7 +28,6 @@ public sealed class PgUserDirectory : IUserDirectory
     {
         await using var conn = await _dataSource.OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
-        // ON CONFLICT preserva IsAdmin existente (atualizado só via SetAdminAsync).
         // DisplayName só é sobrescrito quando o caller passou um valor novo —
         // null preserva o que admin possa ter editado via UI.
         // xmax = 0 no Postgres RETURNING quando a linha foi recém-inserida; >0
@@ -41,7 +41,7 @@ public sealed class PgUserDirectory : IUserDirectory
                     "DisplayName" = COALESCE(EXCLUDED."DisplayName", aihub.users."DisplayName"),
                     "LastSeenAt"  = NOW()
             RETURNING "Id", "ExternalUserId", "UserType", "TenantId",
-                      "DisplayName", "IsAdmin", "CreatedAt", "LastSeenAt",
+                      "DisplayName", "CreatedAt", "LastSeenAt",
                       (xmax = 0) AS inserted
             """;
         cmd.Parameters.AddWithValue("externalUserId", externalUserId);
@@ -52,7 +52,7 @@ public sealed class PgUserDirectory : IUserDirectory
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         await reader.ReadAsync(ct);
         var user = MapUser(reader);
-        var inserted = reader.GetBoolean(8);
+        var inserted = reader.GetBoolean(7);
         return new UpsertResult(user, inserted);
     }
 
@@ -91,7 +91,7 @@ public sealed class PgUserDirectory : IUserDirectory
         listCmd.CommandText = hasSearch
             ? """
               SELECT "Id", "ExternalUserId", "UserType", "TenantId",
-                     "DisplayName", "IsAdmin", "CreatedAt", "LastSeenAt"
+                     "DisplayName", "CreatedAt", "LastSeenAt"
               FROM aihub.users
               WHERE "TenantId" = @tenantId
                 AND ("ExternalUserId" ILIKE @pattern OR "DisplayName" ILIKE @pattern)
@@ -100,7 +100,7 @@ public sealed class PgUserDirectory : IUserDirectory
               """
             : """
               SELECT "Id", "ExternalUserId", "UserType", "TenantId",
-                     "DisplayName", "IsAdmin", "CreatedAt", "LastSeenAt"
+                     "DisplayName", "CreatedAt", "LastSeenAt"
               FROM aihub.users
               WHERE "TenantId" = @tenantId
               ORDER BY "LastSeenAt" DESC, "Id" ASC
@@ -124,7 +124,7 @@ public sealed class PgUserDirectory : IUserDirectory
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT "Id", "ExternalUserId", "UserType", "TenantId",
-                   "DisplayName", "IsAdmin", "CreatedAt", "LastSeenAt"
+                   "DisplayName", "CreatedAt", "LastSeenAt"
             FROM aihub.users
             WHERE "ExternalUserId" = @externalUserId AND "TenantId" = @tenantId
             """;
@@ -141,7 +141,7 @@ public sealed class PgUserDirectory : IUserDirectory
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT "Id", "ExternalUserId", "UserType", "TenantId",
-                   "DisplayName", "IsAdmin", "CreatedAt", "LastSeenAt"
+                   "DisplayName", "CreatedAt", "LastSeenAt"
             FROM aihub.users
             WHERE "Id" = @id
             """;
@@ -149,20 +149,6 @@ public sealed class PgUserDirectory : IUserDirectory
 
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         return await reader.ReadAsync(ct) ? MapUser(reader) : null;
-    }
-
-    public async Task SetAdminAsync(Guid userId, bool isAdmin, CancellationToken ct = default)
-    {
-        await using var conn = await _dataSource.OpenConnectionAsync(ct);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            UPDATE aihub.users
-               SET "IsAdmin" = @isAdmin
-             WHERE "Id" = @id
-            """;
-        cmd.Parameters.AddWithValue("id", userId);
-        cmd.Parameters.AddWithValue("isAdmin", isAdmin);
-        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     public async Task SetDisplayNameAsync(Guid userId, string displayName, CancellationToken ct = default)
@@ -186,8 +172,9 @@ public sealed class PgUserDirectory : IUserDirectory
         UserType       = reader.GetString(2),
         TenantId       = reader.GetString(3),
         DisplayName    = reader.IsDBNull(4) ? null : reader.GetString(4),
-        IsAdmin        = reader.GetBoolean(5),
-        CreatedAt      = reader.GetDateTime(6),
-        LastSeenAt     = reader.GetDateTime(7),
+        CreatedAt      = reader.GetDateTime(5),
+        LastSeenAt     = reader.GetDateTime(6),
+        IsAdmin        = false,
+        Permissions    = Array.Empty<string>(),
     };
 }

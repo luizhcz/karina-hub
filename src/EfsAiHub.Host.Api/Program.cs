@@ -24,7 +24,7 @@ var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<st
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
     p.WithOrigins(corsOrigins)
      .WithHeaders("Content-Type", "Authorization",
-         "x-efs-account", "x-efs-user-profile-id",
+         "x-efs-account", "x-efs-user-profile-id", "x-efs-permissions",
          "x-tenant-id", "x-project-id", "x-workflow-id",
          "app_origin", "access_token")
      .WithMethods("GET", "POST", "PUT", "DELETE", "PATCH")));

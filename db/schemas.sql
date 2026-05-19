@@ -1788,17 +1788,15 @@ ALTER TABLE aihub.agent_definitions
 -- `sub` da claim). Identidade é resolvida via IUserIdentityProvider e o
 -- UserProvisioningMiddleware faz upsert idempotente por (ExternalUserId, TenantId).
 --
--- IsAdmin é a única fonte de verdade pra gating administrativo no runtime.
--- BootstrapAdminExternalUserIds em appsettings é só seed inicial — o
--- UserBootstrapHostedService força IsAdmin=TRUE no startup pra evitar lock-out
--- caso um admin se demova por engano via UI.
+-- Gating administrativo vem do header x-efs-permissions (resolvido pelo
+-- proxy/IdP) comparado contra Admin:AdminPermissions em appsettings — não há
+-- coluna IsAdmin nesta tabela.
 CREATE TABLE IF NOT EXISTS aihub.users (
     "Id"             UUID         NOT NULL DEFAULT gen_random_uuid(),
     "ExternalUserId" VARCHAR(128) NOT NULL,
     "UserType"       VARCHAR(32)  NOT NULL,             -- 'cliente' | 'admin' (origem do header, informativo)
     "TenantId"       VARCHAR(128) NOT NULL,
     "DisplayName"    VARCHAR(256) NULL,
-    "IsAdmin"        BOOLEAN      NOT NULL DEFAULT FALSE,
     "CreatedAt"      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     "LastSeenAt"     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     CONSTRAINT "PK_users" PRIMARY KEY ("Id"),
@@ -1811,12 +1809,6 @@ CREATE TABLE IF NOT EXISTS aihub.users (
 -- por tenant (admin lista usuários do próprio tenant).
 CREATE INDEX IF NOT EXISTS "IX_users_TenantId"
     ON aihub.users ("TenantId");
-
--- Partial index pra responder rapidamente "quem são os admins deste tenant?"
--- (UI admin, audit, alertas de segurança quando o último admin se demove).
-CREATE INDEX IF NOT EXISTS "IX_users_TenantId_IsAdmin"
-    ON aihub.users ("TenantId")
-    WHERE "IsAdmin" = TRUE;
 
 -- =============================================================================
 -- USER_PROJECTS — vínculo N:N entre usuário e projetos visíveis
