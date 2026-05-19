@@ -8,6 +8,7 @@ import {
   isChatDeployment,
   isPipelineDeployment,
   isRoutingDeployment,
+  isSandboxWorkflow,
   listWorkflows,
   type DeploymentKind,
   type Workflow,
@@ -84,15 +85,20 @@ export function Implantacoes() {
       .then((all) => {
         if (cancelled) return
         // Lista mostra qualquer workflow nascido dos fluxos de implantação:
-        // single, pipeline, routing, chat. Non-admin enxerga tudo (read-only);
-        // ações (Implantar/Atualizar/Testar) são gatadas por isAdmin no card
-        // e na tela de detalhe.
+        // single, pipeline, routing, chat. Workflows efêmeros do AgentSandbox
+        // (kind=*-sandbox) compartilham id prefix com deploys reais — filtra
+        // explicitamente pra não poluir a listagem de produção. Non-admin
+        // enxerga tudo (read-only); ações são gatadas por isAdmin no card e
+        // na tela de detalhe.
         const deployments = all.filter(
           (w) =>
-            isAgentDeployment(w)
-            || isPipelineDeployment(w)
-            || isRoutingDeployment(w)
-            || isChatDeployment(w),
+            !isSandboxWorkflow(w)
+            && (
+              isAgentDeployment(w)
+              || isPipelineDeployment(w)
+              || isRoutingDeployment(w)
+              || isChatDeployment(w)
+            ),
         )
         setWorkflows(deployments)
       })

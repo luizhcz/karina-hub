@@ -13,10 +13,16 @@ export const CHAT_DEPLOYMENT_KIND = 'chat'
 // AgentSandboxService quando o user clica "Testar". Eles compartilham id
 // prefix (`deploy-chat-sandbox-…`) e metadata.deploymentKind=chat com deploys
 // de produção — a única forma de distinguir é via metadata.kind.
+//
+// Os helpers `isAgentDeployment`/`isChatDeployment`/etc. NÃO filtram sandbox
+// porque o `ChatDeploymentSandbox` precisa carregar tanto deploys reais
+// quanto sandboxes efêmeros (chat-sandbox compartilha a tela). Quem quer
+// listar SÓ deploys de produção (ex.: tela Implantações) usa
+// `isSandboxWorkflow` explicitamente no filtro pra excluir.
 const CHAT_SANDBOX_KIND = 'chat-sandbox'
 const STANDALONE_SANDBOX_KIND = 'standalone-sandbox'
 
-function isSandboxWorkflow(workflow: Workflow): boolean {
+export function isSandboxWorkflow(workflow: Workflow): boolean {
   const md = (workflow as { metadata?: Record<string, string> | null }).metadata
   const kind = md?.kind
   return kind === CHAT_SANDBOX_KIND || kind === STANDALONE_SANDBOX_KIND
@@ -129,7 +135,6 @@ export const createWorkflow = (body: CreateWorkflowBody) =>
 // nasceu do fluxo de implantação.
 export function isAgentDeployment(workflow: Workflow): boolean {
   if (!workflow.id.startsWith('deploy-')) return false
-  if (isSandboxWorkflow(workflow)) return false
   const md = (workflow as { metadata?: Record<string, string> | null }).metadata
   return !!md?.deployedFromAgentId
 }
@@ -164,7 +169,6 @@ export function isRoutingDeployment(workflow: Workflow): boolean {
 // chat_deployment_allowed=true conseguem criar. Reconhecido por
 // `deploy-chat-{guid}` no id ou metadata.deploymentKind === 'chat'.
 export function isChatDeployment(workflow: Workflow): boolean {
-  if (isSandboxWorkflow(workflow)) return false
   if (workflow.id.startsWith('deploy-chat-')) return true
   const md = (workflow as { metadata?: Record<string, string> | null }).metadata
   return md?.deploymentKind === CHAT_DEPLOYMENT_KIND
