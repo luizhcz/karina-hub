@@ -317,7 +317,6 @@ export function ChatDeploymentSandbox() {
             bubbles={stream.bubbles}
             toolCalls={stream.toolCalls}
             isStreaming={isStreaming}
-            sharedState={stream.sharedState}
             agentTypeById={mergedAgentTypes}
             onResolveHitl={(toolCallId, response) => void stream.resolveHitl(toolCallId, response)}
           />
@@ -378,7 +377,6 @@ interface BubbleStackProps {
   bubbles: ChatBubble[]
   toolCalls: ChatToolCall[]
   isStreaming: boolean
-  sharedState: unknown
   agentTypeById: Map<string, AgentType>
   onResolveHitl: (toolCallId: string, response: string) => void
 }
@@ -387,7 +385,6 @@ function BubbleStack({
   bubbles,
   toolCalls,
   isStreaming,
-  sharedState,
   agentTypeById,
   onResolveHitl,
 }: BubbleStackProps) {
@@ -457,12 +454,9 @@ function BubbleStack({
         {(toolCallsByParent.get('__orphan__') ?? []).map((tc) => (
           <ToolCallRow key={tc.id} call={tc} onResolveHitl={onResolveHitl} />
         ))}
-        {sharedState != null && Object.keys(sharedState as object).length > 0 && (
-          <details className="rounded-md border border-border bg-bg-soft px-3 py-2 text-xs">
-            <summary className="cursor-pointer font-medium">Estado compartilhado</summary>
-            <pre className="mt-2 overflow-x-auto">{JSON.stringify(sharedState, null, 2)}</pre>
-          </details>
-        )}
+        {/* Painel "Estado compartilhado" temporariamente desabilitado.
+            O state continua sendo hidratado via STATE_SNAPSHOT/STATE_DELTA
+            (useChatStream.sharedState) — só não é exibido na UI. */}
         {isStreaming && bubbles.every((b) => b.complete) && (
           <div className="flex items-center gap-2 text-xs text-fg-muted">
             <Spinner className="h-3 w-3" /> Processando…
