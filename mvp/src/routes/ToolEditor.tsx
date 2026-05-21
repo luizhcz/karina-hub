@@ -995,11 +995,11 @@ function TestResultPanel({ result }: { result: GenericToolTestResult }) {
           que o LLM efetivamente vê em runtime (em modo Project/Strict). UI
           esconde quando projection foi bypass (modo Off ou schema ausente)
           pra não duplicar a tab "Resposta parseada". */}
-      {!result.projectionBypassed && result.schemaErrors.length > 0 && (
+      {!result.projectionBypassed && (result.schemaErrors?.length ?? 0) > 0 && (
         <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
           <div className="mb-1 font-semibold uppercase tracking-wider">Schema violation</div>
           <ul className="ml-4 list-disc space-y-0.5">
-            {result.schemaErrors.map((err, i) => (
+            {(result.schemaErrors ?? []).map((err, i) => (
               <li key={i} className="font-mono">{err}</li>
             ))}
           </ul>
