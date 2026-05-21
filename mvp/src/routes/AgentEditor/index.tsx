@@ -35,7 +35,6 @@ import {
 } from '../../ui'
 import { applyOperationToMarkdown, type AssistantOperacao } from './instructionsCodec'
 import { Stepper, type StepDescriptor } from './Stepper'
-import { TypeStep } from './TypeStep'
 import { ProfileStep } from './ProfileStep'
 import { RouterProfileStep } from './RouterProfileStep'
 import { WorkerProfileStep } from './WorkerProfileStep'
@@ -92,8 +91,11 @@ const STATUS_LABEL: Record<AgentDraftStatus, string> = {
   Rejected: 'Rejeitado',
 }
 
+// O tipo é escolhido no modal "Novo agente" antes de entrar no editor — pra
+// trocar o tipo o usuário volta na listagem e abre um novo. Por isso o wizard
+// começa direto em Perfil/Intenções/Identificação/Domínio (conforme o tipo).
+
 const BASIC_STEPS: StepDescriptor[] = [
-  { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Perfil' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'model', label: 'Modelo' },
@@ -101,7 +103,6 @@ const BASIC_STEPS: StepDescriptor[] = [
 ]
 
 const ADVANCED_STEPS: StepDescriptor[] = [
-  { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Perfil' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'security', label: 'Segurança' },
@@ -116,7 +117,6 @@ const ADVANCED_STEPS: StepDescriptor[] = [
 // foram fundidos num step único; tools/security/memory/input/output não fazem
 // sentido pro template e ficam de fora.
 const ROUTER_STEPS: StepDescriptor[] = [
-  { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Intenções' },
   { key: 'model', label: 'Modelo' },
   { key: 'review', label: 'Revisão' },
@@ -128,7 +128,6 @@ const ROUTER_STEPS: StepDescriptor[] = [
 // Memória e Input — Worker é single-shot, sem multi-turn nem schema de
 // input separado.
 const WORKER_STEPS: StepDescriptor[] = [
-  { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Domínio' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'security', label: 'Segurança' },
@@ -143,7 +142,6 @@ const WORKER_STEPS: StepDescriptor[] = [
 // diferente do Worker), Output (opcional), Modelo. Sem Input — schema de
 // input é coberto pelas tools (cada uma carrega seu schema).
 const TOOL_RUNNER_STEPS: StepDescriptor[] = [
-  { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Identificação' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'security', label: 'Segurança' },
@@ -160,7 +158,6 @@ const TOOL_RUNNER_STEPS: StepDescriptor[] = [
 // porque o frontend chat exige `ui_component`), Modelo. Sem Input — chat
 // consome ChatTurnContext, schema de input é implícito.
 const CONVERSATIONAL_STEPS: StepDescriptor[] = [
-  { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Identificação' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'security', label: 'Segurança' },
@@ -170,29 +167,12 @@ const CONVERSATIONAL_STEPS: StepDescriptor[] = [
   { key: 'review', label: 'Revisão' },
 ]
 
-// Labels visíveis dos tipos no Stepper. Espelha PT-BR amigável quando faz
-// sentido (Tool Runner com espaço), mantém English nos demais.
-const TYPE_STEP_LABEL: Record<AgentType, string> = {
-  Custom: 'Custom',
-  Router: 'Router',
-  Worker: 'Worker',
-  ToolRunner: 'Tool Runner',
-  Conversational: 'Conversational',
-}
-
 function stepsFor(mode: AgentMode, type: AgentType): StepDescriptor[] {
-  const raw = ((): StepDescriptor[] => {
-    if (type === 'Router') return ROUTER_STEPS
-    if (type === 'Worker') return WORKER_STEPS
-    if (type === 'ToolRunner') return TOOL_RUNNER_STEPS
-    if (type === 'Conversational') return CONVERSATIONAL_STEPS
-    return mode === 'advanced' ? ADVANCED_STEPS : BASIC_STEPS
-  })()
-  // Substitui o label genérico "Tipo" pelo tipo selecionado (ex: "Custom",
-  // "Conversational") — fica explícito no stepper qual fluxo o user escolheu.
-  return raw.map((s) =>
-    s.key === 'type' ? { ...s, label: TYPE_STEP_LABEL[type] ?? 'Tipo' } : s,
-  )
+  if (type === 'Router') return ROUTER_STEPS
+  if (type === 'Worker') return WORKER_STEPS
+  if (type === 'ToolRunner') return TOOL_RUNNER_STEPS
+  if (type === 'Conversational') return CONVERSATIONAL_STEPS
+  return mode === 'advanced' ? ADVANCED_STEPS : BASIC_STEPS
 }
 
 export function AgentEditor({ mode }: Props) {
@@ -897,9 +877,6 @@ export function AgentEditor({ mode }: Props) {
       </Card>
 
       <div className="mb-5">
-        {form.currentStep === 'type' && (
-          <TypeStep form={form} setForm={setForm} readonly={readonly} />
-        )}
         {form.currentStep === 'profile' && form.type === 'Router' && (
           <RouterProfileStep form={form} setForm={setForm} readonly={readonly} />
         )}

@@ -118,7 +118,7 @@ export function emptyFormState(): FormState {
     input: emptySection(),
     output: emptySection(),
     agentMode: 'basic',
-    currentStep: 'type',
+    currentStep: 'profile',
     metadataRows: [],
   }
 }

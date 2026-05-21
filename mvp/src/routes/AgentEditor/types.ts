@@ -3,7 +3,7 @@ import type { AgentType } from '../../api/agentDrafts'
 
 export type AgentMode = 'basic' | 'advanced'
 
-export type StepKey = 'type' | 'profile' | 'tools' | 'security' | 'memory' | 'input' | 'output' | 'model' | 'review'
+export type StepKey = 'profile' | 'tools' | 'security' | 'memory' | 'input' | 'output' | 'model' | 'review'
 
 export interface StructuredSection {
   mode: 'text' | 'structured'
