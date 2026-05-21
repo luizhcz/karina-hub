@@ -203,13 +203,19 @@ public sealed class AgentDraftService : IAgentDraftService
             // continua válido — se outro publish bumpa entre o submit e o
             // approve aqui, levanta DraftRePublishRaceException e o caller
             // recebe 409 com a mensagem padrão do AgentApprovalService.
-            await _draftRepo.ApproveAsync(
+            var publishedCosmetic = await _draftRepo.ApproveAsync(
                 id,
                 actorUserId: "system:auto",
                 changeReason: $"Auto-approved (cosmetic change submitted by {actorUserId}).",
                 action: AgentApprovalAction.AutoApproved,
                 tier: AgentChangeTier.Cosmetic,
                 ct: ct);
+
+            // Mesma reconciliação do caminho explícito de approve — RouterIntentIds
+            // não vive no jsonb da AgentDefinition (junction é fonte da verdade).
+            // Cosmetic edits normalmente não tocam intents, mas reconciliar mantém
+            // o invariante e protege contra payloads ainda em trânsito.
+            await ReconcileRouterIntentsAsync(publishedCosmetic, existing.Payload.RouterIntentIds, ct);
 
             _logger.LogInformation(
                 "[AgentDraftService] Draft '{DraftId}' auto-aprovado (cosmetic).",
@@ -239,6 +245,28 @@ public sealed class AgentDraftService : IAgentDraftService
             actorUserId: actorUserId,
             changeReason: changeReason,
             ct: ct);
+
+    /// <summary>
+    /// Persiste o set de intents do Router publicado na junction
+    /// <c>agent_router_intents</c>. RouterIntentIds tem <c>[JsonIgnore]</c> na
+    /// <see cref="AgentDefinition"/>, então o upsert do jsonb não cobre — o
+    /// caller é responsável por chamar isso após o approve quando o tipo é Router.
+    /// </summary>
+    private async Task ReconcileRouterIntentsAsync(
+        AgentDefinition published,
+        IReadOnlyList<string>? declaredIntentIds,
+        CancellationToken ct)
+    {
+        if (published.Type != AgentType.Router) return;
+        if (_intentLinkRepo is null || declaredIntentIds is null) return;
+
+        await _intentLinkRepo.SetIntentsForAgentAsync(
+            published.Id,
+            published.ProjectId,
+            published.TenantId,
+            declaredIntentIds,
+            ct);
+    }
 
     /// <summary>
     /// Compara payload do edit-draft contra o estado atual do agent base via

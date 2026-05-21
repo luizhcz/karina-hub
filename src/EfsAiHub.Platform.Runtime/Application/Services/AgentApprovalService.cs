@@ -3,13 +3,16 @@ namespace EfsAiHub.Platform.Runtime.Services;
 public sealed class AgentApprovalService : IAgentApprovalService
 {
     private readonly IAgentDraftRepository _draftRepo;
+    private readonly IAgentRouterIntentLinkRepository? _intentLinks;
     private readonly ILogger<AgentApprovalService> _logger;
 
     public AgentApprovalService(
         IAgentDraftRepository draftRepo,
-        ILogger<AgentApprovalService> logger)
+        ILogger<AgentApprovalService> logger,
+        IAgentRouterIntentLinkRepository? intentLinks = null)
     {
         _draftRepo = draftRepo;
+        _intentLinks = intentLinks;
         _logger = logger;
     }
 
@@ -28,7 +31,29 @@ public sealed class AgentApprovalService : IAgentApprovalService
         string? changeReason,
         CancellationToken ct = default)
     {
+        // Captura o set declarado no draft antes do approve — ApproveAsync apaga
+        // o draft após publicar, então o snapshot do payload precisa ser feito
+        // aqui pra reconciliar a junction em seguida.
+        var draftBefore = await _draftRepo.GetByIdForTenantAsync(id, ct);
+        var declaredIntentIds = draftBefore?.Payload.RouterIntentIds;
+
         var published = await _draftRepo.ApproveAsync(id, actorUserId, changeReason, AgentApprovalAction.Approved, null, ct);
+
+        // RouterIntentIds tem [JsonIgnore] na AgentDefinition: o set não viaja
+        // no jsonb do upsert. A fonte da verdade é a junction agent_router_intents.
+        // Reconcilia aqui pra manter o mesmo invariante que AgentsController.Update
+        // aplica via ReconcileAndLoadRouterIntentsAsync — sem isso o approve
+        // publicaria um Router sem nenhuma intent.
+        if (published.Type == AgentType.Router && _intentLinks is not null && declaredIntentIds is not null)
+        {
+            await _intentLinks.SetIntentsForAgentAsync(
+                published.Id,
+                published.ProjectId,
+                published.TenantId,
+                declaredIntentIds,
+                ct);
+            published.RouterIntentIds = await _intentLinks.ListIntentIdsForAgentAsync(published.Id, ct);
+        }
 
         _logger.LogInformation(
             "[AgentApprovalService] Draft '{DraftId}' aprovado por '{Actor}' como agent '{AgentId}'.",
