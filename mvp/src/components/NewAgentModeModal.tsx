@@ -51,7 +51,7 @@ const TYPE_CHOICES: TypeChoice[] = [
     title: 'Custom',
     pitch:
       'Agente de uso geral. Você define o perfil em texto livre — quem ele é, o que precisa entregar e em que contexto. Cobre a maioria dos casos: análise, orquestração, atendimento sem chat.',
-    steps: ['Tipo', 'Perfil', 'Ferramentas', 'Modelo', 'Revisão'],
+    steps: ['Perfil', 'Ferramentas', 'Modelo', 'Revisão'],
     icon: <BoltIcon className="h-6 w-6" />,
     accent: 'from-emerald-500/15 to-emerald-500/0 text-emerald-600 dark:text-emerald-400',
     iconBg: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
@@ -62,7 +62,7 @@ const TYPE_CHOICES: TypeChoice[] = [
     title: 'Router',
     pitch:
       'Classifica a mensagem do usuário em uma intenção (ex.: “consultar cotação”, “executar ordem”). Usado pra decidir qual agente especialista vai responder.',
-    steps: ['Tipo', 'Intenções', 'Modelo', 'Revisão'],
+    steps: ['Intenções', 'Modelo', 'Revisão'],
     icon: <SparklesIcon className="h-6 w-6" />,
     accent: 'from-violet-500/15 to-violet-500/0 text-violet-600 dark:text-violet-400',
     iconBg: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
@@ -75,7 +75,7 @@ const TYPE_CHOICES: TypeChoice[] = [
     title: 'Conversational',
     pitch:
       'Chat com memória entre mensagens. O agente conversa com o usuário em múltiplos turnos, mantém contexto e responde em formato que o front sabe renderizar (cards, listas, texto).',
-    steps: ['Tipo', 'Identificação', 'Componente', 'Ferramentas', 'Segurança', 'Memória', 'Output', 'Modelo', 'Revisão'],
+    steps: ['Identificação', 'Componente', 'Ferramentas', 'Segurança', 'Memória', 'Output', 'Modelo', 'Revisão'],
     icon: <SparklesIcon className="h-6 w-6" />,
     accent: 'from-rose-500/15 to-rose-500/0 text-rose-600 dark:text-rose-400',
     iconBg: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
