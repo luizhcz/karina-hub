@@ -13,6 +13,8 @@ public class AgentValidationTests
             promptRepo: Substitute.For<IAgentPromptRepository>(),
             projectAccessor: Substitute.For<IProjectContextAccessor>(),
             templateService: new AgentTemplateService(NullLogger<AgentTemplateService>.Instance),
+            composer: AgentServiceTestBuilder.IdentityComposer(),
+            decomposer: AgentServiceTestBuilder.IdentityDecomposer(),
             logger: Substitute.For<ILogger<AgentService>>());
     }
 

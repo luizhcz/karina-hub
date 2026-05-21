@@ -4,6 +4,7 @@ using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Persistence;
 using EfsAiHub.Core.Agents;
 using EfsAiHub.Core.Agents.RouterIntents;
+using EfsAiHub.Core.Agents.Services;
 using EfsAiHub.Platform.Runtime.Interfaces;
 
 namespace EfsAiHub.Platform.Runtime.Services;
@@ -17,6 +18,7 @@ public sealed class RouterIntentService : IRouterIntentService
     private readonly IWorkflowService _workflowService;
     private readonly IProjectContextAccessor _projectAccessor;
     private readonly ITenantContextAccessor _tenantAccessor;
+    private readonly IAgentDependencyPropagator _propagator;
     private readonly ILogger<RouterIntentService> _logger;
 
     public RouterIntentService(
@@ -25,6 +27,7 @@ public sealed class RouterIntentService : IRouterIntentService
         IWorkflowService workflowService,
         IProjectContextAccessor projectAccessor,
         ITenantContextAccessor tenantAccessor,
+        IAgentDependencyPropagator propagator,
         ILogger<RouterIntentService> logger)
     {
         _repo = repo;
@@ -32,6 +35,7 @@ public sealed class RouterIntentService : IRouterIntentService
         _workflowService = workflowService;
         _projectAccessor = projectAccessor;
         _tenantAccessor = tenantAccessor;
+        _propagator = propagator;
         _logger = logger;
     }
 
@@ -126,6 +130,8 @@ public sealed class RouterIntentService : IRouterIntentService
         _logger.LogInformation(
             "[RouterIntentService] Intent '{IntentId}' atualizada (Name='{Name}', categoria='{ProjectId}').",
             saved.Id, saved.Name, saved.ProjectId);
+
+        await _propagator.PropagateRouterIntentEditAsync(saved.Id, ct);
 
         return saved;
     }

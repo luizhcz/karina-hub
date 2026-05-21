@@ -53,4 +53,21 @@ public interface IAgentDefinitionRepository
     /// (pra emissão de audit) ou null se já estava limpa.
     /// </summary>
     Task<string?> ClearChatSandboxValidationAsync(string agentId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Lista os agentes (Id) que referenciam um <see cref="EfsAiHub.Core.Agents.GenericTools.GenericTool"/>
+    /// pelo <paramref name="genericToolId"/> via campo <c>Tools[*].GenericToolId</c>
+    /// no jsonb <c>Data</c>. Bypass de query filter — propagation/delete-block
+    /// rodam fora de scope HTTP. Ordenação não-determinística (ID).
+    /// </summary>
+    Task<IReadOnlyList<string>> ListAgentIdsUsingGenericToolAsync(
+        string genericToolId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Lista os agentes (Id) que referenciam um preset de modelo pelo
+    /// <paramref name="predefinedModelId"/> via campo <c>Model.PredefinedModelId</c>
+    /// no jsonb <c>Data</c>. Bypass de query filter — presets são globais.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListAgentIdsUsingPredefinedModelAsync(
+        string predefinedModelId, CancellationToken ct = default);
 }

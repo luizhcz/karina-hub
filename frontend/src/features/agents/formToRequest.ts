@@ -22,8 +22,8 @@ export function formToRequest(values: AgentFormValues): FormToRequestResult {
       description: values.description || undefined,
       model: values.predefinedModelId
         ? {
-            // Quando há preset, backend resolve provider/deployment/temperature/maxTokens
-            // em runtime via PredefinedModelBinder. Enviamos apenas o id; deploymentName
+            // Quando há preset, backend expande provider/deployment/temperature/maxTokens
+            // inline no snapshot via composer. Enviamos apenas o id; deploymentName
             // vai como string vazia (invariante relaxada quando predefinedModelId é setado).
             deploymentName: '',
             predefinedModelId: values.predefinedModelId,

@@ -1,6 +1,7 @@
 using EfsAiHub.Core.Abstractions.Exceptions;
 using EfsAiHub.Core.Agents;
 using EfsAiHub.Core.Agents.PredefinedModels;
+using EfsAiHub.Core.Agents.Services;
 using EfsAiHub.Platform.Runtime.Services;
 using Microsoft.Extensions.Logging;
 
@@ -12,7 +13,11 @@ public class PredefinedModelServiceTests
     private static (PredefinedModelService svc, IPredefinedModelRepository repo) Build()
     {
         var repo = Substitute.For<IPredefinedModelRepository>();
-        var svc = new PredefinedModelService(repo, Substitute.For<ILogger<PredefinedModelService>>());
+        var agentRepo = Substitute.For<IAgentDefinitionRepository>();
+        var propagator = Substitute.For<IAgentDependencyPropagator>();
+        var svc = new PredefinedModelService(
+            repo, agentRepo, propagator,
+            Substitute.For<ILogger<PredefinedModelService>>());
         return (svc, repo);
     }
 

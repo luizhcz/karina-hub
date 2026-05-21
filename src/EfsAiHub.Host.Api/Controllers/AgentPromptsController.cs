@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Agents.Services;
 using EfsAiHub.Host.Api.Models.Requests;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
@@ -11,13 +12,16 @@ public class AgentPromptsController : ControllerBase
 {
     private readonly IAgentPromptRepository _promptRepo;
     private readonly IAgentDefinitionRepository _agentRepo;
+    private readonly IAgentDependencyPropagator _propagator;
 
     public AgentPromptsController(
         IAgentPromptRepository promptRepo,
-        IAgentDefinitionRepository agentRepo)
+        IAgentDefinitionRepository agentRepo,
+        IAgentDependencyPropagator propagator)
     {
         _promptRepo = promptRepo;
         _agentRepo = agentRepo;
+        _propagator = propagator;
     }
 
     /// <summary>Lista todas as versões de prompt do agente.</summary>
@@ -79,6 +83,8 @@ public class AgentPromptsController : ControllerBase
             return BadRequest(ex.Message);
         }
 
+        // Save sozinho não troca o master; só propaga snapshot quando a
+        // versão recém-gravada vira ativa. Esse path roda no SetMaster.
         return CreatedAtAction(nameof(ListVersions), new { agentId }, new
         {
             agentId,
@@ -112,6 +118,8 @@ public class AgentPromptsController : ControllerBase
             return NotFound(ex.Message);
         }
 
+        await _propagator.PropagateAgentPromptChangeAsync(agentId, ct);
+
         return Ok(new { agentId, master = request.VersionId });
     }
 
@@ -130,6 +138,7 @@ public class AgentPromptsController : ControllerBase
             return NotFound($"Agente '{agentId}' não encontrado.");
 
         await _promptRepo.RestoreOriginalAsync(agentId, agent.Instructions ?? string.Empty, ct);
+        await _propagator.PropagateAgentPromptChangeAsync(agentId, ct);
         return NoContent();
     }
 

@@ -11,6 +11,7 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
     private readonly IAgentDefinitionRepository _definitionRepo;
     private readonly IAgentVersionRepository _versionRepo;
     private readonly EfsAiHub.Core.Agents.Services.IAgentTemplateService _templateService;
+    private readonly EfsAiHub.Core.Agents.Services.IAgentDefinitionComposer _composer;
     private readonly EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor _tenantAccessor;
     private readonly ILogger<PgAgentDraftRepository> _logger;
 
@@ -19,6 +20,7 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
         IAgentDefinitionRepository definitionRepo,
         IAgentVersionRepository versionRepo,
         EfsAiHub.Core.Agents.Services.IAgentTemplateService templateService,
+        EfsAiHub.Core.Agents.Services.IAgentDefinitionComposer composer,
         EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor tenantAccessor,
         ILogger<PgAgentDraftRepository> logger)
     {
@@ -26,6 +28,7 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
         _definitionRepo = definitionRepo;
         _versionRepo = versionRepo;
         _templateService = templateService;
+        _composer = composer;
         _tenantAccessor = tenantAccessor;
         _logger = logger;
     }
@@ -264,6 +267,12 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
         // normaliza o estado persistido.
         definition = _templateService.Apply(definition);
 
+        // Composer resolve as dependências (intents, generic tools, skills,
+        // model preset) e materializa Instructions + StructuredOutput.Schema
+        // em sua forma final. O resultado vai ao banco já autocontido —
+        // runtime consome o snapshot sem indireção.
+        definition = await _composer.ComposeAsync(definition, ct);
+
         // UpsertAsync no IAgentDefinitionRepository roda fora do escopo de project
         // do caller — agent recém-aprovado fica visível pro owner project sem
         // depender do query filter atual. Cobre stamp de FingerprintHash, tenant
@@ -438,6 +447,36 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
             Action = AgentApprovalAction.AdminOverride.ToString(),
             ActorUserId = actorUserId,
             Feedback = changeReason,
+            OccurredAt = DateTime.UtcNow,
+        });
+        await ctx.SaveChangesAsync(ct);
+    }
+
+    public async Task AppendPropagationAsync(
+        string agentDefinitionId,
+        string tenantId,
+        string actorUserId,
+        string changeReason,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(agentDefinitionId))
+            throw new ArgumentException("agentDefinitionId obrigatório", nameof(agentDefinitionId));
+        if (string.IsNullOrWhiteSpace(changeReason))
+            throw new ArgumentException("changeReason obrigatório", nameof(changeReason));
+
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        ctx.AgentApprovalHistory.Add(new AgentApprovalHistoryRow
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            // DraftId sintético — propagation não tem draft envolvido. Prefixo
+            // distinto do admin-override mantém a trilha legível.
+            DraftId = $"propagation:{agentDefinitionId}",
+            AgentDefinitionId = agentDefinitionId,
+            TenantId = tenantId,
+            Action = AgentApprovalAction.AutoApproved.ToString(),
+            ActorUserId = actorUserId,
+            Feedback = changeReason,
+            Tier = AgentChangeTier.PropagatedDependency.ToString(),
             OccurredAt = DateTime.UtcNow,
         });
         await ctx.SaveChangesAsync(ct);

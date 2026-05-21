@@ -29,6 +29,8 @@ public class AgentService : IAgentService
     private readonly IAgentPromptRepository _promptRepo;
     private readonly IProjectContextAccessor _projectAccessor;
     private readonly IAgentTemplateService _templateService;
+    private readonly IAgentDefinitionComposer _composer;
+    private readonly IAgentDefinitionDecomposer _decomposer;
     private readonly IAgentVersionRepository? _versionRepo;
     private readonly IAdminAuditLogger? _auditLogger;
     private readonly IAgentRouterIntentLinkRepository? _intentLinkRepo;
@@ -40,6 +42,8 @@ public class AgentService : IAgentService
         IAgentPromptRepository promptRepo,
         IProjectContextAccessor projectAccessor,
         IAgentTemplateService templateService,
+        IAgentDefinitionComposer composer,
+        IAgentDefinitionDecomposer decomposer,
         ILogger<AgentService> logger,
         IAgentVersionRepository? versionRepo = null,
         IAdminAuditLogger? auditLogger = null,
@@ -50,6 +54,8 @@ public class AgentService : IAgentService
         _promptRepo = promptRepo;
         _projectAccessor = projectAccessor;
         _templateService = templateService;
+        _composer = composer;
+        _decomposer = decomposer;
         _versionRepo = versionRepo;
         _auditLogger = auditLogger;
         _intentLinkRepo = intentLinkRepo;
@@ -73,6 +79,10 @@ public class AgentService : IAgentService
         // validator verifique o resultado final, não o input cru do caller.
         definition = _templateService.Apply(definition);
 
+        // Composer resolve as dependências externas e materializa Instructions +
+        // StructuredOutput.Schema com tudo inline (snapshot autocontido).
+        definition = await _composer.ComposeAsync(definition, ct);
+
         var (isValid, errors, _) = await ValidateAsync(definition, ct);
         if (!isValid)
             throw new ArgumentException($"Definição de agente inválida: {string.Join(", ", errors)}");
@@ -88,17 +98,26 @@ public class AgentService : IAgentService
         return saved;
     }
 
-    public Task<AgentDefinition?> GetAsync(string id, CancellationToken ct = default)
-        => _repository.GetByIdAsync(id, ct);
+    public async Task<AgentDefinition?> GetAsync(string id, CancellationToken ct = default)
+    {
+        var stored = await _repository.GetByIdAsync(id, ct);
+        return stored is null ? null : _decomposer.Decompose(stored);
+    }
 
-    public Task<IReadOnlyList<AgentDefinition>> ListAsync(CancellationToken ct = default)
-        => _repository.GetAllAsync(ct);
+    public async Task<IReadOnlyList<AgentDefinition>> ListAsync(CancellationToken ct = default)
+    {
+        var stored = await _repository.GetAllAsync(ct);
+        return stored.Select(_decomposer.Decompose).ToList();
+    }
 
     public async Task<IReadOnlyList<AgentDefinition>> ListByProjectAsync(CancellationToken ct = default)
     {
         var currentProjectId = _projectAccessor.Current.ProjectId;
         var all = await _repository.GetAllAsync(ct).ConfigureAwait(false);
-        return all.Where(a => a.ProjectId == currentProjectId).ToList();
+        return all
+            .Where(a => a.ProjectId == currentProjectId)
+            .Select(_decomposer.Decompose)
+            .ToList();
     }
 
     public async Task<AgentDefinition> UpdateAsync(
@@ -147,6 +166,10 @@ public class AgentService : IAgentService
         // resultado é o mesmo independente de o caller ter enviado o payload
         // já normalizado (re-publish, admin override) ou no formato slim.
         definition = _templateService.Apply(definition);
+
+        // Composer resolve dependências externas e materializa Instructions +
+        // Schema com tudo inline; estado final vai pro DB já autocontido.
+        definition = await _composer.ComposeAsync(definition, ct);
 
         var (isValid, errors, _) = await ValidateAsync(definition, ct);
         if (!isValid)
@@ -390,12 +413,11 @@ public class AgentService : IAgentService
         ValidationContext.RequireString(errors, definition.Name, "name", maxLength: 200);
 
         // ── Model ────────────────────────────────────────────────────────────
-        // Quando o agent referencia um PredefinedModelId, o PredefinedModelBinder
-        // hidrata DeploymentName/Provider.Type/Provider.ClientType em runtime
-        // (ver PredefinedModelBinder.BindAsync). A validação aqui roda antes
-        // do binder, então pulamos esses checks pra não exigir o que vai ser
-        // resolvido depois — caso contrário, agent que só passa preset falha
-        // com "model.deploymentName obrigatório".
+        // Quando o agent referencia um PredefinedModelId, o composer expande
+        // DeploymentName/Provider.Type/Provider.ClientType no save. Validação
+        // roda antes do composer, então pulamos esses checks pra não exigir o
+        // que será resolvido depois — caso contrário, agent que só passa preset
+        // falha com "model.deploymentName obrigatório".
         var hasPredefined = !string.IsNullOrWhiteSpace(definition.Model?.PredefinedModelId);
 
         if (!hasPredefined && string.IsNullOrWhiteSpace(definition.Model?.DeploymentName))

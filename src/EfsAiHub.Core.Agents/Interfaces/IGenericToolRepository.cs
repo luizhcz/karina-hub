@@ -57,3 +57,19 @@ public sealed class GenericToolNameConflictException : Exception
         : base($"Já existe um GenericTool com Name='{name}' nesse projeto.")
     { }
 }
+
+/// <summary>
+/// Lançada quando alguém tenta deletar um <see cref="GenericTool"/> que ainda
+/// está referenciado por agentes. Lista os agentes ofendidos pra UI orientar
+/// o user a desligar a tool deles primeiro.
+/// </summary>
+public sealed class GenericToolInUseException : Exception
+{
+    public IReadOnlyList<string> AgentIds { get; }
+
+    public GenericToolInUseException(string toolId, IReadOnlyList<string> agentIds)
+        : base($"GenericTool '{toolId}' está em uso por {agentIds.Count} agente(s); remova das referências antes de deletar.")
+    {
+        AgentIds = agentIds;
+    }
+}

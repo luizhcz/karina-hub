@@ -48,9 +48,9 @@ public sealed class AgentDraftPayload
     /// <summary>
     /// Set de IDs do pool global (<c>aihub.router_intents</c>) que este Router
     /// atende. Aplicável apenas quando <c>Type=Router</c>; ignorado pra Custom.
-    /// Persistido no DB via junction <c>aihub.agent_router_intents</c>;
-    /// hidratado no edit-draft via lookup do link repo (não vem do jsonb da
-    /// definition, que tem <c>RouterIntentIds</c> como <c>JsonIgnore</c>).
+    /// Viaja no jsonb da definition (e no snapshot) pra que runtime leia direto;
+    /// junção <c>aihub.agent_router_intents</c> permanece como fonte de verdade
+    /// pra UI de edição e pra propagação inversa quando uma intent muda.
     /// </summary>
     public IReadOnlyList<string>? RouterIntentIds { get; set; }
 

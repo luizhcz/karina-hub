@@ -46,10 +46,10 @@ export interface AgentFormValues {
   tools: string[]
   /** Ids dos MCP servers referenciados por este agent (resolvidos live em runtime). */
   mcpServerIds: string[]
-  /** Ids dos Generic Tools (HTTP genéricos) referenciados — resolvidos pelo binder em runtime. */
+  /** Ids dos Generic Tools (HTTP genéricos) referenciados — composer expande no save. */
   genericToolIds: string[]
-  /** Quando setado, o agent usa um preset do catálogo — Provider/Model são resolvidos
-   * em runtime pelo PredefinedModelBinder. Quando vazio, usa Provider/Model crus. */
+  /** Quando setado, o agent usa um preset do catálogo — Provider/Model são expandidos
+   * inline no snapshot pelo composer. Quando vazio, usa Provider/Model crus. */
   predefinedModelId: string
   skills: string[]
   structuredOutput: {

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EfsAiHub.Core.Abstractions.Exceptions;
+using EfsAiHub.Core.Agents.GenericTools;
 using EfsAiHub.Core.Agents.Skills;
 
 namespace EfsAiHub.Core.Agents;
@@ -22,13 +23,12 @@ public class AgentDefinition
 
     /// <summary>
     /// Set de intents do pool global (<c>aihub.router_intents</c>) que este
-    /// Router atende. Transient — NÃO persiste no jsonb da row do agent;
-    /// fonte da verdade é a junction <c>aihub.agent_router_intents</c>.
-    /// Carregado no GET (lookup do link repo) e enviado no save (controller
-    /// reconcilia o join após o upsert do agent). Aplicável apenas pra
-    /// <c>Type=Router</c>.
+    /// Router atende. Persiste no jsonb da row pra que snapshot e runtime
+    /// leiam direto sem precisar consultar a junction <c>agent_router_intents</c>
+    /// — a junction permanece como fonte de verdade pra UI de edição
+    /// (checkboxes do wizard) e pra propagação inversa quando uma intent é
+    /// editada/removida. Aplicável apenas pra <c>Type=Router</c>.
     /// </summary>
-    [JsonIgnore]
     public IReadOnlyList<string>? RouterIntentIds { get; set; }
 
     public required AgentModelConfig Model { get; init; }
@@ -40,6 +40,16 @@ public class AgentDefinition
     public AgentProviderConfig Provider { get; init; } = new();
 
     public string? Instructions { get; init; }
+
+    /// <summary>
+    /// Identificador da versão do master prompt que produziu
+    /// <see cref="Instructions"/>. Populado por <c>AgentVersion.ToDefinition</c>
+    /// — transient, não vai pro jsonb do <c>agent_definitions</c>. Runtime usa
+    /// pra registrar audit ("este turno rodou com prompt v<X>").
+    /// </summary>
+    [JsonIgnore]
+    public string? PromptVersionId { get; set; }
+
     public IReadOnlyList<AgentToolDefinition> Tools { get; init; } = [];
     public AgentStructuredOutputDefinition? StructuredOutput { get; init; }
 
@@ -350,10 +360,10 @@ public class AgentModelConfig
 
     /// <summary>
     /// Quando setado, referencia um preset em <c>aihub.predefined_models</c>.
-    /// O <c>PredefinedModelBinder</c> resolve em runtime e substitui
-    /// <see cref="DeploymentName"/>/<see cref="Temperature"/>/<see cref="MaxTokens"/>
-    /// + <c>Provider</c> pelos valores do preset. Quando presente, invariantes
-    /// relaxam — DeploymentName pode estar vazio (será preenchido pelo binder).
+    /// O <see cref="EfsAiHub.Core.Agents.Services.IAgentDefinitionComposer"/>
+    /// resolve no save e expande <see cref="DeploymentName"/>/<see cref="Temperature"/>/
+    /// <see cref="MaxTokens"/> + <c>Provider</c> inline no snapshot. Quando presente,
+    /// invariantes relaxam — DeploymentName pode estar vazio até o composer rodar.
     /// </summary>
     public string? PredefinedModelId { get; init; }
 }
@@ -368,8 +378,9 @@ public class AgentToolDefinition
 
     /// <summary>
     /// Quando <see cref="Type"/>="generic_http", referência ao Id imutável de um
-    /// <c>GenericTool</c> cadastrado no projeto. O binder resolve em runtime e
-    /// monta uma <c>AIFunction</c> dinâmica que dispara o <c>GenericToolExecutor</c>.
+    /// <c>GenericTool</c> cadastrado no projeto. Os campos <see cref="UrlTemplate"/>
+    /// e seguintes carregam a definição completa expandida no momento do save —
+    /// runtime consome direto sem consultar o repositório de tools.
     /// </summary>
     public string? GenericToolId { get; init; }
 
@@ -404,6 +415,68 @@ public class AgentToolDefinition
 
     /// <summary>Para web_search (Bing Grounding): connectionId do Azure AI Foundry.</summary>
     public string? ConnectionId { get; init; }
+
+    /// <summary>
+    /// Resumo da tool exposto ao LLM como parte do prompt structural. Copiado
+    /// de <c>GenericTool.Description</c> quando <see cref="Type"/>="generic_http"
+    /// no save; demais tipos preenchem com a documentação inline da entrada.
+    /// </summary>
+    public string? Description { get; init; }
+
+    /// <summary>HTTP verb da invocação. Inline pra runtime não consultar o repo de tools.</summary>
+    public HttpMethodType? HttpMethod { get; init; }
+
+    /// <summary>
+    /// Template da URL com placeholders <c>{nome}</c> resolvidos via
+    /// <see cref="PathParams"/>. Copiado de <c>GenericTool.UrlTemplate</c>.
+    /// </summary>
+    public string? UrlTemplate { get; init; }
+
+    /// <summary>Definições dos placeholders do <see cref="UrlTemplate"/>.</summary>
+    public IReadOnlyDictionary<string, ParamDefinition>? PathParams { get; init; }
+
+    /// <summary>Definições das query strings opcionais ou obrigatórias.</summary>
+    public IReadOnlyDictionary<string, ParamDefinition>? QueryParams { get; init; }
+
+    /// <summary>Headers extras com valores fixos enviados em toda invocação.</summary>
+    public IReadOnlyDictionary<string, string>? CustomHeaders { get; init; }
+
+    /// <summary>Content-Type do body. <c>None</c> quando <see cref="HttpMethod"/> é GET/DELETE.</summary>
+    public InputContentType? InputContentType { get; init; }
+
+    /// <summary>JSON Schema raw do body. Null quando <see cref="InputContentType"/> é None ou Text.</summary>
+    public string? InputSchemaJson { get; init; }
+
+    /// <summary>Content-Type esperado na resposta — usado pelo parser do executor.</summary>
+    public OutputContentType? OutputContentType { get; init; }
+
+    /// <summary>JSON Schema raw da resposta. Null quando <see cref="OutputContentType"/> é Text.</summary>
+    public string? OutputSchemaJson { get; init; }
+
+    /// <summary>Modo de projeção (drop-extras / strict / off) aplicado contra <see cref="OutputSchemaJson"/>.</summary>
+    public OutputProjectionMode? OutputProjectionMode { get; init; }
+
+    /// <summary>Override por-tool do timeout em segundos. Null = usa default global do executor.</summary>
+    public int? TimeoutSecondsOverride { get; init; }
+
+    /// <summary>Texto livre que orienta o LLM sobre quando invocar a tool. Vira gatilho no prompt.</summary>
+    public string? WhenToUse { get; init; }
+
+    /// <summary>
+    /// Quando true, o executor encaminha <c>app_origin</c> + <c>access_token</c>
+    /// da request original (autorização via token do usuário). Quando false ou null,
+    /// chamada anônima/com headers fixos apenas.
+    /// </summary>
+    public bool? IsExclusive { get; init; }
+
+    /// <summary>
+    /// Quando setado, identifica que esta entrada foi mesclada a partir de uma
+    /// <see cref="SkillRef"/> referenciada pelo agente — o composer popula no
+    /// momento do save. Tools autorais (criadas direto pelo owner) deixam o
+    /// campo null. O decomposer usa esse marker pra ocultar tools provenientes
+    /// de skill no GET, devolvendo só o que o cliente declara.
+    /// </summary>
+    public string? SourceSkillId { get; init; }
 }
 
 /// <summary>

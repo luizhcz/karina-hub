@@ -517,6 +517,73 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
         return found.ToHashSet();
     }
 
+    public async Task<IReadOnlyList<string>> ListAgentIdsUsingGenericToolAsync(
+        string genericToolId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(genericToolId)) return Array.Empty<string>();
+
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        var conn = ctx.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+            await conn.OpenAsync(ct);
+
+        // Bypass de query filter: propagator/delete-block rodam fora de HTTP
+        // (sem ProjectContext válido); precisamos varrer agentes cross-project
+        // pra capturar todos os referenciadores. jsonb_path_exists evita
+        // deserialização full no DB e usa o índice GIN sobre Data quando
+        // disponível.
+        var results = new List<string>();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT "Id"
+            FROM aihub.agent_definitions
+            WHERE jsonb_path_exists(
+                "Data"::jsonb,
+                '$.Tools[*] ? (@.GenericToolId == $tid)',
+                jsonb_build_object('tid', @tid)
+            )
+            ORDER BY "Id"
+            """;
+        var p = cmd.CreateParameter();
+        p.ParameterName = "@tid";
+        p.Value = genericToolId;
+        cmd.Parameters.Add(p);
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            results.Add(reader.GetString(0));
+        return results;
+    }
+
+    public async Task<IReadOnlyList<string>> ListAgentIdsUsingPredefinedModelAsync(
+        string predefinedModelId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(predefinedModelId)) return Array.Empty<string>();
+
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        var conn = ctx.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+            await conn.OpenAsync(ct);
+
+        var results = new List<string>();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT "Id"
+            FROM aihub.agent_definitions
+            WHERE "Data"::jsonb #>> '{Model,PredefinedModelId}' = @mid
+            ORDER BY "Id"
+            """;
+        var p = cmd.CreateParameter();
+        p.ParameterName = "@mid";
+        p.Value = predefinedModelId;
+        cmd.Parameters.Add(p);
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            results.Add(reader.GetString(0));
+        return results;
+    }
+
     public async Task<IReadOnlyList<(string AgentId, string MissingProjectId)>> ListOrphanGlobalAgentsAsync(
         int limit = 20, CancellationToken ct = default)
     {

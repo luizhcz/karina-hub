@@ -1,6 +1,7 @@
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Agents;
 using EfsAiHub.Core.Agents.GenericTools;
+using EfsAiHub.Core.Agents.Services;
 using EfsAiHub.Platform.Runtime.Configuration;
 using EfsAiHub.Platform.Runtime.Interfaces;
 using Microsoft.Extensions.Options;
@@ -10,6 +11,8 @@ namespace EfsAiHub.Platform.Runtime.Services;
 public sealed class GenericToolService : IGenericToolService
 {
     private readonly IGenericToolRepository _repo;
+    private readonly IAgentDefinitionRepository _agentRepo;
+    private readonly IAgentDependencyPropagator _propagator;
     private readonly IProjectContextAccessor _projectAccessor;
     private readonly ITenantContextAccessor _tenantAccessor;
     private readonly IOptions<GenericToolsOptions> _options;
@@ -17,12 +20,16 @@ public sealed class GenericToolService : IGenericToolService
 
     public GenericToolService(
         IGenericToolRepository repo,
+        IAgentDefinitionRepository agentRepo,
+        IAgentDependencyPropagator propagator,
         IProjectContextAccessor projectAccessor,
         ITenantContextAccessor tenantAccessor,
         IOptions<GenericToolsOptions> options,
         ILogger<GenericToolService> logger)
     {
         _repo = repo;
+        _agentRepo = agentRepo;
+        _propagator = propagator;
         _projectAccessor = projectAccessor;
         _tenantAccessor = tenantAccessor;
         _options = options;
@@ -113,7 +120,9 @@ public sealed class GenericToolService : IGenericToolService
             && await _repo.NameExistsAsync(updated.Name, excludeId: id, ct))
             throw new GenericToolNameConflictException(updated.Name);
 
-        return await _repo.UpdateAsync(updated, expectedUpdatedAt, ct);
+        var saved = await _repo.UpdateAsync(updated, expectedUpdatedAt, ct);
+        await _propagator.PropagateGenericToolEditAsync(saved.Id, ct);
+        return saved;
     }
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)
@@ -121,6 +130,13 @@ public sealed class GenericToolService : IGenericToolService
         var existing = await _repo.GetByIdAsync(id, ct);
         if (existing is null)
             throw new KeyNotFoundException($"GenericTool '{id}' não encontrado.");
+
+        // Bloqueio análogo ao RouterIntent: snapshot precisa carregar os
+        // campos inline da tool; deletar enquanto agentes referenciam quebra
+        // o composer no próximo edit. UI mostra a lista pra remover refs.
+        var users = await _agentRepo.ListAgentIdsUsingGenericToolAsync(id, ct);
+        if (users.Count > 0)
+            throw new GenericToolInUseException(id, users);
 
         await _repo.DeleteAsync(id, ct);
 
