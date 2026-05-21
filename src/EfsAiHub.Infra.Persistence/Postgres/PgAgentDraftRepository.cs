@@ -452,6 +452,36 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
         await ctx.SaveChangesAsync(ct);
     }
 
+    public async Task AppendPropagationAsync(
+        string agentDefinitionId,
+        string tenantId,
+        string actorUserId,
+        string changeReason,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(agentDefinitionId))
+            throw new ArgumentException("agentDefinitionId obrigatório", nameof(agentDefinitionId));
+        if (string.IsNullOrWhiteSpace(changeReason))
+            throw new ArgumentException("changeReason obrigatório", nameof(changeReason));
+
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        ctx.AgentApprovalHistory.Add(new AgentApprovalHistoryRow
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            // DraftId sintético — propagation não tem draft envolvido. Prefixo
+            // distinto do admin-override mantém a trilha legível.
+            DraftId = $"propagation:{agentDefinitionId}",
+            AgentDefinitionId = agentDefinitionId,
+            TenantId = tenantId,
+            Action = AgentApprovalAction.AutoApproved.ToString(),
+            ActorUserId = actorUserId,
+            Feedback = changeReason,
+            Tier = AgentChangeTier.PropagatedDependency.ToString(),
+            OccurredAt = DateTime.UtcNow,
+        });
+        await ctx.SaveChangesAsync(ct);
+    }
+
     private static AgentApprovalHistoryEntry MapEntry(AgentApprovalHistoryRow r) =>
         new(
             Id: r.Id,

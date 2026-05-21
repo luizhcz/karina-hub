@@ -114,6 +114,19 @@ public interface IAgentDraftRepository
         string actorUserId,
         string changeReason,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Append-only de uma entry <c>AutoApproved</c>/<c>PropagatedDependency</c>:
+    /// usado pelo <c>AgentDependencyPropagator</c> quando recompõe um agente
+    /// após edit de dep (intent/tool/model/prompt). Sem draft envolvido,
+    /// entry vai direto pra <c>agent_approval_history</c>.
+    /// </summary>
+    Task AppendPropagationAsync(
+        string agentDefinitionId,
+        string tenantId,
+        string actorUserId,
+        string changeReason,
+        CancellationToken ct = default);
 }
 
 /// <summary>
@@ -206,6 +219,14 @@ public enum AgentChangeTier
 {
     Cosmetic,
     Behavioral,
+    /// <summary>
+    /// Mudança automática disparada por edit de dependência (RouterIntent /
+    /// GenericTool / PredefinedModel / master prompt). O propagador recompõe
+    /// o snapshot pra incorporar a versão atual da dep — sem intervenção do
+    /// owner do agente. Action sempre <c>AutoApproved</c>; ActorUserId
+    /// <c>"system:dependency-propagator"</c>.
+    /// </summary>
+    PropagatedDependency,
 }
 
 public sealed class DraftConcurrencyException : Exception

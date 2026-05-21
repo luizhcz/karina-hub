@@ -1,5 +1,6 @@
 using EfsAiHub.Core.Agents;
 using EfsAiHub.Core.Agents.PredefinedModels;
+using EfsAiHub.Core.Agents.Services;
 using EfsAiHub.Platform.Runtime.Interfaces;
 
 namespace EfsAiHub.Platform.Runtime.Services;
@@ -7,13 +8,19 @@ namespace EfsAiHub.Platform.Runtime.Services;
 public sealed class PredefinedModelService : IPredefinedModelService
 {
     private readonly IPredefinedModelRepository _repo;
+    private readonly IAgentDefinitionRepository _agentRepo;
+    private readonly IAgentDependencyPropagator _propagator;
     private readonly ILogger<PredefinedModelService> _logger;
 
     public PredefinedModelService(
         IPredefinedModelRepository repo,
+        IAgentDefinitionRepository agentRepo,
+        IAgentDependencyPropagator propagator,
         ILogger<PredefinedModelService> logger)
     {
         _repo = repo;
+        _agentRepo = agentRepo;
+        _propagator = propagator;
         _logger = logger;
     }
 
@@ -75,7 +82,9 @@ public sealed class PredefinedModelService : IPredefinedModelService
 
         updated.EnsureInvariants();
 
-        return await _repo.UpdateAsync(updated, expectedUpdatedAt, ct);
+        var saved = await _repo.UpdateAsync(updated, expectedUpdatedAt, ct);
+        await _propagator.PropagatePredefinedModelEditAsync(saved.Id, ct);
+        return saved;
     }
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)
@@ -83,6 +92,13 @@ public sealed class PredefinedModelService : IPredefinedModelService
         var existing = await _repo.GetByIdAsync(id, ct);
         if (existing is null)
             throw new KeyNotFoundException($"PredefinedModel '{id}' não encontrado.");
+
+        // Bloqueio: deletar preset enquanto agentes referenciam quebra a
+        // próxima recomposição (Endpoint/DeploymentName desaparecem do
+        // snapshot). UI orienta troca antes de remover.
+        var users = await _agentRepo.ListAgentIdsUsingPredefinedModelAsync(id, ct);
+        if (users.Count > 0)
+            throw new PredefinedModelInUseException(id, users);
 
         await _repo.DeleteAsync(id, ct);
         _logger.LogInformation("[PredefinedModelService] Preset '{Id}' removido.", id);

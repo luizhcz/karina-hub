@@ -46,3 +46,19 @@ public sealed class PredefinedModelIdConflictException : Exception
         : base($"Já existe PredefinedModel com Id '{id}'.")
     { }
 }
+
+/// <summary>
+/// Lançada quando alguém tenta deletar um <see cref="PredefinedModel"/> que
+/// ainda está referenciado por agentes. Lista os agentes ofendidos pra UI
+/// orientar o user a trocar o preset antes.
+/// </summary>
+public sealed class PredefinedModelInUseException : Exception
+{
+    public IReadOnlyList<string> AgentIds { get; }
+
+    public PredefinedModelInUseException(string modelId, IReadOnlyList<string> agentIds)
+        : base($"PredefinedModel '{modelId}' está em uso por {agentIds.Count} agente(s); troque o preset desses agentes antes de deletar.")
+    {
+        AgentIds = agentIds;
+    }
+}

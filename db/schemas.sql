@@ -192,9 +192,10 @@ CREATE TABLE IF NOT EXISTS aihub.agent_approval_history (
     CONSTRAINT "CK_agent_approval_history_Action"
         CHECK ("Action" IN ('Submitted', 'Resubmitted', 'Approved', 'Rejected', 'AutoApproved', 'AdminOverride')),
     -- 'TypeBypass' fica aceito apenas como valor histórico de auditoria;
-    -- nenhum produtor ativo escreve esse tier.
+    -- nenhum produtor ativo escreve esse tier. 'PropagatedDependency' marca
+    -- auto-snapshots disparados pelo propagator quando uma dep edita.
     CONSTRAINT "CK_agent_approval_history_Tier"
-        CHECK ("Tier" IS NULL OR "Tier" IN ('Cosmetic', 'Behavioral', 'TypeBypass'))
+        CHECK ("Tier" IS NULL OR "Tier" IN ('Cosmetic', 'Behavioral', 'TypeBypass', 'PropagatedDependency'))
 );
 
 CREATE INDEX IF NOT EXISTS "IX_agent_approval_history_DraftId"

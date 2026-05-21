@@ -265,6 +265,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Core.Agents.Services.IAgentTemplateService, EfsAiHub.Core.Agents.Services.AgentTemplateService>();
         services.AddScoped<EfsAiHub.Core.Agents.Services.IAgentDefinitionComposer, EfsAiHub.Core.Agents.Services.AgentDefinitionComposer>();
         services.AddSingleton<EfsAiHub.Core.Agents.Services.IAgentDefinitionDecomposer, EfsAiHub.Core.Agents.Services.AgentDefinitionDecomposer>();
+        services.AddScoped<EfsAiHub.Core.Agents.Services.IAgentDependencyPropagator, EfsAiHub.Core.Agents.Services.AgentDependencyPropagator>();
         services.AddSingleton<EfsAiHub.Core.Agents.Responses.IBackgroundResponseRepository, PgBackgroundResponseRepository>();
         services.AddSingleton<IAgentDefinitionRepository, PgAgentDefinitionRepository>();
         services.AddScoped<IAgentDraftRepository, PgAgentDraftRepository>();

@@ -2,6 +2,7 @@ using EfsAiHub.Core.Abstractions.Exceptions;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Agents;
 using EfsAiHub.Core.Agents.GenericTools;
+using EfsAiHub.Core.Agents.Services;
 using EfsAiHub.Platform.Runtime.Configuration;
 using EfsAiHub.Platform.Runtime.Services;
 using Microsoft.Extensions.Logging;
@@ -18,6 +19,8 @@ public class GenericToolServiceTests
         int maxTimeout = 120)
     {
         var repo = Substitute.For<IGenericToolRepository>();
+        var agentRepo = Substitute.For<IAgentDefinitionRepository>();
+        var propagator = Substitute.For<IAgentDependencyPropagator>();
         var projectAccessor = Substitute.For<IProjectContextAccessor>();
         projectAccessor.Current.Returns(new ProjectContext(projectId));
         var tenantAccessor = Substitute.For<ITenantContextAccessor>();
@@ -28,7 +31,7 @@ public class GenericToolServiceTests
             MaxTimeoutSeconds = maxTimeout,
         });
 
-        var svc = new GenericToolService(repo, projectAccessor, tenantAccessor, options,
+        var svc = new GenericToolService(repo, agentRepo, propagator, projectAccessor, tenantAccessor, options,
             Substitute.For<ILogger<GenericToolService>>());
 
         return (svc, repo);

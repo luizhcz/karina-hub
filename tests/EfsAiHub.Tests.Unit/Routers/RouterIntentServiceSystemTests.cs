@@ -50,8 +50,10 @@ public class RouterIntentServiceSystemTests
         var tenantAccessor = Substitute.For<ITenantContextAccessor>();
         tenantAccessor.Current.Returns(new TenantContext("default"));
 
+        var propagator = Substitute.For<EfsAiHub.Core.Agents.Services.IAgentDependencyPropagator>();
+
         return new RouterIntentService(
-            repo, links, workflowService, projectAccessor, tenantAccessor,
+            repo, links, workflowService, projectAccessor, tenantAccessor, propagator,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RouterIntentService>.Instance);
     }
 

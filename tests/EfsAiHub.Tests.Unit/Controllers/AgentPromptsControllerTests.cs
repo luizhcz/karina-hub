@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Agents.Services;
 using EfsAiHub.Host.Api.Controllers;
 using EfsAiHub.Host.Api.Models.Requests;
 using Microsoft.AspNetCore.Mvc;
@@ -8,11 +9,12 @@ public class AgentPromptsControllerTests
 {
     private readonly IAgentPromptRepository _promptRepo = Substitute.For<IAgentPromptRepository>();
     private readonly IAgentDefinitionRepository _agentRepo = Substitute.For<IAgentDefinitionRepository>();
+    private readonly IAgentDependencyPropagator _propagator = Substitute.For<IAgentDependencyPropagator>();
     private readonly AgentPromptsController _sut;
 
     public AgentPromptsControllerTests()
     {
-        _sut = new AgentPromptsController(_promptRepo, _agentRepo);
+        _sut = new AgentPromptsController(_promptRepo, _agentRepo, _propagator);
     }
 
     // ── ListVersions ──────────────────────────────────────────
