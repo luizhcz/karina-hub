@@ -15,7 +15,6 @@ export interface GenericTool {
   projectId: string
   tenantId: string
   name: string
-  description: string
   httpMethod: HttpMethodType
   urlTemplate: string
   pathParams: Record<string, ParamDefinition>
@@ -26,7 +25,6 @@ export interface GenericTool {
   outputContentType: OutputContentType
   outputSchema: string | null
   timeoutSecondsOverride: number | null
-  whenToUse: string | null
   /**
    * Quando true, é "exclusiva do usuário": backend forwarda app_origin e
    * access_token da request original na chamada downstream. Tool geral
@@ -49,7 +47,6 @@ export type OutputProjectionMode = 'Off' | 'Project' | 'Strict'
 export interface CreateGenericToolBody {
   id?: string
   name: string
-  description: string
   httpMethod: HttpMethodType
   urlTemplate: string
   pathParams: Record<string, ParamDefinition>
@@ -60,7 +57,6 @@ export interface CreateGenericToolBody {
   outputContentType: OutputContentType
   outputSchema: string | null
   timeoutSecondsOverride: number | null
-  whenToUse: string | null
   isExclusive: boolean
   outputProjectionMode: OutputProjectionMode
 }

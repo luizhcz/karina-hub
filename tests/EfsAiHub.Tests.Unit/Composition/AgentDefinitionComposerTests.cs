@@ -72,7 +72,6 @@ public class AgentDefinitionComposerTests
                 ProjectId = "p",
                 TenantId = "t",
                 Name = "Get Quote",
-                Description = "Consulta cotação por ticker.",
                 HttpMethod = HttpMethodType.GET,
                 UrlTemplate = "https://api.example.com/{ticker}",
                 PathParams = new Dictionary<string, ParamDefinition>
@@ -101,7 +100,6 @@ public class AgentDefinitionComposerTests
         tool.PathParams.Should().ContainKey("ticker");
         tool.OutputContentType.Should().Be(OutputContentType.Json);
         tool.OutputSchemaJson.Should().Be("{\"type\":\"object\"}");
-        tool.Description.Should().Be("Consulta cotação por ticker.");
     }
 
     [Fact]

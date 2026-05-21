@@ -49,7 +49,7 @@ export function ToolsKnowledgeStep({
           items={tools.map((t) => ({
             id: t.id,
             primary: t.name || t.id,
-            secondary: t.description || `${t.httpMethod} ${t.urlTemplate}`,
+            secondary: `${t.httpMethod} ${t.urlTemplate}`,
             badge: t.httpMethod,
           }))}
           selectedIds={form.toolIds}

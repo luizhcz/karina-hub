@@ -276,7 +276,6 @@ public static class ChatOptionsBuilder
             ProjectId = definition.ProjectId,
             TenantId = definition.TenantId,
             Name = toolDef.Name ?? toolId,
-            Description = toolDef.Description ?? string.Empty,
             HttpMethod = toolDef.HttpMethod.Value,
             UrlTemplate = toolDef.UrlTemplate!,
             PathParams = toolDef.PathParams ?? new Dictionary<string, ParamDefinition>(StringComparer.Ordinal),
@@ -288,7 +287,6 @@ public static class ChatOptionsBuilder
             OutputSchema = toolDef.OutputSchemaJson,
             OutputProjectionMode = toolDef.OutputProjectionMode ?? OutputProjectionMode.Off,
             TimeoutSecondsOverride = toolDef.TimeoutSecondsOverride,
-            WhenToUse = toolDef.WhenToUse,
             IsExclusive = toolDef.IsExclusive ?? false,
         };
     }

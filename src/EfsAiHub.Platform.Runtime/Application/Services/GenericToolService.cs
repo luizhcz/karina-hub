@@ -48,7 +48,6 @@ public sealed class GenericToolService : IGenericToolService
             ProjectId = projectId,
             TenantId = tenantId,
             Name = draft.Name?.Trim() ?? string.Empty,
-            Description = draft.Description ?? string.Empty,
             HttpMethod = draft.HttpMethod,
             UrlTemplate = draft.UrlTemplate?.Trim() ?? string.Empty,
             PathParams = draft.PathParams,
@@ -59,7 +58,6 @@ public sealed class GenericToolService : IGenericToolService
             OutputContentType = draft.OutputContentType,
             OutputSchema = draft.OutputContentType == OutputContentType.Text ? null : draft.OutputSchema,
             TimeoutSecondsOverride = draft.TimeoutSecondsOverride,
-            WhenToUse = draft.WhenToUse,
             IsExclusive = draft.IsExclusive,
         };
 
@@ -98,7 +96,6 @@ public sealed class GenericToolService : IGenericToolService
             ProjectId = existing.ProjectId,
             TenantId = existing.TenantId,
             Name = patch.Name?.Trim() ?? string.Empty,
-            Description = patch.Description ?? string.Empty,
             HttpMethod = patch.HttpMethod,
             UrlTemplate = patch.UrlTemplate?.Trim() ?? string.Empty,
             PathParams = patch.PathParams,
@@ -109,7 +106,6 @@ public sealed class GenericToolService : IGenericToolService
             OutputContentType = patch.OutputContentType,
             OutputSchema = patch.OutputContentType == OutputContentType.Text ? null : patch.OutputSchema,
             TimeoutSecondsOverride = patch.TimeoutSecondsOverride,
-            WhenToUse = patch.WhenToUse,
             IsExclusive = patch.IsExclusive,
             CreatedAt = existing.CreatedAt,
         };

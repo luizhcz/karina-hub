@@ -164,7 +164,6 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
                 Headers = new Dictionary<string, string>(tool.Headers),
                 ConnectionId = tool.ConnectionId,
                 GenericToolId = generic.Id,
-                Description = generic.Description,
                 HttpMethod = generic.HttpMethod,
                 UrlTemplate = generic.UrlTemplate,
                 PathParams = new Dictionary<string, ParamDefinition>(generic.PathParams),
@@ -176,7 +175,6 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
                 OutputSchemaJson = generic.OutputSchema,
                 OutputProjectionMode = generic.OutputProjectionMode,
                 TimeoutSecondsOverride = generic.TimeoutSecondsOverride,
-                WhenToUse = generic.WhenToUse,
                 IsExclusive = generic.IsExclusive,
                 SourceSkillId = tool.SourceSkillId,
             });
@@ -247,7 +245,6 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
                     Headers = new Dictionary<string, string>(tool.Headers),
                     ConnectionId = tool.ConnectionId,
                     GenericToolId = tool.GenericToolId,
-                    Description = tool.Description,
                     HttpMethod = tool.HttpMethod,
                     UrlTemplate = tool.UrlTemplate,
                     PathParams = tool.PathParams,
@@ -259,7 +256,6 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
                     OutputSchemaJson = tool.OutputSchemaJson,
                     OutputProjectionMode = tool.OutputProjectionMode,
                     TimeoutSecondsOverride = tool.TimeoutSecondsOverride,
-                    WhenToUse = tool.WhenToUse,
                     IsExclusive = tool.IsExclusive,
                     SourceSkillId = skill.Id,
                 });

@@ -85,7 +85,7 @@ function ToolCard({ tool }: { tool: EnrichedToolDescriptor }) {
         )}
       </summary>
       <div className="space-y-2 border-t border-border px-3 py-2.5">
-        {tool.description && (
+        {tool.source === 'mcp' && tool.description && (
           <p className="text-xs text-fg-muted">{tool.description}</p>
         )}
         {tool.source === 'http' ? <HttpToolBody tool={tool} /> : <McpToolBody tool={tool} />}
@@ -97,12 +97,6 @@ function ToolCard({ tool }: { tool: EnrichedToolDescriptor }) {
 function HttpToolBody({ tool }: { tool: EnrichedHttpToolDescriptor }) {
   return (
     <>
-      {tool.whenToUse && (
-        <p className="text-xs">
-          <span className="font-medium text-fg">Use quando:</span>{' '}
-          <span className="text-fg-muted">{tool.whenToUse}</span>
-        </p>
-      )}
       <SchemaBlock title="Input schema" value={tool.inputSchema} fallback={`Content-Type: ${tool.inputContentType}`} />
       <SchemaBlock title="Output schema" value={tool.outputSchema} fallback={`Content-Type: ${tool.outputContentType}`} />
     </>

@@ -15,7 +15,6 @@ public sealed class GenericTool
     public required string ProjectId { get; init; }
     public required string TenantId { get; init; }
     public required string Name { get; set; }
-    public string Description { get; set; } = string.Empty;
     public required HttpMethodType HttpMethod { get; init; }
     public required string UrlTemplate { get; set; }
 
@@ -51,13 +50,6 @@ public sealed class GenericTool
     /// pelo máximo configurado — validado no service via <see cref="EnsureWithinTimeoutCeiling"/>.
     /// </summary>
     public int? TimeoutSecondsOverride { get; set; }
-
-    /// <summary>
-    /// Texto livre opcional que documenta quando o agente deve invocar essa tool —
-    /// repassado pro system prompt como gatilho de uso ("Use quando: ..."). Não
-    /// afeta runtime nem validação; apenas orientação semântica pro LLM.
-    /// </summary>
-    public string? WhenToUse { get; set; }
 
     /// <summary>
     /// Quando true, a tool é "exclusiva do usuário": o executor anexa

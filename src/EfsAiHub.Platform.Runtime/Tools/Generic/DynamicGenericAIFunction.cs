@@ -23,9 +23,9 @@ public sealed class DynamicGenericAIFunction : AIFunction
         _tool = tool;
         _executor = executor;
         _schema = GenericToolSchemaBuilder.Build(tool);
-        _description = string.IsNullOrWhiteSpace(tool.Description)
-            ? $"Generic HTTP tool '{tool.Name}' ({tool.HttpMethod})"
-            : tool.Description;
+        // Description semântica vive no prompt do agente; aqui só o gist
+        // técnico (nome + método) pro framework MEAI saber chamar.
+        _description = $"Generic HTTP tool '{tool.Name}' ({tool.HttpMethod})";
     }
 
     public override string Name => _tool.Id;

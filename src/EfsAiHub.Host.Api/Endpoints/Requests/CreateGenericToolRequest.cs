@@ -17,9 +17,6 @@ public sealed class CreateGenericToolRequest
     [Required, MaxLength(256)]
     public string Name { get; init; } = string.Empty;
 
-    [MaxLength(4096)]
-    public string Description { get; init; } = string.Empty;
-
     [Required]
     public HttpMethodType HttpMethod { get; init; }
 
@@ -42,13 +39,6 @@ public sealed class CreateGenericToolRequest
     public int? TimeoutSecondsOverride { get; init; }
 
     /// <summary>
-    /// Texto livre opcional descrevendo o gatilho de uso da tool. Repassado
-    /// pro system prompt do agente como "Use quando: ...".
-    /// </summary>
-    [MaxLength(2048)]
-    public string? WhenToUse { get; init; }
-
-    /// <summary>
     /// Quando true, executor forwarda <c>app_origin</c>/<c>access_token</c> da
     /// request original. Default false — tool considerada "geral".
     /// </summary>
@@ -66,7 +56,6 @@ public sealed class CreateGenericToolRequest
         ProjectId = string.Empty,
         TenantId = string.Empty,
         Name = Name.Trim(),
-        Description = Description ?? string.Empty,
         HttpMethod = HttpMethod,
         UrlTemplate = UrlTemplate.Trim(),
         PathParams = PathParams ?? new Dictionary<string, ParamDefinition>(),
@@ -77,7 +66,6 @@ public sealed class CreateGenericToolRequest
         OutputContentType = OutputContentType,
         OutputSchema = OutputSchema,
         TimeoutSecondsOverride = TimeoutSecondsOverride,
-        WhenToUse = string.IsNullOrWhiteSpace(WhenToUse) ? null : WhenToUse.Trim(),
         IsExclusive = IsExclusive,
     };
 }

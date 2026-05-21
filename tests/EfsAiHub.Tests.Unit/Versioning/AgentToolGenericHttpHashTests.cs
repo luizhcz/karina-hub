@@ -175,7 +175,6 @@ public class AgentToolGenericHttpHashTests
                     Type = "generic_http",
                     GenericToolId = "tool-a",
                     Name = "Lookup",
-                    Description = "Consulta ativo por ticker.",
                     HttpMethod = HttpMethodType.POST,
                     UrlTemplate = "https://api.example.com/assets/{ticker}",
                     PathParams = new Dictionary<string, ParamDefinition>
@@ -196,7 +195,6 @@ public class AgentToolGenericHttpHashTests
                     OutputSchemaJson = "{\"type\":\"object\",\"properties\":{\"price\":{\"type\":\"number\"}}}",
                     OutputProjectionMode = OutputProjectionMode.Project,
                     TimeoutSecondsOverride = 30,
-                    WhenToUse = "Use sempre que precisar do preço atual de um ativo.",
                     IsExclusive = true,
                 },
             },
@@ -215,7 +213,6 @@ public class AgentToolGenericHttpHashTests
         snapshot.OutputContentType.Should().Be(OutputContentType.Json);
         snapshot.OutputProjectionMode.Should().Be(OutputProjectionMode.Project);
         snapshot.TimeoutSecondsOverride.Should().Be(30);
-        snapshot.WhenToUse.Should().StartWith("Use sempre que");
         snapshot.IsExclusive.Should().BeTrue();
 
         var roundtrip = snapshot.ToDefinition();

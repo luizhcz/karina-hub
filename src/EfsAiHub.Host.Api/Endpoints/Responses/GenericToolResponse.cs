@@ -8,7 +8,6 @@ public sealed class GenericToolResponse
     public required string ProjectId { get; init; }
     public required string TenantId { get; init; }
     public required string Name { get; init; }
-    public required string Description { get; init; }
     public required string HttpMethod { get; init; }
     public required string UrlTemplate { get; init; }
     public required IReadOnlyDictionary<string, ParamDefinition> PathParams { get; init; }
@@ -19,7 +18,6 @@ public sealed class GenericToolResponse
     public required string OutputContentType { get; init; }
     public string? OutputSchema { get; init; }
     public int? TimeoutSecondsOverride { get; init; }
-    public string? WhenToUse { get; init; }
     public required bool IsExclusive { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
@@ -30,7 +28,6 @@ public sealed class GenericToolResponse
         ProjectId = tool.ProjectId,
         TenantId = tool.TenantId,
         Name = tool.Name,
-        Description = tool.Description,
         HttpMethod = tool.HttpMethod.ToString(),
         UrlTemplate = tool.UrlTemplate,
         PathParams = tool.PathParams,
@@ -41,7 +38,6 @@ public sealed class GenericToolResponse
         OutputContentType = tool.OutputContentType.ToString(),
         OutputSchema = tool.OutputSchema,
         TimeoutSecondsOverride = tool.TimeoutSecondsOverride,
-        WhenToUse = tool.WhenToUse,
         IsExclusive = tool.IsExclusive,
         CreatedAt = tool.CreatedAt,
         UpdatedAt = tool.UpdatedAt,

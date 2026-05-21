@@ -416,13 +416,6 @@ public class AgentToolDefinition
     /// <summary>Para web_search (Bing Grounding): connectionId do Azure AI Foundry.</summary>
     public string? ConnectionId { get; init; }
 
-    /// <summary>
-    /// Resumo da tool exposto ao LLM como parte do prompt structural. Copiado
-    /// de <c>GenericTool.Description</c> quando <see cref="Type"/>="generic_http"
-    /// no save; demais tipos preenchem com a documentação inline da entrada.
-    /// </summary>
-    public string? Description { get; init; }
-
     /// <summary>HTTP verb da invocação. Inline pra runtime não consultar o repo de tools.</summary>
     public HttpMethodType? HttpMethod { get; init; }
 
@@ -458,9 +451,6 @@ public class AgentToolDefinition
 
     /// <summary>Override por-tool do timeout em segundos. Null = usa default global do executor.</summary>
     public int? TimeoutSecondsOverride { get; init; }
-
-    /// <summary>Texto livre que orienta o LLM sobre quando invocar a tool. Vira gatilho no prompt.</summary>
-    public string? WhenToUse { get; init; }
 
     /// <summary>
     /// Quando true, o executor encaminha <c>app_origin</c> + <c>access_token</c>

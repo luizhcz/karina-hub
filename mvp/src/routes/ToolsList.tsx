@@ -46,7 +46,6 @@ export function ToolsList() {
     return tools.filter(
       (t) =>
         t.name.toLowerCase().includes(q) ||
-        t.description.toLowerCase().includes(q) ||
         t.urlTemplate.toLowerCase().includes(q),
     )
   }, [tools, search])
@@ -123,9 +122,6 @@ export function ToolsList() {
               <div className="flex w-full items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <h3 className="truncate text-sm font-semibold text-fg">{t.name}</h3>
-                  <p className="mt-1 line-clamp-2 text-xs text-fg-muted">
-                    {t.description || <span className="italic text-fg-dim">sem descrição</span>}
-                  </p>
                 </div>
                 <Badge tone={t.httpMethod === 'GET' ? 'method-get' : 'method-post'}>
                   {t.httpMethod}

@@ -11,8 +11,6 @@ export interface EnrichedHttpToolDescriptor {
   source: 'http'
   id: string
   name: string
-  description: string
-  whenToUse?: string
   httpMethod: string
   urlTemplate: string
   pathParams: Record<string, ParamDefinition>
@@ -41,8 +39,6 @@ function fromGenericTool(tool: GenericTool): EnrichedHttpToolDescriptor {
     source: 'http',
     id: tool.id,
     name: tool.name,
-    description: tool.description,
-    whenToUse: tool.whenToUse ?? undefined,
     httpMethod: tool.httpMethod,
     urlTemplate: tool.urlTemplate,
     pathParams: tool.pathParams,

@@ -397,9 +397,9 @@ export function buildPayload(
   // resolve o conteúdo real ao montar o prompt baseado no set vivo do join
   // agent_router_intents. Worker usa skeleton mínimo — runtime injeta o
   // bloco "# Domínio de análise" lendo metadata['x-worker-scope']. Tool
-  // Runner usa skeleton mínimo — tools já carregam Description/WhenToUse
-  // pro LLM via FunctionTool factory, sem necessidade de bloco anchor
-  // adicional. Conversational usa skeleton + persona injetada no prompt.
+  // Runner usa skeleton mínimo — semântica de cada tool (o que faz / quando
+  // usar) vive no prompt do agente, não na tool em si. Conversational usa
+  // skeleton + persona injetada no prompt.
   // Custom segue o encoder genérico do ProfileStep.
   const instructions =
     form.type === 'Router'
@@ -718,9 +718,9 @@ function encodeConversationalMetadata(
 
 /**
  * Skeleton determinístico mínimo do Tool Runner. Tool Runner é executor —
- * tools selecionadas já viajam com Description/WhenToUse via
- * <c>FunctionTool</c> factory; o LLM lê os docs delas direto. Manter o
- * skeleton enxuto evita duplicar instruções de uso de tool no system
+ * semântica de cada tool (o que faz / quando usar) é responsabilidade do
+ * prompt do agente, não da tool em si. Manter o skeleton enxuto evita
+ * duplicar instruções de uso de tool no system
  * prompt e dá determinismo ao prompt persistido.
  */
 export function encodeToolRunnerInstructions(name: string): string {

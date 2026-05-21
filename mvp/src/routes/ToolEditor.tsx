@@ -61,8 +61,6 @@ interface ParamRow {
 // precisam saber/escolher); no modo edit o id é imutável e vem da rota.
 interface FormState {
   name: string
-  description: string
-  whenToUse: string
   method: HttpMethodType
   url: string
   pathRows: KvRow<ParamRow>[]
@@ -82,8 +80,6 @@ interface FormState {
 function emptyForm(): FormState {
   return {
     name: '',
-    description: '',
-    whenToUse: '',
     method: 'GET',
     url: '',
     pathRows: [],
@@ -153,8 +149,6 @@ function fromTool(tool: GenericTool): FormState {
 
   return {
     name: tool.name,
-    description: tool.description,
-    whenToUse: tool.whenToUse ?? '',
     method: tool.httpMethod,
     url: tool.urlTemplate,
     pathRows,
@@ -321,8 +315,6 @@ export function ToolEditor({ mode }: Props) {
       // CreateGenericToolBody.id é ignorado pelo backend no PUT.
       id: undefined,
       name: form.name.trim(),
-      description: form.description,
-      whenToUse: form.whenToUse.trim() || null,
       httpMethod: form.method,
       urlTemplate: form.url.trim(),
       pathParams,
@@ -402,22 +394,10 @@ export function ToolEditor({ mode }: Props) {
           placeholder="Ex.: Buscar Cliente"
           autoFocus
         />
-        <Textarea
-          label="Descrição"
-          value={form.description}
-          onChange={(e) => set('description', e.target.value)}
-          placeholder="O que o endpoint faz e o que ele retorna."
-          hint="Esse texto vai pro prompt do agente como descrição da ferramenta."
-          autoGrow
-        />
-        <Textarea
-          label="Quando usar"
-          value={form.whenToUse}
-          onChange={(e) => set('whenToUse', e.target.value)}
-          placeholder="Ex.: o usuário pergunta sobre preço ou variação de um ticker específico."
-          hint="Gatilho que orienta o agente a invocar essa tool. Vira a linha 'Use quando: ...' no prompt."
-          autoGrow
-        />
+        <p className="text-[11px] text-fg-muted">
+          Descrição semântica ("o que faz" / "quando usar") vive no prompt do agente
+          (aba <strong>Perfil</strong>) — a ferramenta aqui é instrumento puro: nome + URL + schema.
+        </p>
 
         <label className="mt-2 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-bg-soft p-3">
           <input
