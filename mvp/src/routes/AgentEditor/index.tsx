@@ -948,7 +948,7 @@ export function AgentEditor({ mode }: Props) {
           />
         )}
         {form.currentStep === 'review' && (
-          <ReviewStep form={form} setForm={setForm} models={models} tools={tools} readonly={readonly} />
+          <ReviewStep form={form} setForm={setForm} tools={tools} readonly={readonly} />
         )}
       </div>
 

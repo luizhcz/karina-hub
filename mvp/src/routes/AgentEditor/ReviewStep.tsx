@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Badge, Button, Card, CardHeader, cn } from '../../ui'
 import type { GenericTool } from '../../api/genericTools'
-import type { PredefinedModel } from '../../api/predefinedModels'
 import { listRouterIntents, type RouterIntent } from '../../api/routerIntents'
 import { encodeInstructions } from './instructionsCodec'
 import {
@@ -20,12 +19,11 @@ import { ToolCallExample } from './preview/ToolCallExample'
 interface ReviewStepProps {
   form: FormState
   setForm: (mutator: (prev: FormState) => FormState) => void
-  models: PredefinedModel[]
   tools: GenericTool[]
   readonly: boolean
 }
 
-export function ReviewStep({ form, setForm, models, tools, readonly }: ReviewStepProps) {
+export function ReviewStep({ form, setForm, tools, readonly }: ReviewStepProps) {
   const includeStructured = form.agentMode === 'advanced'
   const inputForCodec = form.input.mode === 'structured' ? form.input : { description: '', schema: '' }
   const outputForCodec = form.output.mode === 'structured' ? form.output : { description: '', schema: '' }
@@ -60,8 +58,6 @@ export function ReviewStep({ form, setForm, models, tools, readonly }: ReviewSte
     ],
   )
 
-  const selectedModel = models.find((m) => m.id === form.predefinedModelId) ?? null
-
   const [copied, setCopied] = useState(false)
 
   const onCopy = () => {
@@ -74,35 +70,6 @@ export function ReviewStep({ form, setForm, models, tools, readonly }: ReviewSte
 
   return (
     <div className="space-y-5">
-      <Card className="space-y-3">
-        <CardHeader
-          title="Identificação"
-          description="Resumo do que será gravado no rascunho."
-        />
-        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Nome</dt>
-            <dd className="mt-1 text-sm text-fg">
-              {form.name.trim() || <span className="italic text-fg-dim">não preenchido</span>}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Tipo</dt>
-            <dd className="mt-1 text-sm text-fg">
-              <Badge tone={form.type === 'Router' ? 'accent' : 'neutral'}>
-                {form.type}
-              </Badge>
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Modelo</dt>
-            <dd className="mt-1 text-sm text-fg">
-              {selectedModel ? selectedModel.displayName : <span className="italic text-fg-dim">não selecionado</span>}
-            </dd>
-          </div>
-        </dl>
-      </Card>
-
       {form.type === 'Router' && <RouterPreview form={form} />}
 
       {form.type === 'Worker' && <WorkerPreview form={form} />}
