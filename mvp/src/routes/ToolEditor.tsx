@@ -75,7 +75,6 @@ interface FormState {
   outputContentType: OutputContentType
   outputExample: string
   outputDescription: string
-  timeoutSeconds: string
   isExclusive: boolean
 }
 
@@ -96,7 +95,6 @@ function emptyForm(): FormState {
     outputContentType: 'Json',
     outputExample: '',
     outputDescription: '',
-    timeoutSeconds: '',
     isExclusive: false,
   }
 }
@@ -185,11 +183,6 @@ function buildBodyFromForm(form: FormState): { body?: CreateGenericToolBody; err
     outputSchema = form.outputDescription.trim() || null
   }
 
-  const timeout = form.timeoutSeconds.trim() ? Number(form.timeoutSeconds) : null
-  if (timeout !== null && (Number.isNaN(timeout) || timeout <= 0)) {
-    return { error: 'Timeout deve ser um número maior que zero.' }
-  }
-
   return {
     body: {
       // Id é gerado pelo front no modo create (caller resolve via
@@ -206,7 +199,8 @@ function buildBodyFromForm(form: FormState): { body?: CreateGenericToolBody; err
       inputSchema,
       outputContentType: form.outputContentType,
       outputSchema,
-      timeoutSecondsOverride: timeout,
+      // Timeout fica no default global do backend — config avançada removida do MVP.
+      timeoutSecondsOverride: null,
       isExclusive: form.isExclusive,
       // Json/Csv sempre projetam (drop silencioso de extras + fail-loud em
       // required/type) — domain força Project no save. Text fica Off.
@@ -260,7 +254,6 @@ function fromTool(tool: GenericTool): FormState {
     outputExample:
       tool.outputContentType !== 'Text' ? tool.outputSchema || DEFAULT_JSON : DEFAULT_JSON,
     outputDescription: tool.outputContentType === 'Text' ? tool.outputSchema || '' : '',
-    timeoutSeconds: tool.timeoutSecondsOverride?.toString() ?? '',
     isExclusive: tool.isExclusive,
   }
 }
@@ -663,23 +656,6 @@ export function ToolEditor({ mode }: Props) {
           )}
         </div>
       </Card>
-
-      {/* Avançado */}
-      <details className="mb-5 rounded-xl border border-border bg-surface px-5 py-3 shadow-card">
-        <summary className="cursor-pointer text-xs font-medium text-fg-muted hover:text-fg">
-          Configurações avançadas
-        </summary>
-        <div className="mt-4 max-w-xs">
-          <Input
-            label="Timeout (segundos)"
-            type="number"
-            min={1}
-            value={form.timeoutSeconds}
-            onChange={(e) => set('timeoutSeconds', e.target.value)}
-            placeholder="usa o padrão se vazio"
-          />
-        </div>
-      </details>
 
       {error && <ErrorMessage message={error} className="mb-4" />}
 
