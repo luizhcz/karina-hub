@@ -54,7 +54,8 @@ public class GenericToolServiceTests
             ["id"] = new("string", "user id", true),
         },
         OutputContentType = OutputContentType.Json,
-        OutputSchema = "{\"type\":\"object\",\"properties\":{}}",
+        OutputSchema = "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}",
+        OutputProjectionMode = OutputProjectionMode.Project,
     };
 
     [Fact]

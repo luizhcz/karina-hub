@@ -1519,12 +1519,13 @@ CREATE TABLE IF NOT EXISTS aihub.generic_tools (
 ALTER TABLE aihub.generic_tools
     ADD COLUMN IF NOT EXISTS "IsExclusive" BOOLEAN NOT NULL DEFAULT FALSE;
 
--- OutputProjectionMode: controla validação + projeção do response contra
--- OutputSchema antes de chegar ao LLM (e ao tester do ToolEditor).
---   'Off'     = bypass total (comportamento legacy).
+-- OutputProjectionMode: controla projeção do response contra OutputSchema
+-- antes de chegar ao LLM.
+--   'Off'     = bypass total (usado quando OutputContentType=Text — texto
+--               puro não tem shape pra projetar).
 --   'Project' = drop silencioso de extras + fail-loud em required/type.
---   'Strict'  = Project + fail-loud em extras (additionalProperties:false virtual).
--- Default 'Off' preserva tools existentes; admin opta in pelo ToolEditor.
+--               Obrigatório quando OutputContentType in {Json, Csv}.
+-- Default 'Off' preserva BC; novos saves com Json/Csv passam Project.
 ALTER TABLE aihub.generic_tools
     ADD COLUMN IF NOT EXISTS "OutputProjectionMode" VARCHAR(16) NOT NULL DEFAULT 'Off';
 
@@ -1538,7 +1539,7 @@ BEGIN
     ) THEN
         ALTER TABLE aihub.generic_tools
             ADD CONSTRAINT "CK_generic_tools_OutputProjectionMode"
-            CHECK ("OutputProjectionMode" IN ('Off', 'Project', 'Strict'));
+            CHECK ("OutputProjectionMode" IN ('Off', 'Project'));
     END IF;
 END $$;
 

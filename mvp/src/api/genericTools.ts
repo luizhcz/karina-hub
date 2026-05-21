@@ -32,17 +32,16 @@ export interface GenericTool {
    */
   isExclusive: boolean
   /**
-   * Controla validação + projeção do response contra `outputSchema` antes do
-   * LLM (e do tester) receber. Default 'Off' preserva o comportamento legacy
-   * de tools cadastradas antes da feature; admin opta in via o select no
-   * ToolEditor.
+   * Modo de projeção do response contra `outputSchema`. Setado automaticamente:
+   * `'Project'` para Json/Csv (drop silencioso de extras + fail-loud em
+   * required/type), `'Off'` apenas para Text (sem shape pra projetar).
    */
   outputProjectionMode: OutputProjectionMode
   createdAt: string
   updatedAt: string
 }
 
-export type OutputProjectionMode = 'Off' | 'Project' | 'Strict'
+export type OutputProjectionMode = 'Off' | 'Project'
 
 export interface CreateGenericToolBody {
   id?: string

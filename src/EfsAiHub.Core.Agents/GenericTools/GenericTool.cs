@@ -134,18 +134,21 @@ public sealed class GenericTool
         }
 
         if (OutputContentType is OutputContentType.Json or OutputContentType.Csv)
-            EnsureSchemaPresent(nameof(OutputSchema), OutputSchema);
-
-        // Output projection requer schema declarativo de verdade. Text não tem
-        // shape pra projetar; schemas vazios não declaram contrato algum;
-        // oneOf/anyOf introduzem ambiguidade no drop-extras (qual variant
-        // aplicar?), reservados pra V2.
-        if (OutputProjectionMode != OutputProjectionMode.Off)
         {
-            if (OutputContentType == OutputContentType.Text)
+            EnsureSchemaPresent(nameof(OutputSchema), OutputSchema);
+            // Json/Csv sempre projeta — o LLM nunca vê response cru de API
+            // estruturada. Schema vazio ({} ou type=object sem properties),
+            // oneOf/anyOf ou $ref ficam reservados pra V2.
+            if (OutputProjectionMode != OutputProjectionMode.Project)
                 throw new DomainException(
-                    "GenericTool.OutputProjectionMode != Off é incompatível com OutputContentType=Text.");
+                    "GenericTool.OutputProjectionMode deve ser 'Project' quando OutputContentType é Json ou Csv.");
             EnsureSchemaIsProjectable(OutputSchema);
+        }
+        else if (OutputProjectionMode != OutputProjectionMode.Off)
+        {
+            // Text não tem shape pra projetar — força Off explicitamente.
+            throw new DomainException(
+                "GenericTool.OutputProjectionMode deve ser 'Off' quando OutputContentType é Text.");
         }
 
         if (TimeoutSecondsOverride is int t && t <= 0)

@@ -103,21 +103,6 @@ public class GenericResponseProjectorTests
     }
 
     [Fact]
-    public void Strict_ExtraProperty_Fails()
-    {
-        var projector = BuildProjector();
-        const string schema = """
-            {"type":"object","properties":{"id":{"type":"string"}}}
-            """;
-        var input = ParseJson("""{"id":"abc","ghost":"removeMe"}""");
-
-        var result = projector.Project(input, schema, OutputProjectionMode.Strict, "test");
-
-        result.HasErrors.Should().BeTrue();
-        string.Join("\n", result.Errors).Should().Contain("ghost");
-    }
-
-    [Fact]
     public void Project_ArrayItems_Validated()
     {
         var projector = BuildProjector();

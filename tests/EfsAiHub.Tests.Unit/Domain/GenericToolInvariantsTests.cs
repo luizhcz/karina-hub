@@ -61,6 +61,32 @@ public class GenericToolInvariantsTests
     }
 
     [Fact]
+    public void EnsureInvariants_JsonOutputComProjectionOff_LancaDomainException()
+    {
+        var tool = ValidGetTool();
+        tool.OutputContentType = OutputContentType.Json;
+        tool.OutputSchema = "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}";
+        tool.OutputProjectionMode = OutputProjectionMode.Off;
+
+        Action act = tool.EnsureInvariants;
+
+        act.Should().Throw<DomainException>().WithMessage("*Project*");
+    }
+
+    [Fact]
+    public void EnsureInvariants_TextOutputComProjectionProject_LancaDomainException()
+    {
+        var tool = ValidGetTool();
+        tool.OutputContentType = OutputContentType.Text;
+        tool.OutputSchema = null;
+        tool.OutputProjectionMode = OutputProjectionMode.Project;
+
+        Action act = tool.EnsureInvariants;
+
+        act.Should().Throw<DomainException>().WithMessage("*Off*Text*");
+    }
+
+    [Fact]
     public void EnsureInvariants_UrlSemPlaceholderMasComPathParam_LancaDomainException()
     {
         var tool = new GenericTool
@@ -184,7 +210,8 @@ public class GenericToolInvariantsTests
                 }
                 """,
             OutputContentType = OutputContentType.Json,
-            OutputSchema = "{\"type\":\"object\",\"properties\":{}}",
+            OutputSchema = "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}}}",
+            OutputProjectionMode = OutputProjectionMode.Project,
         };
 
         var act = tool.EnsureInvariants;
@@ -366,5 +393,6 @@ public class GenericToolInvariantsTests
         },
         OutputContentType = OutputContentType.Json,
         OutputSchema = "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}",
+        OutputProjectionMode = OutputProjectionMode.Project,
     };
 }

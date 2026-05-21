@@ -57,6 +57,7 @@ public sealed class GenericToolService : IGenericToolService
             InputSchema = draft.HttpMethod == HttpMethodType.GET ? null : draft.InputSchema,
             OutputContentType = draft.OutputContentType,
             OutputSchema = draft.OutputContentType == OutputContentType.Text ? null : draft.OutputSchema,
+            OutputProjectionMode = ResolveProjectionMode(draft.OutputContentType),
             TimeoutSecondsOverride = draft.TimeoutSecondsOverride,
             IsExclusive = draft.IsExclusive,
         };
@@ -105,6 +106,7 @@ public sealed class GenericToolService : IGenericToolService
             InputSchema = patch.HttpMethod == HttpMethodType.GET ? null : patch.InputSchema,
             OutputContentType = patch.OutputContentType,
             OutputSchema = patch.OutputContentType == OutputContentType.Text ? null : patch.OutputSchema,
+            OutputProjectionMode = ResolveProjectionMode(patch.OutputContentType),
             TimeoutSecondsOverride = patch.TimeoutSecondsOverride,
             IsExclusive = patch.IsExclusive,
             CreatedAt = existing.CreatedAt,
@@ -149,4 +151,15 @@ public sealed class GenericToolService : IGenericToolService
 
     private static InputContentType NormalizeInputContentType(HttpMethodType method, InputContentType requested)
         => method == HttpMethodType.GET ? InputContentType.None : requested;
+
+    /// <summary>
+    /// Json/Csv sempre projetam (drop silencioso de extras + fail-loud em
+    /// required/type). Text fica Off — texto puro não tem shape pra projetar.
+    /// Derivado do OutputContentType porque o cliente não tem mais select de
+    /// modo no form (V1 do MVP).
+    /// </summary>
+    private static OutputProjectionMode ResolveProjectionMode(OutputContentType outputType)
+        => outputType == OutputContentType.Text
+            ? OutputProjectionMode.Off
+            : OutputProjectionMode.Project;
 }
