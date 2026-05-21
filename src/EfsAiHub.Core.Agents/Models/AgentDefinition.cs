@@ -458,6 +458,15 @@ public class AgentToolDefinition
     /// chamada anônima/com headers fixos apenas.
     /// </summary>
     public bool? IsExclusive { get; init; }
+
+    /// <summary>
+    /// Quando setado, identifica que esta entrada foi mesclada a partir de uma
+    /// <see cref="SkillRef"/> referenciada pelo agente — o composer popula no
+    /// momento do save. Tools autorais (criadas direto pelo owner) deixam o
+    /// campo null. O decomposer usa esse marker pra ocultar tools provenientes
+    /// de skill no GET, devolvendo só o que o cliente declara.
+    /// </summary>
+    public string? SourceSkillId { get; init; }
 }
 
 /// <summary>

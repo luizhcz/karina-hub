@@ -123,7 +123,8 @@ public sealed record AgentVersion(
                     || t.TimeoutSecondsOverride is not null
                     || t.WhenToUse is not null
                     || t.IsExclusive is not null
-                    || t.Description is not null;
+                    || t.Description is not null
+                    || t.SourceSkillId is not null;
 
                 if (!hasExpansion)
                 {
@@ -172,6 +173,7 @@ public sealed record AgentVersion(
                     t.TimeoutSecondsOverride,
                     t.WhenToUse,
                     t.IsExclusive,
+                    t.SourceSkillId,
                 };
             })
             .ToList();
@@ -491,7 +493,8 @@ public sealed record AgentToolSnapshot(
     OutputProjectionMode? OutputProjectionMode = null,
     int? TimeoutSecondsOverride = null,
     string? WhenToUse = null,
-    bool? IsExclusive = null)
+    bool? IsExclusive = null,
+    string? SourceSkillId = null)
 {
     public static AgentToolSnapshot FromDefinition(AgentToolDefinition tool) => new(
         Type: tool.Type,
@@ -537,7 +540,8 @@ public sealed record AgentToolSnapshot(
         OutputProjectionMode: tool.OutputProjectionMode,
         TimeoutSecondsOverride: tool.TimeoutSecondsOverride,
         WhenToUse: tool.WhenToUse,
-        IsExclusive: tool.IsExclusive);
+        IsExclusive: tool.IsExclusive,
+        SourceSkillId: tool.SourceSkillId);
 
     public AgentToolDefinition ToDefinition() => new()
     {
@@ -567,6 +571,7 @@ public sealed record AgentToolSnapshot(
         TimeoutSecondsOverride = TimeoutSecondsOverride,
         WhenToUse = WhenToUse,
         IsExclusive = IsExclusive,
+        SourceSkillId = SourceSkillId,
     };
 }
 
