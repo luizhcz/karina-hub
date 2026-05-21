@@ -1,5 +1,4 @@
 import {
-  AgentIcon,
   ArrowRightIcon,
   BoltIcon,
   CheckIcon,
@@ -7,14 +6,12 @@ import {
   SparklesIcon,
   cn,
 } from '../ui'
-import { AGENT_TEMPLATES, type TemplateKey } from '../routes/AgentEditor/templates'
 import type { AgentType } from '../api/agentDrafts'
 import { useIsAdmin } from '../stores/me'
 
 export interface NewAgentSelection {
   type: AgentType
   mode: 'basic' | 'advanced'
-  template?: TemplateKey
 }
 
 interface NewAgentModeModalProps {
@@ -99,14 +96,11 @@ export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModal
       title="Como você quer começar?"
       description={
         isAdmin
-          ? 'Escolha o tipo formal do agente — Custom (livre), Router (classifier) ou Conversational (chat). Templates abaixo aceleram quando o caso já tem um modelo pronto.'
-          : 'Escolha o tipo formal do agente — Custom (livre) ou Conversational (chat). Router fica indisponível nesta fase do MVP. Templates abaixo aceleram quando o caso já tem um modelo pronto.'
+          ? 'Escolha o tipo formal do agente — Custom (livre), Router (classifier) ou Conversational (chat).'
+          : 'Escolha o tipo formal do agente — Custom (livre) ou Conversational (chat). Router fica indisponível nesta fase do MVP.'
       }
       size="xl"
     >
-      <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-fg-dim">
-        Tipo do agente
-      </p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {choices.map((choice) => (
           <button
@@ -170,52 +164,6 @@ export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModal
             </div>
           </button>
         ))}
-      </div>
-
-      {/* Templates pré-populados — atalho pro time-to-first-agent. Hidratam
-          Profile/nome/descrição via templates.ts e abrem o wizard direto no
-          step de Perfil (skip do step de Tipo, já que o template é Custom). */}
-      <div className="mt-6 space-y-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-dim">
-          Templates — Renda Variável
-        </p>
-        <p className="text-[11px] leading-relaxed text-fg-dim">
-          Pré-fills de Perfil voltados pra mesa de renda variável (B3, ações, FIIs, ETFs).
-          Você pode editar tudo no wizard, inclusive trocar o tipo.
-        </p>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          {AGENT_TEMPLATES.map((tpl) => {
-            const tplType = tpl.type ?? 'Custom'
-            const typeLabel = tplType === 'Conversational' ? 'Conversational' : 'Custom'
-            const modeLabel = tplType === 'Conversational'
-              ? null
-              : tpl.defaultMode === 'advanced' ? ' · avançado' : ' · básico'
-            return (
-              <button
-                key={tpl.key}
-                type="button"
-                onClick={() =>
-                  onSelect({ type: tplType, mode: tpl.defaultMode, template: tpl.key })
-                }
-                className={cn(
-                  'group flex flex-col items-start gap-2 rounded-xl border border-border bg-surface p-3 text-left transition',
-                  'hover:border-accent/40 hover:bg-accent-subtle/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
-                )}
-              >
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-subtle text-accent">
-                  <AgentIcon className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <h4 className="text-sm font-semibold text-fg">{tpl.title}</h4>
-                  <p className="mt-0.5 line-clamp-2 text-[11px] text-fg-muted">{tpl.pitch}</p>
-                  <p className="mt-1 text-[10px] uppercase tracking-wide text-fg-dim">
-                    {typeLabel}{modeLabel}
-                  </p>
-                </div>
-              </button>
-            )
-          })}
-        </div>
       </div>
     </Modal>
   )
