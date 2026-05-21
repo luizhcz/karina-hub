@@ -122,12 +122,13 @@ export const updateAgentDraft = (id: string, body: UpdateAgentDraftBody) =>
 export interface SubmitAgentDraftResult {
   draft: AgentDraft
   autoApproved: boolean
-  tier?: 'Cosmetic' | 'Behavioral' | 'TypeBypass' | null
+  tier?: 'Cosmetic' | 'Behavioral' | null
 }
 
-// changeReason é opcional no contrato HTTP, mas a UI exige (≥10 chars)
-// quando o tipo do agente bypassa aprovação (Router) — o BE registra esse
-// texto em agent_approval_history pra manter audit forte.
+// changeReason é opcional no contrato HTTP, mas a UI exige (≥10 chars) para
+// Router (modal dedicado) — o BE registra esse texto em agent_approval_history
+// pra manter audit forte mesmo quando o motivo é a única assinatura humana
+// antes do review do painel.
 export const submitAgentDraft = (id: string, changeReason?: string) =>
   post<SubmitAgentDraftResult>(`${BASE}/${id}/submit`, { changeReason })
 
