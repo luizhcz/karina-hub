@@ -67,6 +67,14 @@ public sealed class GenericTool
     public static readonly Regex PlaceholderRegex =
         new(@"\{([A-Za-z_][A-Za-z0-9_]*)\}", RegexOptions.Compiled);
 
+    /// <summary>
+    /// Pattern aceito pra Name. Espelha a regra de function name do OpenAI/
+    /// Anthropic — o Name é exposto ao LLM como nome da função no schema.
+    /// Snake_case ou kebab-case, sem espaços, acentos ou unicode. Max 64.
+    /// </summary>
+    public static readonly Regex NameRegex =
+        new(@"^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$", RegexOptions.Compiled);
+
     private static readonly HashSet<string> ReservedHeaders =
         new(StringComparer.OrdinalIgnoreCase) { "Content-Type", "Accept" };
 
@@ -80,6 +88,10 @@ public sealed class GenericTool
             throw new DomainException("GenericTool.TenantId é obrigatório.");
         if (string.IsNullOrWhiteSpace(Name))
             throw new DomainException("GenericTool.Name é obrigatório.");
+        if (!NameRegex.IsMatch(Name))
+            throw new DomainException(
+                $"GenericTool.Name '{Name}' inválido. Aceita letras/dígitos/underscore/hífen, " +
+                "começa com letra ou underscore, máximo 64 chars (ex: 'get_quote', 'lookup-user').");
         if (string.IsNullOrWhiteSpace(UrlTemplate))
             throw new DomainException("GenericTool.UrlTemplate é obrigatório.");
 

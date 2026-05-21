@@ -27,6 +27,39 @@ public class GenericToolInvariantsTests
         act.Should().Throw<DomainException>().WithMessage("*Name*");
     }
 
+    [Theory]
+    [InlineData("Buscar Cliente")] // espaço
+    [InlineData("café")]            // acento
+    [InlineData("rocket🚀")]        // emoji
+    [InlineData("1get")]            // começa com dígito
+    [InlineData("-leading")]        // começa com hífen
+    [InlineData("name.with.dot")]   // ponto
+    public void EnsureInvariants_NameForaDoPattern_LancaDomainException(string invalidName)
+    {
+        var tool = ValidGetTool();
+        tool.Name = invalidName;
+
+        Action act = tool.EnsureInvariants;
+
+        act.Should().Throw<DomainException>().WithMessage("*inválido*");
+    }
+
+    [Theory]
+    [InlineData("get_quote")]
+    [InlineData("lookup-user")]
+    [InlineData("_internal")]
+    [InlineData("a")]               // 1 char minimo
+    [InlineData("x123-456_789")]
+    public void EnsureInvariants_NameValido_NaoLanca(string validName)
+    {
+        var tool = ValidGetTool();
+        tool.Name = validName;
+
+        Action act = tool.EnsureInvariants;
+
+        act.Should().NotThrow();
+    }
+
     [Fact]
     public void EnsureInvariants_UrlSemPlaceholderMasComPathParam_LancaDomainException()
     {

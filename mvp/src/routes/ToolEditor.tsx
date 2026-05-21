@@ -41,6 +41,9 @@ interface Props {
 type Tab = 'params' | 'headers' | 'body' | 'response'
 
 const DEFAULT_JSON = '{\n  "type": "object",\n  "properties": {}\n}'
+// Espelha GenericTool.NameRegex no backend. O Name aqui é o function name
+// exposto ao LLM no schema da tool — OpenAI/Anthropic exigem esse formato.
+const TOOL_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$/
 const PARAM_TYPE_OPTIONS = [
   { value: 'string', label: 'string' },
   { value: 'number', label: 'number' },
@@ -246,6 +249,10 @@ export function ToolEditor({ mode }: Props) {
       setError('Informe um nome para a ferramenta.')
       return null
     }
+    if (!TOOL_NAME_REGEX.test(form.name)) {
+      setError('Nome inválido. Use snake_case ou kebab-case (ex: get_quote, lookup-user). Letras/dígitos/underscore/hífen, começa com letra ou underscore.')
+      return null
+    }
     if (!form.url.trim()) {
       setError('Informe a URL.')
       return null
@@ -391,8 +398,12 @@ export function ToolEditor({ mode }: Props) {
           label="Nome"
           value={form.name}
           onChange={(e) => set('name', e.target.value)}
-          placeholder="Ex.: Buscar Cliente"
+          placeholder="Ex.: get_quote ou lookup-user"
+          hint="É como o LLM identifica esta ferramenta. Letras/dígitos/underscore/hífen, começa com letra ou underscore, máx 64 chars."
           autoFocus
+          error={form.name.length > 0 && !TOOL_NAME_REGEX.test(form.name)
+            ? 'Nome inválido. Use snake_case ou kebab-case (ex: get_quote, lookup-user).'
+            : undefined}
         />
         <p className="text-[11px] text-fg-muted">
           Descrição semântica ("o que faz" / "quando usar") vive no prompt do agente
