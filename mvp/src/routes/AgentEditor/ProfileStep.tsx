@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BlockNoteSchema, defaultBlockSpecs } from '@blocknote/core'
 import type { Block } from '@blocknote/core'
 import { useCreateBlockNote } from '@blocknote/react'
@@ -6,7 +6,7 @@ import { BlockNoteView } from '@blocknote/mantine'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import { useTheme } from '../../theme/ThemeProvider'
-import { cn } from '../../ui'
+import { HelpIcon, Modal, cn } from '../../ui'
 import type { FormState } from './types'
 import { useMarkdownPasteIntent } from './useMarkdownPasteIntent'
 
@@ -51,6 +51,7 @@ const schema = BlockNoteSchema.create({ blockSpecs: defaultBlockSpecs })
 
 export function ProfileStep({ form, setForm, readonly }: ProfileStepProps) {
   const { theme } = useTheme()
+  const [helpOpen, setHelpOpen] = useState(false)
 
   const editor = useCreateBlockNote({ schema })
   const { hostRef, banner } = useMarkdownPasteIntent(editor, { readonly })
@@ -85,8 +86,18 @@ export function ProfileStep({ form, setForm, readonly }: ProfileStepProps) {
   }
 
   return (
-    <div className="space-y-5">
-      <EditorHelpCard />
+    <div className="space-y-3">
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => setHelpOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-fg-muted transition hover:bg-bg-soft hover:text-fg"
+          title="Como descrever seu agente"
+        >
+          <HelpIcon className="h-4 w-4" />
+          Como descrever seu agente
+        </button>
+      </div>
       {banner}
       <div
         ref={hostRef}
@@ -102,47 +113,45 @@ export function ProfileStep({ form, setForm, readonly }: ProfileStepProps) {
           onChange={handleChange}
         />
       </div>
-    </div>
-  )
-}
 
-// Mini-guia voltado pra PM/PO que nunca usou Notion/markdown. Explica os
-// gestos que o BlockNote aceita em linguagem de produto (sem "headings",
-// "blocos", "WYSIWYG") — foco no que o user CONSEGUE FAZER. Mantido curto
-// pra não competir com o editor logo abaixo.
-function EditorHelpCard() {
-  return (
-    <div className="rounded-lg border border-accent/20 bg-accent/[0.04] p-4 text-sm">
-      <h3 className="text-[13px] font-semibold text-fg">Como descrever seu agente</h3>
-      <p className="mt-1 text-[12px] leading-relaxed text-fg-muted">
-        Escreva como se estivesse explicando pro agente o trabalho dele — em texto comum.
-        Recomendamos cobrir três pontos: <strong className="text-fg">Papel</strong> (quem é),
-        {' '}
-        <strong className="text-fg">Objetivo</strong> (o que deve entregar) e
-        {' '}
-        <strong className="text-fg">Contexto</strong> (pano de fundo do produto/cliente).
-        {' '}
-        As frases <em className="text-fg">em itálico</em> no editor são só guias —
-        selecione e escreva por cima. Você pode renomear seções e criar novas conforme precisar.
-      </p>
-      <ul className="mt-3 space-y-1.5 text-[12px] text-fg-muted">
-        <li>
-          <span className="font-mono text-fg-dim">/</span> &nbsp;abre um menu com tipos de
-          bloco (título, lista, citação, código, etc).
-        </li>
-        <li>
-          <span className="font-mono text-fg-dim">##</span> + espaço &nbsp;cria um título de
-          seção, como “Papel”.
-        </li>
-        <li>
-          <span className="font-mono text-fg-dim">-</span> + espaço &nbsp;começa uma lista
-          com bolinhas. Enter pula pro próximo item; Enter duas vezes encerra a lista.
-        </li>
-        <li>
-          Selecione um trecho pra abrir um <strong className="text-fg">menu flutuante</strong>{' '}
-          com negrito, itálico e link.
-        </li>
-      </ul>
+      <Modal
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        title="Como descrever seu agente"
+        size="md"
+      >
+        <div className="space-y-3 text-sm">
+          <p className="text-[12px] leading-relaxed text-fg-muted">
+            Escreva como se estivesse explicando pro agente o trabalho dele — em texto comum.
+            Recomendamos cobrir três pontos: <strong className="text-fg">Papel</strong> (quem é),
+            {' '}
+            <strong className="text-fg">Objetivo</strong> (o que deve entregar) e
+            {' '}
+            <strong className="text-fg">Contexto</strong> (pano de fundo do produto/cliente).
+            {' '}
+            As frases <em className="text-fg">em itálico</em> no editor são só guias —
+            selecione e escreva por cima. Você pode renomear seções e criar novas conforme precisar.
+          </p>
+          <ul className="space-y-1.5 text-[12px] text-fg-muted">
+            <li>
+              <span className="font-mono text-fg-dim">/</span> &nbsp;abre um menu com tipos de
+              bloco (título, lista, citação, código, etc).
+            </li>
+            <li>
+              <span className="font-mono text-fg-dim">##</span> + espaço &nbsp;cria um título de
+              seção, como “Papel”.
+            </li>
+            <li>
+              <span className="font-mono text-fg-dim">-</span> + espaço &nbsp;começa uma lista
+              com bolinhas. Enter pula pro próximo item; Enter duas vezes encerra a lista.
+            </li>
+            <li>
+              Selecione um trecho pra abrir um <strong className="text-fg">menu flutuante</strong>{' '}
+              com negrito, itálico e link.
+            </li>
+          </ul>
+        </div>
+      </Modal>
     </div>
   )
 }
