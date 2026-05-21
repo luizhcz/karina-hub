@@ -360,10 +360,10 @@ public class AgentModelConfig
 
     /// <summary>
     /// Quando setado, referencia um preset em <c>aihub.predefined_models</c>.
-    /// O <c>PredefinedModelBinder</c> resolve em runtime e substitui
-    /// <see cref="DeploymentName"/>/<see cref="Temperature"/>/<see cref="MaxTokens"/>
-    /// + <c>Provider</c> pelos valores do preset. Quando presente, invariantes
-    /// relaxam — DeploymentName pode estar vazio (será preenchido pelo binder).
+    /// O <see cref="EfsAiHub.Core.Agents.Services.IAgentDefinitionComposer"/>
+    /// resolve no save e expande <see cref="DeploymentName"/>/<see cref="Temperature"/>/
+    /// <see cref="MaxTokens"/> + <c>Provider</c> inline no snapshot. Quando presente,
+    /// invariantes relaxam — DeploymentName pode estar vazio até o composer rodar.
     /// </summary>
     public string? PredefinedModelId { get; init; }
 }

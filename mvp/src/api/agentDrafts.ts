@@ -11,9 +11,9 @@ export type AgentDraftStatus = 'Draft' | 'PendingApproval' | 'Rejected'
 
 export interface AgentDraftModelConfig {
   // `deploymentName` é `required` no backend (System.Text.Json valida no
-  // bind). Cliente envia '' quando só usa preset — o PredefinedModelBinder
-  // resolve em runtime. Mantemos a coluna preenchida (mesmo que vazia) pra
-  // satisfazer a deserialização.
+  // bind). Cliente envia '' quando só usa preset — o composer expande no
+  // save. Mantemos a coluna preenchida (mesmo que vazia) pra satisfazer a
+  // deserialização.
   deploymentName?: string
   predefinedModelId?: string | null
   // Demais campos do AgentModelConfig (temperature, maxTokens) chegam aqui

@@ -142,14 +142,10 @@ builder.Services.AddScoped<EfsAiHub.Core.Agents.IAgentRouterIntentLinkRepository
     EfsAiHub.Infra.Persistence.Postgres.PgAgentRouterIntentLinkRepository>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Interfaces.IRouterIntentService,
     EfsAiHub.Platform.Runtime.Services.RouterIntentService>();
-builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolBinder,
-    EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolBinder>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IPredefinedModelRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgPredefinedModelRepository>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Interfaces.IPredefinedModelService,
     EfsAiHub.Platform.Runtime.Services.PredefinedModelService>();
-builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.PredefinedModels.IPredefinedModelBinder,
-    EfsAiHub.Platform.Runtime.Tools.PredefinedModels.PredefinedModelBinder>();
 
 // ── Factories (Agente e Workflow) ─────────────────────────────────────────────
 builder.Services.AddScoped<IAgentFactory, AgentFactory>();

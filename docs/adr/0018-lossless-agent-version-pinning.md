@@ -4,6 +4,8 @@
 **Data:** 2026-05-01
 **Contexto:** Épico "Workflows multi-projeto — Pinning Federated" (Fase 1)
 
+> **Errata (2026-05-21):** o runtime descrito neste ADR ainda resolvia dependências dinamicamente (intent/tool/model/skill/prompt em cada turn). [ADR 0019](0019-self-contained-agent-snapshot.md) move essa resolução pro write boundary (composer no save), tornando `AgentVersion` autocontida de fato — runtime vira puro leitor. O texto abaixo permanece como contexto histórico do que motivou a lossless pinning; a arquitetura corrente é a do 0019.
+
 ## Contexto
 
 ADR 0017 introduziu `WorkflowAgentReference.AgentVersionId?` (pin opcional) mas a materialização lossless de `AgentVersion → AgentDefinition` ficou pendente. O `AgentVersion` record guardava snapshots por campo (`AgentModelSnapshot`, `AgentProviderSnapshot`, `ToolFingerprints` apenas com hashes, `AgentMiddlewareSnapshot`), faltando:

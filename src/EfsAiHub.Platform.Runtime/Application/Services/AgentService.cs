@@ -413,12 +413,11 @@ public class AgentService : IAgentService
         ValidationContext.RequireString(errors, definition.Name, "name", maxLength: 200);
 
         // ── Model ────────────────────────────────────────────────────────────
-        // Quando o agent referencia um PredefinedModelId, o PredefinedModelBinder
-        // hidrata DeploymentName/Provider.Type/Provider.ClientType em runtime
-        // (ver PredefinedModelBinder.BindAsync). A validação aqui roda antes
-        // do binder, então pulamos esses checks pra não exigir o que vai ser
-        // resolvido depois — caso contrário, agent que só passa preset falha
-        // com "model.deploymentName obrigatório".
+        // Quando o agent referencia um PredefinedModelId, o composer expande
+        // DeploymentName/Provider.Type/Provider.ClientType no save. Validação
+        // roda antes do composer, então pulamos esses checks pra não exigir o
+        // que será resolvido depois — caso contrário, agent que só passa preset
+        // falha com "model.deploymentName obrigatório".
         var hasPredefined = !string.IsNullOrWhiteSpace(definition.Model?.PredefinedModelId);
 
         if (!hasPredefined && string.IsNullOrWhiteSpace(definition.Model?.DeploymentName))

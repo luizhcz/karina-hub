@@ -13,7 +13,6 @@ using EfsAiHub.Platform.Runtime.Middlewares;
 using EfsAiHub.Platform.Runtime.Interfaces;
 using EfsAiHub.Platform.Runtime.Resilience;
 using EfsAiHub.Platform.Runtime.Tools.Generic;
-using EfsAiHub.Platform.Runtime.Tools.PredefinedModels;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 

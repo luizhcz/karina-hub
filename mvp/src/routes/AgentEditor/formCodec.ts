@@ -418,8 +418,8 @@ export function buildPayload(
               )
 
   // AgentModelConfig.DeploymentName é `required` no backend (System.Text.Json
-  // valida no bind). Cliente envia '' quando só usa preset — o
-  // PredefinedModelBinder resolve em runtime.
+  // valida no bind). Cliente envia '' quando só usa preset — o composer
+  // expande inline no snapshot.
   const prevModel = prev?.model ?? null
   const prevDeploymentName =
     typeof prevModel?.deploymentName === 'string' ? (prevModel.deploymentName as string) : ''
