@@ -185,33 +185,6 @@ public sealed class AgentDraftService : IAgentDraftService
 
         var wasResubmit = existing.Status == AgentDraftStatus.Rejected;
 
-        // TypeBypass tem prioridade sobre Cosmetic/Behavioral: tipos como Router
-        // são auto-aprovados por regra de produto independentemente do diff.
-        // O reason vem da UI (modal obrigatório no FE pra Router); fallback
-        // descreve a auto-publicação caso o caller seja outro (ex.: testes).
-        var payloadType = existing.Payload.Type;
-        if (payloadType is not null && !payloadType.Value.RequiresApproval())
-        {
-            var submittedBypass = await _draftRepo.SubmitForApprovalAsync(id, actorUserId, ct);
-            var reason = string.IsNullOrWhiteSpace(changeReason)
-                ? $"Auto-publicação (tipo {payloadType} bypassa aprovação) por {actorUserId}."
-                : changeReason;
-
-            await _draftRepo.ApproveAsync(
-                id,
-                actorUserId: "system:auto",
-                changeReason: reason,
-                action: AgentApprovalAction.AutoApproved,
-                tier: AgentChangeTier.TypeBypass,
-                ct: ct);
-
-            _logger.LogInformation(
-                "[AgentDraftService] Draft '{DraftId}' auto-aprovado (TypeBypass, type={Type}).",
-                id, payloadType);
-
-            return new SubmitForApprovalResult(submittedBypass, AutoApproved: true, Tier: AgentChangeTier.TypeBypass);
-        }
-
         // Edit-draft cosmético é auto-aprovado: o sistema empurra direto pra
         // PendingApproval e na sequência aprova com action=AutoApproved. Isso
         // evita fila pra mudanças triviais (Description/Metadata) sem perder

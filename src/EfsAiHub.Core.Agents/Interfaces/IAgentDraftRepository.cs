@@ -198,16 +198,14 @@ public enum AgentApprovalAction
 /// <summary>
 /// Tier de mudança em edit-draft. Cosmetic = só Description/Metadata mudaram
 /// (auto-aprovável). Behavioral = qualquer outro campo (precisa revisão humana).
-/// TypeBypass = tipo do agente bypassa o fluxo de aprovação por regra de
-/// produto (ex.: Router publica direto). Diferenciado de Cosmetic pra audit
-/// distinguir "auto-aprovado por baixa significância" de "auto-aprovado
-/// porque o tipo nunca passa por aprovação".
+/// O CHECK constraint da tabela <c>agent_approval_history</c> ainda aceita o
+/// valor histórico <c>TypeBypass</c> usado por registros pré-paridade do Router;
+/// nenhum código novo o produz.
 /// </summary>
 public enum AgentChangeTier
 {
     Cosmetic,
     Behavioral,
-    TypeBypass,
 }
 
 public sealed class DraftConcurrencyException : Exception
