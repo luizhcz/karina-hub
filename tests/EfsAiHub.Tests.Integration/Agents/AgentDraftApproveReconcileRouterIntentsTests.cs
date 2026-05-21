@@ -122,8 +122,8 @@ public class AgentDraftApproveReconcileRouterIntentsTests(IntegrationWebApplicat
         });
         var client = ClientForProject(projectId);
 
-        // Cria draft Router com 2 intents; o submit dispara publish via
-        // TypeBypass → ApproveAsync no repo.
+        // Router passa pelo painel de aprovação: cria → submit (PendingApproval)
+        // → approve via /agent-approvals — o approve dispara a reconciliação.
         var create = await client.PostAsJsonAsync(
             "/api/aihub/agent-drafts",
             BuildRouterDraftPayload(agentId, new[] { iA, iB }));
@@ -133,6 +133,11 @@ public class AgentDraftApproveReconcileRouterIntentsTests(IntegrationWebApplicat
             $"/api/aihub/agent-drafts/{agentId}/submit",
             new { changeReason = "Publicação inicial do router com 2 intents." });
         submit.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var approve = await client.PostAsJsonAsync(
+            $"/api/aihub/agent-approvals/{agentId}/approve",
+            new { changeReason = "Aprovado pelo time de governança." });
+        approve.StatusCode.Should().Be(HttpStatusCode.Created);
 
         var junction = await ReadJunctionAsync(agentId);
         junction.Should().BeEquivalentTo(new[] { iA, iB },
@@ -167,6 +172,10 @@ public class AgentDraftApproveReconcileRouterIntentsTests(IntegrationWebApplicat
         await client.PostAsJsonAsync(
             $"/api/aihub/agent-drafts/{agentId}/submit",
             new { changeReason = "Publicação inicial com 1 intent." });
+        var approveInitial = await client.PostAsJsonAsync(
+            $"/api/aihub/agent-approvals/{agentId}/approve",
+            new { changeReason = "Aprovação inicial." });
+        approveInitial.StatusCode.Should().Be(HttpStatusCode.Created);
         (await ReadJunctionAsync(agentId)).Should().BeEquivalentTo(new[] { iA });
 
         // Fork edit-draft e atualiza pra [iA, iB, iC].
@@ -190,6 +199,20 @@ public class AgentDraftApproveReconcileRouterIntentsTests(IntegrationWebApplicat
             $"/api/aihub/agent-drafts/{agentId}/submit",
             new { changeReason = "Adicionei duas novas intents (iB, iC) ao router." });
         submit.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Edit cosmético do classifier (ex.: só Description/Metadata) auto-aprova
+        // no submit; comportamental fica pra fila e exige approve explícito.
+        // Em ambos os caminhos a reconciliação roda — o teste só precisa cobrir o
+        // ramo correto sem assumir qual classe a mudança caiu.
+        var submitBody = await submit.Content.ReadFromJsonAsync<JsonElement>();
+        var autoApproved = submitBody.GetProperty("autoApproved").GetBoolean();
+        if (!autoApproved)
+        {
+            var approve = await client.PostAsJsonAsync(
+                $"/api/aihub/agent-approvals/{agentId}/approve",
+                new { changeReason = "Aprovação da edição com novas intents." });
+            approve.StatusCode.Should().Be(HttpStatusCode.Created);
+        }
 
         var junction = await ReadJunctionAsync(agentId);
         junction.Should().BeEquivalentTo(new[] { iA, iB, iC },
