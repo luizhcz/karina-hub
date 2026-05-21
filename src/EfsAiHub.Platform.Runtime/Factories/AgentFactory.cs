@@ -27,15 +27,14 @@ public class AgentFactory : IAgentFactory
 {
     private readonly IReadOnlyDictionary<string, ILlmClientProvider> _providers;
     private readonly IAgentDefinitionRepository _agentRepo;
-    private readonly IAgentPromptRepository _promptRepo;
     private readonly IFunctionToolRegistry _functionRegistry;
     private readonly IAgentMiddlewareRegistry _middlewareRegistry;
     private readonly ITokenUsageSink _tokenPersistence;
     private readonly IToolInvocationSink _toolPersistence;
+    private readonly EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolExecutor _genericToolExecutor;
     private readonly ILogger<AgentFactory> _logger;
     private readonly ILogger<TrackedAIFunction> _trackedFnLogger;
     private readonly IModelPricingCache? _pricingCache;
-    private readonly ISkillResolver? _skillResolver;
     private readonly LlmCircuitBreaker? _circuitBreaker;
     private readonly bool _allowFingerprintMismatch;
     private readonly IAgUiTokenSink? _agUiTokenSink;
@@ -55,21 +54,10 @@ public class AgentFactory : IAgentFactory
     // Feature flags com IOptionsMonitor (atualização runtime sem restart).
     // Optional pra preservar BC com testes que não injetam.
     private readonly IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? _sharingOptions;
-    // Resolve GenericTools referenciadas pelo agent (Type="generic_http") e
-    // registra dinamicamente como AIFunction project-scoped no FunctionToolRegistry.
-    // Optional: testes que não envolvem generic tools podem omitir.
-    private readonly IGenericToolBinder? _genericToolBinder;
-    // Resolve PredefinedModelId no catálogo global e hidrata Provider/Model do
-    // agent com os valores do preset. Optional pra BC com testes que não injetam.
-    private readonly IPredefinedModelBinder? _predefinedModelBinder;
     // Persistência da memória operacional. Optional: agentes sem
     // OperationalMemory.Schema NÃO acessam o repo, então testes que não
     // exercitam essa feature podem omitir.
     private readonly EfsAiHub.Core.Agents.IOperationalMemoryRepository? _operationalMemoryRepo;
-
-    // Lookup de Router intents resolvidas em runtime — alimenta enum dinâmico
-    // do schema. Optional: agentes !=Router não tocam.
-    private readonly IAgentRouterIntentLinkRepository? _routerIntentLinkRepo;
 
     // LLM Prompt Inspector — captura runtime-toggleable. Os 3 são Optional
     // por design pra preservar BC com testes que não envolvem captura.
@@ -90,15 +78,14 @@ public class AgentFactory : IAgentFactory
     public AgentFactory(
         IEnumerable<ILlmClientProvider> providers,
         IAgentDefinitionRepository agentRepo,
-        IAgentPromptRepository promptRepo,
         IFunctionToolRegistry functionRegistry,
         IAgentMiddlewareRegistry middlewareRegistry,
         ITokenUsageSink tokenPersistence,
         IToolInvocationSink toolPersistence,
+        EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolExecutor genericToolExecutor,
         ILogger<AgentFactory> logger,
         ILogger<TrackedAIFunction> trackedFnLogger,
         IModelPricingCache? pricingCache = null,
-        ISkillResolver? skillResolver = null,
         IOptions<WorkflowEngineOptions>? engineOptions = null,
         LlmCircuitBreaker? circuitBreaker = null,
         IAgUiTokenSink? agUiTokenSink = null,
@@ -111,25 +98,21 @@ public class AgentFactory : IAgentFactory
         EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger? auditLogger = null,
         EfsAiHub.Core.Abstractions.Identity.IProjectContextAccessor? projectContextAccessor = null,
         IOptionsMonitor<EfsAiHub.Core.Abstractions.Sharing.SharingOptions>? sharingOptions = null,
-        IGenericToolBinder? genericToolBinder = null,
-        IPredefinedModelBinder? predefinedModelBinder = null,
         EfsAiHub.Core.Agents.IOperationalMemoryRepository? operationalMemoryRepo = null,
-        IAgentRouterIntentLinkRepository? routerIntentLinkRepo = null,
         EfsAiHub.Platform.Runtime.Services.LlmCaptureConfigService? captureConfig = null,
         EfsAiHub.Platform.Runtime.Sanitization.ILlmPayloadSanitizer? payloadSanitizer = null,
         EfsAiHub.Core.Orchestration.Interfaces.ILlmInvocationLogSink? captureSink = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
-        _promptRepo = promptRepo;
         _functionRegistry = functionRegistry;
         _middlewareRegistry = middlewareRegistry;
         _tokenPersistence = tokenPersistence;
         _toolPersistence = toolPersistence;
+        _genericToolExecutor = genericToolExecutor;
         _logger = logger;
         _trackedFnLogger = trackedFnLogger;
         _pricingCache = pricingCache;
-        _skillResolver = skillResolver;
         _circuitBreaker = circuitBreaker;
         _allowFingerprintMismatch = engineOptions?.Value.AllowToolFingerprintMismatch ?? true;
         _agUiTokenSink = agUiTokenSink;
@@ -142,10 +125,7 @@ public class AgentFactory : IAgentFactory
         _auditLogger = auditLogger;
         _projectContextAccessor = projectContextAccessor;
         _sharingOptions = sharingOptions;
-        _genericToolBinder = genericToolBinder;
-        _predefinedModelBinder = predefinedModelBinder;
         _operationalMemoryRepo = operationalMemoryRepo;
-        _routerIntentLinkRepo = routerIntentLinkRepo;
         _captureConfig = captureConfig;
         _payloadSanitizer = payloadSanitizer;
         _captureSink = captureSink;
@@ -164,19 +144,14 @@ public class AgentFactory : IAgentFactory
         DelegateExecutor.CurrentLogger.Value = _logger;
 
         definition = await InjectProjectCredentials(definition, ct);
-        definition = await ResolvePredefinedModelAsync(definition, ct);
-        definition = await ResolveActivePrompt(definition, ct);
-        definition = await ResolveSkills(definition, ct);
-        await BindGenericToolsAsync(definition, ct);
         await TrackAgentVersionAsync(definition.Id, ct);
+        TrackPromptVersion(definition);
         var provider = ResolveProvider(definition);
-        var resolvedRouterIntents = await ResolveRouterIntentsAsync(definition, ct);
         var options = ChatOptionsBuilder.BuildAgentOptions(
             definition, _functionRegistry, _toolPersistence.Writer, _trackedFnLogger, _logger,
+            _genericToolExecutor,
             _allowFingerprintMismatch,
-            projectId: definition.ProjectId,
-            isStandaloneFlow: isStandaloneFlow,
-            resolvedRouterIntents: resolvedRouterIntents);
+            projectId: definition.ProjectId);
 
         if (CanWrapAsChatClient(provider, definition))
         {
@@ -186,6 +161,17 @@ public class AgentFactory : IAgentFactory
         }
 
         return ExecutableWorkflow.FromAgent(await provider.CreateAgentAsync(definition, options, ct));
+    }
+
+    /// <summary>
+    /// Registra qual PromptVersionId está sendo executado no contexto do
+    /// DelegateExecutor pra audit. Snapshot já carrega o id em
+    /// <see cref="AgentDefinition.PromptVersionId"/> via <c>ToDefinition</c>.
+    /// </summary>
+    private static void TrackPromptVersion(AgentDefinition definition)
+    {
+        if (string.IsNullOrEmpty(definition.PromptVersionId)) return;
+        DelegateExecutor.Current.Value?.PromptVersions.TryAdd(definition.Id, definition.PromptVersionId);
     }
 
     /// <summary>
@@ -215,11 +201,8 @@ public class AgentFactory : IAgentFactory
         DelegateExecutor.CurrentLogger.Value = _logger;
 
         definition = await InjectProjectCredentials(definition, ct);
-        definition = await ResolvePredefinedModelAsync(definition, ct);
-        definition = await ResolveActivePrompt(definition, ct);
-        definition = await ResolveSkills(definition, ct);
-        await BindGenericToolsAsync(definition, ct);
         await TrackAgentVersionAsync(definition.Id, ct);
+        TrackPromptVersion(definition);
         var provider = ResolveProvider(definition);
         var rawClient = await provider.CreateChatClientAsync(definition, ct);
         return await WrapWithTokenTrackingAsync(rawClient, definition, ct);
@@ -410,17 +393,14 @@ public class AgentFactory : IAgentFactory
         }
 
         definition = await InjectProjectCredentials(definition, ct);
-        definition = await ResolvePredefinedModelAsync(definition, ct);
-        await BindGenericToolsAsync(definition, ct);
         var agentVersionId = await TrackAgentVersionAsync(agentId, ct);
+        TrackPromptVersion(definition);
         var provider = ResolveProvider(definition);
         var rawChatClient = await provider.CreateChatClientAsync(definition, ct);
-        var resolvedRouterIntents = await ResolveRouterIntentsAsync(definition, ct);
         var chatOptions = ChatOptionsBuilder.BuildGraphChatOptions(
             definition, _functionRegistry, _toolPersistence.Writer, _trackedFnLogger, _logger,
-            _allowFingerprintMismatch, projectId: definition.ProjectId,
-            isStandaloneFlow: isStandaloneFlow,
-            resolvedRouterIntents: resolvedRouterIntents);
+            _genericToolExecutor,
+            _allowFingerprintMismatch, projectId: definition.ProjectId);
 
         // Envolve com FunctionInvokingChatClient para tratar chamadas de ferramentas automaticamente no modo Graph.
         // Sem isso, o handler lê apenas response.Text, que fica vazio quando o modelo retorna uma tool call.
@@ -451,11 +431,10 @@ public class AgentFactory : IAgentFactory
                 logger: _logger);
         }
 
-        var promptResult = await _promptRepo.GetActivePromptWithVersionAsync(definition.Id, ct);
-        var instructions = promptResult?.Content ?? definition.Instructions;
-        var promptVersionId = promptResult?.VersionId;
-        if (promptVersionId is not null)
-            DelegateExecutor.Current.Value?.PromptVersions.TryAdd(definition.Id, promptVersionId);
+        // Snapshot já trouxe Instructions composto e PromptVersionId — runtime
+        // não toca o repo de prompts.
+        var instructions = definition.Instructions;
+        var promptVersionId = definition.PromptVersionId;
 
         var modelId = definition.Model.DeploymentName ?? "unknown";
         var usageWriter = _tokenPersistence.Writer;
@@ -669,43 +648,6 @@ public class AgentFactory : IAgentFactory
     }
 
     /// <summary>
-    /// Resolve a versão Published mais recente do agente e registra no ExecutionContext.AgentVersions.
-    /// <summary>
-    /// Resolve as intents que este Router atende em runtime. No-op pra Custom.
-    /// Retorno alimenta o ChatOptionsBuilder em duas frentes: (a) <c>Name</c>
-    /// vai pro <c>intent.enum</c> do schema, (b) lista completa (com
-    /// descrição/exemplos) é formatada num bloco markdown anexado ao
-    /// <c>Instructions</c>. Edits no pool propagam pra próxima chamada sem
-    /// re-publish do agent. Retorna null pra Custom ou quando não há repo de
-    /// link (testes).
-    /// </summary>
-    private async Task<IReadOnlyList<EfsAiHub.Core.Agents.RouterIntents.RouterIntent>?> ResolveRouterIntentsAsync(
-        AgentDefinition definition,
-        CancellationToken ct)
-    {
-        if (definition.Type != AgentType.Router)
-        {
-            _logger.LogInformation(
-                "[AgentFactory] ResolveRouterIntents: agent '{AgentId}' type={Type} — skip",
-                definition.Id, definition.Type);
-            return null;
-        }
-        if (_routerIntentLinkRepo is null)
-        {
-            _logger.LogWarning(
-                "[AgentFactory] ResolveRouterIntents: agent '{AgentId}' is Router but _routerIntentLinkRepo is null — enum não será injetado",
-                definition.Id);
-            return null;
-        }
-
-        var intents = await _routerIntentLinkRepo.ListIntentsForAgentAsync(definition.Id, ct);
-        _logger.LogInformation(
-            "[AgentFactory] Router '{AgentId}' resolved {Count} intents from junction.",
-            definition.Id, intents.Count);
-        return intents;
-    }
-
-    /// <summary>
     /// Retorna o AgentVersionId para uso em LlmTokenUsage (Graph mode).
     /// </summary>
     private async Task<string?> TrackAgentVersionAsync(string agentId, CancellationToken ct)
@@ -727,80 +669,6 @@ public class AgentFactory : IAgentFactory
             _logger.LogWarning(ex, "[AgentFactory] Failed to resolve agent version for '{AgentId}' — continuing without tracking.", agentId);
             return null;
         }
-    }
-
-    private async Task<AgentDefinition> ResolveActivePrompt(AgentDefinition definition, CancellationToken ct)
-    {
-        var promptResult = await _promptRepo.GetActivePromptWithVersionAsync(definition.Id, ct);
-        if (promptResult is null) return definition;
-
-        DelegateExecutor.Current.Value?.PromptVersions.TryAdd(definition.Id, promptResult.Value.VersionId);
-        return CopyWithInstructions(definition, promptResult.Value.Content);
-    }
-
-    private async Task BindGenericToolsAsync(AgentDefinition definition, CancellationToken ct)
-    {
-        if (_genericToolBinder is null) return;
-        try
-        {
-            await _genericToolBinder.BindAsync(definition, ct);
-        }
-        catch (Exception ex)
-        {
-            // Bind nunca aborta a criação do agent. Ferramenta perdida vira tool
-            // não-resolvida no ChatOptionsBuilder (já tratado via fingerprint mismatch).
-            _logger.LogWarning(ex,
-                "[AgentFactory] Falha ao bindar generic tools de agent '{AgentId}'.", definition.Id);
-        }
-    }
-
-    private async Task<AgentDefinition> ResolvePredefinedModelAsync(
-        AgentDefinition definition, CancellationToken ct)
-    {
-        if (_predefinedModelBinder is null) return definition;
-        try
-        {
-            return await _predefinedModelBinder.BindAsync(definition, ct);
-        }
-        catch (Exception ex)
-        {
-            // Falha de lookup (DB indisponível, preset corrompido) loga e segue
-            // com a definição original — downstream falha com mensagem clara
-            // se DeploymentName ficar vazio.
-            _logger.LogWarning(ex,
-                "[AgentFactory] Falha ao resolver PredefinedModel de agent '{AgentId}'.", definition.Id);
-            return definition;
-        }
-    }
-
-    private async Task<AgentDefinition> ResolveSkills(AgentDefinition definition, CancellationToken ct)
-    {
-        if (_skillResolver is null || definition.SkillRefs.Count == 0) return definition;
-
-        // Quando agent é cross-project (caller != owner), skills do owner precisam
-        // ser resolvidas no contexto do owner project (bypass do query filter normal).
-        // _projectContextAccessor é injetado opcionalmente; sem ele caímos no comportamento legacy.
-        var callerProjectId = _projectContextAccessor?.Current.ProjectId;
-        var ownerProjectId =
-            !string.IsNullOrEmpty(callerProjectId)
-            && !string.IsNullOrEmpty(definition.ProjectId)
-            && !string.Equals(callerProjectId, definition.ProjectId, StringComparison.OrdinalIgnoreCase)
-                ? definition.ProjectId
-                : null;
-
-        var resolved = new List<Skill>(definition.SkillRefs.Count);
-        foreach (var skillRef in definition.SkillRefs)
-        {
-            var skill = await _skillResolver.ResolveAsync(skillRef, ownerProjectId, ct);
-            if (skill is not null)
-                resolved.Add(skill);
-            else
-                _logger.LogWarning(
-                    "Skill '{SkillId}' (version={VersionId}) referenced by agent '{AgentId}' not found — ignored. owner={OwnerProjectId}",
-                    skillRef.SkillId, skillRef.SkillVersionId, definition.Id, ownerProjectId ?? "<local>");
-        }
-
-        return SkillMerger.ApplySkills(definition, resolved);
     }
 
     private async Task<IChatClient> WrapWithTokenTrackingAsync(

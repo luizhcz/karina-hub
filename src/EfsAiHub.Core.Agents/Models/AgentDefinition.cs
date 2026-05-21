@@ -40,6 +40,16 @@ public class AgentDefinition
     public AgentProviderConfig Provider { get; init; } = new();
 
     public string? Instructions { get; init; }
+
+    /// <summary>
+    /// Identificador da versão do master prompt que produziu
+    /// <see cref="Instructions"/>. Populado por <c>AgentVersion.ToDefinition</c>
+    /// — transient, não vai pro jsonb do <c>agent_definitions</c>. Runtime usa
+    /// pra registrar audit ("este turno rodou com prompt v<X>").
+    /// </summary>
+    [JsonIgnore]
+    public string? PromptVersionId { get; set; }
+
     public IReadOnlyList<AgentToolDefinition> Tools { get; init; } = [];
     public AgentStructuredOutputDefinition? StructuredOutput { get; init; }
 

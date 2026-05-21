@@ -383,6 +383,7 @@ public sealed record AgentVersion(
             Provider = providerConfig,
             FallbackProvider = fallbackConfig,
             Instructions = PromptContent,
+            PromptVersionId = PromptVersionId,
             Tools = tools,
             StructuredOutput = outputDef,
             OperationalMemory = memoryDef,
