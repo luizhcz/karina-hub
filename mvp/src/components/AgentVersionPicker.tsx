@@ -21,11 +21,11 @@ const LATEST_OPTION_VALUE = ''
 
 function formatLabel(v: AgentVersionSummary, isCurrent: boolean): string {
   const date = v.createdAt ? new Date(v.createdAt).toLocaleDateString() : ''
-  const prefix = `Revisão ${v.revision}`
+  const prefix = `Versão ${v.revision}`
   const tail: string[] = []
   if (date) tail.push(date)
   if (isCurrent) tail.push('atual')
-  if (v.breakingChange) tail.push('breaking')
+  if (v.breakingChange) tail.push('mudança incompatível')
   return tail.length > 0 ? `${prefix} (${tail.join(' • ')})` : prefix
 }
 
@@ -78,8 +78,8 @@ export function AgentVersionPicker({ agentId, value, onChange, label, hideWhenAg
       value: LATEST_OPTION_VALUE,
       label:
         currentRevision !== null
-          ? `Mais recente (revisão ${currentRevision})`
-          : 'Mais recente',
+          ? `Sempre a mais recente (hoje versão ${currentRevision})`
+          : 'Sempre a mais recente',
     },
     ...versions.map((v) => ({
       value: v.agentVersionId,
@@ -89,7 +89,7 @@ export function AgentVersionPicker({ agentId, value, onChange, label, hideWhenAg
 
   return (
     <Select
-      label={label ?? 'Versão'}
+      label={label ?? 'Versão do agente'}
       value={value ?? LATEST_OPTION_VALUE}
       onChange={(e) => onChange(e.target.value === LATEST_OPTION_VALUE ? null : e.target.value)}
       options={options}
@@ -104,8 +104,8 @@ export function AgentVersionPicker({ agentId, value, onChange, label, hideWhenAg
               : versions.length === 0
                 ? 'Nenhuma versão publicada ainda.'
                 : value === null
-                  ? 'O deploy segue a versão mais recente publicada.'
-                  : 'Pinado em revisão específica.'
+                  ? 'O deploy acompanha sempre a versão atual.'
+                  : 'Travado em uma versão específica.'
       }
       error={error ?? undefined}
     />

@@ -510,7 +510,7 @@ export function RoutingDeployEditor() {
             Nenhum Router publicado no projeto. Crie um agente do tipo Router em /agentes/novo, submeta pra aprovação e volte aqui.
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[3fr_2fr] sm:items-start">
             <Select
               label="Router"
               value={form.routerAgentId}
@@ -561,29 +561,30 @@ export function RoutingDeployEditor() {
             {form.branches.map((b) => (
               <div
                 key={b.intentId}
-                className="space-y-2 rounded-lg border border-border bg-bg-soft px-3 py-2"
+                className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-bg-soft px-3 py-2 sm:grid-cols-[1fr_2fr_2fr] sm:items-start"
               >
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_2fr] sm:items-center">
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-fg">{b.intentDisplayName || b.intentName}</p>
-                    <code className="block truncate font-mono text-[10px] text-fg-dim">{b.intentName}</code>
-                  </div>
-                  <Select
-                    value={b.agentId}
-                    onChange={(e) => setBranchAgent(b.intentId, e.target.value)}
-                    placeholder="Selecionar agente…"
-                    options={branchAgents.map((a) => ({
-                      value: a.id,
-                      label: a.type ? `${a.name} (${a.type})` : a.name,
-                    }))}
-                  />
+                <div className="min-w-0 sm:pt-1">
+                  <p className="text-xs font-semibold text-fg">{b.intentDisplayName || b.intentName}</p>
+                  <code className="block truncate font-mono text-[10px] text-fg-dim">{b.intentName}</code>
                 </div>
-                {b.agentId && (
+                <Select
+                  label="Agente"
+                  value={b.agentId}
+                  onChange={(e) => setBranchAgent(b.intentId, e.target.value)}
+                  placeholder="Selecionar…"
+                  options={branchAgents.map((a) => ({
+                    value: a.id,
+                    label: a.type ? `${a.name} (${a.type})` : a.name,
+                  }))}
+                />
+                {b.agentId ? (
                   <AgentVersionPicker
                     agentId={b.agentId}
                     value={b.agentVersionId}
                     onChange={(versionId) => setBranchVersion(b.intentId, versionId)}
                   />
+                ) : (
+                  <div className="hidden sm:block" />
                 )}
               </div>
             ))}
@@ -596,7 +597,7 @@ export function RoutingDeployEditor() {
           title="Fallback (default)"
           description="Agente acionado quando a intent emitida pelo Router não bate com nenhuma das mapeadas (intent fora do enum, confidence baixo). Obrigatório — sem default, o workflow trava silenciosamente em intents inesperadas."
         />
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[3fr_2fr] sm:items-start">
           <Select
             label="Agente de fallback"
             value={form.fallbackAgentId}
