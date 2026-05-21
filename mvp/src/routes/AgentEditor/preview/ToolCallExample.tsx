@@ -12,9 +12,7 @@ interface Props {
  * pra uma das tools anexadas. Útil pra ancorar o mental model: o modelo
  * responde com `{name, arguments}` estruturado — não imprime no prompt.
  *
- * Só renderiza pra tools HTTP com schema parseável. MCP exige descoberta em
- * runtime (schemas não disponíveis aqui) — bloco silenciosamente omitido se
- * só houver MCPs na seleção.
+ * Só renderiza pra tools HTTP com schema parseável.
  */
 export function ToolCallExample({ tools }: Props) {
   const samples = useMemo(
@@ -31,10 +29,8 @@ export function ToolCallExample({ tools }: Props) {
   )
   const [index, setIndex] = useState(0)
   if (samples.length === 0) {
-    // Há tools anexadas mas nenhuma é HTTP com schema parseável — tipicamente
-    // seleção 100% MCP. Mostra nota curta pra explicar a ausência de exemplo
-    // em vez de sumir silenciosamente (PM poderia achar que o componente
-    // bugou).
+    // Há tools anexadas mas nenhuma com schema parseável — mostra nota curta
+    // pra explicar a ausência em vez de sumir silenciosamente.
     if (tools.length === 0) return null
     return (
       <section
@@ -46,8 +42,7 @@ export function ToolCallExample({ tools }: Props) {
           <h3 className="text-sm font-semibold text-fg">Como o modelo chamaria</h3>
         </header>
         <p className="text-[11px] text-fg-muted">
-          Exemplo só fica disponível pra ferramentas HTTP — MCPs descobrem o schema em runtime,
-          então a forma exata da chamada só é conhecida quando o agente roda.
+          Nenhuma ferramenta com schema declarado — defina input no formato JSON pra ver um exemplo aqui.
         </p>
       </section>
     )

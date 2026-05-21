@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Badge, Button, Card, CardHeader, cn } from '../../ui'
 import type { GenericTool } from '../../api/genericTools'
-import type { McpServer } from '../../api/mcpServers'
 import type { PredefinedModel } from '../../api/predefinedModels'
 import { listRouterIntents, type RouterIntent } from '../../api/routerIntents'
 import { encodeInstructions } from './instructionsCodec'
@@ -23,22 +22,21 @@ interface ReviewStepProps {
   setForm: (mutator: (prev: FormState) => FormState) => void
   models: PredefinedModel[]
   tools: GenericTool[]
-  mcps: McpServer[]
   readonly: boolean
 }
 
-export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: ReviewStepProps) {
+export function ReviewStep({ form, setForm, models, tools, readonly }: ReviewStepProps) {
   const includeStructured = form.agentMode === 'advanced'
   const inputForCodec = form.input.mode === 'structured' ? form.input : { description: '', schema: '' }
   const outputForCodec = form.output.mode === 'structured' ? form.output : { description: '', schema: '' }
 
-  // Descritores ricos das tools/MCPs anexados. Vão pra <ToolsPreview> +
+  // Descritores ricos das tools anexadas. Vão pra <ToolsPreview> +
   // <ToolCallExample> renderizarem visão estruturada (JSON Schema, badges,
   // exemplo de tool_call) — não pro prompt (tools chegam ao LLM via
   // function-calling nativo, não como texto concatenado).
   const enrichedTools = useMemo(
-    () => buildEnrichedDescriptors(form.toolIds, form.mcpIds, tools, mcps),
-    [form.toolIds, form.mcpIds, tools, mcps],
+    () => buildEnrichedDescriptors(form.toolIds, tools),
+    [form.toolIds, tools],
   )
 
   const prompt = useMemo(
@@ -110,7 +108,7 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
       {form.type === 'Worker' && <WorkerPreview form={form} />}
 
       {form.type === 'ToolRunner' && (
-        <ToolRunnerPreview form={form} tools={tools} mcps={mcps} />
+        <ToolRunnerPreview form={form} tools={tools} />
       )}
 
       {form.type === 'Conversational' && <ConversationalPreview form={form} />}
@@ -280,18 +278,16 @@ function WorkerPreview({ form }: WorkerPreviewProps) {
 interface ToolRunnerPreviewProps {
   form: FormState
   tools: GenericTool[]
-  mcps: McpServer[]
 }
 
-// Preview do Tool Runner no Review: mostra tools/MCPs selecionados (cada
-// um sinaliza requiresApproval=true se aplicável), status do flag HITL e
+// Preview do Tool Runner no Review: mostra tools selecionadas (cada uma
+// sinaliza requiresApproval=true se aplicável), status do flag HITL e
 // status do middleware AccountGuard (presente no payload.middlewares —
 // avaliado via FormState pra UX, valor real é montado no save).
 // Tool Runner sem tools recebe warning soft no save; aqui é sinalizado.
-function ToolRunnerPreview({ form, tools, mcps }: ToolRunnerPreviewProps) {
+function ToolRunnerPreview({ form, tools }: ToolRunnerPreviewProps) {
   const selectedTools = tools.filter((t) => form.toolIds.includes(t.id))
-  const selectedMcps = mcps.filter((m) => form.mcpIds.includes(m.id))
-  const noTools = selectedTools.length === 0 && selectedMcps.length === 0
+  const noTools = selectedTools.length === 0
   const hitlOn = form.toolRunnerHitlRequired
 
   return (
@@ -305,38 +301,16 @@ function ToolRunnerPreview({ form, tools, mcps }: ToolRunnerPreviewProps) {
           Nenhuma ferramenta selecionada. Tool Runner sem tools não tem o que executar — volte pra etapa Ferramentas e marque ao menos uma.
         </p>
       ) : (
-        <div className="space-y-2">
-          <div>
-            <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
-              Ferramentas
-            </p>
-            {selectedTools.length === 0 ? (
-              <p className="text-sm text-fg-muted">Nenhuma function/HTTP selecionada.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {selectedTools.map((t) => (
-                  <Badge key={t.id} tone="accent">
-                    {t.name || t.id}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-          <div>
-            <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
-              MCPs
-            </p>
-            {selectedMcps.length === 0 ? (
-              <p className="text-sm text-fg-muted">Nenhum MCP selecionado.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {selectedMcps.map((m) => (
-                  <Badge key={m.id} tone="accent">
-                    {m.name || m.serverLabel || m.id}
-                  </Badge>
-                ))}
-              </div>
-            )}
+        <div>
+          <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
+            Ferramentas
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {selectedTools.map((t) => (
+              <Badge key={t.id} tone="accent">
+                {t.name || t.id}
+              </Badge>
+            ))}
           </div>
         </div>
       )}

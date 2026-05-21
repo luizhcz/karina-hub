@@ -1,5 +1,4 @@
 import type { GenericTool, ParamDefinition } from '../../../api/genericTools'
-import type { McpServer } from '../../../api/mcpServers'
 import { parseSchema } from './synthesizeArgs'
 
 // Descritor estruturado consumido pela UI do step Revisão. Diferente do antigo
@@ -22,17 +21,7 @@ export interface EnrichedHttpToolDescriptor {
   outputSchema: unknown
 }
 
-export interface EnrichedMcpToolDescriptor {
-  source: 'mcp'
-  id: string
-  name: string
-  description: string
-  allowedTools: string[]
-  requiresApprovalAlways: boolean
-  serverLabel: string
-}
-
-export type EnrichedToolDescriptor = EnrichedHttpToolDescriptor | EnrichedMcpToolDescriptor
+export type EnrichedToolDescriptor = EnrichedHttpToolDescriptor
 
 function fromGenericTool(tool: GenericTool): EnrichedHttpToolDescriptor {
   return {
@@ -50,38 +39,19 @@ function fromGenericTool(tool: GenericTool): EnrichedHttpToolDescriptor {
   }
 }
 
-function fromMcpServer(mcp: McpServer): EnrichedMcpToolDescriptor {
-  return {
-    source: 'mcp',
-    id: mcp.id,
-    name: mcp.name || mcp.serverLabel,
-    description: mcp.description ?? '',
-    allowedTools: mcp.allowedTools,
-    requiresApprovalAlways: mcp.requireApproval === 'always',
-    serverLabel: mcp.serverLabel,
-  }
-}
-
 /**
- * Constrói descritores na ordem (HTTP tools primeiro, MCPs depois) com base
- * na seleção atual e nos catálogos carregados. Ids órfãos (tool deletada
- * externamente, MCP desativado) são silenciosamente ignorados — a UI mostra
- * o que estiver disponível agora pra não bloquear a revisão.
+ * Constrói descritores das tools HTTP selecionadas. Ids órfãos (tool deletada
+ * externamente) são silenciosamente ignorados — a UI mostra o que estiver
+ * disponível agora pra não bloquear a revisão.
  */
 export function buildEnrichedDescriptors(
   toolIds: string[],
-  mcpIds: string[],
   toolsCatalog: GenericTool[],
-  mcpsCatalog: McpServer[],
 ): EnrichedToolDescriptor[] {
   const result: EnrichedToolDescriptor[] = []
   for (const id of toolIds) {
     const t = toolsCatalog.find((x) => x.id === id)
     if (t) result.push(fromGenericTool(t))
-  }
-  for (const id of mcpIds) {
-    const m = mcpsCatalog.find((x) => x.id === id)
-    if (m) result.push(fromMcpServer(m))
   }
   return result
 }

@@ -11,7 +11,6 @@ import {
 } from '../../api/agentDrafts'
 import { listPredefinedModels, type PredefinedModel } from '../../api/predefinedModels'
 import { listGenericTools, type GenericTool } from '../../api/genericTools'
-import { listMcpServers, type McpServer } from '../../api/mcpServers'
 import { ApiError, friendlyError } from '../../api/client'
 import {
   AssistantFailureError,
@@ -297,10 +296,6 @@ export function AgentEditor({ mode }: Props) {
   const [toolsLoading, setToolsLoading] = useState(true)
   const [toolsError, setToolsError] = useState<string | null>(null)
 
-  const [mcps, setMcps] = useState<McpServer[]>([])
-  const [mcpsLoading, setMcpsLoading] = useState(true)
-  const [mcpsError, setMcpsError] = useState<string | null>(null)
-
   useEffect(() => {
     let cancelled = false
     setModelsLoading(true)
@@ -331,24 +326,6 @@ export function AgentEditor({ mode }: Props) {
       })
       .finally(() => {
         if (!cancelled) setToolsLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    setMcpsLoading(true)
-    listMcpServers()
-      .then((list) => {
-        if (!cancelled) setMcps(list)
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setMcpsError(friendlyError(err, 'Não foi possível carregar os MCPs.'))
-      })
-      .finally(() => {
-        if (!cancelled) setMcpsLoading(false)
       })
     return () => {
       cancelled = true
@@ -1001,9 +978,6 @@ export function AgentEditor({ mode }: Props) {
             tools={tools}
             toolsLoading={toolsLoading}
             toolsError={toolsError}
-            mcps={mcps}
-            mcpsLoading={mcpsLoading}
-            mcpsError={mcpsError}
             readonly={readonly}
           />
         )}
@@ -1038,7 +1012,7 @@ export function AgentEditor({ mode }: Props) {
           />
         )}
         {form.currentStep === 'review' && (
-          <ReviewStep form={form} setForm={setForm} models={models} tools={tools} mcps={mcps} readonly={readonly} />
+          <ReviewStep form={form} setForm={setForm} models={models} tools={tools} readonly={readonly} />
         )}
       </div>
 
