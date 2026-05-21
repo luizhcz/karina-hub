@@ -787,26 +787,12 @@ export function AgentEditor({ mode }: Props) {
           <div className="flex shrink-0 flex-col items-end gap-1">
             <Button
               size="sm"
-              variant={assistantResult ? 'secondary' : 'primary'}
-              onClick={runAnalysis}
-              disabled={assistantDisabled}
-              loading={assistantLoading}
-              leftIcon={!assistantLoading ? <SparklesIcon className="h-4 w-4" /> : undefined}
-              title={
-                !profileReady
-                  ? `Preencha o perfil com pelo menos ${MIN_PROFILE_CHARS} caracteres pra habilitar.`
-                  : onCooldown
-                  ? `Aguarde ${formatCooldown(cooldownRemaining)} pra rodar de novo.`
-                  : 'Analisa o perfil e devolve sugestões granulares.'
-              }
+              variant="secondary"
+              disabled
+              leftIcon={<SparklesIcon className="h-4 w-4" />}
+              title="Refinamento com IA está temporariamente desativado nesta fase do MVP."
             >
-              {assistantLoading
-                ? 'Analisando perfil…'
-                : onCooldown
-                ? `Aguarde ${formatCooldown(cooldownRemaining)}`
-                : assistantResult
-                ? 'Reanalisar perfil'
-                : 'Refinar com IA'}
+              Refinar com IA
             </Button>
           </div>
         )}
