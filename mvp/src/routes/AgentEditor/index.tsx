@@ -59,15 +59,6 @@ const COOLDOWN_MS = 10 * 60 * 1000
 const MIN_PROFILE_CHARS = 20
 
 // Formata um countdown em segundos pra display compacto: <60s usa "Xs";
-// >=60s usa "Xm Ys" (e omite o "Ys" quando bate em minutos cheios). Reduz
-// ruído visual no botão durante cooldowns longos.
-function formatCooldown(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return s === 0 ? `${m}m` : `${m}m ${s}s`
-}
-
 function profileInputFrom(form: FormState): ProfileInput {
   return {
     name: form.name,
