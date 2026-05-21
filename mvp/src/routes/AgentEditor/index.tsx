@@ -50,7 +50,6 @@ import { ReviewStep } from './ReviewStep'
 import { ChangeReasonModal } from './ChangeReasonModal'
 import { AssistantDrawer } from './AssistantDrawer'
 import { buildPayload, emptyFormState, fromDraft } from './formCodec'
-import { AGENT_TEMPLATES } from './templates'
 import type { AgentMode, FormState, StepKey } from './types'
 import type { AgentType } from '../../api/agentDrafts'
 
@@ -204,9 +203,8 @@ export function AgentEditor({ mode }: Props) {
   // No fluxo de criação, ?mode=advanced (ou ?mode=basic) define o modo inicial
   // — a tela é aberta a partir do modal de "Novo agente" da listagem com esse
   // parâmetro. Em edit, o modo é inferido do conteúdo do draft pelo formCodec.
-  // ?type=Router|Custom define o tipo formal e o set de steps. ?template=<key>
-  // hidrata Profile + nome + descrição com um modelo pronto (sempre Custom —
-  // ver routes/AgentEditor/templates.ts) — atalho pro time-to-first-agent.
+  // ?type=Router|Custom|Conversational|Worker|ToolRunner define o tipo formal
+  // e o set de steps.
   const initialMode = mode === 'create' && searchParams.get('mode') === 'advanced'
     ? 'advanced'
     : 'basic'
@@ -222,38 +220,14 @@ export function AgentEditor({ mode }: Props) {
               ? 'Conversational'
               : 'Custom'
       : 'Custom'
-  const initialTemplateKey = mode === 'create' ? searchParams.get('template') : null
-  const [form, setForm] = useState<FormState>(() => {
-    // Router pula o step de "Tipo" porque já foi escolhido no modal — entra
-    // direto no step próprio (Intenções). Custom também: se já chegou via modal
-    // (com mode definido na query), o step de Tipo é redundante. Quando vem
-    // via template, mesmo raciocínio — pula direto pra Perfil.
-    const base: FormState = {
-      ...emptyFormState(),
-      agentMode: initialMode,
-      type: initialType,
-      currentStep: 'profile',
-    }
-    if (!initialTemplateKey) return base
-    const tpl = AGENT_TEMPLATES.find((t) => t.key === initialTemplateKey)
-    if (!tpl) return base
-    // Template pode override o tipo (ex.: Conversational templates trazem
-    // `type: 'Conversational'`). Sem `type` no template, herda o tipo da
-    // URL (default Custom).
-    const tplType = tpl.type ?? base.type
-    return {
-      ...base,
-      type: tplType,
-      name: tpl.defaults.name,
-      profile: tpl.defaults.profile,
-      // Conversational template pode pré-popular o componente único de UI.
-      // Mantém compat com FormState (array de 1) — o input do step Output
-      // lê o primeiro item e escreve de volta como array de 1 elemento.
-      conversationalUiComponents: tpl.defaults.conversationalUiComponent
-        ? [tpl.defaults.conversationalUiComponent]
-        : base.conversationalUiComponents,
-    }
-  })
+  const [form, setForm] = useState<FormState>(() => ({
+    // Router/Custom/Conversational pulam o step "Tipo" — já foi escolhido no
+    // modal — e entram direto em Perfil/Intenções/Identificação.
+    ...emptyFormState(),
+    agentMode: initialMode,
+    type: initialType,
+    currentStep: 'profile',
+  }))
   const [draft, setDraft] = useState<AgentDraft | null>(null)
   const [loading, setLoading] = useState(mode === 'edit')
   const [loadError, setLoadError] = useState<string | null>(null)
