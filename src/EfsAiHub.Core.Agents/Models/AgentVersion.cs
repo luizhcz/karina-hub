@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Exceptions;
+using EfsAiHub.Core.Agents.GenericTools;
 using EfsAiHub.Core.Agents.Skills;
 using EfsAiHub.Core.Abstractions.Persistence;
 
@@ -81,27 +82,69 @@ public sealed record AgentVersion(
             .Select(t => AgentToolSnapshot.FromDefinition(t))
             .ToList();
 
-        // Projeção canônica: tools com GenericToolId=null serializam exatamente
-        // como antes da extensão (preserva ContentHash de agents existentes —
-        // re-publish idempotente). Tools com GenericToolId definido adicionam o
-        // campo no final; mudanças aí geram hash novo intencionalmente.
+        // Projeção canônica em três níveis crescentes pra preservar ContentHash
+        // de agents históricos sem campos novos:
+        //   * Tool sem GenericToolId nem expansão HTTP → formato legacy compacto.
+        //   * Tool com GenericToolId mas sem expansão → adiciona apenas o id (formato v2).
+        //   * Tool com expansão HTTP populada → adiciona todos os campos resolvidos
+        //     (mudanças no schema/url/headers expandidos geram hash novo, intencional).
         var canonicalTools = tools
-            .Select(t => t.GenericToolId is null
-                ? (object)new
+            .Select<AgentToolSnapshot, object>(t =>
+            {
+                if (t.GenericToolId is null)
                 {
-                    t.Type,
-                    t.Name,
-                    t.RequiresApproval,
-                    t.FingerprintHash,
-                    t.McpServerId,
-                    t.ServerLabel,
-                    t.ServerUrl,
-                    t.AllowedTools,
-                    t.RequireApproval,
-                    t.Headers,
-                    t.ConnectionId,
+                    return new
+                    {
+                        t.Type,
+                        t.Name,
+                        t.RequiresApproval,
+                        t.FingerprintHash,
+                        t.McpServerId,
+                        t.ServerLabel,
+                        t.ServerUrl,
+                        t.AllowedTools,
+                        t.RequireApproval,
+                        t.Headers,
+                        t.ConnectionId,
+                    };
                 }
-                : new
+
+                var hasExpansion =
+                    t.HttpMethod is not null
+                    || t.UrlTemplate is not null
+                    || (t.PathParams?.Count ?? 0) > 0
+                    || (t.QueryParams?.Count ?? 0) > 0
+                    || (t.CustomHeaders?.Count ?? 0) > 0
+                    || t.InputContentType is not null
+                    || t.InputSchemaJson is not null
+                    || t.OutputContentType is not null
+                    || t.OutputSchemaJson is not null
+                    || t.OutputProjectionMode is not null
+                    || t.TimeoutSecondsOverride is not null
+                    || t.WhenToUse is not null
+                    || t.IsExclusive is not null
+                    || t.Description is not null;
+
+                if (!hasExpansion)
+                {
+                    return new
+                    {
+                        t.Type,
+                        t.Name,
+                        t.RequiresApproval,
+                        t.FingerprintHash,
+                        t.McpServerId,
+                        t.ServerLabel,
+                        t.ServerUrl,
+                        t.AllowedTools,
+                        t.RequireApproval,
+                        t.Headers,
+                        t.ConnectionId,
+                        t.GenericToolId,
+                    };
+                }
+
+                return new
                 {
                     t.Type,
                     t.Name,
@@ -115,7 +158,22 @@ public sealed record AgentVersion(
                     t.Headers,
                     t.ConnectionId,
                     t.GenericToolId,
-                })
+                    t.Description,
+                    t.HttpMethod,
+                    t.UrlTemplate,
+                    t.PathParams,
+                    t.QueryParams,
+                    t.CustomHeaders,
+                    t.InputContentType,
+                    t.InputSchemaJson,
+                    t.OutputContentType,
+                    t.OutputSchemaJson,
+                    t.OutputProjectionMode,
+                    t.TimeoutSecondsOverride,
+                    t.WhenToUse,
+                    t.IsExclusive,
+                };
+            })
             .ToList();
 
         // Projeção canônica: agent sem preset serializa model exatamente como
@@ -402,7 +460,10 @@ public enum AgentVersionStatus
 /// <summary>
 /// Snapshot lossless de uma <see cref="AgentToolDefinition"/>. Persistido em
 /// <see cref="AgentVersion.Tools"/> pra reconstrução determinística via <see cref="ToDefinition"/>.
-/// Carrega TODOS os campos da tool — não há perda na ida/volta.
+/// Carrega TODOS os campos da tool — não há perda na ida/volta. Tools do tipo
+/// <c>generic_http</c> incluem a expansão completa da configuração HTTP
+/// (UrlTemplate, schemas, headers fixos, etc) populada no momento do publish
+/// pelo composer — runtime nunca volta ao repositório de tools.
 /// </summary>
 public sealed record AgentToolSnapshot(
     string Type,
@@ -416,7 +477,21 @@ public sealed record AgentToolSnapshot(
     string? RequireApproval,
     IReadOnlyDictionary<string, string> Headers,
     string? ConnectionId,
-    string? GenericToolId)
+    string? GenericToolId,
+    string? Description = null,
+    HttpMethodType? HttpMethod = null,
+    string? UrlTemplate = null,
+    IReadOnlyDictionary<string, ParamDefinition>? PathParams = null,
+    IReadOnlyDictionary<string, ParamDefinition>? QueryParams = null,
+    IReadOnlyDictionary<string, string>? CustomHeaders = null,
+    InputContentType? InputContentType = null,
+    string? InputSchemaJson = null,
+    OutputContentType? OutputContentType = null,
+    string? OutputSchemaJson = null,
+    OutputProjectionMode? OutputProjectionMode = null,
+    int? TimeoutSecondsOverride = null,
+    string? WhenToUse = null,
+    bool? IsExclusive = null)
 {
     public static AgentToolSnapshot FromDefinition(AgentToolDefinition tool) => new(
         Type: tool.Type,
@@ -434,7 +509,35 @@ public sealed record AgentToolSnapshot(
             .OrderBy(h => h.Key, StringComparer.Ordinal)
             .ToDictionary(h => h.Key, h => h.Value, StringComparer.Ordinal),
         ConnectionId: tool.ConnectionId,
-        GenericToolId: tool.GenericToolId);
+        GenericToolId: tool.GenericToolId,
+        Description: tool.Description,
+        HttpMethod: tool.HttpMethod,
+        UrlTemplate: tool.UrlTemplate,
+        // Path/QueryParams e CustomHeaders também ordenados pra hash estável
+        // independente da ordem de inserção do dicionário original.
+        PathParams: tool.PathParams is null
+            ? null
+            : tool.PathParams
+                .OrderBy(p => p.Key, StringComparer.Ordinal)
+                .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
+        QueryParams: tool.QueryParams is null
+            ? null
+            : tool.QueryParams
+                .OrderBy(p => p.Key, StringComparer.Ordinal)
+                .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
+        CustomHeaders: tool.CustomHeaders is null
+            ? null
+            : tool.CustomHeaders
+                .OrderBy(p => p.Key, StringComparer.Ordinal)
+                .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
+        InputContentType: tool.InputContentType,
+        InputSchemaJson: tool.InputSchemaJson,
+        OutputContentType: tool.OutputContentType,
+        OutputSchemaJson: tool.OutputSchemaJson,
+        OutputProjectionMode: tool.OutputProjectionMode,
+        TimeoutSecondsOverride: tool.TimeoutSecondsOverride,
+        WhenToUse: tool.WhenToUse,
+        IsExclusive: tool.IsExclusive);
 
     public AgentToolDefinition ToDefinition() => new()
     {
@@ -450,6 +553,20 @@ public sealed record AgentToolSnapshot(
         Headers = new Dictionary<string, string>(Headers),
         ConnectionId = ConnectionId,
         GenericToolId = GenericToolId,
+        Description = Description,
+        HttpMethod = HttpMethod,
+        UrlTemplate = UrlTemplate,
+        PathParams = PathParams,
+        QueryParams = QueryParams,
+        CustomHeaders = CustomHeaders,
+        InputContentType = InputContentType,
+        InputSchemaJson = InputSchemaJson,
+        OutputContentType = OutputContentType,
+        OutputSchemaJson = OutputSchemaJson,
+        OutputProjectionMode = OutputProjectionMode,
+        TimeoutSecondsOverride = TimeoutSecondsOverride,
+        WhenToUse = WhenToUse,
+        IsExclusive = IsExclusive,
     };
 }
 

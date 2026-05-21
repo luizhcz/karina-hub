@@ -1,5 +1,6 @@
 global using EfsAiHub.Core.Agents;
 global using EfsAiHub.Core.Agents.Execution;
+global using EfsAiHub.Core.Agents.GenericTools;
 global using EfsAiHub.Core.Agents.Services;
 global using EfsAiHub.Core.Abstractions.Conversations;
 global using EfsAiHub.Core.Orchestration.Enums;
