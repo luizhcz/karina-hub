@@ -93,7 +93,7 @@ const STATUS_LABEL: Record<AgentDraftStatus, string> = {
 
 // O tipo é escolhido no modal "Novo agente" antes de entrar no editor — pra
 // trocar o tipo o usuário volta na listagem e abre um novo. Por isso o wizard
-// começa direto em Perfil/Intenções/Identificação/Domínio (conforme o tipo).
+// começa direto no step de Perfil/Intenções/Identificação/Domínio (conforme o tipo).
 
 const BASIC_STEPS: StepDescriptor[] = [
   { key: 'profile', label: 'Perfil' },
@@ -151,14 +151,21 @@ const TOOL_RUNNER_STEPS: StepDescriptor[] = [
   { key: 'review', label: 'Revisão' },
 ]
 
-// Conversational substitui o ProfileStep por um step próprio (Identificação
-// + Persona). Inclui Tools (opcional), Segurança (recomendado on), Memória
-// (frequente pra continuidade entre turns), Output (combina componente UI +
-// sub-schema do shape canônico — output é SEMPRE structured pro Conversational
-// porque o frontend chat exige `ui_component`), Modelo. Sem Input — chat
-// consome ChatTurnContext, schema de input é implícito.
-const CONVERSATIONAL_STEPS: StepDescriptor[] = [
-  { key: 'profile', label: 'Identificação' },
+// Conversational substitui o ProfileStep por um step próprio (Perfil =
+// Identificação + Persona). Avançado expõe Componente/Segurança/Memória/
+// Output explicitamente; básico usa defaults conservadores e fica com
+// Perfil → Ferramentas → Modelo → Revisão. Output é SEMPRE structured pro
+// Conversational (frontend chat exige `ui_component`) — o encoder usa
+// schema canônico mesmo em basic.
+const CONVERSATIONAL_BASIC_STEPS: StepDescriptor[] = [
+  { key: 'profile', label: 'Perfil' },
+  { key: 'tools', label: 'Ferramentas' },
+  { key: 'model', label: 'Modelo' },
+  { key: 'review', label: 'Revisão' },
+]
+
+const CONVERSATIONAL_ADVANCED_STEPS: StepDescriptor[] = [
+  { key: 'profile', label: 'Perfil' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'security', label: 'Segurança' },
   { key: 'memory', label: 'Memória' },
@@ -171,7 +178,9 @@ function stepsFor(mode: AgentMode, type: AgentType): StepDescriptor[] {
   if (type === 'Router') return ROUTER_STEPS
   if (type === 'Worker') return WORKER_STEPS
   if (type === 'ToolRunner') return TOOL_RUNNER_STEPS
-  if (type === 'Conversational') return CONVERSATIONAL_STEPS
+  if (type === 'Conversational') {
+    return mode === 'advanced' ? CONVERSATIONAL_ADVANCED_STEPS : CONVERSATIONAL_BASIC_STEPS
+  }
   return mode === 'advanced' ? ADVANCED_STEPS : BASIC_STEPS
 }
 
@@ -834,8 +843,7 @@ export function AgentEditor({ mode }: Props) {
           </div>
           {form.type !== 'Router'
             && form.type !== 'Worker'
-            && form.type !== 'ToolRunner'
-            && form.type !== 'Conversational' && (
+            && form.type !== 'ToolRunner' && (
             <div className="flex rounded-lg border border-border bg-bg-soft p-1">
               <ModeToggleButton
                 active={form.agentMode === 'basic'}

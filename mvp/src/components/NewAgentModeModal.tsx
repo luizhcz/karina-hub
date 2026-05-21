@@ -71,11 +71,11 @@ const TYPE_CHOICES: TypeChoice[] = [
   },
   {
     type: 'Conversational',
-    defaultMode: 'advanced',
+    defaultMode: 'basic',
     title: 'Conversational',
     pitch:
       'Chat com memória entre mensagens. O agente conversa com o usuário em múltiplos turnos, mantém contexto e responde em formato que o front sabe renderizar (cards, listas, texto).',
-    steps: ['Identificação', 'Componente', 'Ferramentas', 'Segurança', 'Memória', 'Output', 'Modelo', 'Revisão'],
+    steps: ['Perfil', 'Ferramentas', 'Modelo', 'Revisão'],
     icon: <SparklesIcon className="h-6 w-6" />,
     accent: 'from-rose-500/15 to-rose-500/0 text-rose-600 dark:text-rose-400',
     iconBg: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
