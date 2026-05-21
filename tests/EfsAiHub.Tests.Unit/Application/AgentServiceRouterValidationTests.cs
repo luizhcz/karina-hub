@@ -20,6 +20,8 @@ public class AgentServiceRouterValidationTests
             promptRepo: promptRepo,
             projectAccessor: accessor,
             templateService: new AgentTemplateService(NullLogger<AgentTemplateService>.Instance),
+            composer: AgentServiceTestBuilder.IdentityComposer(),
+            decomposer: AgentServiceTestBuilder.IdentityDecomposer(),
             logger: Substitute.For<ILogger<AgentService>>(),
             intentLinkRepo: linkRepo);
     }

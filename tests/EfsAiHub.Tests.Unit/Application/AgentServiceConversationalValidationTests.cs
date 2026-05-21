@@ -19,6 +19,8 @@ public class AgentServiceConversationalValidationTests
             promptRepo: promptRepo,
             projectAccessor: accessor,
             templateService: new AgentTemplateService(NullLogger<AgentTemplateService>.Instance),
+            composer: AgentServiceTestBuilder.IdentityComposer(),
+            decomposer: AgentServiceTestBuilder.IdentityDecomposer(),
             logger: Substitute.For<ILogger<AgentService>>());
     }
 

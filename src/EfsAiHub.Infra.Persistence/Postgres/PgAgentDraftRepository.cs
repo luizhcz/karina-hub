@@ -11,6 +11,7 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
     private readonly IAgentDefinitionRepository _definitionRepo;
     private readonly IAgentVersionRepository _versionRepo;
     private readonly EfsAiHub.Core.Agents.Services.IAgentTemplateService _templateService;
+    private readonly EfsAiHub.Core.Agents.Services.IAgentDefinitionComposer _composer;
     private readonly EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor _tenantAccessor;
     private readonly ILogger<PgAgentDraftRepository> _logger;
 
@@ -19,6 +20,7 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
         IAgentDefinitionRepository definitionRepo,
         IAgentVersionRepository versionRepo,
         EfsAiHub.Core.Agents.Services.IAgentTemplateService templateService,
+        EfsAiHub.Core.Agents.Services.IAgentDefinitionComposer composer,
         EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor tenantAccessor,
         ILogger<PgAgentDraftRepository> logger)
     {
@@ -26,6 +28,7 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
         _definitionRepo = definitionRepo;
         _versionRepo = versionRepo;
         _templateService = templateService;
+        _composer = composer;
         _tenantAccessor = tenantAccessor;
         _logger = logger;
     }
@@ -263,6 +266,12 @@ public sealed class PgAgentDraftRepository : IAgentDraftRepository
         // antes da centralização do template — round-trip via approve
         // normaliza o estado persistido.
         definition = _templateService.Apply(definition);
+
+        // Composer resolve as dependências (intents, generic tools, skills,
+        // model preset) e materializa Instructions + StructuredOutput.Schema
+        // em sua forma final. O resultado vai ao banco já autocontido —
+        // runtime consome o snapshot sem indireção.
+        definition = await _composer.ComposeAsync(definition, ct);
 
         // UpsertAsync no IAgentDefinitionRepository roda fora do escopo de project
         // do caller — agent recém-aprovado fica visível pro owner project sem

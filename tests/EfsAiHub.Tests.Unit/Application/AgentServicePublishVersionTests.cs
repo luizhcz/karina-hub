@@ -22,6 +22,8 @@ public class AgentServicePublishVersionTests
             promptRepo: promptRepo,
             projectAccessor: accessor,
             templateService: new AgentTemplateService(NullLogger<AgentTemplateService>.Instance),
+            composer: AgentServiceTestBuilder.IdentityComposer(),
+            decomposer: AgentServiceTestBuilder.IdentityDecomposer(),
             logger: Substitute.For<ILogger<AgentService>>(),
             versionRepo: versionRepo);
 
@@ -75,6 +77,8 @@ public class AgentServicePublishVersionTests
         // versionRepo=null preserva BC com legacy callers.
         var service = new AgentService(repo, promptRepo, accessor,
             new AgentTemplateService(NullLogger<AgentTemplateService>.Instance),
+            AgentServiceTestBuilder.IdentityComposer(),
+            AgentServiceTestBuilder.IdentityDecomposer(),
             Substitute.For<ILogger<AgentService>>(), versionRepo: null);
 
         var act = async () => await service.PublishVersionAsync(
