@@ -262,9 +262,9 @@ export function AgentEditor({ mode }: Props) {
   const [submitting, setSubmitting] = useState(false)
   const [submittingApproval, setSubmittingApproval] = useState(false)
   const [confirmSubmit, setConfirmSubmit] = useState(false)
-  // Router bypassa aprovação — em vez do modal genérico de confirmação,
-  // abrimos um modal específico que exige motivo (≥10 chars) pra manter
-  // audit forte. State separado pra não conflitar com o fluxo normal.
+  // Router exige motivo da mudança (≥10 chars) no submit — o texto vai pro
+  // histórico do agente e dá contexto ao revisor da fila de aprovações.
+  // State separado do confirmador genérico pra UX dedicada.
   const [routerReasonOpen, setRouterReasonOpen] = useState(false)
 
   const [models, setModels] = useState<PredefinedModel[]>([])
@@ -749,17 +749,11 @@ export function AgentEditor({ mode }: Props) {
       // Garante feedback explícito de "submeti, e agora?" — sem isso o user
       // vê só a lista e não sabe se a ação chegou.
       const flash = result.autoApproved
-        ? result.tier === 'TypeBypass'
-          ? {
-              tone: 'success' as const,
-              title: 'Agente Router publicado em produção',
-              body: 'Routers não passam pela fila de aprovação. O motivo informado ficou registrado no histórico.',
-            }
-          : {
-              tone: 'success' as const,
-              title: 'Edição cosmética aprovada automaticamente',
-              body: 'A nova versão do agente já está em produção.',
-            }
+        ? {
+            tone: 'success' as const,
+            title: 'Edição cosmética aprovada automaticamente',
+            body: 'A nova versão do agente já está em produção.',
+          }
         : {
             tone: 'accent' as const,
             title: 'Rascunho enviado para aprovação',

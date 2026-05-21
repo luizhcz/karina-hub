@@ -17,6 +17,7 @@ import {
 import { ApiError, friendlyError } from '../../api/client'
 import { getSystemInfo, type ConsumeHeader } from '../../api/system'
 import { useIsAdmin } from '../../stores/me'
+import { AgentVersionPicker } from '../../components/AgentVersionPicker'
 import { HowToConsumeWorkflow } from '../../components/HowToConsumeWorkflow'
 import {
   ArrowLeftIcon,
@@ -37,6 +38,8 @@ interface BranchEntry {
   intentName: string
   intentDisplayName?: string | null
   agentId: string
+  /** Versão pinada do agente da branch. `null` = "Mais recente" (auto-pin no backend). */
+  agentVersionId: string | null
 }
 
 interface FormState {
@@ -44,8 +47,10 @@ interface FormState {
   name: string
   description: string
   routerAgentId: string
+  routerAgentVersionId: string | null
   branches: BranchEntry[]
   fallbackAgentId: string
+  fallbackAgentVersionId: string | null
 }
 
 function emptyForm(): FormState {
@@ -54,8 +59,10 @@ function emptyForm(): FormState {
     name: '',
     description: '',
     routerAgentId: '',
+    routerAgentVersionId: null,
     branches: [],
     fallbackAgentId: '',
+    fallbackAgentVersionId: null,
   }
 }
 
@@ -74,6 +81,12 @@ function workflowToForm(workflow: Workflow): FormState {
     },
   )
   const branches: BranchEntry[] = []
+  // Map agentId → agentVersionId pinada no workflow persistido. Branches que
+  // compartilham o mesmo agente herdam o mesmo pin (mesma entry em agents[]).
+  const branchPins = new Map<string, string | null>()
+  for (const a of agents) {
+    if (a.role === 'BranchAgent') branchPins.set(a.agentId, a.agentVersionId ?? null)
+  }
   if (switchEdge?.Cases) {
     for (const c of switchEdge.Cases) {
       if (c.IsDefault) continue
@@ -85,6 +98,7 @@ function workflowToForm(workflow: Workflow): FormState {
           intentId: intentName,
           intentName,
           agentId: targetAgentId,
+          agentVersionId: branchPins.get(targetAgentId) ?? null,
         })
       }
     }
@@ -94,8 +108,10 @@ function workflowToForm(workflow: Workflow): FormState {
     name: workflow.name,
     description: workflow.description ?? '',
     routerAgentId: router?.agentId ?? '',
+    routerAgentVersionId: router?.agentVersionId ?? null,
     branches,
     fallbackAgentId: fallback?.agentId ?? '',
+    fallbackAgentVersionId: fallback?.agentVersionId ?? null,
   }
 }
 
@@ -105,11 +121,28 @@ interface BuildPayloadInput {
 }
 
 function buildPayload({ form, prev }: BuildPayloadInput): CreateWorkflowBody {
-  const branchAgentIds = Array.from(new Set(form.branches.map((b) => b.agentId)))
+  // Dedup por agentId mantendo o pin da primeira branch que usa cada agente
+  // (mesma regra da entry única em workflow.agents[]).
+  const branchPins = new Map<string, string | null>()
+  for (const b of form.branches) {
+    if (!branchPins.has(b.agentId)) branchPins.set(b.agentId, b.agentVersionId ?? null)
+  }
   const agents = [
-    { agentId: form.routerAgentId, agentVersionId: null, role: 'Router' },
-    ...branchAgentIds.map((id) => ({ agentId: id, agentVersionId: null, role: 'BranchAgent' })),
-    { agentId: form.fallbackAgentId, agentVersionId: null, role: 'Fallback' },
+    {
+      agentId: form.routerAgentId,
+      agentVersionId: form.routerAgentVersionId,
+      role: 'Router',
+    },
+    ...Array.from(branchPins.entries()).map(([id, versionId]) => ({
+      agentId: id,
+      agentVersionId: versionId,
+      role: 'BranchAgent',
+    })),
+    {
+      agentId: form.fallbackAgentId,
+      agentVersionId: form.fallbackAgentVersionId,
+      role: 'Fallback',
+    },
   ]
   // Switch edge: 1 case por intent + default case pro fallback. Predicates
   // comparam $.intent (path canônico do schema Router formal) com o nome
@@ -301,15 +334,21 @@ export function RoutingDeployEditor() {
         )
         if (cancelled) return
         const resolved: RouterIntent[] = results.filter((r): r is RouterIntent => !!r)
-        const prevMappings = new Map(form.branches.map((b) => [b.intentName, b.agentId]))
+        const prevMappings = new Map(
+          form.branches.map((b) => [b.intentName, { agentId: b.agentId, agentVersionId: b.agentVersionId }] as const),
+        )
         setForm((prev) => ({
           ...prev,
-          branches: resolved.map((intent) => ({
-            intentId: intent.id,
-            intentName: intent.name,
-            intentDisplayName: intent.displayName ?? null,
-            agentId: prevMappings.get(intent.name) ?? '',
-          })),
+          branches: resolved.map((intent) => {
+            const prevForIntent = prevMappings.get(intent.name)
+            return {
+              intentId: intent.id,
+              intentName: intent.name,
+              intentDisplayName: intent.displayName ?? null,
+              agentId: prevForIntent?.agentId ?? '',
+              agentVersionId: prevForIntent?.agentVersionId ?? null,
+            }
+          }),
         }))
       })
       .catch((err: unknown) => {
@@ -343,7 +382,18 @@ export function RoutingDeployEditor() {
     setForm((prev) => ({
       ...prev,
       branches: prev.branches.map((b) =>
-        b.intentId === intentId ? { ...b, agentId } : b,
+        // Troca de agente zera o pin: a versão anterior pertencia a outro
+        // agentId e perderia o sentido se viajasse junto.
+        b.intentId === intentId ? { ...b, agentId, agentVersionId: null } : b,
+      ),
+    }))
+  }
+
+  const setBranchVersion = (intentId: string, agentVersionId: string | null) => {
+    setForm((prev) => ({
+      ...prev,
+      branches: prev.branches.map((b) =>
+        b.intentId === intentId ? { ...b, agentVersionId } : b,
       ),
     }))
   }
@@ -460,13 +510,32 @@ export function RoutingDeployEditor() {
             Nenhum Router publicado no projeto. Crie um agente do tipo Router em /agentes/novo, submeta pra aprovação e volte aqui.
           </div>
         ) : (
-          <Select
-            label="Router"
-            value={form.routerAgentId}
-            onChange={(e) => setForm({ ...form, routerAgentId: e.target.value })}
-            placeholder="Selecionar…"
-            options={routers.map((r) => ({ value: r.id, label: `${r.name} (${r.id})` }))}
-          />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[3fr_2fr] sm:items-start">
+            <Select
+              label="Router"
+              value={form.routerAgentId}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  routerAgentId: e.target.value,
+                  // Trocou de Router → o pin anterior apontava pra outro agente
+                  // e seria rejeitado pelo validator no save.
+                  routerAgentVersionId: null,
+                })
+              }
+              placeholder="Selecionar…"
+              options={routers.map((r) => ({ value: r.id, label: `${r.name} (${r.id})` }))}
+            />
+            {form.routerAgentId && (
+              <AgentVersionPicker
+                agentId={form.routerAgentId}
+                value={form.routerAgentVersionId}
+                onChange={(versionId) =>
+                  setForm((prev) => ({ ...prev, routerAgentVersionId: versionId }))
+                }
+              />
+            )}
+          </div>
         )}
       </Card>
 
@@ -492,21 +561,31 @@ export function RoutingDeployEditor() {
             {form.branches.map((b) => (
               <div
                 key={b.intentId}
-                className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-bg-soft px-3 py-2 sm:grid-cols-[1fr_2fr] sm:items-center"
+                className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-bg-soft px-3 py-2 sm:grid-cols-[1fr_2fr_2fr] sm:items-start"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 sm:pt-1">
                   <p className="text-xs font-semibold text-fg">{b.intentDisplayName || b.intentName}</p>
                   <code className="block truncate font-mono text-[10px] text-fg-dim">{b.intentName}</code>
                 </div>
                 <Select
+                  label="Agente"
                   value={b.agentId}
                   onChange={(e) => setBranchAgent(b.intentId, e.target.value)}
-                  placeholder="Selecionar agente…"
+                  placeholder="Selecionar…"
                   options={branchAgents.map((a) => ({
                     value: a.id,
                     label: a.type ? `${a.name} (${a.type})` : a.name,
                   }))}
                 />
+                {b.agentId ? (
+                  <AgentVersionPicker
+                    agentId={b.agentId}
+                    value={b.agentVersionId}
+                    onChange={(versionId) => setBranchVersion(b.intentId, versionId)}
+                  />
+                ) : (
+                  <div className="hidden sm:block" />
+                )}
               </div>
             ))}
           </div>
@@ -518,16 +597,33 @@ export function RoutingDeployEditor() {
           title="Fallback (default)"
           description="Agente acionado quando a intent emitida pelo Router não bate com nenhuma das mapeadas (intent fora do enum, confidence baixo). Obrigatório — sem default, o workflow trava silenciosamente em intents inesperadas."
         />
-        <Select
-          label="Agente de fallback"
-          value={form.fallbackAgentId}
-          onChange={(e) => setForm({ ...form, fallbackAgentId: e.target.value })}
-          placeholder="Selecionar agente…"
-          options={branchAgents.map((a) => ({
-            value: a.id,
-            label: a.type ? `${a.name} (${a.type})` : a.name,
-          }))}
-        />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[3fr_2fr] sm:items-start">
+          <Select
+            label="Agente de fallback"
+            value={form.fallbackAgentId}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                fallbackAgentId: e.target.value,
+                fallbackAgentVersionId: null,
+              })
+            }
+            placeholder="Selecionar agente…"
+            options={branchAgents.map((a) => ({
+              value: a.id,
+              label: a.type ? `${a.name} (${a.type})` : a.name,
+            }))}
+          />
+          {form.fallbackAgentId && (
+            <AgentVersionPicker
+              agentId={form.fallbackAgentId}
+              value={form.fallbackAgentVersionId}
+              onChange={(versionId) =>
+                setForm((prev) => ({ ...prev, fallbackAgentVersionId: versionId }))
+              }
+            />
+          )}
+        </div>
       </Card>
 
       <Card className="space-y-3 border border-accent/30 bg-accent-subtle/30">

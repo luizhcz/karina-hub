@@ -169,3 +169,25 @@ export interface UpdateAgentFullBody {
 
 export const updateAgentFull = (id: string, body: UpdateAgentFullBody) =>
   put<Agent>(`/agents/${id}`, body)
+
+// Versão imutável de um agente publicada via approve em `agent_versions`.
+// `revision` é monotônica por agente. `breakingChange` informa se a próxima
+// publicação rompe contrato — workflows pinados em ancestors sem breaking
+// recebem patch propagation; com breaking ficam presos no snapshot pinado.
+export interface AgentVersionSummary {
+  agentVersionId: string
+  revision: number
+  status: string
+  createdAt: string
+  createdBy?: string | null
+  changeReason?: string | null
+  contentHash: string
+  breakingChange: boolean
+}
+
+// Lista versões publicadas do agente em ordem decrescente de revision (mais
+// recente primeiro). Alimenta o picker de versão usado nos editores de deploy
+// Chat/Routing — backend (`GET /api/aihub/agents/{id}/versions`) responde com
+// o snapshot completo, mas a UI usa só revision + breakingChange + createdAt.
+export const listAgentVersions = (agentId: string) =>
+  get<AgentVersionSummary[]>(`/agents/${agentId}/versions`)

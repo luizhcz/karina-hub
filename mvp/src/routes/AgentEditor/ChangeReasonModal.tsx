@@ -15,10 +15,9 @@ const MIN_LENGTH = 10
 const MAX_LENGTH = 500
 
 /**
- * Modal obrigatório de motivo da mudança usado quando o tipo do agente
- * bypassa o fluxo de aprovação (hoje só Router). Como não há checkpoint de
- * governança, o motivo informado pelo owner vira o registro de audit em
- * agent_approval_history — por isso é exigido ≥10 chars.
+ * Modal obrigatório de motivo da mudança no submit de Router. O motivo entra
+ * no histórico do agente em <c>agent_approval_history</c> e dá contexto ao
+ * revisor humano da fila de aprovações — por isso é exigido ≥10 chars.
  */
 export function ChangeReasonModal({ open, agentType, onConfirm, onClose, submitting }: Props) {
   const [reason, setReason] = useState('')
@@ -46,15 +45,15 @@ export function ChangeReasonModal({ open, agentType, onConfirm, onClose, submitt
       open={open}
       onClose={submitting ? () => {} : onClose}
       size="md"
-      title={`Publicar ${agentType} em produção`}
-      description={`${agentType} não passa pela fila de aprovação — o motivo informado fica registrado no histórico do agente.`}
+      title={`Enviar ${agentType} para aprovação`}
+      description={`Descreva o que mudou neste ${agentType}. O motivo fica registrado no histórico e ajuda o time de governança a revisar a fila.`}
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={submitting}>
             Cancelar
           </Button>
           <Button onClick={handleConfirm} disabled={!canConfirm} loading={submitting}>
-            Salvar e publicar
+            Enviar para aprovação
           </Button>
         </div>
       }
