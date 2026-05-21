@@ -98,6 +98,16 @@ export interface GenericToolTestResult {
 export const executeGenericTool = (id: string, args: Record<string, unknown>) =>
   post<GenericToolTestResult>(`/generic-tools/${id}/execute`, { args })
 
+/**
+ * Testa uma configuração de tool ANTES dela ser persistida. UI usa pra
+ * gatear a habilitação do botão "Criar/Salvar" — PM tem que ver 2xx no
+ * endpoint real antes de salvar.
+ */
+export const testDraftGenericTool = (
+  tool: CreateGenericToolBody,
+  args: Record<string, unknown>,
+) => post<GenericToolTestResult>('/generic-tools/test-draft', { tool, args })
+
 // Detecta placeholders {nome} no UrlTemplate em ordem de aparição. Usado pra
 // auto-popular path params no editor.
 export function extractPlaceholders(urlTemplate: string): string[] {
