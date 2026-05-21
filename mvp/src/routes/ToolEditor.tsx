@@ -421,12 +421,13 @@ export function ToolEditor({ mode }: Props) {
             <div className="text-sm font-medium text-fg">Chamar em nome do usuário do chat</div>
             <p className="text-[11px] text-fg-muted">
               Ligue quando cada usuário tem permissões diferentes na API
-              (ex: vendedor só pode ver seus próprios clientes). A ferramenta vai
-              identificar quem está conversando e só executa o que aquela pessoa
-              pode fazer — se ela não tiver acesso, o agente recebe um aviso.
+              (ex: trader só enxerga as carteiras dos clientes dele, gestor só
+              pode operar as contas que atende). A ferramenta vai identificar
+              quem está conversando e só executa o que aquela pessoa pode fazer
+              — se ela não tiver acesso, o agente recebe um aviso.
               <br />
-              Deixe desligado quando a API responde igual pra todo mundo (consulta
-              de cotação, base pública, etc.).
+              Deixe desligado quando a API responde igual pra todo mundo
+              (cotação de ativo, indicador de mercado, etc.).
             </p>
           </div>
         </label>
