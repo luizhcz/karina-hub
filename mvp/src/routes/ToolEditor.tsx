@@ -418,13 +418,15 @@ export function ToolEditor({ mode }: Props) {
             className="mt-0.5 h-4 w-4 rounded border-border accent-accent"
           />
           <div>
-            <div className="text-sm font-medium text-fg">Ferramenta exclusiva do usuário</div>
+            <div className="text-sm font-medium text-fg">Chamar em nome do usuário do chat</div>
             <p className="text-[11px] text-fg-muted">
-              Quando ligado, a chamada da ferramenta recebe os headers{' '}
-              <code className="font-mono">access_token</code> e{' '}
-              <code className="font-mono">app_origin</code> do usuário. Use quando o backend
-              da ferramenta autoriza por usuário — 401 do downstream vira "sem permissão".
-              Mantenha desligado para ferramentas gerais/públicas.
+              Ligue quando cada usuário tem permissões diferentes na API
+              (ex: vendedor só pode ver seus próprios clientes). A ferramenta vai
+              identificar quem está conversando e só executa o que aquela pessoa
+              pode fazer — se ela não tiver acesso, o agente recebe um aviso.
+              <br />
+              Deixe desligado quando a API responde igual pra todo mundo (consulta
+              de cotação, base pública, etc.).
             </p>
           </div>
         </label>
