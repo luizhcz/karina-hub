@@ -198,9 +198,9 @@ public enum AgentApprovalAction
 /// <summary>
 /// Tier de mudança em edit-draft. Cosmetic = só Description/Metadata mudaram
 /// (auto-aprovável). Behavioral = qualquer outro campo (precisa revisão humana).
-/// O CHECK constraint da tabela <c>agent_approval_history</c> ainda aceita o
-/// valor histórico <c>TypeBypass</c> usado por registros pré-paridade do Router;
-/// nenhum código novo o produz.
+/// O CHECK constraint da tabela <c>agent_approval_history</c> ainda aceita
+/// <c>TypeBypass</c> apenas como valor histórico de auditoria; nenhum produtor
+/// ativo escreve esse tier.
 /// </summary>
 public enum AgentChangeTier
 {

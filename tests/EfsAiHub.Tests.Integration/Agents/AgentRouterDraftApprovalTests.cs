@@ -6,14 +6,14 @@ using Npgsql;
 namespace EfsAiHub.Tests.Integration.Agents;
 
 /// <summary>
-/// Router agora segue o mesmo gate de approval dos demais tipos:
+/// Cobre o gate de approval do Router (paritário com os demais tipos):
 ///   - submit de draft Router → autoApproved=false, draft fica PendingApproval.
 ///   - approve via /agent-approvals → publica em agent_definitions com
 ///     Visibility=global (invariante do AgentService).
 ///   - history registra Submitted e Approved em ordem cronológica.
-///   - reject → draft volta a Draft com RejectionFeedback.
+///   - reject → draft volta a Rejected com RejectionFeedback.
 ///   - edit-draft cosmético (só Description) auto-aprova com Tier=Cosmetic
-///     (ortogonal ao tipo do agente).
+///     (regra ortogonal ao tipo do agente).
 /// </summary>
 [Collection("Integration")]
 [Trait("Category", "Integration")]
@@ -61,7 +61,7 @@ public class AgentRouterDraftApprovalTests(IntegrationWebApplicationFactory fact
         submit.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await submit.Content.ReadFromJsonAsync<JsonElement>();
         body.GetProperty("autoApproved").GetBoolean().Should().BeFalse(
-            "Router agora segue o gate de revisão humana como os demais tipos");
+            "Router segue o mesmo gate de revisão humana que os demais tipos");
         body.GetProperty("tier").GetString().Should().Be("Behavioral");
     }
 

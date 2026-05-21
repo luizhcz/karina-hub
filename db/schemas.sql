@@ -191,8 +191,8 @@ CREATE TABLE IF NOT EXISTS aihub.agent_approval_history (
     CONSTRAINT "PK_agent_approval_history" PRIMARY KEY ("Id"),
     CONSTRAINT "CK_agent_approval_history_Action"
         CHECK ("Action" IN ('Submitted', 'Resubmitted', 'Approved', 'Rejected', 'AutoApproved', 'AdminOverride')),
-    -- 'TypeBypass' permanece aceito apenas pra leitura de registros históricos
-    -- pré-paridade do Router; nenhum código novo produz esse tier.
+    -- 'TypeBypass' fica aceito apenas como valor histórico de auditoria;
+    -- nenhum produtor ativo escreve esse tier.
     CONSTRAINT "CK_agent_approval_history_Tier"
         CHECK ("Tier" IS NULL OR "Tier" IN ('Cosmetic', 'Behavioral', 'TypeBypass'))
 );
