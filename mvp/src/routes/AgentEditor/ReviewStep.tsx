@@ -366,7 +366,7 @@ function ConversationalPreview({ form }: ConversationalPreviewProps) {
       <CardHeader
         title="Modelo pré definido enviado ao LLM"
         description={
-          'Contrato exato que o modelo recebe no response_format. Toda resposta vai bater nesse shape.'
+          'Garanta que as respostas de texto do modelo estejam em conformidade com um esquema JSON definido por você.'
         }
       />
       <pre className="m-0 max-h-72 overflow-auto rounded-lg border border-border bg-bg-soft px-3 py-2 font-mono text-[11px] leading-snug text-fg">
