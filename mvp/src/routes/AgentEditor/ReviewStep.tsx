@@ -18,12 +18,10 @@ import { ToolCallExample } from './preview/ToolCallExample'
 
 interface ReviewStepProps {
   form: FormState
-  setForm: (mutator: (prev: FormState) => FormState) => void
   tools: GenericTool[]
-  readonly: boolean
 }
 
-export function ReviewStep({ form, setForm, tools, readonly }: ReviewStepProps) {
+export function ReviewStep({ form, tools }: ReviewStepProps) {
   const includeStructured = form.agentMode === 'advanced'
   const inputForCodec = form.input.mode === 'structured' ? form.input : { description: '', schema: '' }
   const outputForCodec = form.output.mode === 'structured' ? form.output : { description: '', schema: '' }
@@ -79,18 +77,6 @@ export function ReviewStep({ form, setForm, tools, readonly }: ReviewStepProps) 
       )}
 
       {form.type === 'Conversational' && <ConversationalPreview form={form} />}
-
-      <SecurityReviewCard
-        enabled={form.security.enabled}
-        type={form.type}
-        disabled={readonly}
-        onToggle={() =>
-          setForm((prev) => ({
-            ...prev,
-            security: { ...prev.security, enabled: !prev.security.enabled },
-          }))
-        }
-      />
 
       <Card className="space-y-4">
         <CardHeader
@@ -420,59 +406,6 @@ function ConversationalPreview({ form }: ConversationalPreviewProps) {
             ))}
           </ul>
         )}
-      </div>
-    </Card>
-  )
-}
-
-interface SecurityReviewCardProps {
-  enabled: boolean
-  type: FormState['type']
-  disabled: boolean
-  onToggle: () => void
-}
-
-// Card permanente de Segurança no Review. Diferente do SecurityBanner (que é
-// reativo e pode passar despercebido quando ativo), este sempre aparece com
-// estado on/off + toggle inline + hint específico pelo tipo do agente —
-// crítico pro Router que não tem step próprio de Segurança no Stepper.
-function SecurityReviewCard({ enabled, type, disabled, onToggle }: SecurityReviewCardProps) {
-  const description =
-    type === 'Router'
-      ? 'Router classifica e devolve label estruturada — output não vai pro usuário, então o vetor de prompt injection é menor. Ative se o input vem de canal hostil e quer proteção extra; do contrário, manter desligado economiza ~300 tokens/chamada.'
-      : 'Adiciona política de sistema fixa: trata input do usuário como dado (não instrução), bloqueia troca de persona, recusa pedidos fora do escopo e impede vazamento de instruções/identificadores. Custo ~300 tokens por chamada.'
-
-  return (
-    <Card className="space-y-3">
-      <CardHeader
-        title="Guardrails de segurança"
-        description={description}
-        actions={
-          <Badge tone={enabled ? 'success' : 'neutral'}>
-            {enabled ? 'Ativos' : 'Desligados'}
-          </Badge>
-        }
-      />
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-bg-soft px-3 py-2.5">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-fg">
-            {enabled
-              ? 'Guardrails ativos — agente bloqueia prompt injection e respostas fora do escopo.'
-              : 'Sem guardrails — agente segue apenas o perfil declarado.'}
-          </p>
-          <p className="mt-0.5 text-[11px] text-fg-muted">
-            Política fixa da plataforma; texto não é editável.
-          </p>
-        </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onToggle}
-          disabled={disabled}
-          className="shrink-0"
-        >
-          {enabled ? 'Desativar' : 'Ativar'}
-        </Button>
       </div>
     </Card>
   )

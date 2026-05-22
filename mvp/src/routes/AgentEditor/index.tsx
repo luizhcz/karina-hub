@@ -200,14 +200,25 @@ export function AgentEditor({ mode }: Props) {
               ? 'Conversational'
               : 'Custom'
       : 'Custom'
-  const [form, setForm] = useState<FormState>(() => ({
-    // Router/Custom/Conversational pulam o step "Tipo" — já foi escolhido no
-    // modal — e entram direto em Perfil/Intenções/Identificação.
-    ...emptyFormState(),
-    agentMode: initialMode,
-    type: initialType,
-    currentStep: 'profile',
-  }))
+  const [form, setForm] = useState<FormState>(() => {
+    const base = emptyFormState()
+    // Conversational basic exige guardrail sempre ligado — agente fala
+    // direto com o usuário, vetor de prompt injection é alto e o step
+    // Segurança fica oculto. Avançado expõe o toggle.
+    const security =
+      initialType === 'Conversational' && initialMode === 'basic'
+        ? { ...base.security, enabled: true }
+        : base.security
+    return {
+      // Router/Custom/Conversational pulam o step "Tipo" — já foi escolhido no
+      // modal — e entram direto em Perfil/Intenções/Identificação.
+      ...base,
+      security,
+      agentMode: initialMode,
+      type: initialType,
+      currentStep: 'profile',
+    }
+  })
   const [draft, setDraft] = useState<AgentDraft | null>(null)
   const [loading, setLoading] = useState(mode === 'edit')
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -462,13 +473,21 @@ export function AgentEditor({ mode }: Props) {
         next === 'basic' && prev.memory.enabled
           ? { ...prev.memory, enabled: false }
           : prev.memory
-      // Mesma lógica do toggle de memória: o step de Segurança só aparece em
-      // advanced; descer pra basic desliga o middleware pra evitar config
-      // ativa que o user não vê na UI.
-      const nextSecurity =
-        next === 'basic' && prev.security.enabled
-          ? { ...prev.security, enabled: false }
-          : prev.security
+      // Conversational basic exige guardrail sempre ligado — o agente fala
+      // direto com o usuário e o vetor de prompt injection é alto. Pra
+      // desligar, troca pra advanced (que expõe o step Segurança). Os
+      // demais tipos desligam ao descer pra basic.
+      const nextSecurity = (() => {
+        if (next === 'basic') {
+          if (prev.type === 'Conversational') {
+            return { ...prev.security, enabled: true }
+          }
+          return prev.security.enabled
+            ? { ...prev.security, enabled: false }
+            : prev.security
+        }
+        return prev.security
+      })()
       return {
         ...prev,
         agentMode: next,
@@ -948,7 +967,7 @@ export function AgentEditor({ mode }: Props) {
           />
         )}
         {form.currentStep === 'review' && (
-          <ReviewStep form={form} setForm={setForm} tools={tools} readonly={readonly} />
+          <ReviewStep form={form} tools={tools} />
         )}
       </div>
 
