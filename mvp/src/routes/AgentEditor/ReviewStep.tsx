@@ -347,15 +347,63 @@ function buildConversationalCanonicalSchema(
   }
 }
 
-// Preview do Conversational no Review: mostra o nome do cartão (info
-// exclusiva do tipo), os dados que ele preenche a cada resposta E o JSON
-// Schema completo que vai pro LLM via response_format. A descrição em
-// markdown já aparece renderizada no card "Prompt do agente" logo abaixo;
-// aqui concentramos no contrato canônico que o modelo enxerga.
+// Resumo dos campos top-level do output sub-schema pra view visual. Devolve
+// null quando o schema é JSON inválido — UI mostra warning.
+interface OutputFieldSummary {
+  name: string
+  typeLabel: string
+  required: boolean
+}
+function summarizeOutputFields(rawSchema: string): OutputFieldSummary[] | null {
+  const trimmed = rawSchema.trim()
+  if (!trimmed) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(trimmed)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const obj = parsed as Record<string, unknown>
+  const props = obj.properties
+  if (!props || typeof props !== 'object' || Array.isArray(props)) return []
+  const requiredArr = Array.isArray(obj.required)
+    ? (obj.required as unknown[]).filter((r): r is string => typeof r === 'string')
+    : []
+  const requiredSet = new Set(requiredArr)
+  const propsObj = props as Record<string, unknown>
+  return Object.entries(propsObj).map(([name, sub]) => {
+    let typeLabel = '—'
+    if (sub && typeof sub === 'object' && !Array.isArray(sub)) {
+      const subObj = sub as Record<string, unknown>
+      const t = subObj.type
+      if (typeof t === 'string') typeLabel = t
+      else if (Array.isArray(t)) typeLabel = t.filter((x) => x !== 'null').join('|') || '—'
+      if (t === 'array') {
+        const items = subObj.items as Record<string, unknown> | undefined
+        const itemType = items && typeof items.type === 'string' ? items.type : 'item'
+        typeLabel = `lista de ${itemType}`
+      }
+    }
+    return { name, typeLabel, required: requiredSet.has(name) }
+  })
+}
+
+// Preview do Conversational no Review com duas visões alternáveis:
+//   - "visual" (default): explica em linguagem executiva o que o agente
+//     entrega a cada turno — para o diretor enxergar o contrato sem
+//     precisar ler JSON Schema.
+//   - "schema": o JSON Schema cru que vai pro response_format do LLM —
+//     para PM/dev validar o contrato técnico.
 function ConversationalPreview({ form }: ConversationalPreviewProps) {
+  const [viewMode, setViewMode] = useState<'visual' | 'schema'>('visual')
   const isStructured = form.output.mode === 'structured'
+  const uiComponents = form.conversationalUiComponents
+  const outputFields = isStructured ? summarizeOutputFields(form.output.schema) : []
+  const schemaInvalid = outputFields === null
+  const fieldList = outputFields ?? []
   const canonicalSchema = buildConversationalCanonicalSchema(
-    form.conversationalUiComponents,
+    uiComponents,
     form.output.schema,
     isStructured,
   )
@@ -368,11 +416,126 @@ function ConversationalPreview({ form }: ConversationalPreviewProps) {
         description={
           'Garanta que as respostas de texto do modelo estejam em conformidade com um esquema JSON definido por você.'
         }
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setViewMode((prev) => (prev === 'visual' ? 'schema' : 'visual'))}
+          >
+            {viewMode === 'visual' ? 'Ver JSON Schema' : 'Ver versão visual'}
+          </Button>
+        }
       />
-      <pre className="m-0 max-h-72 overflow-auto rounded-lg border border-border bg-bg-soft px-3 py-2 font-mono text-[11px] leading-snug text-fg">
-        {canonicalSchemaJson}
-      </pre>
+
+      {viewMode === 'schema' ? (
+        <pre className="m-0 max-h-72 overflow-auto rounded-lg border border-border bg-bg-soft px-3 py-2 font-mono text-[11px] leading-snug text-fg">
+          {canonicalSchemaJson}
+        </pre>
+      ) : (
+        <ConversationalVisualPreview
+          uiComponents={uiComponents}
+          isStructured={isStructured}
+          schemaInvalid={schemaInvalid}
+          fields={fieldList}
+        />
+      )}
     </Card>
+  )
+}
+
+interface ConversationalVisualPreviewProps {
+  uiComponents: string[]
+  isStructured: boolean
+  schemaInvalid: boolean
+  fields: OutputFieldSummary[]
+}
+
+// Versão "executiva" do contrato — sem JSON, sem schema. Três blocos
+// representando os três campos que o agente preenche a cada resposta:
+// mensagem (sempre presente), cartão visual (escolhido entre opções) e
+// dados anexos (quando o output é estruturado).
+function ConversationalVisualPreview({
+  uiComponents,
+  isStructured,
+  schemaInvalid,
+  fields,
+}: ConversationalVisualPreviewProps) {
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            💬
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Mensagem para o usuário</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          Texto curto em PT-BR que aparece no chat. Sempre presente em toda resposta do agente.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            🎨
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Visual escolhido</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          A cada resposta, o agente escolhe exatamente um dos visuais abaixo.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2 pl-9">
+          {uiComponents.length === 0 ? (
+            <Badge tone="neutral">
+              <code className="font-mono text-[11px]">text</code>
+            </Badge>
+          ) : (
+            uiComponents.map((value) => (
+              <Badge key={value} tone="accent">
+                <code className="font-mono text-[11px]">{value}</code>
+              </Badge>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            📦
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Dados anexos</h4>
+        </div>
+        <div className="mt-2 pl-9">
+          {!isStructured ? (
+            <p className="text-xs text-fg-muted">
+              Resposta em texto livre — agente entrega só a mensagem, sem dados extras.
+            </p>
+          ) : schemaInvalid ? (
+            <p className="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-xs text-warning">
+              Estrutura dos dados inválida — corrija na etapa Output.
+            </p>
+          ) : fields.length === 0 ? (
+            <p className="text-xs text-fg-muted">
+              Nenhum campo definido — agente entrega só a mensagem.
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {fields.map((field) => (
+                <li key={field.name} className="flex items-baseline gap-2 text-xs">
+                  <code className="font-mono text-[11px] text-accent">{field.name}</code>
+                  <span className="text-fg-dim">·</span>
+                  <span className="text-fg-muted">{field.typeLabel}</span>
+                  {field.required && (
+                    <Badge tone="neutral" className="text-[10px]">obrigatório</Badge>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
