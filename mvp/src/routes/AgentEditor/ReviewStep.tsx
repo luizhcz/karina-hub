@@ -290,39 +290,48 @@ interface ConversationalPreviewProps {
   form: FormState
 }
 
-// Descrições espelham as constantes do backend (AgentTemplateService.cs):
-// UiComponentDescription + MessageDescription. Manter sincronizado quando o
-// template for renomeado/reescrito — schema mostrado aqui ≡ schema gravado.
-const CONVERSATIONAL_UI_COMPONENT_DESCRIPTION =
-  'Identificador do componente UI que o frontend deve renderizar pra esta resposta.'
+// Descrições espelham as constantes do backend (AgentTemplateService.cs).
+// Manter sincronizado — schema mostrado aqui ≡ schema gravado/enviado ao LLM.
+const CONVERSATIONAL_OUTPUT_TYPE_DESCRIPTION =
+  'Família de renderer que o frontend deve usar pra esta resposta. Valor único definido pelo agente.'
+const CONVERSATIONAL_OUTPUT_STATUS_DESCRIPTION =
+  'Variação de status dentro do output_type. Valor escolhido entre as opções configuradas pelo agente.'
 const CONVERSATIONAL_MESSAGE_DESCRIPTION =
   'Texto humano em PT-BR pro usuário — curto, claro, direto.'
 
-// Reproduz o wrap canônico { ui_component, message, output } que o backend
-// monta via AgentTemplateService.BuildCanonicalSchema. Pra Review ficar
-// transparente — o PM/dev vê exatamente o JSON Schema que entra no
-// response_format do LLM.
+// Reproduz o wrap canônico { output_type, output_status, message, output? }
+// que o backend monta via AgentTemplateService.BuildCanonicalSchema. Defaults
+// alinhados (text + ["default"]) pra que basic mode mostre o schema final
+// mesmo sem o user configurar os campos.
 function buildConversationalCanonicalSchema(
-  uiComponents: string[],
+  outputType: string,
+  outputStatuses: string[],
   outputSchemaJson: string,
   isStructured: boolean,
 ): Record<string, unknown> {
-  const uiComponentProp: Record<string, unknown> = {
-    type: 'string',
-    description: CONVERSATIONAL_UI_COMPONENT_DESCRIPTION,
-  }
-  if (uiComponents.length > 0) {
-    uiComponentProp.enum = uiComponents
-  }
+  const sanitizedType = outputType.trim().length > 0 ? outputType.trim() : 'text'
+  const sanitizedStatuses = outputStatuses
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  const finalStatuses = sanitizedStatuses.length > 0 ? sanitizedStatuses : ['default']
 
   const properties: Record<string, unknown> = {
-    ui_component: uiComponentProp,
+    output_type: {
+      type: 'string',
+      description: CONVERSATIONAL_OUTPUT_TYPE_DESCRIPTION,
+      enum: [sanitizedType],
+    },
+    output_status: {
+      type: 'string',
+      description: CONVERSATIONAL_OUTPUT_STATUS_DESCRIPTION,
+      enum: finalStatuses,
+    },
     message: {
       type: 'string',
       description: CONVERSATIONAL_MESSAGE_DESCRIPTION,
     },
   }
-  const required = ['ui_component', 'message']
+  const required = ['output_type', 'output_status', 'message']
 
   if (isStructured) {
     const trimmed = outputSchemaJson.trim()
@@ -398,12 +407,19 @@ function summarizeOutputFields(rawSchema: string): OutputFieldSummary[] | null {
 function ConversationalPreview({ form }: ConversationalPreviewProps) {
   const [viewMode, setViewMode] = useState<'visual' | 'schema'>('visual')
   const isStructured = form.output.mode === 'structured'
-  const uiComponents = form.conversationalUiComponents
+  const outputType = form.conversationalOutputType.trim().length > 0
+    ? form.conversationalOutputType.trim()
+    : 'text'
+  const outputStatuses = form.conversationalOutputStatuses
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  const effectiveStatuses = outputStatuses.length > 0 ? outputStatuses : ['default']
   const outputFields = isStructured ? summarizeOutputFields(form.output.schema) : []
   const schemaInvalid = outputFields === null
   const fieldList = outputFields ?? []
   const canonicalSchema = buildConversationalCanonicalSchema(
-    uiComponents,
+    outputType,
+    outputStatuses,
     form.output.schema,
     isStructured,
   )
@@ -433,7 +449,8 @@ function ConversationalPreview({ form }: ConversationalPreviewProps) {
         </pre>
       ) : (
         <ConversationalVisualPreview
-          uiComponents={uiComponents}
+          outputType={outputType}
+          outputStatuses={effectiveStatuses}
           isStructured={isStructured}
           schemaInvalid={schemaInvalid}
           fields={fieldList}
@@ -444,24 +461,62 @@ function ConversationalPreview({ form }: ConversationalPreviewProps) {
 }
 
 interface ConversationalVisualPreviewProps {
-  uiComponents: string[]
+  outputType: string
+  outputStatuses: string[]
   isStructured: boolean
   schemaInvalid: boolean
   fields: OutputFieldSummary[]
 }
 
-// Versão "executiva" do contrato — sem JSON, sem schema. Três blocos
-// representando os três campos que o agente preenche a cada resposta:
-// mensagem (sempre presente), cartão visual (escolhido entre opções) e
-// dados anexos (quando o output é estruturado).
+// Versão "executiva" do contrato — sem JSON, sem schema. Blocos representando
+// os campos que o agente preenche a cada resposta: tipo do cartão (fixo),
+// status escolhido (entre opções), mensagem (sempre presente) e dados
+// anexos (quando o output é estruturado).
 function ConversationalVisualPreview({
-  uiComponents,
+  outputType,
+  outputStatuses,
   isStructured,
   schemaInvalid,
   fields,
 }: ConversationalVisualPreviewProps) {
   return (
     <div className="space-y-3">
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            🧩
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Tipo do cartão</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          Família de renderer fixa do agente — o front sabe qual cartão desenhar.
+        </p>
+        <div className="mt-2 pl-9">
+          <Badge tone="accent">
+            <code className="font-mono text-[11px]">{outputType}</code>
+          </Badge>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            🎯
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Status escolhido</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          A cada resposta, o agente escolhe exatamente um dos status abaixo.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2 pl-9">
+          {outputStatuses.map((value) => (
+            <Badge key={value} tone="neutral">
+              <code className="font-mono text-[11px]">{value}</code>
+            </Badge>
+          ))}
+        </div>
+      </div>
+
       <div className="rounded-lg border border-border bg-bg-soft p-3">
         <div className="flex items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
@@ -472,31 +527,6 @@ function ConversationalVisualPreview({
         <p className="mt-2 pl-9 text-xs text-fg-muted">
           Texto curto em PT-BR que aparece no chat. Sempre presente em toda resposta do agente.
         </p>
-      </div>
-
-      <div className="rounded-lg border border-border bg-bg-soft p-3">
-        <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
-            🎨
-          </span>
-          <h4 className="text-sm font-semibold text-fg">Visual escolhido</h4>
-        </div>
-        <p className="mt-2 pl-9 text-xs text-fg-muted">
-          A cada resposta, o agente escolhe exatamente um dos visuais abaixo.
-        </p>
-        <div className="mt-2 flex flex-wrap gap-2 pl-9">
-          {uiComponents.length === 0 ? (
-            <Badge tone="neutral">
-              <code className="font-mono text-[11px]">text</code>
-            </Badge>
-          ) : (
-            uiComponents.map((value) => (
-              <Badge key={value} tone="accent">
-                <code className="font-mono text-[11px]">{value}</code>
-              </Badge>
-            ))
-          )}
-        </div>
       </div>
 
       <div className="rounded-lg border border-border bg-bg-soft p-3">

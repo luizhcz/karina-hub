@@ -45,13 +45,21 @@ public sealed class AgentTemplateService : IAgentTemplateService
     private const string ConversationalSchemaName = "ConversationalTurn";
 
     private const string ConversationalSchemaDefaultDescription =
-        "Resposta canônica do Conversational: ui_component (renderer), message (texto), output (payload).";
+        "Resposta canônica do Conversational: output_type (renderer family), output_status (variação), message (texto), output (payload).";
 
-    private const string UiComponentDescription =
-        "Identificador do componente UI que o frontend deve renderizar pra esta resposta.";
+    private const string OutputTypeDescription =
+        "Família de renderer que o frontend deve usar pra esta resposta. Valor único definido pelo agente.";
+
+    private const string OutputStatusDescription =
+        "Variação de status dentro do output_type. Valor escolhido entre as opções configuradas pelo agente.";
 
     private const string MessageDescription =
         "Texto humano em PT-BR pro usuário — curto, claro, direto.";
+
+    // Defaults aplicados quando o agente Conversational não tem as metadata
+    // keys configuradas (basic mode no MVP ou agente seedado sem config).
+    private const string DefaultOutputType = "text";
+    private static readonly IReadOnlyList<string> DefaultOutputStatuses = new[] { "default" };
 
     private const string ResponseFormatBlockHeader = "## Formato da resposta";
 
@@ -153,9 +161,10 @@ public sealed class AgentTemplateService : IAgentTemplateService
     private AgentDefinition ApplyConversational(AgentDefinition def)
     {
         var outputSubSchema = ExtractOutputSubSchema(def.Id, def.StructuredOutput?.Schema);
-        var uiComponents = ReadUiComponents(def.Metadata);
+        var outputType = ReadOutputType(def.Metadata);
+        var outputStatuses = ReadOutputStatuses(def.Metadata);
 
-        var canonicalSchema = BuildCanonicalSchema(uiComponents, outputSubSchema);
+        var canonicalSchema = BuildCanonicalSchema(outputType, outputStatuses, outputSubSchema);
         var structuredOutput = new AgentStructuredOutputDefinition
         {
             ResponseFormat = "json_schema",
@@ -174,19 +183,18 @@ public sealed class AgentTemplateService : IAgentTemplateService
     }
 
     // Desempacota schemas que já chegaram no shape canônico
-    // (ex.: drafts persistidos antes da centralização do template ou re-saves
-    // sucessivos). Quando o schema carrega `properties.{ui_component, message}`
-    // assumimos que o sub-schema do user vive em `properties.output`; sua
-    // ausência indica modo texto livre (sem campo `output`) e devolve null.
+    // (re-saves sucessivos). Reconhece tanto o shape novo
+    // `{output_type, output_status, message, output?}` quanto o legado
+    // `{ui_component, message, output?}` pra que agentes pré-migration
+    // continuem round-trippando até o backfill rodar.
     //
     // CONTRATO IMPORTANTE: agentes com Type=Conversational mas schema custom
-    // sem `ui_component`/`message` em properties (ex.: agentes seedados
+    // sem nenhuma das chaves canônicas em properties (ex.: agentes seedados
     // direto via SQL, importados, ou tipo mal-atribuído) terão o documento
     // INTEIRO tratado como sub-schema do user — o template wrappa em
-    // `{ui_component, message, output: <schema antigo>}` e a semântica
-    // original do agente é alterada silenciosamente. Pra esses casos use
-    // Type=Custom no seed/import; um warning é emitido em runtime pra
-    // facilitar diagnóstico.
+    // `{output_type, output_status, message, output: <schema antigo>}` e a
+    // semântica original do agente é alterada silenciosamente. Pra esses
+    // casos use Type=Custom no seed/import; um warning é emitido em runtime.
     private JsonNode? ExtractOutputSubSchema(string agentId, JsonDocument? schema)
     {
         if (schema is null) return null;
@@ -200,23 +208,26 @@ public sealed class AgentTemplateService : IAgentTemplateService
             return CloneAsNode(root);
         }
 
-        var hasUiComponent = props.TryGetProperty("ui_component", out _);
         var hasMessage = props.TryGetProperty("message", out _);
-        if (hasUiComponent && hasMessage)
+        var hasNewShape = props.TryGetProperty("output_type", out _)
+            && props.TryGetProperty("output_status", out _)
+            && hasMessage;
+        var hasLegacyShape = props.TryGetProperty("ui_component", out _) && hasMessage;
+
+        if (hasNewShape || hasLegacyShape)
         {
-            // Wrap canônico reconhecido. `output` ausente = texto livre legado;
-            // presente = sub-schema do user, desempacotamos.
+            // Wrap canônico reconhecido (novo ou legado). `output` ausente =
+            // texto livre; presente = sub-schema do user, desempacotamos.
             return props.TryGetProperty("output", out var output)
                 ? CloneAsNode(output)
                 : null;
         }
 
-        // Schema custom não bate o shape canônico — Conversational com schema
-        // arbitrário é caso conhecido de tipo mal-atribuído. Emite warning
-        // pra que o operador revise (em prod, aparece no log assim que o
-        // agente passar por Update/Approve).
+        // Schema custom não bate nenhum shape canônico — Conversational com
+        // schema arbitrário é caso conhecido de tipo mal-atribuído. Emite
+        // warning pra que o operador revise.
         _logger.LogWarning(
-            "[AgentTemplate] Agente '{AgentId}' (Conversational) tem schema custom sem 'ui_component'/'message' " +
+            "[AgentTemplate] Agente '{AgentId}' (Conversational) tem schema custom sem 'output_type'/'output_status'/'message' " +
             "em properties — documento inteiro será wrappado como sub-schema do user. " +
             "Se o contrato esperado é diferente, use Type=Custom.",
             agentId);
@@ -226,12 +237,14 @@ public sealed class AgentTemplateService : IAgentTemplateService
     }
 
     private static JsonObject BuildCanonicalSchema(
-        IReadOnlyList<string> uiComponents,
+        string outputType,
+        IReadOnlyList<string> outputStatuses,
         JsonNode? outputSubSchema)
     {
         var properties = new JsonObject
         {
-            ["ui_component"] = BuildUiComponentProperty(uiComponents),
+            ["output_type"] = BuildEnumStringProperty(OutputTypeDescription, new[] { outputType }),
+            ["output_status"] = BuildEnumStringProperty(OutputStatusDescription, outputStatuses),
             ["message"] = new JsonObject
             {
                 ["type"] = "string",
@@ -239,7 +252,7 @@ public sealed class AgentTemplateService : IAgentTemplateService
             },
         };
 
-        var required = new JsonArray { "ui_component", "message" };
+        var required = new JsonArray { "output_type", "output_status", "message" };
         if (outputSubSchema is not null)
         {
             properties["output"] = outputSubSchema;
@@ -255,53 +268,64 @@ public sealed class AgentTemplateService : IAgentTemplateService
         };
     }
 
-    private static JsonObject BuildUiComponentProperty(IReadOnlyList<string> uiComponents)
+    private static JsonObject BuildEnumStringProperty(string description, IReadOnlyList<string> values)
     {
         var prop = new JsonObject
         {
             ["type"] = "string",
-            ["description"] = UiComponentDescription,
+            ["description"] = description,
         };
-        if (uiComponents.Count > 0)
+        if (values.Count > 0)
         {
             var enumArray = new JsonArray();
-            foreach (var value in uiComponents)
-            {
-                enumArray.Add(value);
-            }
+            foreach (var v in values) enumArray.Add(v);
             prop["enum"] = enumArray;
         }
         return prop;
     }
 
-    // Lê e sanitiza a lista de ui_components do metadata. JSON inválido ou
-    // não-array vira lista vazia (caller emite enum sem restrição); items
-    // não-string ou em branco são descartados.
-    private static IReadOnlyList<string> ReadUiComponents(IReadOnlyDictionary<string, string>? metadata)
+    // Lê o output_type do metadata. Default "text" quando ausente, vazio ou
+    // configurado com whitespace.
+    private static string ReadOutputType(IReadOnlyDictionary<string, string>? metadata)
     {
-        if (metadata is null) return Array.Empty<string>();
-        if (!metadata.TryGetValue(AgentDefinition.ConversationalUiComponentsMetadataKey, out var raw))
-        {
-            return Array.Empty<string>();
-        }
-        if (string.IsNullOrWhiteSpace(raw)) return Array.Empty<string>();
+        if (metadata is null) return DefaultOutputType;
+        if (!metadata.TryGetValue(AgentDefinition.ConversationalOutputTypeMetadataKey, out var raw))
+            return DefaultOutputType;
+        var trimmed = (raw ?? string.Empty).Trim();
+        return trimmed.Length == 0 ? DefaultOutputType : trimmed;
+    }
+
+    // Lê a lista de output_statuses do metadata. Fallback pra chave legada
+    // (x-conversational-ui-components) enquanto a migration 011 não rodar em
+    // todos os ambientes. Lista vazia/inválida vira o default ["default"].
+    private static IReadOnlyList<string> ReadOutputStatuses(IReadOnlyDictionary<string, string>? metadata)
+    {
+        if (metadata is null) return DefaultOutputStatuses;
+        var raw = metadata.TryGetValue(AgentDefinition.ConversationalOutputStatusesMetadataKey, out var primary)
+            ? primary
+#pragma warning disable CS0618 // Type or member is obsolete — leitura legacy intencional pra BC.
+            : metadata.TryGetValue(AgentDefinition.ConversationalUiComponentsMetadataKey, out var legacy)
+                ? legacy
+                : null;
+#pragma warning restore CS0618
+        if (string.IsNullOrWhiteSpace(raw)) return DefaultOutputStatuses;
 
         try
         {
             using var doc = JsonDocument.Parse(raw);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array) return Array.Empty<string>();
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return DefaultOutputStatuses;
             var list = new List<string>();
             foreach (var item in doc.RootElement.EnumerateArray())
             {
                 if (item.ValueKind != JsonValueKind.String) continue;
                 var s = item.GetString();
-                if (!string.IsNullOrWhiteSpace(s)) list.Add(s);
+                if (!string.IsNullOrWhiteSpace(s)) list.Add(s.Trim());
             }
-            return list;
+            return list.Count == 0 ? DefaultOutputStatuses : list;
         }
         catch (JsonException)
         {
-            return Array.Empty<string>();
+            return DefaultOutputStatuses;
         }
     }
 

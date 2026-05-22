@@ -58,13 +58,14 @@ public class AgentTemplateServiceTests
         root.GetProperty("type").GetString().Should().Be("object");
         root.GetProperty("additionalProperties").GetBoolean().Should().BeFalse();
         var props = root.GetProperty("properties");
-        props.TryGetProperty("ui_component", out _).Should().BeTrue();
+        props.TryGetProperty("output_type", out _).Should().BeTrue();
+        props.TryGetProperty("output_status", out _).Should().BeTrue();
         props.TryGetProperty("message", out _).Should().BeTrue();
         props.TryGetProperty("output", out var output).Should().BeTrue();
         output.GetProperty("properties").GetProperty("ticker").GetProperty("type").GetString()
             .Should().Be("string");
         root.GetProperty("required").EnumerateArray().Select(e => e.GetString()).Should()
-            .BeEquivalentTo(new[] { "ui_component", "message", "output" });
+            .BeEquivalentTo(new[] { "output_type", "output_status", "message", "output" });
     }
 
     [Fact]
@@ -76,11 +77,12 @@ public class AgentTemplateServiceTests
 
         var root = result.StructuredOutput!.Schema!.RootElement;
         var props = root.GetProperty("properties");
-        props.TryGetProperty("ui_component", out _).Should().BeTrue();
+        props.TryGetProperty("output_type", out _).Should().BeTrue();
+        props.TryGetProperty("output_status", out _).Should().BeTrue();
         props.TryGetProperty("message", out _).Should().BeTrue();
         props.TryGetProperty("output", out _).Should().BeFalse();
         root.GetProperty("required").EnumerateArray().Select(e => e.GetString()).Should()
-            .BeEquivalentTo(new[] { "ui_component", "message" });
+            .BeEquivalentTo(new[] { "output_type", "output_status", "message" });
     }
 
     [Fact]
@@ -209,36 +211,64 @@ public class AgentTemplateServiceTests
     }
 
     [Fact]
-    public void Apply_Conversational_AplicaEnumDeUiComponentsDoMetadata()
+    public void Apply_Conversational_AplicaEnumDeOutputStatusDoMetadata()
     {
+        var def = NewConversational(metadata: new Dictionary<string, string>
+        {
+            [AgentDefinition.ConversationalOutputTypeMetadataKey] = "boleta",
+            [AgentDefinition.ConversationalOutputStatusesMetadataKey] = "[\"nova\",\"confirmada\"]",
+        });
+
+        var result = Service.Apply(def);
+
+        var properties = result.StructuredOutput!.Schema!.RootElement.GetProperty("properties");
+        properties.GetProperty("output_type").GetProperty("enum").EnumerateArray()
+            .Select(e => e.GetString()).ToArray()
+            .Should().BeEquivalentTo(new[] { "boleta" });
+        properties.GetProperty("output_status").GetProperty("enum").EnumerateArray()
+            .Select(e => e.GetString()).ToArray()
+            .Should().BeEquivalentTo(new[] { "nova", "confirmada" });
+    }
+
+    [Fact]
+    public void Apply_Conversational_MetadataOutputStatusesInvalido_CaiNoDefault()
+    {
+        var def = NewConversational(metadata: new Dictionary<string, string>
+        {
+            [AgentDefinition.ConversationalOutputStatusesMetadataKey] = "nao-eh-json-array",
+        });
+
+        var result = Service.Apply(def);
+
+        var properties = result.StructuredOutput!.Schema!.RootElement.GetProperty("properties");
+        // Default "text" pra output_type quando metadata key ausente.
+        properties.GetProperty("output_type").GetProperty("enum").EnumerateArray()
+            .Select(e => e.GetString()).ToArray()
+            .Should().BeEquivalentTo(new[] { "text" });
+        // Default ["default"] pra output_status quando lista inválida.
+        properties.GetProperty("output_status").GetProperty("enum").EnumerateArray()
+            .Select(e => e.GetString()).ToArray()
+            .Should().BeEquivalentTo(new[] { "default" });
+    }
+
+    [Fact]
+    public void Apply_Conversational_LegadoUiComponents_FallbackPraOutputStatus()
+    {
+        // Migration 011 deve mover x-conversational-ui-components → output-statuses,
+        // mas até rodar em todos ambientes o template precisa ler como fallback.
+#pragma warning disable CS0618 // legacy key intencional pra cobrir BC
         var def = NewConversational(metadata: new Dictionary<string, string>
         {
             [AgentDefinition.ConversationalUiComponentsMetadataKey] = "[\"text\",\"card\"]",
         });
+#pragma warning restore CS0618
 
         var result = Service.Apply(def);
 
-        var uiComponent = result.StructuredOutput!.Schema!.RootElement
-            .GetProperty("properties").GetProperty("ui_component");
-        var values = uiComponent.GetProperty("enum").EnumerateArray()
-            .Select(e => e.GetString())
-            .ToArray();
-        values.Should().BeEquivalentTo(new[] { "text", "card" });
-    }
-
-    [Fact]
-    public void Apply_Conversational_MetadataUiComponentsInvalido_OmiteEnum()
-    {
-        var def = NewConversational(metadata: new Dictionary<string, string>
-        {
-            [AgentDefinition.ConversationalUiComponentsMetadataKey] = "nao-eh-json-array",
-        });
-
-        var result = Service.Apply(def);
-
-        var uiComponent = result.StructuredOutput!.Schema!.RootElement
-            .GetProperty("properties").GetProperty("ui_component");
-        uiComponent.TryGetProperty("enum", out _).Should().BeFalse();
+        var properties = result.StructuredOutput!.Schema!.RootElement.GetProperty("properties");
+        properties.GetProperty("output_status").GetProperty("enum").EnumerateArray()
+            .Select(e => e.GetString()).ToArray()
+            .Should().BeEquivalentTo(new[] { "text", "card" });
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-import { Card, CardHeader, JsonSchemaBuilder, StringListEditor, Textarea, cn } from '../../ui'
+import { Card, CardHeader, Input, JsonSchemaBuilder, StringListEditor, Textarea, cn } from '../../ui'
 import type { FormState, StructuredSection } from './types'
 
 interface OutputStepProps {
@@ -35,8 +35,9 @@ function ModeCard({ active, title, description, onClick, disabled }: ModeCardPro
   )
 }
 
-const COMPONENT_MAX_LENGTH = 64
-const COMPONENT_MAX_ITEMS = 10
+const STATUS_MAX_LENGTH = 64
+const STATUS_MAX_ITEMS = 10
+const OUTPUT_TYPE_MAX_LENGTH = 64
 
 export function OutputStep({ form, setForm, readonly }: OutputStepProps) {
   const updateOutput = (mutator: (prev: StructuredSection) => StructuredSection) =>
@@ -45,16 +46,26 @@ export function OutputStep({ form, setForm, readonly }: OutputStepProps) {
   const isConversational = form.type === 'Conversational'
   const isStructured = form.output.mode === 'structured'
 
-  const componentValues = form.conversationalUiComponents
-  const setComponentValues = (values: string[]) => {
-    // O codec aplica dedupe + cap + default 'text' no save (encodeConversationalMetadata).
-    // Aqui só repassamos o estado da UI sem mexer na ordem ou em duplicatas
-    // intermediárias — usuário vê o que digitou; backend recebe limpo.
-    setForm((prev) => ({ ...prev, conversationalUiComponents: values }))
+  const setOutputType = (next: string) =>
+    setForm((prev) => ({ ...prev, conversationalOutputType: next }))
+  const setOutputStatuses = (values: string[]) => {
+    // Encoder aplica dedupe + cap + default no save (encodeConversationalMetadata).
+    // Aqui só repassamos o estado da UI — usuário vê o que digitou.
+    setForm((prev) => ({ ...prev, conversationalOutputStatuses: values }))
   }
 
   return (
     <div className="space-y-5">
+      {isConversational && (
+        <ConversationalContractCard
+          outputType={form.conversationalOutputType}
+          onOutputTypeChange={setOutputType}
+          statuses={form.conversationalOutputStatuses}
+          onStatusesChange={setOutputStatuses}
+          readonly={readonly}
+        />
+      )}
+
       <Card className="space-y-3">
         <CardHeader
           title="Tipo de saída"
@@ -89,14 +100,6 @@ export function OutputStep({ form, setForm, readonly }: OutputStepProps) {
           />
         </div>
       </Card>
-
-      {isConversational && isStructured && (
-        <ConversationalComponentCard
-          values={componentValues}
-          onChange={setComponentValues}
-          readonly={readonly}
-        />
-      )}
 
       {isStructured && (
         <>
@@ -150,59 +153,86 @@ export function OutputStep({ form, setForm, readonly }: OutputStepProps) {
   )
 }
 
-interface ConversationalComponentCardProps {
-  values: string[]
-  onChange: (next: string[]) => void
+interface ConversationalContractCardProps {
+  outputType: string
+  onOutputTypeChange: (next: string) => void
+  statuses: string[]
+  onStatusesChange: (next: string[]) => void
   readonly: boolean
 }
 
-// Antes morava num step separado ('component') — fundido aqui pra reduzir
-// o número de etapas do wizard e refletir que componente + output são duas
-// peças do MESMO contrato canônico { ui_component, message, output }. O
-// banner azul reforça que a saída é sempre estruturada pra Conversational.
-function ConversationalComponentCard({ values, onChange, readonly }: ConversationalComponentCardProps) {
-  const count = values.filter((v) => v.trim().length > 0).length
-  const limit = COMPONENT_MAX_ITEMS
+// Contrato canônico do Conversational: output_type (família única do
+// renderer) + output_status (variações). O front consome ambos pra escolher
+// qual cartão desenhar a cada resposta. Mostrado no topo do step pra que o
+// PM declare o contrato antes de detalhar o output.
+function ConversationalContractCard({
+  outputType,
+  onOutputTypeChange,
+  statuses,
+  onStatusesChange,
+  readonly,
+}: ConversationalContractCardProps) {
+  const statusCount = statuses.filter((v) => v.trim().length > 0).length
 
   return (
     <>
       <div className="rounded-lg border border-accent/20 bg-accent/[0.04] p-4 text-sm">
         <h3 className="text-[13px] font-semibold text-fg">Como o agente responde no chat</h3>
         <p className="mt-1 text-[12px] leading-relaxed text-fg-muted">
-          A cada resposta o agente entrega três coisas:{' '}
-          <strong className="text-fg">qual cartão</strong> mostrar pro cliente (escolhe entre os
-          listados abaixo),{' '}
-          <strong className="text-fg">o texto da mensagem</strong> que aparece na bolha do chat,
-          e <strong className="text-fg">os dados</strong> que o cartão precisa pra ser desenhado
-          (você descreve esses dados nos campos abaixo).
+          A cada resposta o agente entrega quatro coisas:{' '}
+          <strong className="text-fg">output_type</strong> (família do cartão — fixa por agente),{' '}
+          <strong className="text-fg">output_status</strong> (variação dentro dessa família —
+          escolhida entre as opções listadas abaixo),{' '}
+          <strong className="text-fg">message</strong> (texto da bolha do chat) e,{' '}
+          opcionalmente,{' '}
+          <strong className="text-fg">output</strong> (dados estruturados pro cartão).
         </p>
       </div>
 
       <Card className="space-y-3">
         <CardHeader
-          title="Cartões possíveis"
+          title="Tipo do cartão (output_type)"
           description={
-            'Liste os visuais que o front pode desenhar (ex.: card_pedido, lista_extratos, alerta_risco). ' +
-            'O agente vai escolher exatamente um deles a cada resposta. ' +
-            'Sem nenhum cartão listado, o agente cai no padrão "text" (só a mensagem do chat).'
+            'String única que identifica a família de renderer no front. ' +
+            'Ex.: boleta, cotacao, alerta_risco. Mantenha estável — trocar o tipo após o front mapear ' +
+            'gera retrabalho.'
           }
         />
-        <div aria-describedby="conversational-component-help">
-          <StringListEditor
-            values={values}
-            onChange={readonly ? () => {} : onChange}
-            itemPlaceholder="card_pedido"
-            emptyHint="Nenhum cartão listado — o agente vai usar 'text' (só mensagem)."
-            monospace
-            max={limit}
-            maxLength={COMPONENT_MAX_LENGTH}
-          />
-          <p id="conversational-component-help" className="mt-2 text-[11px] text-fg-dim">
-            {count > 0
-              ? `O chat vai escolher um entre ${count} cartões a cada resposta.`
-              : 'Sem cartões listados, o agente sempre responde com o padrão "text".'}
-          </p>
-        </div>
+        <Input
+          value={outputType}
+          onChange={(e) => onOutputTypeChange(e.target.value)}
+          placeholder="text"
+          maxLength={OUTPUT_TYPE_MAX_LENGTH}
+          monospace
+          disabled={readonly}
+        />
+        <p className="text-[11px] text-fg-dim">
+          Vazio cai pro padrão <code className="font-mono">text</code> (resposta só em texto).
+        </p>
+      </Card>
+
+      <Card className="space-y-3">
+        <CardHeader
+          title="Status possíveis (output_status)"
+          description={
+            'Lista as variações de estado que o agente pode emitir dentro do output_type acima. ' +
+            'Ex.: nova, confirmada, erro, cancelada. O LLM escolhe exatamente um a cada resposta.'
+          }
+        />
+        <StringListEditor
+          values={statuses}
+          onChange={readonly ? () => {} : onStatusesChange}
+          itemPlaceholder="default"
+          emptyHint='Nenhum status listado — o agente vai usar "default".'
+          monospace
+          max={STATUS_MAX_ITEMS}
+          maxLength={STATUS_MAX_LENGTH}
+        />
+        <p className="text-[11px] text-fg-dim">
+          {statusCount > 0
+            ? `O chat vai escolher um entre ${statusCount} status${statusCount === 1 ? '' : 'es'} a cada resposta.`
+            : 'Sem statuses listados, o agente sempre responde com o status "default".'}
+        </p>
       </Card>
     </>
   )

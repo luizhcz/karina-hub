@@ -71,18 +71,25 @@ export interface FormState {
    */
   toolRunnerHitlRequired: boolean
   /**
-   * Lista canônica de valores válidos de `ui_component` no schema fixo
-   * do Conversational. Persistido como JSON array em
-   * payload.metadata['x-conversational-ui-components']. O codec injeta
-   * como enum no schema { ui_component, message, output }; frontend
-   * renderer consome pra dirigir o switch (ou cair pra fallback).
+   * Família de renderer do Conversational — string única que vira enum
+   * de 1 elemento em `output_type` no schema canônico. Persistido em
+   * payload.metadata['x-conversational-output-type']. Default "text"
+   * pra basic mode; advanced pode customizar.
+   */
+  conversationalOutputType: string
+  /**
+   * Lista canônica de variações de status (substituiu o antigo
+   * ui_components). Persistida como JSON array em
+   * payload.metadata['x-conversational-output-statuses']. O codec
+   * injeta como enum em `output_status`; frontend chat usa pra escolher
+   * a variação dentro da família output_type.
    * Vazio quando type !== 'Conversational'.
    *
    * Persona / papel / objetivo / contexto vivem em <c>profile</c> como
    * markdown integral — o codec apenas anexa blocos auto-gerados
    * (tools/structured/formato) sem decompor o profile.
    */
-  conversationalUiComponents: string[]
+  conversationalOutputStatuses: string[]
   predefinedModelId: string
   /**
    * Perfil do agente em markdown raw. O usuário escreve livremente no

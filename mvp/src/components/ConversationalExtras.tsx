@@ -17,22 +17,33 @@ export function TypingDots() {
 }
 
 /**
- * Chip compacto que exibe o renderer escolhido pelo Conversational
- * (campo <c>ui_component</c>). Aparece no header da bolha de chat — sinaliza
+ * Chip compacto que exibe o contrato canônico do Conversational —
+ * <c>output_type</c> (família do renderer) + <c>output_status</c> (variação)
+ * separados por dois pontos. Aparece no header da bolha de chat — sinaliza
  * pro user que o agente decidiu uma forma específica de exibição, mesmo
- * quando a UI ainda cai no fallback de texto.
+ * quando a UI ainda cai no fallback de texto. Status nulo (legado ou ausente)
+ * é omitido — exibe só o type.
  */
-export function UiComponentChip({ value, className }: { value: string; className?: string }) {
+export function ConversationalOutputChip({
+  outputType,
+  outputStatus,
+  className,
+}: {
+  outputType: string
+  outputStatus?: string | null
+  className?: string
+}) {
+  const label = outputStatus ? `${outputType}:${outputStatus}` : outputType
   return (
     <span
       className={cn(
         'inline-flex items-center gap-1 rounded-full border border-border bg-bg-soft px-2 py-0.5 text-[10px] font-medium text-fg-muted',
         className,
       )}
-      title="ui_component sugerido pelo agente"
+      title="output_type:output_status escolhido pelo agente"
     >
       <span aria-hidden="true">▦</span>
-      <code className="font-mono text-[10px]">{value}</code>
+      <code className="font-mono text-[10px]">{label}</code>
     </span>
   )
 }
