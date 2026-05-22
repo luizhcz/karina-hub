@@ -461,16 +461,16 @@ public sealed class EvaluationRunnerService : BackgroundService
             return (agentBareClient, agentDefinition.Model.DeploymentName);
         }
 
-        // Resolve API key (secret://aws/... ou literal). Pra AzureFoundry sem
-        // ApiKeyRef o provider usa DefaultAzureCredential — passa null.
-        var secretResolver = sp.GetRequiredService<ISecretResolver>();
+        // Resolve API key (secret://aws/... ou literal) do store in-memory.
+        // Lookup é síncrono; pra AzureFoundry sem ApiKeyRef o provider usa
+        // DefaultAzureCredential (passa null aqui).
+        var secrets = sp.GetRequiredService<IRuntimeSecretStore>();
         string? apiKey = null;
         if (!string.IsNullOrWhiteSpace(meai.ApiKeyRef))
         {
             try
             {
-                apiKey = await secretResolver.ResolveAsync(
-                    meai.ApiKeyRef, SecretContext.Foundry(projectId), ct);
+                apiKey = secrets.Get(meai.ApiKeyRef);
             }
             catch (Exception ex)
             {

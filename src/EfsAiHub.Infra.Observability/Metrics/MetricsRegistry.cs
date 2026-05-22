@@ -114,15 +114,7 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("audit.throttle_lru_evictions_total",
             description: "Entries despejadas da LRU de throttle de audit cross-project.");
 
-    /// <summary>
-    /// Contador de resoluções de secret cross-project (caller != owner do agent).
-    /// Tags: caller, owner. Mostra que a separação de credentials por owner está funcionando.
-    /// </summary>
-    public static readonly Counter<long> SecretCrossProjectResolutions =
-        _meter.CreateCounter<long>("secrets.cross_project_resolutions_total",
-            description: "Resoluções de AWS Secret no contexto do agent owner (cross-project). Tags: caller, owner.");
-
-    /// <summary>
+/// <summary>
     /// Contador de resoluções de pin de AgentVersion. Tags:
     /// strategy=exact (snapshot pinado retornado), propagated (current adotado por
     /// patch propagation), no_pin_unexpected (ref sem pin atinge runtime — divergência
@@ -521,17 +513,27 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("evaluations.runs.reaped",
             description: "Runs Running sem heartbeat há > timeout marcadas Failed pelo reaper.");
 
-    public static readonly Counter<long> SecretsResolutionsTotal =
-        _meter.CreateCounter<long>("secrets.resolutions_total",
-            description: "Resoluções de secret. Tags: scope (global|project|agent|foundry), cache_layer (L1|L2|aws), result (hit|miss|error).");
+    /// <summary>
+    /// Duração total do preload de segredos no boot (varre Bootstrap + projects +
+    /// agents do DB, resolve cada identificador AWS único). Picos sugerem AWS lento
+    /// ou crescimento do dataset.
+    /// </summary>
+    public static readonly Histogram<double> SecretsPreloadDurationMs =
+        _meter.CreateHistogram<double>("secrets.preload_duration_ms", unit: "ms",
+            description: "Duração do preload de segredos no boot.");
 
-    public static readonly Histogram<double> SecretsResolutionLatencyMs =
-        _meter.CreateHistogram<double>("secrets.resolution_latency_ms", unit: "ms",
-            description: "Latência de resolução de secret. Tags: cache_layer (L1|L2|aws).");
+    /// <summary>
+    /// Falhas individuais durante o preload (ResourceNotFound, AccessDenied etc.).
+    /// Boot não é abortado por falha individual — caller que referenciar receberá
+    /// null em runtime e usará sua mensagem própria. Alerta quando &gt; 0.
+    /// </summary>
+    public static readonly Counter<long> SecretsPreloadFailures =
+        _meter.CreateCounter<long>("secrets.preload_failures_total",
+            description: "Identificadores AWS que falharam no preload do boot. Caller recebe null em runtime.");
 
     public static readonly Counter<long> SecretsLiteralDetected =
         _meter.CreateCounter<long>("secrets.literal_detected_total",
-            description: "Valor literal (não-referência) chegou ao resolver. Indica que algum caminho ainda passa credencial em claro.");
+            description: "Valor literal (não-referência) chegou ao runtime store. Indica que algum caminho ainda passa credencial em claro.");
 
     /// <summary>
     /// Invocações de Generic Tools (HTTP genéricas) executadas por agentes. Tags:

@@ -9,16 +9,19 @@ namespace EfsAiHub.Tests.Unit.LlmProviders;
 [Trait("Category", "Unit")]
 public class OpenAiClientProviderTests
 {
-    private sealed class PassthroughResolver : ISecretResolver
+    private sealed class PassthroughStore : IRuntimeSecretStore
     {
-        public Task<string?> ResolveAsync(string? referenceOrLiteral, SecretContext context, CancellationToken ct = default)
-            => Task.FromResult(string.IsNullOrWhiteSpace(referenceOrLiteral) ? null : referenceOrLiteral);
+        // Para os testes, qualquer "referência" não-vazia é devolvida como está
+        // — simula um store onde toda chave caiu no caminho de literal.
+        public int LoadedCount => 0;
+        public string? Get(string? referenceOrLiteral)
+            => string.IsNullOrWhiteSpace(referenceOrLiteral) ? null : referenceOrLiteral;
     }
 
     private static OpenAiClientProvider Build(string? apiKey = "sk-test-key", string defaultModel = "gpt-4o")
     {
         var options = Options.Create(new OpenAIOptions { ApiKey = apiKey, DefaultModel = defaultModel });
-        return new OpenAiClientProvider(options, new PassthroughResolver());
+        return new OpenAiClientProvider(options, new PassthroughStore());
     }
 
     private static AgentDefinition MakeDefinition(

@@ -12,10 +12,11 @@ public class AzureOpenAiClientProviderTests
 {
     private const string ValidEndpoint = "https://my-resource.openai.azure.com";
 
-    private sealed class PassthroughResolver : ISecretResolver
+    private sealed class PassthroughStore : IRuntimeSecretStore
     {
-        public Task<string?> ResolveAsync(string? referenceOrLiteral, SecretContext context, CancellationToken ct = default)
-            => Task.FromResult(string.IsNullOrWhiteSpace(referenceOrLiteral) ? null : referenceOrLiteral);
+        public int LoadedCount => 0;
+        public string? Get(string? referenceOrLiteral)
+            => string.IsNullOrWhiteSpace(referenceOrLiteral) ? null : referenceOrLiteral;
     }
 
     private static AzureOpenAiClientProvider Build(
@@ -28,7 +29,7 @@ public class AzureOpenAiClientProviderTests
             Endpoint = endpoint,
             DefaultDeploymentName = deployment
         });
-        return new AzureOpenAiClientProvider(options, credential ?? Substitute.For<TokenCredential>(), new PassthroughResolver());
+        return new AzureOpenAiClientProvider(options, credential ?? Substitute.For<TokenCredential>(), new PassthroughStore());
     }
 
     private static AgentDefinition MakeDefinition(

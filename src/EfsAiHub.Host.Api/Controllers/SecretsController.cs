@@ -1,7 +1,6 @@
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
 using EfsAiHub.Core.Abstractions.Secrets;
-using EfsAiHub.Infra.Secrets;
 using EfsAiHub.Infra.Secrets.Options;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -12,6 +11,9 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// <summary>
 /// Endpoints administrativos pra gestão de referências do AWS Secrets Manager.
 /// Gateado por AdminGateMiddleware (não está na lista de rotas públicas).
+/// O runtime consome do <see cref="IRuntimeSecretStore"/> in-memory — esses
+/// endpoints existem só pra validação ad-hoc (admin quer confirmar uma ref
+/// antes de cadastrá-la em project/agent settings).
 /// </summary>
 [ApiController]
 [Route("api/aihub/secrets")]
@@ -19,18 +21,15 @@ namespace EfsAiHub.Host.Api.Controllers;
 public class SecretsController : ControllerBase
 {
     private readonly IAmazonSecretsManager _aws;
-    private readonly ISecretCacheService _cache;
     private readonly AwsSecretsOptions _options;
     private readonly ILogger<SecretsController> _logger;
 
     public SecretsController(
         IAmazonSecretsManager aws,
-        ISecretCacheService cache,
         IOptions<AwsSecretsOptions> options,
         ILogger<SecretsController> logger)
     {
         _aws = aws;
-        _cache = cache;
         _options = options.Value;
         _logger = logger;
     }
@@ -81,28 +80,6 @@ public class SecretsController : ControllerBase
             _logger.LogWarning(ex, "[SecretsController] DescribeSecret '{Identifier}' falhou.", aws.Identifier);
             return Ok(new ValidateResponse(false, null, null, ex.Message));
         }
-    }
-
-    [HttpDelete("cache")]
-    [SwaggerOperation(Summary = "Invalida o cache 2-tier (L1+L2) para uma referência específica — usar após rotação no AWS Console")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> InvalidateCache([FromQuery] string reference, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(reference))
-            return BadRequest(new { error = "reference query param is required." });
-
-        var parsed = SecretReference.Parse(reference);
-        if (parsed is not AwsSecretReference aws)
-        {
-            return BadRequest(new
-            {
-                error = $"Invalid AWS reference. Expected prefix '{SecretReference.AwsPrefix}'."
-            });
-        }
-
-        await _cache.InvalidateAsync(aws.Identifier);
-        return NoContent();
     }
 
     public sealed record HealthResponse(bool AwsReachable, string? Error, string? CanaryReference);

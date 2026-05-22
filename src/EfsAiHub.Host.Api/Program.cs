@@ -5,6 +5,8 @@ using EfsAiHub.Host.Api.Extensions;
 using EfsAiHub.Host.Api.Identity;
 using EfsAiHub.Infra.Messaging.Extensions;
 using EfsAiHub.Infra.Persistence.CheckpointStore;
+using EfsAiHub.Core.Abstractions.Secrets;
+using EfsAiHub.Infra.Secrets;
 using EfsAiHub.Infra.Secrets.Configuration;
 using EfsAiHub.Infra.Secrets.Health;
 using EfsAiHub.Platform.Runtime.Interfaces;
@@ -16,8 +18,10 @@ using OpenTelemetry.Trace;
 var builder = WebApplication.CreateBuilder(args);
 
 // Resolve refs em Secrets:Bootstrap contra AWS antes que qualquer outra config
-// seja lida. No-op quando a seção está vazia (ex: dev sem AWS configurado).
-builder.Configuration.AddAwsSecretsBootstrap();
+// seja lida. Retorna o mapa original (config-key → secret://aws/...) que vai
+// alimentar o preload runtime junto com refs de projects/agents do DB.
+// No-op quando a seção está vazia (ex: dev sem AWS configurado).
+var bootstrapMap = builder.Configuration.AddAwsSecretsBootstrap();
 
 var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
     ?? ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"];
@@ -73,8 +77,21 @@ builder.Services.Configure<EfsAiHub.Platform.Runtime.Configuration.GenericToolsO
 // contextual aponta o que precisa ser cadastrado no AWS.
 builder.Services.AddSingleton<TokenCredential, LazyAzureServicePrincipalCredential>();
 
-// ── AWS Secrets Manager (resolver + cache 2-tier) ─────────────────────────────
-builder.Services.AddAwsSecretsManager(builder.Configuration);
+// ── AWS Secrets Manager (boot only) ──────────────────────────────────────────
+// Cliente AWS é Singleton mas só usado durante o preload no boot. Runtime
+// consome do IRuntimeSecretStore (in-memory, sub-microssegundo). Restart é
+// obrigatório pra picking up rotação ou novo project/agent com secret novo.
+builder.Services.AddAwsSecretsManager(builder.Configuration, bootstrapMap);
+builder.Services.AddSingleton<MutableRuntimeSecretStoreHost>();
+builder.Services.AddSingleton<IRuntimeSecretStore>(
+    sp => sp.GetRequiredService<MutableRuntimeSecretStoreHost>());
+
+// Sources varridos no preload (projects + agents). Adicionar source novo aqui
+// quando algum outro lugar do domínio armazenar 'secret://aws/...'.
+builder.Services.AddScoped<ISecretReferenceSource,
+    EfsAiHub.Host.Api.Identity.Secrets.ProjectSecretReferenceSource>();
+builder.Services.AddScoped<ISecretReferenceSource,
+    EfsAiHub.Host.Api.Identity.Secrets.AgentSecretReferenceSource>();
 
 // ── CheckpointStore: InMemory (dev) ou Postgres (produção) ───────────────────
 var engineOptions = builder.Configuration
@@ -237,6 +254,19 @@ builder.Logging.AddOpenTelemetry(o =>
 
 // ─────────────────────────────────────────────────────────────────────────────
 var app = builder.Build();
+
+// Preload eager dos secrets ANTES de qualquer caminho que possa precisar deles.
+// Bloqueante por design — AWS offline ou IAM sem GetSecretValue derrubam o boot
+// (fail-fast operacional). Identificadores individuais que falham viram warning
+// e o caller recebe null em runtime (mensagem própria contextual).
+await RuntimeSecretStoreActivator.PreloadAndRegisterAsync(app.Services);
+{
+    var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+    var store = app.Services.GetRequiredService<IRuntimeSecretStore>();
+    startupLogger.LogInformation(
+        "[SecretsStore] {Count} segredo(s) AWS pré-carregado(s) em memória. Runtime não bate mais no Secrets Manager.",
+        store.LoadedCount);
+}
 
 app.RegisterAtivoExecutors();
 app.RegisterRedemptionTools();
