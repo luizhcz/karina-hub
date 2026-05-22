@@ -288,10 +288,21 @@ public sealed class AgUiSseHandler
             if (envelope.SequenceId > 0)
                 lastSequenceId = envelope.SequenceId;
 
+            // Um envelope do bus pode gerar N eventos AG-UI (ex.: node_completed →
+            // STEP_FINISHED + CUSTOM + TEXT_MESSAGE_*). O 'id:' SSE marca posição
+            // de retomada (last-event-id), não identificador único — emitimos
+            // só no ÚLTIMO evento do lote pra evitar id duplicado em frames
+            // consecutivos (clientes que dedupam por id em runtime descartam
+            // os demais). Eventos intermediários saem sem 'id:'.
             var agUiEvents = _mapper.Map(envelope, runId, threadId);
-
-            foreach (var evt in agUiEvents)
-                yield return evt with { BusSequenceId = lastSequenceId };
+            for (var i = 0; i < agUiEvents.Count; i++)
+            {
+                var isLast = i == agUiEvents.Count - 1;
+                yield return agUiEvents[i] with
+                {
+                    BusSequenceId = isLast ? lastSequenceId : 0L
+                };
+            }
         }
     }
 
