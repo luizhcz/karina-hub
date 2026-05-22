@@ -177,10 +177,13 @@ public sealed class AgentTemplateService : IAgentTemplateService
             Schema = JsonDocumentFromNode(canonicalSchema),
         };
 
-        var instructions = EnsureResponseFormatBlock(def.Instructions);
+        // Instructions/AuthorInstructions ficam intactos aqui — o bloco
+        // "## Formato da resposta" é injetado em compose-time pelo PromptRenderer
+        // (mesmo pattern de intents/skills/worker scope). Manter o template
+        // service como source-of-truth só do schema + middleware.
         var middlewares = EnsureStructuredOutputStateMiddleware(def.Middlewares);
 
-        return CopyWith(def, instructions, structuredOutput, middlewares);
+        return CopyWith(def, def.Instructions, structuredOutput, middlewares);
     }
 
     // Desempacota schemas que já chegaram no shape canônico
@@ -419,6 +422,7 @@ public sealed class AgentTemplateService : IAgentTemplateService
             RouterIntentIds = source.RouterIntentIds,
             Model = source.Model,
             Provider = source.Provider,
+            AuthorInstructions = source.AuthorInstructions,
             Instructions = instructions,
             Tools = source.Tools,
             StructuredOutput = structuredOutput,

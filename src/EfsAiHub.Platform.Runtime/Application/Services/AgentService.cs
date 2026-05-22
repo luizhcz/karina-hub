@@ -815,12 +815,12 @@ public class AgentService : IAgentService
     }
 
     /// <summary>
-    /// Conversational tem invariante hard: <c>StructuredOutput</c> é
-    /// obrigatório com shape canônico <c>{ ui_component, message, output }</c>.
-    /// O codec de save sempre injeta esse shape; aqui validamos que o
+    /// Conversational tem invariante hard: <c>StructuredOutput</c> é obrigatório
+    /// com shape canônico <c>{ output_type, output_status, message, output? }</c>.
+    /// O template service injeta esse shape no save; aqui validamos que o
     /// payload chegou consistente. Demais expectativas (modelo balanced,
     /// MaxTokens razoável, SecurityGuardrails on, lista de
-    /// <c>ui_component</c> declarada) são warnings soft.
+    /// <c>output_status</c> declarada) são warnings soft.
     /// </summary>
     private static void ValidateConversational(
         AgentDefinition definition,
@@ -834,24 +834,25 @@ public class AgentService : IAgentService
         {
             errors.Add(
                 "Conversational precisa de 'structuredOutput' com responseFormat='json_schema' e schema " +
-                "preenchido — o agente responde sempre em JSON com 'ui_component' e 'message' top-level.");
+                "preenchido — o agente responde sempre em JSON com 'output_type', 'output_status' e 'message' top-level.");
         }
         else
         {
-            // O template do tipo Conversational é a fonte da verdade do shape
-            // canônico — `ui_component` e `message` são sempre exigidos;
-            // `output` é opcional e só aparece quando o caller declara o
-            // sub-schema (modo estruturado). Sem o sub-schema o turn é texto
-            // livre acompanhado do identificador do componente UI.
+            // Shape canônico atual (pós split ui_component → output_type +
+            // output_status): top-level exige output_type (família única do
+            // renderer), output_status (variação dentro da família) e message
+            // (texto humano). output é opcional e só aparece quando o caller
+            // declara o sub-schema (modo estruturado).
             var root = so.Schema.RootElement;
             if (root.ValueKind != JsonValueKind.Object
                 || !root.TryGetProperty("properties", out var props)
                 || props.ValueKind != JsonValueKind.Object
-                || !props.TryGetProperty("ui_component", out _)
+                || !props.TryGetProperty("output_type", out _)
+                || !props.TryGetProperty("output_status", out _)
                 || !props.TryGetProperty("message", out _))
             {
                 errors.Add(
-                    "Schema de Conversational precisa declarar 'ui_component' e 'message' como " +
+                    "Schema de Conversational precisa declarar 'output_type', 'output_status' e 'message' como " +
                     "propriedades top-level. Reabra o agente no wizard pra regenerar o shape canônico.");
             }
         }
@@ -889,24 +890,25 @@ public class AgentService : IAgentService
                 "mitigar prompt injection ('esqueça regras', 'finja ser outro agente', etc.).");
         }
 
-        // Lista de ui_component declarados vive em
-        // metadata['x-conversational-ui-components'] como JSON array. Vazio ou
-        // ausente = enum sem restrição no schema, com warning soft.
-        var uiComponentsRaw = definition.Metadata is { } md
-            && md.TryGetValue(AgentDefinition.ConversationalUiComponentsMetadataKey, out var raw)
+        // Lista de output_status declarados vive em
+        // metadata['x-conversational-output-statuses'] como JSON array. Vazio ou
+        // ausente = enum sem restrição no schema (cai pro default ["default"]),
+        // com warning soft.
+        var statusesRaw = definition.Metadata is { } md
+            && md.TryGetValue(AgentDefinition.ConversationalOutputStatusesMetadataKey, out var raw)
                 ? raw
                 : null;
-        var hasUiComponents = false;
-        if (!string.IsNullOrWhiteSpace(uiComponentsRaw))
+        var hasStatuses = false;
+        if (!string.IsNullOrWhiteSpace(statusesRaw))
         {
             try
             {
-                using var doc = JsonDocument.Parse(uiComponentsRaw);
+                using var doc = JsonDocument.Parse(statusesRaw);
                 if (doc.RootElement.ValueKind != JsonValueKind.Array)
                 {
                     warnings.Add(
-                        "Lista 'x-conversational-ui-components' em metadata precisa ser um array JSON " +
-                        "(ex: [\"text\",\"card\"]). Frontend renderer cai pro fallback genérico.");
+                        "Lista 'x-conversational-output-statuses' em metadata precisa ser um array JSON " +
+                        "(ex: [\"default\",\"success\"]). Frontend renderer cai pro fallback genérico.");
                 }
                 else if (doc.RootElement.GetArrayLength() == 0)
                 {
@@ -917,27 +919,27 @@ public class AgentService : IAgentService
                         || string.IsNullOrWhiteSpace(item.GetString())))
                 {
                     warnings.Add(
-                        "Lista 'x-conversational-ui-components' contém items inválidos — todos precisam " +
-                        "ser strings não-vazias (ex: \"card\"). Itens inválidos são ignorados pelo codec.");
+                        "Lista 'x-conversational-output-statuses' contém items inválidos — todos precisam " +
+                        "ser strings não-vazias (ex: \"default\"). Itens inválidos são ignorados pelo codec.");
                 }
                 else
                 {
-                    hasUiComponents = true;
+                    hasStatuses = true;
                 }
             }
             catch
             {
                 warnings.Add(
-                    "Lista 'x-conversational-ui-components' em metadata não é JSON válido — " +
+                    "Lista 'x-conversational-output-statuses' em metadata não é JSON válido — " +
                     "o frontend renderer cai pro fallback genérico.");
             }
         }
-        if (!hasUiComponents)
+        if (!hasStatuses)
         {
             warnings.Add(
-                "Conversational sem lista de 'ui_component' declarada. Marque ao menos um valor no step " +
-                "Persona pra dirigir o renderer (ex: 'text', 'card', 'list'). Sem isso, o frontend usa " +
-                "fallback genérico (mostra message + output JSON cru).");
+                "Conversational sem lista de 'output_status' declarada. Marque ao menos um valor no step " +
+                "Output pra dirigir o renderer (ex: 'default', 'success', 'error'). Sem isso, o agente cai " +
+                "no default singleton [\"default\"].");
         }
 
         // Modelo: warning quando deployment indica modelo grande/expensive.

@@ -31,9 +31,16 @@ public static class PromptRenderer
         var intentsBlock = RenderRouterIntentsBlock(type, routerIntents);
         var skillsBlock = RenderSkillsBlock(skills);
         var workerScopeBlock = RenderWorkerScopeBlock(type, metadata);
+        var responseFormatBlock = RenderConversationalResponseFormatBlock(type);
 
-        if (!hasAuthor && intentsBlock is null && skillsBlock is null && workerScopeBlock is null)
+        if (!hasAuthor
+            && intentsBlock is null
+            && skillsBlock is null
+            && workerScopeBlock is null
+            && responseFormatBlock is null)
+        {
             return authorInstructions;
+        }
 
         var sb = new StringBuilder();
 
@@ -43,6 +50,7 @@ public static class PromptRenderer
         AppendBlock(sb, intentsBlock);
         AppendBlock(sb, skillsBlock);
         AppendBlock(sb, workerScopeBlock);
+        AppendBlock(sb, responseFormatBlock);
 
         return sb.ToString();
     }
@@ -146,5 +154,14 @@ public static class PromptRenderer
         sb.Append(trimmed);
         sb.Append("\n\n---");
         return sb.ToString();
+    }
+
+    private static string? RenderConversationalResponseFormatBlock(AgentType type)
+    {
+        if (type != AgentType.Conversational) return null;
+        return
+            "## Formato da resposta\n" +
+            "Responda SEMPRE em JSON com os campos top-level definidos no schema. " +
+            "Não escreva texto fora do JSON; não invente campos top-level extras.";
     }
 }

@@ -28,11 +28,12 @@ public class AgentServiceConversationalValidationTests
         {
           "type": "object",
           "properties": {
-            "ui_component": { "type": "string", "enum": ["text", "card"] },
+            "output_type": { "type": "string", "enum": ["text"] },
+            "output_status": { "type": "string", "enum": ["default", "success"] },
             "message": { "type": "string" },
             "output": { "type": "object" }
           },
-          "required": ["ui_component", "message", "output"],
+          "required": ["output_type", "output_status", "message"],
           "additionalProperties": false
         }
         """;
@@ -43,7 +44,7 @@ public class AgentServiceConversationalValidationTests
         int maxTokens = 1800,
         bool securityGuardrails = true,
         bool agUiStateMiddleware = true,
-        string? uiComponentsRaw = "[\"text\",\"card\"]",
+        string? outputStatusesRaw = "[\"default\",\"success\"]",
         string schemaJson = CanonicalSchemaJson,
         bool structuredOutputAsJsonSchema = true)
     {
@@ -61,8 +62,8 @@ public class AgentServiceConversationalValidationTests
         };
 
         var metadata = new Dictionary<string, string>();
-        if (!string.IsNullOrEmpty(uiComponentsRaw))
-            metadata[AgentDefinition.ConversationalUiComponentsMetadataKey] = uiComponentsRaw;
+        if (!string.IsNullOrEmpty(outputStatusesRaw))
+            metadata[AgentDefinition.ConversationalOutputStatusesMetadataKey] = outputStatusesRaw;
 
         return new AgentDefinition
         {
@@ -104,13 +105,13 @@ public class AgentServiceConversationalValidationTests
 
         // ValidateAsync é chamado direto sem o template ter passado por cima
         // — simula um caller bypass (admin override, importação) que persiste
-        // schema cru. ui_component e message são obrigatórios no shape final;
-        // 'output' é opcional (modo texto livre quando ausente).
+        // schema cru. output_type/output_status/message são obrigatórios no
+        // shape final; 'output' é opcional (modo texto livre quando ausente).
         var (isValid, errors, _) = await service.ValidateAsync(agent);
 
         isValid.Should().BeFalse();
         errors.Should().Contain(e =>
-            e.Contains("ui_component") && e.Contains("message"));
+            e.Contains("output_type") && e.Contains("output_status") && e.Contains("message"));
     }
 
     [Fact]
@@ -162,34 +163,34 @@ public class AgentServiceConversationalValidationTests
     }
 
     [Fact]
-    public async Task ValidateAsync_Conversational_ReturnsUiComponentsWarning_WhenListEmpty()
+    public async Task ValidateAsync_Conversational_ReturnsOutputStatusesWarning_WhenListEmpty()
     {
         var service = BuildService();
-        var agent = BuildBaselineConversational(uiComponentsRaw: "[]");
+        var agent = BuildBaselineConversational(outputStatusesRaw: "[]");
 
         var (isValid, _, warnings) = await service.ValidateAsync(agent);
 
         isValid.Should().BeTrue();
-        warnings.Should().Contain(w => w.Contains("ui_component"));
+        warnings.Should().Contain(w => w.Contains("output_status"));
     }
 
     [Fact]
-    public async Task ValidateAsync_Conversational_ReturnsUiComponentsWarning_WhenJsonInvalid()
+    public async Task ValidateAsync_Conversational_ReturnsOutputStatusesWarning_WhenJsonInvalid()
     {
         var service = BuildService();
-        var agent = BuildBaselineConversational(uiComponentsRaw: "not-json");
+        var agent = BuildBaselineConversational(outputStatusesRaw: "not-json");
 
         var (isValid, _, warnings) = await service.ValidateAsync(agent);
 
         isValid.Should().BeTrue();
-        warnings.Should().Contain(w => w.Contains("x-conversational-ui-components"));
+        warnings.Should().Contain(w => w.Contains("x-conversational-output-statuses"));
     }
 
     [Fact]
-    public async Task ValidateAsync_Conversational_ReturnsUiComponentsWarning_WhenItemsNotStrings()
+    public async Task ValidateAsync_Conversational_ReturnsOutputStatusesWarning_WhenItemsNotStrings()
     {
         var service = BuildService();
-        var agent = BuildBaselineConversational(uiComponentsRaw: "[1, null, \"card\"]");
+        var agent = BuildBaselineConversational(outputStatusesRaw: "[1, null, \"success\"]");
 
         var (isValid, _, warnings) = await service.ValidateAsync(agent);
 
