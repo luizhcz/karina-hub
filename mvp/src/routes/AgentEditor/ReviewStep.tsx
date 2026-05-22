@@ -290,51 +290,6 @@ interface ConversationalPreviewProps {
   form: FormState
 }
 
-// Lê o sub-schema do output (form.output.schema é texto JSON) e devolve a
-// lista das propriedades top-level pra exibir no Review como bullets.
-// Schema inválido devolve null (caller mostra warning).
-interface OutputFieldSummary {
-  name: string
-  typeLabel: string
-  required: boolean
-}
-function summarizeOutputFields(rawSchema: string): OutputFieldSummary[] | null {
-  const trimmed = rawSchema.trim()
-  if (!trimmed) return []
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(trimmed)
-  } catch {
-    return null
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
-  const obj = parsed as Record<string, unknown>
-  const props = obj.properties
-  if (!props || typeof props !== 'object' || Array.isArray(props)) return []
-  const requiredArr = Array.isArray(obj.required)
-    ? (obj.required as unknown[]).filter((r): r is string => typeof r === 'string')
-    : []
-  const requiredSet = new Set(requiredArr)
-  const propsObj = props as Record<string, unknown>
-  return Object.entries(propsObj).map(([name, sub]) => {
-    let typeLabel = '—'
-    if (sub && typeof sub === 'object' && !Array.isArray(sub)) {
-      const subObj = sub as Record<string, unknown>
-      // type pode ser string (primitive) ou array (nullable JSON Schema
-      // standard). Em arrays mostra "lista de X".
-      const t = subObj.type
-      if (typeof t === 'string') typeLabel = t
-      else if (Array.isArray(t)) typeLabel = t.filter((x) => x !== 'null').join('|') || '—'
-      if (t === 'array') {
-        const items = subObj.items as Record<string, unknown> | undefined
-        const itemType = items && typeof items.type === 'string' ? items.type : 'item'
-        typeLabel = `lista de ${itemType}`
-      }
-    }
-    return { name, typeLabel, required: requiredSet.has(name) }
-  })
-}
-
 // Descrições espelham as constantes do backend (AgentTemplateService.cs):
 // UiComponentDescription + MessageDescription. Manter sincronizado quando o
 // template for renomeado/reescrito — schema mostrado aqui ≡ schema gravado.
@@ -398,14 +353,9 @@ function buildConversationalCanonicalSchema(
 // markdown já aparece renderizada no card "Prompt do agente" logo abaixo;
 // aqui concentramos no contrato canônico que o modelo enxerga.
 function ConversationalPreview({ form }: ConversationalPreviewProps) {
-  const uiComponents = form.conversationalUiComponents
-  const noUiComponents = uiComponents.length === 0
   const isStructured = form.output.mode === 'structured'
-  const outputFields = isStructured ? summarizeOutputFields(form.output.schema) : []
-  const schemaInvalid = outputFields === null
-
   const canonicalSchema = buildConversationalCanonicalSchema(
-    uiComponents,
+    form.conversationalUiComponents,
     form.output.schema,
     isStructured,
   )
@@ -414,75 +364,14 @@ function ConversationalPreview({ form }: ConversationalPreviewProps) {
   return (
     <Card className="space-y-3">
       <CardHeader
-        title="Cartões possíveis no chat"
-        description="Lista de visuais que o agente pode entregar a cada resposta — o LLM escolhe exatamente um da lista."
+        title="JSON Schema enviado ao LLM"
+        description={
+          'Contrato exato que o modelo recebe no response_format. Toda resposta vai bater nesse shape.'
+        }
       />
-      {noUiComponents ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone="neutral">
-            <code className="font-mono text-[11px]">text</code>
-          </Badge>
-          <span className="text-[11px] text-fg-dim">
-            Lista vazia — agente cai no padrão "text" (só a mensagem do chat).
-          </span>
-        </div>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          {uiComponents.map((value) => (
-            <Badge key={value} tone="accent">
-              <code className="font-mono text-[11px]">{value}</code>
-            </Badge>
-          ))}
-        </div>
-      )}
-
-      <div>
-        <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
-          Dados que o cartão recebe
-        </p>
-        {!isStructured ? (
-          <p className="rounded-lg border border-border bg-bg-soft px-3 py-2 text-xs text-fg-muted">
-            Resposta em texto livre — o agente só entrega a mensagem, sem dados extras pro cartão.
-          </p>
-        ) : schemaInvalid ? (
-          <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-            Estrutura do cartão inválida — corrija na etapa Output.
-          </p>
-        ) : outputFields.length === 0 ? (
-          <p className="rounded-lg border border-border bg-bg-soft px-3 py-2 text-xs text-fg-muted">
-            Nenhum campo definido — o cartão recebe só a mensagem.
-          </p>
-        ) : (
-          <ul className="space-y-1 rounded-lg border border-border bg-bg-soft px-3 py-2">
-            {outputFields.map((field) => (
-              <li
-                key={field.name}
-                className="flex items-baseline gap-2 text-xs text-fg"
-              >
-                <code className="font-mono text-[11px] text-accent">{field.name}</code>
-                <span className="text-fg-muted">·</span>
-                <span className="text-fg-muted">{field.typeLabel}</span>
-                {field.required && (
-                  <Badge tone="neutral" className="text-[10px]">obrigatório</Badge>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <div>
-        <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
-          JSON Schema enviado ao LLM
-        </p>
-        <p className="mb-2 text-[11px] text-fg-muted">
-          Contrato exato que o modelo recebe no <code className="font-mono">response_format</code>.
-          Toda resposta vai bater nesse shape.
-        </p>
-        <pre className="m-0 max-h-72 overflow-auto rounded-lg border border-border bg-bg-soft px-3 py-2 font-mono text-[11px] leading-snug text-fg">
-          {canonicalSchemaJson}
-        </pre>
-      </div>
+      <pre className="m-0 max-h-72 overflow-auto rounded-lg border border-border bg-bg-soft px-3 py-2 font-mono text-[11px] leading-snug text-fg">
+        {canonicalSchemaJson}
+      </pre>
     </Card>
   )
 }
