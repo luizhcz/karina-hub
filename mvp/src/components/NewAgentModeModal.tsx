@@ -1,5 +1,4 @@
 import {
-  AgentIcon,
   ArrowRightIcon,
   BoltIcon,
   CheckIcon,
@@ -7,14 +6,12 @@ import {
   SparklesIcon,
   cn,
 } from '../ui'
-import { AGENT_TEMPLATES, type TemplateKey } from '../routes/AgentEditor/templates'
 import type { AgentType } from '../api/agentDrafts'
 import { useIsAdmin } from '../stores/me'
 
 export interface NewAgentSelection {
   type: AgentType
   mode: 'basic' | 'advanced'
-  template?: TemplateKey
 }
 
 interface NewAgentModeModalProps {
@@ -54,7 +51,7 @@ const TYPE_CHOICES: TypeChoice[] = [
     title: 'Custom',
     pitch:
       'Agente de uso geral. Você define o perfil em texto livre — quem ele é, o que precisa entregar e em que contexto. Cobre a maioria dos casos: análise, orquestração, atendimento sem chat.',
-    steps: ['Tipo', 'Perfil', 'Ferramentas', 'Modelo', 'Revisão'],
+    steps: ['Perfil', 'Ferramentas', 'Modelo', 'Revisão'],
     icon: <BoltIcon className="h-6 w-6" />,
     accent: 'from-emerald-500/15 to-emerald-500/0 text-emerald-600 dark:text-emerald-400',
     iconBg: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
@@ -65,7 +62,7 @@ const TYPE_CHOICES: TypeChoice[] = [
     title: 'Router',
     pitch:
       'Classifica a mensagem do usuário em uma intenção (ex.: “consultar cotação”, “executar ordem”). Usado pra decidir qual agente especialista vai responder.',
-    steps: ['Tipo', 'Intenções', 'Modelo', 'Revisão'],
+    steps: ['Intenções', 'Modelo', 'Revisão'],
     icon: <SparklesIcon className="h-6 w-6" />,
     accent: 'from-violet-500/15 to-violet-500/0 text-violet-600 dark:text-violet-400',
     iconBg: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
@@ -74,11 +71,11 @@ const TYPE_CHOICES: TypeChoice[] = [
   },
   {
     type: 'Conversational',
-    defaultMode: 'advanced',
+    defaultMode: 'basic',
     title: 'Conversational',
     pitch:
       'Chat com memória entre mensagens. O agente conversa com o usuário em múltiplos turnos, mantém contexto e responde em formato que o front sabe renderizar (cards, listas, texto).',
-    steps: ['Tipo', 'Identificação', 'Componente', 'Ferramentas', 'Segurança', 'Memória', 'Output', 'Modelo', 'Revisão'],
+    steps: ['Perfil', 'Ferramentas', 'Modelo', 'Revisão'],
     icon: <SparklesIcon className="h-6 w-6" />,
     accent: 'from-rose-500/15 to-rose-500/0 text-rose-600 dark:text-rose-400',
     iconBg: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
@@ -99,14 +96,11 @@ export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModal
       title="Como você quer começar?"
       description={
         isAdmin
-          ? 'Escolha o tipo formal do agente — Custom (livre), Router (classifier) ou Conversational (chat). Templates abaixo aceleram quando o caso já tem um modelo pronto.'
-          : 'Escolha o tipo formal do agente — Custom (livre) ou Conversational (chat). Router fica indisponível nesta fase do MVP. Templates abaixo aceleram quando o caso já tem um modelo pronto.'
+          ? 'Escolha o tipo formal do agente — Custom (livre), Router (classifier) ou Conversational (chat).'
+          : 'Escolha o tipo formal do agente — Custom (livre) ou Conversational (chat). Router fica indisponível nesta fase do MVP.'
       }
       size="xl"
     >
-      <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-fg-dim">
-        Tipo do agente
-      </p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {choices.map((choice) => (
           <button
@@ -170,52 +164,6 @@ export function NewAgentModeModal({ open, onClose, onSelect }: NewAgentModeModal
             </div>
           </button>
         ))}
-      </div>
-
-      {/* Templates pré-populados — atalho pro time-to-first-agent. Hidratam
-          Profile/nome/descrição via templates.ts e abrem o wizard direto no
-          step de Perfil (skip do step de Tipo, já que o template é Custom). */}
-      <div className="mt-6 space-y-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-dim">
-          Templates — Renda Variável
-        </p>
-        <p className="text-[11px] leading-relaxed text-fg-dim">
-          Pré-fills de Perfil voltados pra mesa de renda variável (B3, ações, FIIs, ETFs).
-          Você pode editar tudo no wizard, inclusive trocar o tipo.
-        </p>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          {AGENT_TEMPLATES.map((tpl) => {
-            const tplType = tpl.type ?? 'Custom'
-            const typeLabel = tplType === 'Conversational' ? 'Conversational' : 'Custom'
-            const modeLabel = tplType === 'Conversational'
-              ? null
-              : tpl.defaultMode === 'advanced' ? ' · avançado' : ' · básico'
-            return (
-              <button
-                key={tpl.key}
-                type="button"
-                onClick={() =>
-                  onSelect({ type: tplType, mode: tpl.defaultMode, template: tpl.key })
-                }
-                className={cn(
-                  'group flex flex-col items-start gap-2 rounded-xl border border-border bg-surface p-3 text-left transition',
-                  'hover:border-accent/40 hover:bg-accent-subtle/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
-                )}
-              >
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-subtle text-accent">
-                  <AgentIcon className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <h4 className="text-sm font-semibold text-fg">{tpl.title}</h4>
-                  <p className="mt-0.5 line-clamp-2 text-[11px] text-fg-muted">{tpl.pitch}</p>
-                  <p className="mt-1 text-[10px] uppercase tracking-wide text-fg-dim">
-                    {typeLabel}{modeLabel}
-                  </p>
-                </div>
-              </button>
-            )
-          })}
-        </div>
       </div>
     </Modal>
   )

@@ -474,36 +474,4 @@ public class GenericToolExecutorTests
         json.Should().NotContain("ghost");
     }
 
-    [Fact]
-    public async Task ExecuteAsync_StrictMode_ThrowsSchemaViolation()
-    {
-        // Mode=Strict + property extra → ResponseSchemaViolationException
-        // estruturada. Framework de tool-calling captura e serializa pro LLM.
-        const string outputSchema = """
-            {"type":"object","properties":{"id":{"type":"string"}}}
-            """;
-        var handler = new StubHandler((_, _) =>
-            Task.FromResult(Json(HttpStatusCode.OK, """{"id":"abc","ghost":"x"}""")));
-        var executor = BuildExecutor(handler);
-
-        var tool = new GenericTool
-        {
-            Id = "t",
-            ProjectId = "p",
-            TenantId = "tnt",
-            Name = "tool-strict",
-            HttpMethod = HttpMethodType.GET,
-            UrlTemplate = "https://api.test/x",
-            OutputContentType = OutputContentType.Json,
-            OutputSchema = outputSchema,
-            OutputProjectionMode = OutputProjectionMode.Strict,
-        };
-
-        Func<Task> act = () => executor.ExecuteAsync(tool, new Dictionary<string, object?>());
-
-        var ex = await act.Should().ThrowAsync<ResponseSchemaViolationException>();
-        ex.Which.ToolName.Should().Be("tool-strict");
-        ex.Which.Details.Should().NotBeEmpty();
-        ex.Which.ToJson().Should().Contain("response_schema_violation");
-    }
 }

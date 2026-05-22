@@ -40,7 +40,8 @@ public sealed record AgentVersion(
     AgentProviderSnapshot? FallbackProvider = null,
     IReadOnlyList<AgentToolSnapshot>? Tools = null,
     bool BreakingChange = false,
-    AgentOperationalMemorySnapshot? OperationalMemory = null)
+    AgentOperationalMemorySnapshot? OperationalMemory = null,
+    string? AuthorPromptContent = null)
 {
     /// <summary>
     /// Constrói um snapshot a partir de uma AgentDefinition viva + conteúdo de prompt resolvido.
@@ -121,9 +122,7 @@ public sealed record AgentVersion(
                     || t.OutputSchemaJson is not null
                     || t.OutputProjectionMode is not null
                     || t.TimeoutSecondsOverride is not null
-                    || t.WhenToUse is not null
                     || t.IsExclusive is not null
-                    || t.Description is not null
                     || t.SourceSkillId is not null;
 
                 if (!hasExpansion)
@@ -159,7 +158,6 @@ public sealed record AgentVersion(
                     t.Headers,
                     t.ConnectionId,
                     t.GenericToolId,
-                    t.Description,
                     t.HttpMethod,
                     t.UrlTemplate,
                     t.PathParams,
@@ -171,7 +169,6 @@ public sealed record AgentVersion(
                     t.OutputSchemaJson,
                     t.OutputProjectionMode,
                     t.TimeoutSecondsOverride,
-                    t.WhenToUse,
                     t.IsExclusive,
                     t.SourceSkillId,
                 };
@@ -235,6 +232,11 @@ public sealed record AgentVersion(
             metadata,
             type = definition.Type,
             prompt = promptContent,
+            // Texto cru autoral entra no canonical pra que mudanças que só
+            // afetem o autoral (sem alterar o rendered) ainda criem revision
+            // — rollback de owner-text deve ser distinguível mesmo quando o
+            // composer rende output idêntico.
+            authorPrompt = definition.AuthorInstructions,
             model = canonicalModel,
             provider = new { provider.Type, provider.ClientType, provider.Endpoint, provider.HasValue },
             fallbackProvider = fallbackProvider is null
@@ -283,7 +285,8 @@ public sealed record AgentVersion(
             FallbackProvider: fallbackProvider,
             Tools: tools,
             BreakingChange: breakingChange,
-            OperationalMemory: operationalMemory);
+            OperationalMemory: operationalMemory,
+            AuthorPromptContent: definition.AuthorInstructions);
     }
 
     /// <summary>
@@ -383,6 +386,9 @@ public sealed record AgentVersion(
             Provider = providerConfig,
             FallbackProvider = fallbackConfig,
             Instructions = PromptContent,
+            // Recupera texto autoral pro editor. Snapshots pré-refactor têm
+            // null aqui — caller (rollback) precisa decidir como tratar.
+            AuthorInstructions = AuthorPromptContent,
             PromptVersionId = PromptVersionId,
             Tools = tools,
             StructuredOutput = outputDef,
@@ -481,7 +487,6 @@ public sealed record AgentToolSnapshot(
     IReadOnlyDictionary<string, string> Headers,
     string? ConnectionId,
     string? GenericToolId,
-    string? Description = null,
     HttpMethodType? HttpMethod = null,
     string? UrlTemplate = null,
     IReadOnlyDictionary<string, ParamDefinition>? PathParams = null,
@@ -493,7 +498,6 @@ public sealed record AgentToolSnapshot(
     string? OutputSchemaJson = null,
     OutputProjectionMode? OutputProjectionMode = null,
     int? TimeoutSecondsOverride = null,
-    string? WhenToUse = null,
     bool? IsExclusive = null,
     string? SourceSkillId = null)
 {
@@ -514,7 +518,6 @@ public sealed record AgentToolSnapshot(
             .ToDictionary(h => h.Key, h => h.Value, StringComparer.Ordinal),
         ConnectionId: tool.ConnectionId,
         GenericToolId: tool.GenericToolId,
-        Description: tool.Description,
         HttpMethod: tool.HttpMethod,
         UrlTemplate: tool.UrlTemplate,
         // Path/QueryParams e CustomHeaders também ordenados pra hash estável
@@ -540,7 +543,6 @@ public sealed record AgentToolSnapshot(
         OutputSchemaJson: tool.OutputSchemaJson,
         OutputProjectionMode: tool.OutputProjectionMode,
         TimeoutSecondsOverride: tool.TimeoutSecondsOverride,
-        WhenToUse: tool.WhenToUse,
         IsExclusive: tool.IsExclusive,
         SourceSkillId: tool.SourceSkillId);
 
@@ -558,7 +560,6 @@ public sealed record AgentToolSnapshot(
         Headers = new Dictionary<string, string>(Headers),
         ConnectionId = ConnectionId,
         GenericToolId = GenericToolId,
-        Description = Description,
         HttpMethod = HttpMethod,
         UrlTemplate = UrlTemplate,
         PathParams = PathParams,
@@ -570,7 +571,6 @@ public sealed record AgentToolSnapshot(
         OutputSchemaJson = OutputSchemaJson,
         OutputProjectionMode = OutputProjectionMode,
         TimeoutSecondsOverride = TimeoutSecondsOverride,
-        WhenToUse = WhenToUse,
         IsExclusive = IsExclusive,
         SourceSkillId = SourceSkillId,
     };

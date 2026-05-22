@@ -5,8 +5,6 @@ import { Layout } from './components/Layout'
 import { RequireAccessOrWelcome } from './components/RequireAccessOrWelcome'
 import { ToolsList } from './routes/ToolsList'
 import { ToolEditor } from './routes/ToolEditor'
-import { McpServersList } from './routes/McpServersList'
-import { McpServerEditor } from './routes/McpServerEditor'
 import { RouterIntentsList } from './routes/RouterIntentsList'
 import { RouterIntentEditor } from './routes/RouterIntentEditor'
 import { AgentsList } from './routes/AgentsList'
@@ -93,9 +91,6 @@ export function App() {
           <Route path="/ferramentas" element={<ToolsList />} />
           <Route path="/ferramentas/nova" element={<ToolEditor mode="create" />} />
           <Route path="/ferramentas/:id" element={<ToolEditor mode="edit" />} />
-          <Route path="/mcps" element={<McpServersList />} />
-          <Route path="/mcps/novo" element={<McpServerEditor mode="create" />} />
-          <Route path="/mcps/:id" element={<McpServerEditor mode="edit" />} />
           <Route path="/intencoes" element={<RouterIntentsList />} />
           <Route path="/intencoes/nova" element={<RouterIntentEditor mode="create" />} />
           <Route path="/intencoes/:id" element={<RouterIntentEditor mode="edit" />} />

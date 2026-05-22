@@ -52,7 +52,12 @@ export interface Agent {
   type?: AgentType
   model?: AgentModel | null
   provider?: AgentProvider | null
-  instructions?: string | null
+  /**
+   * Texto cru autoral exposto pro editor. Backend compõe o que vai pro LLM
+   * separadamente — esse campo nunca contém os blocos auto-injetados
+   * (intenções/skills/scope).
+   */
+  authorInstructions?: string | null
   tools?: AgentToolDefinition[] | null
   operationalMemory?: AgentOperationalMemory | null
   middlewares?: AgentMiddleware[] | null
@@ -156,7 +161,8 @@ export interface UpdateAgentFullBody {
   description?: string | null
   model: AgentModel
   provider?: AgentProvider
-  instructions?: string | null
+  /** Texto cru autoral; backend compõe Instructions a partir daqui. */
+  authorInstructions?: string | null
   tools?: AgentToolDefinition[]
   middlewares?: AgentMiddleware[]
   structuredOutput?: unknown

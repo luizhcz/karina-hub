@@ -20,6 +20,14 @@ public sealed class GenericToolTestResponse
     public bool ResponseTruncated { get; init; }
     public IReadOnlyDictionary<string, string> ResponseHeaders { get; init; } = new Dictionary<string, string>();
     public object? ParsedData { get; init; }
+    /// <summary>Response após projeção pelo OutputSchema; igual a ParsedData quando ProjectionBypassed=true.</summary>
+    public object? ProjectedData { get; init; }
+    /// <summary>Violações de schema detectadas na projeção. Vazio quando passou ou bypass.</summary>
+    public IReadOnlyList<string> SchemaErrors { get; init; } = Array.Empty<string>();
+    /// <summary>True quando o projector NÃO aplicou validação (modo Off, schema ausente, parse falhou).</summary>
+    public bool ProjectionBypassed { get; init; }
+    /// <summary>Info de truncamento de array grande na projeção. Null quando não houve.</summary>
+    public TruncationInfo? Truncation { get; init; }
     public string? Error { get; init; }
 
     public static GenericToolTestResponse FromResult(GenericToolTestResult r) => new()
@@ -35,6 +43,10 @@ public sealed class GenericToolTestResponse
         ResponseTruncated = r.ResponseTruncated,
         ResponseHeaders = r.ResponseHeaders,
         ParsedData = r.ParsedData,
+        ProjectedData = r.ProjectedData,
+        SchemaErrors = r.SchemaErrors,
+        ProjectionBypassed = r.ProjectionBypassed,
+        Truncation = r.Truncation,
         Error = r.Error,
     };
 }

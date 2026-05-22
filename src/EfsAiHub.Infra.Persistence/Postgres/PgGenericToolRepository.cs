@@ -65,7 +65,6 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
             ProjectId = tool.ProjectId,
             TenantId = tool.TenantId,
             Name = tool.Name,
-            Description = tool.Description ?? string.Empty,
             HttpMethod = tool.HttpMethod.ToString(),
             UrlTemplate = tool.UrlTemplate,
             PathParams = JsonSerializer.Serialize(tool.PathParams, JsonDefaults.Domain),
@@ -76,7 +75,6 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
             OutputContentType = tool.OutputContentType.ToString(),
             OutputSchema = tool.OutputSchema,
             TimeoutSecondsOverride = tool.TimeoutSecondsOverride,
-            WhenToUse = tool.WhenToUse,
             IsExclusive = tool.IsExclusive,
             OutputProjectionMode = tool.OutputProjectionMode.ToString(),
             CreatedAt = now,
@@ -117,7 +115,6 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
         }
 
         current.Name = tool.Name;
-        current.Description = tool.Description ?? string.Empty;
         current.HttpMethod = tool.HttpMethod.ToString();
         current.UrlTemplate = tool.UrlTemplate;
         current.PathParams = JsonSerializer.Serialize(tool.PathParams, JsonDefaults.Domain);
@@ -128,7 +125,6 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
         current.OutputContentType = tool.OutputContentType.ToString();
         current.OutputSchema = tool.OutputSchema;
         current.TimeoutSecondsOverride = tool.TimeoutSecondsOverride;
-        current.WhenToUse = tool.WhenToUse;
         current.IsExclusive = tool.IsExclusive;
         current.OutputProjectionMode = tool.OutputProjectionMode.ToString();
         current.UpdatedAt = now;
@@ -163,7 +159,6 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
             ProjectId = row.ProjectId,
             TenantId = row.TenantId,
             Name = row.Name,
-            Description = row.Description,
             HttpMethod = ParseEnum(row.HttpMethod, HttpMethodType.GET, nameof(row.HttpMethod), row.Id),
             UrlTemplate = row.UrlTemplate,
             PathParams = DeserializeParams(row.PathParams),
@@ -174,7 +169,6 @@ public sealed class PgGenericToolRepository : IGenericToolRepository
             OutputContentType = ParseEnum(row.OutputContentType, OutputContentType.Json, nameof(row.OutputContentType), row.Id),
             OutputSchema = row.OutputSchema,
             TimeoutSecondsOverride = row.TimeoutSecondsOverride,
-            WhenToUse = row.WhenToUse,
             IsExclusive = row.IsExclusive,
             OutputProjectionMode = ParseEnum(row.OutputProjectionMode, OutputProjectionMode.Off, nameof(row.OutputProjectionMode), row.Id),
             CreatedAt = row.CreatedAt,

@@ -34,7 +34,7 @@ function buildRemovalPayload(agent: Agent, middlewareName: string, changeReason:
     description: agent.description ?? null,
     model: agent.model ?? { deploymentName: '' },
     provider: agent.provider ?? undefined,
-    instructions: agent.instructions ?? null,
+    authorInstructions: agent.authorInstructions ?? null,
     tools: agent.tools ?? [],
     middlewares: next,
     metadata: agent.metadata ?? {},

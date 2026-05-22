@@ -47,9 +47,15 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
         var routerIntents = await ResolveRouterIntentsAsync(input, ct);
 
         var skillTools = MergeSkillTools(resolvedTools, skills);
+        // Texto autoral é o que sai do editor. Preferimos AuthorInstructions
+        // (campo canônico após o split). Se chegar null mas Instructions vier
+        // populado (cliente desatualizado ou backfill em row legada), usamos
+        // Instructions como autoral — o composer regrava ambos com o output
+        // renderizado, então o "vazamento" de markers se autodestrói no save.
+        var authorText = input.AuthorInstructions ?? input.Instructions;
         var instructions = PromptRenderer.Render(
             input.Type,
-            input.Instructions,
+            authorText,
             input.Metadata,
             routerIntents,
             skills);
@@ -79,6 +85,7 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
             RouterIntentIds = routerIntentIds,
             Model = resolvedModel,
             Provider = input.Provider,
+            AuthorInstructions = authorText,
             Instructions = instructions,
             Tools = skillTools,
             StructuredOutput = structuredOutput,
@@ -164,7 +171,6 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
                 Headers = new Dictionary<string, string>(tool.Headers),
                 ConnectionId = tool.ConnectionId,
                 GenericToolId = generic.Id,
-                Description = generic.Description,
                 HttpMethod = generic.HttpMethod,
                 UrlTemplate = generic.UrlTemplate,
                 PathParams = new Dictionary<string, ParamDefinition>(generic.PathParams),
@@ -176,7 +182,6 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
                 OutputSchemaJson = generic.OutputSchema,
                 OutputProjectionMode = generic.OutputProjectionMode,
                 TimeoutSecondsOverride = generic.TimeoutSecondsOverride,
-                WhenToUse = generic.WhenToUse,
                 IsExclusive = generic.IsExclusive,
                 SourceSkillId = tool.SourceSkillId,
             });
@@ -247,7 +252,6 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
                     Headers = new Dictionary<string, string>(tool.Headers),
                     ConnectionId = tool.ConnectionId,
                     GenericToolId = tool.GenericToolId,
-                    Description = tool.Description,
                     HttpMethod = tool.HttpMethod,
                     UrlTemplate = tool.UrlTemplate,
                     PathParams = tool.PathParams,
@@ -259,7 +263,6 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
                     OutputSchemaJson = tool.OutputSchemaJson,
                     OutputProjectionMode = tool.OutputProjectionMode,
                     TimeoutSecondsOverride = tool.TimeoutSecondsOverride,
-                    WhenToUse = tool.WhenToUse,
                     IsExclusive = tool.IsExclusive,
                     SourceSkillId = skill.Id,
                 });

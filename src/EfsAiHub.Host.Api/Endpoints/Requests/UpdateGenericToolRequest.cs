@@ -13,9 +13,6 @@ public sealed class UpdateGenericToolRequest
     [Required, MaxLength(256)]
     public string Name { get; init; } = string.Empty;
 
-    [MaxLength(4096)]
-    public string Description { get; init; } = string.Empty;
-
     [Required]
     public HttpMethodType HttpMethod { get; init; }
 
@@ -36,9 +33,6 @@ public sealed class UpdateGenericToolRequest
 
     [Range(1, int.MaxValue)]
     public int? TimeoutSecondsOverride { get; init; }
-
-    [MaxLength(2048)]
-    public string? WhenToUse { get; init; }
 
     /// <summary>
     /// Quando true, executor forwarda <c>app_origin</c>/<c>access_token</c> da
@@ -61,7 +55,6 @@ public sealed class UpdateGenericToolRequest
         ProjectId = string.Empty,
         TenantId = string.Empty,
         Name = Name.Trim(),
-        Description = Description ?? string.Empty,
         HttpMethod = HttpMethod,
         UrlTemplate = UrlTemplate.Trim(),
         PathParams = PathParams ?? new Dictionary<string, ParamDefinition>(),
@@ -72,7 +65,6 @@ public sealed class UpdateGenericToolRequest
         OutputContentType = OutputContentType,
         OutputSchema = OutputSchema,
         TimeoutSecondsOverride = TimeoutSecondsOverride,
-        WhenToUse = string.IsNullOrWhiteSpace(WhenToUse) ? null : WhenToUse.Trim(),
         IsExclusive = IsExclusive,
     };
 }

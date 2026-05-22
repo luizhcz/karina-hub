@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BlockNoteSchema, defaultBlockSpecs } from '@blocknote/core'
 import type { Block } from '@blocknote/core'
 import { useCreateBlockNote } from '@blocknote/react'
@@ -6,7 +6,7 @@ import { BlockNoteView } from '@blocknote/mantine'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import { useTheme } from '../../theme/ThemeProvider'
-import { cn } from '../../ui'
+import { HelpIcon, Modal, cn } from '../../ui'
 import type { FormState } from './types'
 import { useMarkdownPasteIntent } from './useMarkdownPasteIntent'
 
@@ -41,6 +41,7 @@ const schema = BlockNoteSchema.create({ blockSpecs: defaultBlockSpecs })
 
 export function WorkerProfileStep({ form, setForm, readonly }: WorkerProfileStepProps) {
   const { theme } = useTheme()
+  const [helpOpen, setHelpOpen] = useState(false)
   const editor = useCreateBlockNote({ schema })
   const { hostRef, banner } = useMarkdownPasteIntent(editor, { readonly })
 
@@ -75,8 +76,18 @@ export function WorkerProfileStep({ form, setForm, readonly }: WorkerProfileStep
   const empty = trimmedLength === 0
 
   return (
-    <div className="space-y-5">
-      <WorkerHelpCard />
+    <div className="space-y-3">
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => setHelpOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-fg-muted transition hover:bg-bg-soft hover:text-fg"
+          title="Como descrever o domínio do Worker"
+        >
+          <HelpIcon className="h-4 w-4" />
+          Como descrever o domínio
+        </button>
+      </div>
       {banner}
       <div
         ref={hostRef}
@@ -104,43 +115,43 @@ export function WorkerProfileStep({ form, setForm, readonly }: WorkerProfileStep
           {trimmedLength}/{SCOPE_MAX}
         </span>
       </div>
-    </div>
-  )
-}
 
-// Mini-guia voltado pra PM/PO criando Worker. Tom acessível, sem termos
-// técnicos (workerScope, anchor, etc) — foco no PROPÓSITO.
-function WorkerHelpCard() {
-  return (
-    <div className="rounded-lg border border-accent/20 bg-accent/[0.04] p-4 text-sm">
-      <h3 className="text-[13px] font-semibold text-fg">Como descrever o domínio do Worker</h3>
-      <p className="mt-1 text-[12px] leading-relaxed text-fg-muted">
-        Worker é um especialista de domínio — recebe dados estruturados e produz uma
-        análise. Descreva em texto comum: <strong className="text-fg">Escopo</strong>{' '}
-        (que análise ele faz), <strong className="text-fg">Entradas esperadas</strong>{' '}
-        (dados que chegam no input) e{' '}
-        <strong className="text-fg">Fora do escopo</strong> (o que ele não faz).
-        As frases <em className="text-fg">em itálico</em> no editor são só guias —
-        selecione e escreva por cima.
-      </p>
-      <ul className="mt-3 space-y-1.5 text-[12px] text-fg-muted">
-        <li>
-          <span className="font-mono text-fg-dim">/</span> &nbsp;abre um menu com tipos de
-          bloco (título, lista, citação, código, etc).
-        </li>
-        <li>
-          <span className="font-mono text-fg-dim">##</span> + espaço &nbsp;cria um título de
-          seção, como “Escopo”.
-        </li>
-        <li>
-          <span className="font-mono text-fg-dim">-</span> + espaço &nbsp;começa uma lista
-          com bolinhas.
-        </li>
-        <li>
-          Selecione um trecho pra abrir um <strong className="text-fg">menu flutuante</strong>{' '}
-          com negrito, itálico e link.
-        </li>
-      </ul>
+      <Modal
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        title="Como descrever o domínio do Worker"
+        size="md"
+      >
+        <div className="space-y-3 text-sm">
+          <p className="text-[12px] leading-relaxed text-fg-muted">
+            Worker é um especialista de domínio — recebe dados estruturados e produz uma
+            análise. Descreva em texto comum: <strong className="text-fg">Escopo</strong>{' '}
+            (que análise ele faz), <strong className="text-fg">Entradas esperadas</strong>{' '}
+            (dados que chegam no input) e{' '}
+            <strong className="text-fg">Fora do escopo</strong> (o que ele não faz).
+            As frases <em className="text-fg">em itálico</em> no editor são só guias —
+            selecione e escreva por cima.
+          </p>
+          <ul className="space-y-1.5 text-[12px] text-fg-muted">
+            <li>
+              <span className="font-mono text-fg-dim">/</span> &nbsp;abre um menu com tipos de
+              bloco (título, lista, citação, código, etc).
+            </li>
+            <li>
+              <span className="font-mono text-fg-dim">##</span> + espaço &nbsp;cria um título de
+              seção, como “Escopo”.
+            </li>
+            <li>
+              <span className="font-mono text-fg-dim">-</span> + espaço &nbsp;começa uma lista
+              com bolinhas.
+            </li>
+            <li>
+              Selecione um trecho pra abrir um <strong className="text-fg">menu flutuante</strong>{' '}
+              com negrito, itálico e link.
+            </li>
+          </ul>
+        </div>
+      </Modal>
     </div>
   )
 }

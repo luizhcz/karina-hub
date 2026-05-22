@@ -7,7 +7,6 @@ import {
   CheckIcon,
   LogoIcon,
   PlugIcon,
-  ServerIcon,
   SettingsIcon,
   SparklesIcon,
   ToolIcon,
@@ -35,7 +34,6 @@ const navItems: NavItem[] = [
   { label: 'Implantações', to: '/implantacoes', icon: <BoltIcon className="h-5 w-5" /> },
   { label: 'Avaliações', to: '/avaliacoes', icon: <SparklesIcon className="h-5 w-5" /> },
   { label: 'Ferramentas', to: '/ferramentas', icon: <ToolIcon className="h-5 w-5" /> },
-  { label: 'MCPs', to: '/mcps', icon: <ServerIcon className="h-5 w-5" /> },
 ]
 
 const adminItems: NavItem[] = [

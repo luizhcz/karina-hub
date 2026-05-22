@@ -68,6 +68,7 @@ public sealed class AgentRegressionConfigController : ControllerBase
             Model = def.Model,
             Provider = def.Provider,
             FallbackProvider = def.FallbackProvider,
+            AuthorInstructions = def.AuthorInstructions,
             Instructions = def.Instructions,
             Tools = def.Tools,
             StructuredOutput = def.StructuredOutput,

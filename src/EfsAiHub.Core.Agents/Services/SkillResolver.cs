@@ -132,6 +132,7 @@ public static class SkillMerger
             RouterIntentIds = definition.RouterIntentIds,
             Model = definition.Model,
             Provider = definition.Provider,
+            AuthorInstructions = definition.AuthorInstructions,
             Instructions = string.Join(AddendumSeparator, addenda),
             Tools = mergedTools,
             StructuredOutput = definition.StructuredOutput,

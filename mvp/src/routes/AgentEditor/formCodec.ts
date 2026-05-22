@@ -32,9 +32,12 @@ const TOOL_RUNNER_HITL_METADATA_KEY = 'x-tool-runner-hitl-required'
 // Mesmo valor usado pelo backend (AgentDefinition.RouterForChatMetadataKey).
 const ROUTER_FOR_CHAT_METADATA_KEY = 'x-router-for-chat'
 
-// Chave em payload.metadata que carrega a lista canônica de ui_component
-// declarados pelo Conversational. Mesmo valor usado pelo backend
-// (AgentDefinition.ConversationalUiComponentsMetadataKey).
+// Chaves em payload.metadata pro shape canônico do Conversational. Mesmos
+// valores usados pelo backend (AgentDefinition.Conversational*MetadataKey).
+const CONVERSATIONAL_OUTPUT_TYPE_METADATA_KEY = 'x-conversational-output-type'
+const CONVERSATIONAL_OUTPUT_STATUSES_METADATA_KEY = 'x-conversational-output-statuses'
+// Chave legada lida como fallback durante a janela de migração — backend
+// re-grava em statuses no próximo save.
 const CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY = 'x-conversational-ui-components'
 
 // Chave em payload.metadata que carrega a persona do Conversational
@@ -108,7 +111,8 @@ export function emptyFormState(): FormState {
     routerForChat: false,
     workerScope: '',
     toolRunnerHitlRequired: false,
-    conversationalUiComponents: [],
+    conversationalOutputType: 'text',
+    conversationalOutputStatuses: [],
     predefinedModelId: '',
     profile: '',
     toolIds: [],
@@ -118,7 +122,7 @@ export function emptyFormState(): FormState {
     input: emptySection(),
     output: emptySection(),
     agentMode: 'basic',
-    currentStep: 'type',
+    currentStep: 'profile',
     metadataRows: [],
   }
 }
@@ -135,7 +139,18 @@ function metadataRowsFromPayload(payload: AgentDraftPayload | undefined): KvRow<
 
 export function fromDraft(draft: AgentDraft): FormState {
   const payload = draft.payload ?? {}
-  const decoded = decodeInstructions(payload.instructions ?? null)
+  // Backend grava o texto cru em authorInstructions desde o split entre
+  // autoral × renderizado. Drafts pré-split ainda têm o cru em instructions
+  // (mesma string, sem composição auto-injetada porque o save antigo nunca
+  // passava o draft pelo composer) — preferimos authorInstructions quando
+  // presente e caímos pro instructions só pra back-compat de drafts antigos.
+  const rawAuthor =
+    (typeof payload.authorInstructions === 'string'
+      ? payload.authorInstructions
+      : typeof (payload as { instructions?: string | null }).instructions === 'string'
+        ? (payload as { instructions?: string | null }).instructions ?? null
+        : null) ?? null
+  const decoded = decodeInstructions(rawAuthor)
 
   const tools = payload.tools ?? []
   const toolIds: string[] = []
@@ -312,20 +327,31 @@ export function fromDraft(draft: AgentDraft): FormState {
   // dedicada é lida pra isso; codec velho que gravava
   // 'x-conversational-persona' é higienizado em encodeConversationalMetadata.
 
-  // Lista de ui_components vive em metadata['x-conversational-ui-components']
-  // como JSON array. Items não-string ou inválidos são descartados aqui.
-  const rawUiComponents = payload.metadata?.[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY]
-  let conversationalUiComponents: string[] = []
-  if (typeof rawUiComponents === 'string' && rawUiComponents.trim().length > 0) {
+  // output_type vive em metadata['x-conversational-output-type']. Default
+  // "text" quando ausente — alinhado com AgentTemplateService.ReadOutputType.
+  const rawOutputType = payload.metadata?.[CONVERSATIONAL_OUTPUT_TYPE_METADATA_KEY]
+  const conversationalOutputType =
+    typeof rawOutputType === 'string' && rawOutputType.trim().length > 0
+      ? rawOutputType.trim()
+      : 'text'
+
+  // output_statuses vive em metadata['x-conversational-output-statuses'];
+  // fallback pra chave legada x-conversational-ui-components enquanto
+  // migration 011 não rodou em todos os ambientes. Items inválidos saem.
+  const rawStatuses =
+    payload.metadata?.[CONVERSATIONAL_OUTPUT_STATUSES_METADATA_KEY]
+    ?? payload.metadata?.[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY]
+  let conversationalOutputStatuses: string[] = []
+  if (typeof rawStatuses === 'string' && rawStatuses.trim().length > 0) {
     try {
-      const parsed = JSON.parse(rawUiComponents)
+      const parsed = JSON.parse(rawStatuses)
       if (Array.isArray(parsed)) {
-        conversationalUiComponents = parsed.filter(
+        conversationalOutputStatuses = parsed.filter(
           (item) => typeof item === 'string' && item.trim().length > 0,
         ) as string[]
       }
     } catch {
-      conversationalUiComponents = []
+      conversationalOutputStatuses = []
     }
   }
 
@@ -336,7 +362,8 @@ export function fromDraft(draft: AgentDraft): FormState {
     routerForChat,
     workerScope,
     toolRunnerHitlRequired,
-    conversationalUiComponents,
+    conversationalOutputType,
+    conversationalOutputStatuses,
     predefinedModelId: payload.model?.predefinedModelId ?? '',
     profile: decoded.profile,
     toolIds,
@@ -397,9 +424,9 @@ export function buildPayload(
   // resolve o conteúdo real ao montar o prompt baseado no set vivo do join
   // agent_router_intents. Worker usa skeleton mínimo — runtime injeta o
   // bloco "# Domínio de análise" lendo metadata['x-worker-scope']. Tool
-  // Runner usa skeleton mínimo — tools já carregam Description/WhenToUse
-  // pro LLM via FunctionTool factory, sem necessidade de bloco anchor
-  // adicional. Conversational usa skeleton + persona injetada no prompt.
+  // Runner usa skeleton mínimo — semântica de cada tool (o que faz / quando
+  // usar) vive no prompt do agente, não na tool em si. Conversational usa
+  // skeleton + persona injetada no prompt.
   // Custom segue o encoder genérico do ProfileStep.
   const instructions =
     form.type === 'Router'
@@ -468,7 +495,7 @@ export function buildPayload(
     name: form.name.trim(),
     description: prev?.description ?? null,
     type: form.type,
-    instructions,
+    authorInstructions: instructions,
     model: nextModel,
     tools: mergedTools,
     structuredOutput,
@@ -476,6 +503,10 @@ export function buildPayload(
     middlewares: mergedMiddlewares,
     metadata,
   }
+  // Limpa chave legada caso `prev` venha de draft pré-split (ainda gravado
+  // com `instructions` no JSON). Sem isso o payload viajaria com os dois
+  // campos e o backend descartaria o legado em silêncio — ruído desnecessário.
+  delete (payload as Record<string, unknown>).instructions
   if (form.type === 'Router') {
     ;(payload as Record<string, unknown>).routerIntentIds = [...form.routerIntentIds]
   } else {
@@ -672,20 +703,20 @@ function encodeRouterForChatMetadata(
 }
 
 /**
- * Mantém <c>metadata['x-conversational-ui-components']</c> sincronizado
- * com o form. Pra Conversational grava (ou remove quando vazio); pra
- * outros tipos remove a chave pra evitar lixo cross-tipo. A chave legacy
- * 'x-conversational-persona' é higienizada do prev independente do tipo —
- * a persona vive agora nos campos do profile (role/goal/backstory/rules/
- * constraints) injetados no instructions, igual ao Custom.
+ * Mantém as metadata keys do Conversational sincronizadas com o form:
+ * - <c>x-conversational-output-type</c>: string única (default "text").
+ * - <c>x-conversational-output-statuses</c>: JSON array (default ["default"]).
+ * Pra outros tipos limpa as três chaves pra evitar lixo cross-tipo. A
+ * persona/papel/objetivo continuam vivendo nos campos do profile injetados
+ * no instructions, igual ao Custom.
+ *
+ * Limites alinhados ao OutputStep (UI): no máximo 10 statuses. Defesa em
+ * profundidade — UI também limita, mas o codec é a barreira final antes
+ * do payload sair.
  */
-/**
- * Limites alinhados ao OutputStep (UI): no máximo 10 cartões, cada um com
- * 64 caracteres. Defesa em profundidade — UI também limita, mas o codec é
- * a barreira final antes do payload sair.
- */
-const CONVERSATIONAL_UI_COMPONENTS_MAX_ITEMS = 10
-const CONVERSATIONAL_UI_COMPONENTS_DEFAULT: ReadonlyArray<string> = ['text']
+const CONVERSATIONAL_OUTPUT_STATUSES_MAX_ITEMS = 10
+const CONVERSATIONAL_OUTPUT_STATUSES_DEFAULT: ReadonlyArray<string> = ['default']
+const CONVERSATIONAL_OUTPUT_TYPE_DEFAULT = 'text'
 
 function encodeConversationalMetadata(
   prev: Record<string, string>,
@@ -693,34 +724,45 @@ function encodeConversationalMetadata(
 ): Record<string, string> {
   const next: Record<string, string> = { ...prev }
   delete next[CONVERSATIONAL_PERSONA_METADATA_KEY]
+  // Sempre limpa a chave legada — o template não consulta mais e a
+  // migration 011 já moveu o conteúdo pra output-statuses.
+  delete next[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY]
 
   if (form.type === 'Conversational') {
-    // Trim → filter vazios → dedupe (case-sensitive, preserva ordem da primeira
-    // ocorrência) → cap em 10. Lista vazia vira default ['text'] pra que o LLM
-    // sempre receba um enum válido (e o agente caia no comportamento "só texto").
+    // output_type: trim + fallback "text" quando vazio. Sempre 1 valor.
+    const outputType =
+      form.conversationalOutputType.trim().length > 0
+        ? form.conversationalOutputType.trim()
+        : CONVERSATIONAL_OUTPUT_TYPE_DEFAULT
+    next[CONVERSATIONAL_OUTPUT_TYPE_METADATA_KEY] = outputType
+
+    // output_statuses: trim → filter vazios → dedupe (case-sensitive,
+    // preserva ordem da primeira ocorrência) → cap em 10. Lista vazia
+    // vira default ["default"] pra que o LLM sempre receba enum válido.
     const seen = new Set<string>()
     const sanitized: string[] = []
-    for (const raw of form.conversationalUiComponents) {
+    for (const raw of form.conversationalOutputStatuses) {
       const trimmed = raw.trim()
       if (trimmed.length === 0) continue
       if (seen.has(trimmed)) continue
       seen.add(trimmed)
       sanitized.push(trimmed)
-      if (sanitized.length >= CONVERSATIONAL_UI_COMPONENTS_MAX_ITEMS) break
+      if (sanitized.length >= CONVERSATIONAL_OUTPUT_STATUSES_MAX_ITEMS) break
     }
-    const finalList = sanitized.length > 0 ? sanitized : [...CONVERSATIONAL_UI_COMPONENTS_DEFAULT]
-    next[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY] = JSON.stringify(finalList)
+    const finalList = sanitized.length > 0 ? sanitized : [...CONVERSATIONAL_OUTPUT_STATUSES_DEFAULT]
+    next[CONVERSATIONAL_OUTPUT_STATUSES_METADATA_KEY] = JSON.stringify(finalList)
   } else {
-    delete next[CONVERSATIONAL_UI_COMPONENTS_METADATA_KEY]
+    delete next[CONVERSATIONAL_OUTPUT_TYPE_METADATA_KEY]
+    delete next[CONVERSATIONAL_OUTPUT_STATUSES_METADATA_KEY]
   }
   return next
 }
 
 /**
  * Skeleton determinístico mínimo do Tool Runner. Tool Runner é executor —
- * tools selecionadas já viajam com Description/WhenToUse via
- * <c>FunctionTool</c> factory; o LLM lê os docs delas direto. Manter o
- * skeleton enxuto evita duplicar instruções de uso de tool no system
+ * semântica de cada tool (o que faz / quando usar) é responsabilidade do
+ * prompt do agente, não da tool em si. Manter o skeleton enxuto evita
+ * duplicar instruções de uso de tool no system
  * prompt e dá determinismo ao prompt persistido.
  */
 export function encodeToolRunnerInstructions(name: string): string {

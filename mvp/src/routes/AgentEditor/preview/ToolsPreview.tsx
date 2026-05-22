@@ -1,9 +1,5 @@
 import { Badge, cn } from '../../../ui'
-import type {
-  EnrichedHttpToolDescriptor,
-  EnrichedMcpToolDescriptor,
-  EnrichedToolDescriptor,
-} from './toolDescriptors'
+import type { EnrichedHttpToolDescriptor, EnrichedToolDescriptor } from './toolDescriptors'
 
 interface Props {
   tools: EnrichedToolDescriptor[]
@@ -74,21 +70,14 @@ function ToolCard({ tool }: { tool: EnrichedToolDescriptor }) {
         >
           ▶
         </span>
-        <Badge tone={tool.source === 'http' ? 'accent' : 'success'}>
-          {tool.source === 'http' ? 'HTTP' : 'MCP'}
-        </Badge>
+        <Badge tone="accent">HTTP</Badge>
         <span className="font-mono text-[12px] font-medium text-fg">{tool.name}</span>
-        {tool.source === 'http' && (
-          <span className="ml-2 truncate text-[11px] text-fg-dim">
-            {tool.httpMethod} {tool.urlTemplate}
-          </span>
-        )}
+        <span className="ml-2 truncate text-[11px] text-fg-dim">
+          {tool.httpMethod} {tool.urlTemplate}
+        </span>
       </summary>
       <div className="space-y-2 border-t border-border px-3 py-2.5">
-        {tool.description && (
-          <p className="text-xs text-fg-muted">{tool.description}</p>
-        )}
-        {tool.source === 'http' ? <HttpToolBody tool={tool} /> : <McpToolBody tool={tool} />}
+        <HttpToolBody tool={tool} />
       </div>
     </details>
   )
@@ -97,41 +86,9 @@ function ToolCard({ tool }: { tool: EnrichedToolDescriptor }) {
 function HttpToolBody({ tool }: { tool: EnrichedHttpToolDescriptor }) {
   return (
     <>
-      {tool.whenToUse && (
-        <p className="text-xs">
-          <span className="font-medium text-fg">Use quando:</span>{' '}
-          <span className="text-fg-muted">{tool.whenToUse}</span>
-        </p>
-      )}
       <SchemaBlock title="Input schema" value={tool.inputSchema} fallback={`Content-Type: ${tool.inputContentType}`} />
       <SchemaBlock title="Output schema" value={tool.outputSchema} fallback={`Content-Type: ${tool.outputContentType}`} />
     </>
-  )
-}
-
-function McpToolBody({ tool }: { tool: EnrichedMcpToolDescriptor }) {
-  return (
-    <div className="space-y-1.5 text-xs">
-      <p className="text-fg-muted">
-        <span className="font-medium text-fg">Servidor:</span>{' '}
-        <code className="font-mono">{tool.serverLabel}</code>
-      </p>
-      {tool.allowedTools.length > 0 ? (
-        <p>
-          <span className="font-medium text-fg">Tools liberadas:</span>{' '}
-          <span className="font-mono text-fg-muted">{tool.allowedTools.join(', ')}</span>
-        </p>
-      ) : (
-        <p className="text-fg-muted">
-          Tools descobertas dinamicamente — schemas só conhecidos em runtime.
-        </p>
-      )}
-      {tool.requiresApprovalAlways && (
-        <p className="rounded border border-warning/30 bg-warning/[0.08] px-2 py-1 text-[11px] text-fg">
-          ⚠️ Requer aprovação humana antes de cada execução.
-        </p>
-      )}
-    </div>
   )
 }
 

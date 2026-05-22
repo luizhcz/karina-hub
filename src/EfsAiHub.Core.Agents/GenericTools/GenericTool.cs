@@ -15,7 +15,6 @@ public sealed class GenericTool
     public required string ProjectId { get; init; }
     public required string TenantId { get; init; }
     public required string Name { get; set; }
-    public string Description { get; set; } = string.Empty;
     public required HttpMethodType HttpMethod { get; init; }
     public required string UrlTemplate { get; set; }
 
@@ -53,13 +52,6 @@ public sealed class GenericTool
     public int? TimeoutSecondsOverride { get; set; }
 
     /// <summary>
-    /// Texto livre opcional que documenta quando o agente deve invocar essa tool —
-    /// repassado pro system prompt como gatilho de uso ("Use quando: ..."). Não
-    /// afeta runtime nem validação; apenas orientação semântica pro LLM.
-    /// </summary>
-    public string? WhenToUse { get; set; }
-
-    /// <summary>
     /// Quando true, a tool é "exclusiva do usuário": o executor anexa
     /// <c>app_origin</c> e <c>access_token</c> da request original na chamada
     /// downstream (forward de credenciais). O provedor da tool autoriza contra
@@ -75,6 +67,14 @@ public sealed class GenericTool
     public static readonly Regex PlaceholderRegex =
         new(@"\{([A-Za-z_][A-Za-z0-9_]*)\}", RegexOptions.Compiled);
 
+    /// <summary>
+    /// Pattern aceito pra Name. Espelha a regra de function name do OpenAI/
+    /// Anthropic — o Name é exposto ao LLM como nome da função no schema.
+    /// Snake_case ou kebab-case, sem espaços, acentos ou unicode. Max 64.
+    /// </summary>
+    public static readonly Regex NameRegex =
+        new(@"^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$", RegexOptions.Compiled);
+
     private static readonly HashSet<string> ReservedHeaders =
         new(StringComparer.OrdinalIgnoreCase) { "Content-Type", "Accept" };
 
@@ -88,6 +88,10 @@ public sealed class GenericTool
             throw new DomainException("GenericTool.TenantId é obrigatório.");
         if (string.IsNullOrWhiteSpace(Name))
             throw new DomainException("GenericTool.Name é obrigatório.");
+        if (!NameRegex.IsMatch(Name))
+            throw new DomainException(
+                $"GenericTool.Name '{Name}' inválido. Aceita letras/dígitos/underscore/hífen, " +
+                "começa com letra ou underscore, máximo 64 chars (ex: 'get_quote', 'lookup-user').");
         if (string.IsNullOrWhiteSpace(UrlTemplate))
             throw new DomainException("GenericTool.UrlTemplate é obrigatório.");
 
@@ -130,18 +134,21 @@ public sealed class GenericTool
         }
 
         if (OutputContentType is OutputContentType.Json or OutputContentType.Csv)
-            EnsureSchemaPresent(nameof(OutputSchema), OutputSchema);
-
-        // Output projection requer schema declarativo de verdade. Text não tem
-        // shape pra projetar; schemas vazios não declaram contrato algum;
-        // oneOf/anyOf introduzem ambiguidade no drop-extras (qual variant
-        // aplicar?), reservados pra V2.
-        if (OutputProjectionMode != OutputProjectionMode.Off)
         {
-            if (OutputContentType == OutputContentType.Text)
+            EnsureSchemaPresent(nameof(OutputSchema), OutputSchema);
+            // Json/Csv sempre projeta — o LLM nunca vê response cru de API
+            // estruturada. Schema vazio ({} ou type=object sem properties),
+            // oneOf/anyOf ou $ref ficam reservados pra V2.
+            if (OutputProjectionMode != OutputProjectionMode.Project)
                 throw new DomainException(
-                    "GenericTool.OutputProjectionMode != Off é incompatível com OutputContentType=Text.");
+                    "GenericTool.OutputProjectionMode deve ser 'Project' quando OutputContentType é Json ou Csv.");
             EnsureSchemaIsProjectable(OutputSchema);
+        }
+        else if (OutputProjectionMode != OutputProjectionMode.Off)
+        {
+            // Text não tem shape pra projetar — força Off explicitamente.
+            throw new DomainException(
+                "GenericTool.OutputProjectionMode deve ser 'Off' quando OutputContentType é Text.");
         }
 
         if (TimeoutSecondsOverride is int t && t <= 0)

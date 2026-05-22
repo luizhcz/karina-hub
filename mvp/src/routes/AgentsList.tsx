@@ -180,7 +180,6 @@ export function AgentsList() {
   const handleSelectNewAgent = (selection: NewAgentSelection) => {
     setModeModalOpen(false)
     const qs = new URLSearchParams({ mode: selection.mode, type: selection.type })
-    if (selection.template) qs.set('template', selection.template)
     navigate(`/agentes/novo?${qs.toString()}`)
   }
 

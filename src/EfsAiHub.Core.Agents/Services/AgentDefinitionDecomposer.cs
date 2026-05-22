@@ -1,6 +1,8 @@
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EfsAiHub.Core.Agents.Services;
 
@@ -8,8 +10,9 @@ namespace EfsAiHub.Core.Agents.Services;
 /// Boundary de leitura: recebe a <see cref="AgentDefinition"/> final
 /// persistida no banco (texto + tools/model expandidos) e devolve a forma
 /// editável que o cliente conhece (apenas autoral + IDs de dependências).
-/// Inverso de <see cref="AgentDefinitionComposer"/>: <c>Decompose(Compose(x)) ≡ x</c>
-/// por construção dos marcadores estáveis.
+/// O texto autoral vive em <see cref="AgentDefinition.AuthorInstructions"/>
+/// — o decomposer apenas o copia pra <see cref="AgentDefinition.Instructions"/>
+/// pra preservar o shape esperado pelos clientes do GET.
 /// </summary>
 public interface IAgentDefinitionDecomposer
 {
@@ -18,9 +21,20 @@ public interface IAgentDefinitionDecomposer
 
 public sealed class AgentDefinitionDecomposer : IAgentDefinitionDecomposer
 {
+    private static readonly Regex LegacyMarkerPattern =
+        new(@"<!--\s*aihub:auto-(?:intents|skills|worker-scope)(?:-end)?\s*-->",
+            RegexOptions.Compiled);
+
+    private readonly ILogger<AgentDefinitionDecomposer> _logger;
+
+    public AgentDefinitionDecomposer(ILogger<AgentDefinitionDecomposer>? logger = null)
+    {
+        _logger = logger ?? NullLogger<AgentDefinitionDecomposer>.Instance;
+    }
+
     public AgentDefinition Decompose(AgentDefinition stored)
     {
-        var authorInstructions = StripAutoBlocks(stored.Instructions);
+        var authorInstructions = ResolveAuthorInstructions(stored);
         var authorTools = StripExpandedTools(stored.Tools);
         var authorModel = StripExpandedModel(stored.Model);
         var authorStructuredOutput = StripRouterEnum(stored);
@@ -34,7 +48,12 @@ public sealed class AgentDefinitionDecomposer : IAgentDefinitionDecomposer
             RouterIntentIds = stored.RouterIntentIds,
             Model = authorModel,
             Provider = stored.Provider,
-            Instructions = authorInstructions,
+            AuthorInstructions = authorInstructions,
+            // Editor consome o texto cru via AuthorInstructions; o campo
+            // Instructions é o composto que vai pro LLM e não tem valor
+            // pro cliente de edição — devolvemos null pra evitar que o
+            // front renderize o composto por engano.
+            Instructions = null,
             Tools = authorTools,
             StructuredOutput = authorStructuredOutput,
             OperationalMemory = stored.OperationalMemory,
@@ -59,30 +78,43 @@ public sealed class AgentDefinitionDecomposer : IAgentDefinitionDecomposer
         };
     }
 
-    private static string? StripAutoBlocks(string? instructions)
+    private string? ResolveAuthorInstructions(AgentDefinition stored)
     {
-        if (string.IsNullOrEmpty(instructions)) return instructions;
+        // Caminho canônico: campo populado pelo composer no save. Editor
+        // sempre lê daqui — zero parsing, zero ambiguidade.
+        if (!string.IsNullOrEmpty(stored.AuthorInstructions))
+            return stored.AuthorInstructions;
 
-        var stripped = instructions;
-        stripped = StripBlock(stripped, AgentInstructionsMarkers.IntentsBegin, AgentInstructionsMarkers.IntentsEnd);
-        stripped = StripBlock(stripped, AgentInstructionsMarkers.SkillsBegin, AgentInstructionsMarkers.SkillsEnd);
-        stripped = StripBlock(stripped, AgentInstructionsMarkers.WorkerScopeBegin, AgentInstructionsMarkers.WorkerScopeEnd);
+        // Sem AuthorInstructions e sem Instructions = agente sem texto.
+        if (string.IsNullOrEmpty(stored.Instructions))
+            return null;
 
-        // O composer separa cada bloco com "\n\n"; após o strip, espaços
-        // residuais ficam no fim do autoral. TrimEnd remove sem mexer no
-        // conteúdo do owner — entradas vazias entre parágrafos do autoral
-        // permanecem intactas.
-        stripped = stripped.TrimEnd();
+        // Fallback pra row pré-migration: Instructions ainda tem marcadores
+        // legados embutidos. Limpa e log warning — backfill deve ter rodado
+        // antes de servir tráfego; chegar aqui pós-deploy é bug.
+        if (LegacyMarkerPattern.IsMatch(stored.Instructions))
+        {
+            _logger.LogWarning(
+                "Agent '{AgentId}' ainda tem marcadores legados em Instructions e AuthorInstructions vazio. " +
+                "Rodar backfill 012 antes da próxima edição.",
+                stored.Id);
+            return StripLegacyAutoBlocks(stored.Instructions);
+        }
 
-        return string.IsNullOrEmpty(stripped) ? null : stripped;
+        // Sem marcadores, sem AuthorInstructions — Instructions parece ser
+        // texto autoral cru sem composição. Tratamos como autoral.
+        return stored.Instructions;
     }
 
-    private static string StripBlock(string source, string begin, string end)
+    private static string? StripLegacyAutoBlocks(string instructions)
     {
-        // Markers são HTML comments com caracteres especiais regex (-, !, --).
-        // Escape garante match literal independente do conteúdo no entorno.
-        var pattern = $@"{Regex.Escape(begin)}[\s\S]*?{Regex.Escape(end)}\s*";
-        return Regex.Replace(source, pattern, string.Empty);
+        // Padrão único cobre os 3 blocos pareados (intents/skills/worker-scope).
+        // Conteúdo entre Begin e End é descartado junto.
+        var pattern = @"<!--\s*aihub:auto-(?:intents|skills|worker-scope)\s*-->" +
+            @"[\s\S]*?" +
+            @"<!--\s*aihub:auto-(?:intents|skills|worker-scope)-end\s*-->\s*";
+        var stripped = Regex.Replace(instructions, pattern, string.Empty).TrimEnd();
+        return string.IsNullOrEmpty(stripped) ? null : stripped;
     }
 
     private static IReadOnlyList<AgentToolDefinition> StripExpandedTools(IReadOnlyList<AgentToolDefinition> tools)

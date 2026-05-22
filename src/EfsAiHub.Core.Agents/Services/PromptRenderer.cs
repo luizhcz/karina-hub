@@ -6,14 +6,15 @@ namespace EfsAiHub.Core.Agents.Services;
 
 /// <summary>
 /// Composição determinística do <see cref="AgentDefinition.Instructions"/>
-/// final a partir do texto autoral do owner mais os blocos auto-gerados a
-/// partir de dependências resolvidas. O resultado vai gravado no banco;
-/// runtime consome direto, sem mutar.
+/// final a partir do <see cref="AgentDefinition.AuthorInstructions"/> mais
+/// os blocos auto-gerados a partir de dependências resolvidas. Output é o
+/// texto que vai pro LLM — sem marcadores, sem metadados estruturais
+/// embutidos. Mesma input → mesmo output byte-a-byte.
 ///
-/// Cada bloco auto-gerado é envolvido pelos marcadores de
-/// <see cref="AgentInstructionsMarkers"/> pra que o decomposer possa
-/// devolver apenas o autoral ao client. Mesma input → mesmo output
-/// byte-a-byte.
+/// Edits do autor são feitas em <see cref="AgentDefinition.AuthorInstructions"/>;
+/// o composer chama este renderer no save e regrava
+/// <see cref="AgentDefinition.Instructions"/>. Não há parse reverso —
+/// recuperar o autoral é só ler o campo correspondente.
 /// </summary>
 public static class PromptRenderer
 {
@@ -61,8 +62,6 @@ public static class PromptRenderer
             return null;
 
         var sb = new StringBuilder();
-        sb.Append(AgentInstructionsMarkers.IntentsBegin);
-        sb.Append('\n');
         sb.Append("# Intenções disponíveis\n\n");
         sb.Append(
             "Escolha **exatamente uma** categoria do enum `intent` para cada input. " +
@@ -104,8 +103,6 @@ public static class PromptRenderer
             "Esta memória é persistida e injetada no próximo turno como contexto. " +
             "Não invente outros campos.");
 
-        sb.Append('\n');
-        sb.Append(AgentInstructionsMarkers.IntentsEnd);
         return sb.ToString();
     }
 
@@ -123,15 +120,11 @@ public static class PromptRenderer
             return null;
 
         var sb = new StringBuilder();
-        sb.Append(AgentInstructionsMarkers.SkillsBegin);
-        sb.Append('\n');
         for (var i = 0; i < addenda.Count; i++)
         {
             if (i > 0) sb.Append("\n\n---\n\n");
             sb.Append(addenda[i]);
         }
-        sb.Append('\n');
-        sb.Append(AgentInstructionsMarkers.SkillsEnd);
         return sb.ToString();
     }
 
@@ -149,12 +142,9 @@ public static class PromptRenderer
         var trimmed = scope.Trim();
 
         var sb = new StringBuilder();
-        sb.Append(AgentInstructionsMarkers.WorkerScopeBegin);
-        sb.Append('\n');
         sb.Append("# Domínio de análise\n\n");
         sb.Append(trimmed);
-        sb.Append("\n\n---\n");
-        sb.Append(AgentInstructionsMarkers.WorkerScopeEnd);
+        sb.Append("\n\n---");
         return sb.ToString();
     }
 }

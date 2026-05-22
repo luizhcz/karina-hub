@@ -1,4 +1,5 @@
 using EfsAiHub.Core.Abstractions.Exceptions;
+using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Agents;
 using EfsAiHub.Core.Agents.GenericTools;
 using EfsAiHub.Host.Api.Models.Requests;
@@ -16,17 +17,23 @@ public class GenericToolsController : ControllerBase
     private readonly IGenericToolTester _tester;
     private readonly IAdminAuditLogger _audit;
     private readonly AdminAuditContext _auditContext;
+    private readonly IProjectContextAccessor _projectAccessor;
+    private readonly ITenantContextAccessor _tenantAccessor;
 
     public GenericToolsController(
         IGenericToolService service,
         IGenericToolTester tester,
         IAdminAuditLogger audit,
-        AdminAuditContext auditContext)
+        AdminAuditContext auditContext,
+        IProjectContextAccessor projectAccessor,
+        ITenantContextAccessor tenantAccessor)
     {
         _service = service;
         _tester = tester;
         _audit = audit;
         _auditContext = auditContext;
+        _projectAccessor = projectAccessor;
+        _tenantAccessor = tenantAccessor;
     }
 
     [HttpPost]
@@ -124,6 +131,54 @@ public class GenericToolsController : ControllerBase
         catch (KeyNotFoundException)
         {
             return NotFound();
+        }
+    }
+
+    [HttpPost("test-draft")]
+    [SwaggerOperation(Summary = "Testa uma config de tool ANTES dela ser persistida. UI força o PM a validar a ferramenta funcionando contra o endpoint real antes de habilitar 'Criar'. Sem write, sem audit, sem métricas. Valida invariantes do domain antes de executar — 400 se config inválida.")]
+    [ProducesResponseType(typeof(GenericToolTestResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> TestDraft(
+        [FromBody] TestDraftGenericToolRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var draft = request.Tool.ToDomainTemplate();
+            // Materializa identidade efêmera pra que EnsureInvariants passe
+            // (Id/ProjectId/TenantId são obrigatórios) e pra que o tester
+            // tenha o projeto correto pra resolução de credenciais.
+            var sandbox = new GenericTool
+            {
+                Id = $"draft-test:{Guid.NewGuid():N}",
+                ProjectId = _projectAccessor.Current.ProjectId,
+                TenantId = _tenantAccessor.Current.TenantId,
+                Name = draft.Name,
+                HttpMethod = draft.HttpMethod,
+                UrlTemplate = draft.UrlTemplate,
+                PathParams = draft.PathParams,
+                QueryParams = draft.QueryParams,
+                CustomHeaders = draft.CustomHeaders,
+                InputContentType = draft.InputContentType,
+                InputSchema = draft.InputSchema,
+                OutputContentType = draft.OutputContentType,
+                OutputSchema = draft.OutputSchema,
+                OutputProjectionMode = draft.OutputContentType == OutputContentType.Text
+                    ? OutputProjectionMode.Off
+                    : OutputProjectionMode.Project,
+                TimeoutSecondsOverride = draft.TimeoutSecondsOverride,
+                IsExclusive = draft.IsExclusive,
+            };
+            sandbox.EnsureInvariants();
+
+            var rawArgs = request.Args ?? new();
+            var args = rawArgs.ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+            var result = await _tester.TestAsync(sandbox, args, ct);
+            return Ok(GenericToolTestResponse.FromResult(result));
+        }
+        catch (DomainException ex)
+        {
+            return BadRequest(new { error = ex.Message });
         }
     }
 

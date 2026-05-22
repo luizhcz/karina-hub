@@ -98,6 +98,16 @@ export function CheckIcon({ className }: IconProps) {
   )
 }
 
+export function HelpIcon({ className }: IconProps) {
+  return (
+    <svg {...baseProps} className={className} strokeWidth={2}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.5 9a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.1 1-1.1 1.8v.5" />
+      <path d="M12 17h.01" />
+    </svg>
+  )
+}
+
 export function LogoIcon({ className }: IconProps) {
   return (
     <svg {...baseProps} className={className} strokeWidth={2}>

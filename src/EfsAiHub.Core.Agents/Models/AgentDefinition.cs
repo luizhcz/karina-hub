@@ -39,7 +39,29 @@ public class AgentDefinition
     /// </summary>
     public AgentProviderConfig Provider { get; init; } = new();
 
+    /// <summary>
+    /// Texto final que vai pro LLM como system message. Função pura de
+    /// <see cref="AuthorInstructions"/> + dependências resolvidas
+    /// (intents, skills, worker scope) — produzido pelo composer.
+    /// Não embute marcadores nem metadados de origem; o LLM enxerga o
+    /// texto inteiro como instrução.
+    ///
+    /// O único writer autorizado é <c>AgentDefinitionComposer</c>.
+    /// Qualquer caller que escreva direto está rompendo o contrato.
+    /// </summary>
     public string? Instructions { get; init; }
+
+    /// <summary>
+    /// Texto cru autoral — exatamente o que o owner do agente digitou
+    /// no editor, sem injeção de dependências. Editor sempre lê deste
+    /// campo; composer recompõe <see cref="Instructions"/> a partir
+    /// daqui mais o set vivo de intents/skills/worker scope a cada save.
+    ///
+    /// Nunca vai pro LLM. Pode conter qualquer texto livre, incluindo
+    /// strings que coincidam com tokens reservados antigos — o composer
+    /// não faz parse reverso.
+    /// </summary>
+    public string? AuthorInstructions { get; init; }
 
     /// <summary>
     /// Identificador da versão do master prompt que produziu
@@ -117,14 +139,31 @@ public class AgentDefinition
 
     /// <summary>
     /// Chave em <see cref="Metadata"/> que carrega, pra Conversational, a
-    /// lista canônica de valores válidos de <c>ui_component</c>. Persiste
-    /// como JSON array de strings (ex: <c>["text","card","list","form"]</c>).
-    /// O codec de save usa pra injetar o enum no schema fixo
-    /// <c>{ui_component, message, output}</c> do StructuredOutput; o
-    /// frontend chat consome o enum pra dirigir o renderer (switch ou
-    /// fallback genérico). Lista vazia / chave ausente = enum sem
-    /// restrição (string livre), com warning soft no save.
+    /// "família de renderer" do agente — string única que vira enum de 1
+    /// elemento em <c>output_type</c> do schema canônico. O frontend chat
+    /// usa pra escolher o renderer principal (text vs card vs custom).
+    /// Default: "text".
     /// </summary>
+    public const string ConversationalOutputTypeMetadataKey = "x-conversational-output-type";
+
+    /// <summary>
+    /// Chave em <see cref="Metadata"/> que carrega, pra Conversational, a
+    /// lista canônica de variações de status que o agente pode emitir.
+    /// Persiste como JSON array de strings (ex:
+    /// <c>["default","success","error","awaiting_input"]</c>). O codec
+    /// injeta como enum em <c>output_status</c> no schema canônico
+    /// <c>{output_type, output_status, message, output}</c>. Default: ["default"].
+    /// </summary>
+    public const string ConversationalOutputStatusesMetadataKey = "x-conversational-output-statuses";
+
+    /// <summary>
+    /// Legacy: chave anterior ao split output_type/output_status. Lida no
+    /// decoder/template service como fallback quando as keys novas estão
+    /// ausentes — migration 011 move pra <see cref="ConversationalOutputStatusesMetadataKey"/>
+    /// + injeta default <c>output_type=text</c>. Mantida no domain só pra
+    /// o composer/template enxergar agentes pré-migration sem crashar.
+    /// </summary>
+    [Obsolete("Use ConversationalOutputTypeMetadataKey + ConversationalOutputStatusesMetadataKey. Removida após migration 011 + window de leitura.")]
     public const string ConversationalUiComponentsMetadataKey = "x-conversational-ui-components";
 
     /// <summary>
@@ -416,13 +455,6 @@ public class AgentToolDefinition
     /// <summary>Para web_search (Bing Grounding): connectionId do Azure AI Foundry.</summary>
     public string? ConnectionId { get; init; }
 
-    /// <summary>
-    /// Resumo da tool exposto ao LLM como parte do prompt structural. Copiado
-    /// de <c>GenericTool.Description</c> quando <see cref="Type"/>="generic_http"
-    /// no save; demais tipos preenchem com a documentação inline da entrada.
-    /// </summary>
-    public string? Description { get; init; }
-
     /// <summary>HTTP verb da invocação. Inline pra runtime não consultar o repo de tools.</summary>
     public HttpMethodType? HttpMethod { get; init; }
 
@@ -458,9 +490,6 @@ public class AgentToolDefinition
 
     /// <summary>Override por-tool do timeout em segundos. Null = usa default global do executor.</summary>
     public int? TimeoutSecondsOverride { get; init; }
-
-    /// <summary>Texto livre que orienta o LLM sobre quando invocar a tool. Vira gatilho no prompt.</summary>
-    public string? WhenToUse { get; init; }
 
     /// <summary>
     /// Quando true, o executor encaminha <c>app_origin</c> + <c>access_token</c>

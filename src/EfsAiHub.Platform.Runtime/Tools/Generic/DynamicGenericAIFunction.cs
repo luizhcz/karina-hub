@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using EfsAiHub.Core.Agents.GenericTools;
 using Microsoft.Extensions.AI;
 
@@ -13,24 +14,53 @@ namespace EfsAiHub.Platform.Runtime.Tools.Generic;
 /// </summary>
 public sealed class DynamicGenericAIFunction : AIFunction
 {
+    // Provedores (OpenAI, Anthropic) exigem nome batendo
+    // ^[a-zA-Z0-9_-]{1,64}$ no schema da function. Names autorais devem ser
+    // validados no save via GenericTool.EnsureInvariants; este regex serve de
+    // defesa em profundidade pra rows herdadas (pré-validação) — substitui
+    // qualquer char fora do conjunto por underscore antes de expor ao LLM.
+    private static readonly Regex InvalidNameCharsRegex = new(@"[^a-zA-Z0-9_-]", RegexOptions.Compiled);
+
     private readonly GenericTool _tool;
     private readonly IGenericToolExecutor _executor;
     private readonly JsonElement _schema;
     private readonly string _description;
+    private readonly string _name;
 
     public DynamicGenericAIFunction(GenericTool tool, IGenericToolExecutor executor)
     {
         _tool = tool;
         _executor = executor;
         _schema = GenericToolSchemaBuilder.Build(tool);
-        _description = string.IsNullOrWhiteSpace(tool.Description)
-            ? $"Generic HTTP tool '{tool.Name}' ({tool.HttpMethod})"
-            : tool.Description;
+        _name = SanitizeName(tool.Name, fallback: tool.Id);
+        // Description semântica vive no prompt do agente; aqui só o gist
+        // técnico (nome + método) pro framework MEAI saber chamar.
+        _description = $"Generic HTTP tool '{_name}' ({tool.HttpMethod})";
     }
 
-    public override string Name => _tool.Id;
+    public override string Name => _name;
     public override string Description => _description;
     public override JsonElement JsonSchema => _schema;
+
+    /// <summary>
+    /// Sanitiza o nome pra bater na regex de function name dos provedores. Quando
+    /// <paramref name="raw"/> está vazio ou vira string vazia após sanitização,
+    /// cai pra <paramref name="fallback"/> (Id do tool — sempre UUID válido).
+    /// Aplica truncamento defensivo a 64 chars.
+    /// </summary>
+    private static string SanitizeName(string raw, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return TruncateToLimit(fallback);
+        var sanitized = InvalidNameCharsRegex.Replace(raw, "_");
+        if (sanitized.Length > 0 && !char.IsLetter(sanitized[0]) && sanitized[0] != '_')
+            sanitized = "_" + sanitized;
+        return string.IsNullOrWhiteSpace(sanitized)
+            ? TruncateToLimit(fallback)
+            : TruncateToLimit(sanitized);
+    }
+
+    private static string TruncateToLimit(string s) => s.Length <= 64 ? s : s[..64];
 
     protected override async ValueTask<object?> InvokeCoreAsync(
         AIFunctionArguments arguments,

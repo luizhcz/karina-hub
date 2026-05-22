@@ -133,7 +133,6 @@ internal class GenericToolRow
     public string ProjectId { get; set; } = "default";
     public string TenantId { get; set; } = "default";
     public string Name { get; set; } = "";
-    public string Description { get; set; } = "";
     public string HttpMethod { get; set; } = "GET";
     public string UrlTemplate { get; set; } = "";
     public string PathParams { get; set; } = "{}";
@@ -144,7 +143,6 @@ internal class GenericToolRow
     public string OutputContentType { get; set; } = "Json";
     public string? OutputSchema { get; set; }
     public int? TimeoutSecondsOverride { get; set; }
-    public string? WhenToUse { get; set; }
     public bool IsExclusive { get; set; }
     public string OutputProjectionMode { get; set; } = "Off";
     public DateTime CreatedAt { get; set; }
@@ -912,7 +910,6 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired();
             b.Property(e => e.TenantId).HasMaxLength(128).IsRequired();
             b.Property(e => e.Name).HasMaxLength(256).IsRequired();
-            b.Property(e => e.Description).HasColumnType("text").HasMaxLength(4096).HasDefaultValue("");
             b.Property(e => e.HttpMethod).HasMaxLength(8).IsRequired();
             b.Property(e => e.UrlTemplate).HasColumnType("text").IsRequired();
             b.Property(e => e.PathParams).HasColumnType("jsonb").IsRequired();
@@ -923,7 +920,6 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.OutputContentType).HasMaxLength(32).IsRequired();
             b.Property(e => e.OutputSchema).HasColumnType("text");
             b.Property(e => e.TimeoutSecondsOverride);
-            b.Property(e => e.WhenToUse).HasColumnType("text");
             b.Property(e => e.IsExclusive).HasDefaultValue(false).IsRequired();
             b.Property(e => e.OutputProjectionMode).HasMaxLength(16).HasDefaultValue("Off").IsRequired();
             b.Property(e => e.CreatedAt).IsRequired();

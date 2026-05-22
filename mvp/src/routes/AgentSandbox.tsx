@@ -22,7 +22,7 @@ import {
   cn,
 } from '../ui'
 import { extractConversationalDisplay } from '../utils/conversationalDisplay'
-import { OutputDetails, TypingDots, UiComponentChip } from '../components/ConversationalExtras'
+import { ConversationalOutputChip, OutputDetails, TypingDots } from '../components/ConversationalExtras'
 
 interface UserMsg {
   kind: 'user'
@@ -524,11 +524,18 @@ function UserBubble({ msg }: { msg: UserMsg }) {
 function AssistantBubble({ msg }: { msg: AssistantMsg }) {
   const showTyping = msg.streaming && msg.content.length === 0 && msg.toolCalls.length === 0
   // Durante streaming exibimos o cru (chunks parciais não parseiam). No turno
-  // final, extractConversationalDisplay reconhece tanto o canônico do
-  // Conversational ({ ui_component, message, output }) quanto o legacy do
-  // Custom ({ response }), evitando o JSON inteiro vazar pra bolha.
+  // final, extractConversationalDisplay reconhece o canônico do Conversational
+  // ({ output_type, output_status, message, output }) — com fallback pro
+  // legado { ui_component, message, output } — e o Custom legacy ({ response }),
+  // evitando o JSON inteiro vazar pra bolha.
   const display = msg.streaming
-    ? { message: msg.content, uiComponent: null, output: undefined, structured: false }
+    ? {
+        message: msg.content,
+        outputType: null,
+        outputStatus: null,
+        output: undefined,
+        structured: false,
+      }
     : extractConversationalDisplay(msg.content)
 
   return (
@@ -550,9 +557,12 @@ function AssistantBubble({ msg }: { msg: AssistantMsg }) {
               <TypingDots />
             ) : (
               <>
-                {display.uiComponent && (
+                {display.outputType && (
                   <div className="mb-1.5">
-                    <UiComponentChip value={display.uiComponent} />
+                    <ConversationalOutputChip
+                      outputType={display.outputType}
+                      outputStatus={display.outputStatus}
+                    />
                   </div>
                 )}
                 <div className="whitespace-pre-wrap break-words">{display.message}</div>

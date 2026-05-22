@@ -5,6 +5,7 @@ import {
   executeGenericTool,
   extractPlaceholders,
   getGenericTool,
+  testDraftGenericTool,
   updateGenericTool,
   type CreateGenericToolBody,
   type GenericTool,
@@ -12,7 +13,6 @@ import {
   type HttpMethodType,
   type InputContentType,
   type OutputContentType,
-  type OutputProjectionMode,
   type ParamDefinition,
 } from '../api/genericTools'
 import { friendlyError } from '../api/client'
@@ -41,6 +41,9 @@ interface Props {
 type Tab = 'params' | 'headers' | 'body' | 'response'
 
 const DEFAULT_JSON = '{\n  "type": "object",\n  "properties": {}\n}'
+// Espelha GenericTool.NameRegex no backend. O Name aqui é o function name
+// exposto ao LLM no schema da tool — OpenAI/Anthropic exigem esse formato.
+const TOOL_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$/
 const PARAM_TYPE_OPTIONS = [
   { value: 'string', label: 'string' },
   { value: 'number', label: 'number' },
@@ -61,8 +64,6 @@ interface ParamRow {
 // precisam saber/escolher); no modo edit o id é imutável e vem da rota.
 interface FormState {
   name: string
-  description: string
-  whenToUse: string
   method: HttpMethodType
   url: string
   pathRows: KvRow<ParamRow>[]
@@ -74,16 +75,12 @@ interface FormState {
   outputContentType: OutputContentType
   outputExample: string
   outputDescription: string
-  timeoutSeconds: string
   isExclusive: boolean
-  outputProjectionMode: OutputProjectionMode
 }
 
 function emptyForm(): FormState {
   return {
     name: '',
-    description: '',
-    whenToUse: '',
     method: 'GET',
     url: '',
     pathRows: [],
@@ -98,11 +95,7 @@ function emptyForm(): FormState {
     outputContentType: 'Json',
     outputExample: '',
     outputDescription: '',
-    timeoutSeconds: '',
     isExclusive: false,
-    // Default 'Project' pra tools novas via UI — admin opta out conscientemente
-    // pra 'Off'. Tools existentes preservam 'Off' via fromTool (vindo do BE).
-    outputProjectionMode: 'Project',
   }
 }
 
@@ -119,6 +112,101 @@ function generateToolId(): string {
 
 function newId() {
   return Math.random().toString(36).slice(2, 10)
+}
+
+/**
+ * Build canônico do payload a partir do FormState. Função pura sem side
+ * effects — retorna o body ou uma mensagem de erro pra UI exibir. Reusada
+ * pelo onSave (modal de create/edit) e pelo TestToolModal (sandbox endpoint
+ * recebe o mesmo shape).
+ */
+function buildBodyFromForm(form: FormState): { body?: CreateGenericToolBody; error?: string } {
+  if (!form.name.trim()) {
+    return { error: 'Informe um nome para a ferramenta.' }
+  }
+  if (!TOOL_NAME_REGEX.test(form.name)) {
+    return { error: 'Nome inválido. Use snake_case ou kebab-case (ex: get_quote, lookup-user). Letras/dígitos/underscore/hífen, começa com letra ou underscore.' }
+  }
+  if (!form.url.trim()) {
+    return { error: 'Informe a URL.' }
+  }
+
+  const pathParams: Record<string, ParamDefinition> = {}
+  for (const r of form.pathRows) {
+    if (!r.key.trim()) continue
+    pathParams[r.key.trim()] = {
+      type: r.val.type || 'string',
+      description: r.val.description,
+      required: true,
+    }
+  }
+
+  const queryParams: Record<string, ParamDefinition> = {}
+  for (const r of form.queryRows) {
+    if (!r.key.trim()) continue
+    queryParams[r.key.trim()] = {
+      type: r.val.type || 'string',
+      description: r.val.description,
+      required: r.val.required,
+    }
+  }
+
+  const customHeaders: Record<string, string> = {}
+  for (const r of form.headerRows) {
+    const key = r.key.trim()
+    if (!key) continue
+    const lower = key.toLowerCase()
+    if (lower === 'content-type' || lower === 'accept') continue
+    customHeaders[key] = r.val
+  }
+
+  const isPost = form.method === 'POST'
+  const inputContentType: InputContentType = isPost ? form.inputContentType : 'None'
+  let inputSchema: string | null = null
+  if (isPost) {
+    if (inputContentType === 'Json' || inputContentType === 'FormUrlEncoded') {
+      inputSchema = form.inputBodyExample
+    } else if (inputContentType === 'Text') {
+      const fieldName = form.textBodyFieldName.trim() || 'body'
+      inputSchema = JSON.stringify({
+        type: 'object',
+        properties: { [fieldName]: { type: 'string' } },
+        required: [fieldName],
+      })
+    }
+  }
+
+  let outputSchema: string | null = null
+  if (form.outputContentType === 'Json' || form.outputContentType === 'Csv') {
+    outputSchema = form.outputExample
+  } else {
+    outputSchema = form.outputDescription.trim() || null
+  }
+
+  return {
+    body: {
+      // Id é gerado pelo front no modo create (caller resolve via
+      // generateToolId no onSave). No modo edit, id vai pela rota e o
+      // backend ignora `id` no PUT.
+      id: undefined,
+      name: form.name.trim(),
+      httpMethod: form.method,
+      urlTemplate: form.url.trim(),
+      pathParams,
+      queryParams,
+      customHeaders,
+      inputContentType,
+      inputSchema,
+      outputContentType: form.outputContentType,
+      outputSchema,
+      // Timeout fica no default global do backend — config avançada removida do MVP.
+      timeoutSecondsOverride: null,
+      isExclusive: form.isExclusive,
+      // Json/Csv sempre projetam (drop silencioso de extras + fail-loud em
+      // required/type) — domain força Project no save. Text fica Off.
+      outputProjectionMode: form.outputContentType === 'Text' ? 'Off' : 'Project',
+    },
+  }
 }
 
 function fromTool(tool: GenericTool): FormState {
@@ -153,8 +241,6 @@ function fromTool(tool: GenericTool): FormState {
 
   return {
     name: tool.name,
-    description: tool.description,
-    whenToUse: tool.whenToUse ?? '',
     method: tool.httpMethod,
     url: tool.urlTemplate,
     pathRows,
@@ -168,9 +254,7 @@ function fromTool(tool: GenericTool): FormState {
     outputExample:
       tool.outputContentType !== 'Text' ? tool.outputSchema || DEFAULT_JSON : DEFAULT_JSON,
     outputDescription: tool.outputContentType === 'Text' ? tool.outputSchema || '' : '',
-    timeoutSeconds: tool.timeoutSecondsOverride?.toString() ?? '',
     isExclusive: tool.isExclusive,
-    outputProjectionMode: tool.outputProjectionMode,
   }
 }
 
@@ -185,6 +269,10 @@ export function ToolEditor({ mode }: Props) {
   const [loading, setLoading] = useState(mode === 'edit')
   const [existingUpdatedAt, setExistingUpdatedAt] = useState<string | null>(null)
   const [testOpen, setTestOpen] = useState(false)
+  // Gate de save: o PM precisa testar a ferramenta contra o endpoint real
+  // antes de salvar. Resetado a cada mudança no form (qualquer alteração
+  // pode invalidar o teste anterior — URL, params, headers, schema, etc.).
+  const [testPassed, setTestPassed] = useState(false)
 
   // Carrega tool existente em modo edit.
   useEffect(() => {
@@ -245,105 +333,18 @@ export function ToolEditor({ mode }: Props) {
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))
-  }
-
-  const buildBody = (): CreateGenericToolBody | null => {
-    if (!form.name.trim()) {
-      setError('Informe um nome para a ferramenta.')
-      return null
-    }
-    if (!form.url.trim()) {
-      setError('Informe a URL.')
-      return null
-    }
-
-    const pathParams: Record<string, ParamDefinition> = {}
-    for (const r of form.pathRows) {
-      if (!r.key.trim()) continue
-      pathParams[r.key.trim()] = {
-        type: r.val.type || 'string',
-        description: r.val.description,
-        required: true,
-      }
-    }
-
-    const queryParams: Record<string, ParamDefinition> = {}
-    for (const r of form.queryRows) {
-      if (!r.key.trim()) continue
-      queryParams[r.key.trim()] = {
-        type: r.val.type || 'string',
-        description: r.val.description,
-        required: r.val.required,
-      }
-    }
-
-    const customHeaders: Record<string, string> = {}
-    for (const r of form.headerRows) {
-      const key = r.key.trim()
-      if (!key) continue
-      const lower = key.toLowerCase()
-      if (lower === 'content-type' || lower === 'accept') continue
-      customHeaders[key] = r.val
-    }
-
-    const isPost = form.method === 'POST'
-    const inputContentType: InputContentType = isPost ? form.inputContentType : 'None'
-    let inputSchema: string | null = null
-    if (isPost) {
-      if (inputContentType === 'Json' || inputContentType === 'FormUrlEncoded') {
-        inputSchema = form.inputBodyExample
-      } else if (inputContentType === 'Text') {
-        const fieldName = form.textBodyFieldName.trim() || 'body'
-        inputSchema = JSON.stringify({
-          type: 'object',
-          properties: { [fieldName]: { type: 'string' } },
-          required: [fieldName],
-        })
-      }
-    }
-
-    let outputSchema: string | null = null
-    if (form.outputContentType === 'Json' || form.outputContentType === 'Csv') {
-      outputSchema = form.outputExample
-    } else {
-      outputSchema = form.outputDescription.trim() || null
-    }
-
-    const timeout = form.timeoutSeconds.trim() ? Number(form.timeoutSeconds) : null
-    if (timeout !== null && (Number.isNaN(timeout) || timeout <= 0)) {
-      setError('Timeout deve ser um número maior que zero.')
-      return null
-    }
-
-    return {
-      // Id é gerado pelo front no modo create (o caller resolve via
-      // generateToolId no onSave). No modo edit, o id vai pela rota e
-      // CreateGenericToolBody.id é ignorado pelo backend no PUT.
-      id: undefined,
-      name: form.name.trim(),
-      description: form.description,
-      whenToUse: form.whenToUse.trim() || null,
-      httpMethod: form.method,
-      urlTemplate: form.url.trim(),
-      pathParams,
-      queryParams,
-      customHeaders,
-      inputContentType,
-      inputSchema,
-      outputContentType: form.outputContentType,
-      outputSchema,
-      timeoutSecondsOverride: timeout,
-      isExclusive: form.isExclusive,
-      // Text não tem shape pra projetar — força Off no payload pra evitar
-      // 400 do EnsureInvariants. Demais content-types respeitam a escolha.
-      outputProjectionMode: form.outputContentType === 'Text' ? 'Off' : form.outputProjectionMode,
-    }
+    // Qualquer mudança invalida o teste anterior — PM precisa re-testar.
+    if (testPassed) setTestPassed(false)
   }
 
   const onSave = async () => {
     setError(null)
-    const body = buildBody()
-    if (!body) return
+    const built = buildBodyFromForm(form)
+    if (built.error) {
+      setError(built.error)
+      return
+    }
+    const body = built.body!
     setSubmitting(true)
     try {
       if (mode === 'edit' && id && existingUpdatedAt) {
@@ -399,25 +400,17 @@ export function ToolEditor({ mode }: Props) {
           label="Nome"
           value={form.name}
           onChange={(e) => set('name', e.target.value)}
-          placeholder="Ex.: Buscar Cliente"
+          placeholder="Ex.: get_quote ou lookup-user"
+          hint="É como o LLM identifica esta ferramenta. Letras/dígitos/underscore/hífen, começa com letra ou underscore, máx 64 chars."
           autoFocus
+          error={form.name.length > 0 && !TOOL_NAME_REGEX.test(form.name)
+            ? 'Nome inválido. Use snake_case ou kebab-case (ex: get_quote, lookup-user).'
+            : undefined}
         />
-        <Textarea
-          label="Descrição"
-          value={form.description}
-          onChange={(e) => set('description', e.target.value)}
-          placeholder="O que o endpoint faz e o que ele retorna."
-          hint="Esse texto vai pro prompt do agente como descrição da ferramenta."
-          autoGrow
-        />
-        <Textarea
-          label="Quando usar"
-          value={form.whenToUse}
-          onChange={(e) => set('whenToUse', e.target.value)}
-          placeholder="Ex.: o usuário pergunta sobre preço ou variação de um ticker específico."
-          hint="Gatilho que orienta o agente a invocar essa tool. Vira a linha 'Use quando: ...' no prompt."
-          autoGrow
-        />
+        <p className="text-[11px] text-fg-muted">
+          Descrição semântica ("o que faz" / "quando usar") vive no prompt do agente
+          (aba <strong>Perfil</strong>) — a ferramenta aqui é instrumento puro: nome + URL + schema.
+        </p>
 
         <label className="mt-2 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-bg-soft p-3">
           <input
@@ -427,37 +420,19 @@ export function ToolEditor({ mode }: Props) {
             className="mt-0.5 h-4 w-4 rounded border-border accent-accent"
           />
           <div>
-            <div className="text-sm font-medium text-fg">Ferramenta exclusiva do usuário</div>
+            <div className="text-sm font-medium text-fg">Chamar em nome do usuário do chat</div>
             <p className="text-[11px] text-fg-muted">
-              Quando ligado, a chamada da ferramenta recebe os headers{' '}
-              <code className="font-mono">access_token</code> e{' '}
-              <code className="font-mono">app_origin</code> do usuário. Use quando o backend
-              da ferramenta autoriza por usuário — 401 do downstream vira "sem permissão".
-              Mantenha desligado para ferramentas gerais/públicas.
+              Ligue quando cada usuário tem permissões diferentes na API
+              (ex: trader só enxerga as carteiras dos clientes dele, gestor só
+              pode operar as contas que atende). A ferramenta vai identificar
+              quem está conversando e só executa o que aquela pessoa pode fazer
+              — se ela não tiver acesso, o agente recebe um aviso.
+              <br />
+              Deixe desligado quando a API responde igual pra todo mundo
+              (cotação de ativo, indicador de mercado, etc.).
             </p>
           </div>
         </label>
-
-        {form.outputContentType !== 'Text' && (
-          <div className="mt-2 rounded-lg border border-border bg-bg-soft p-3">
-            <label className="block">
-              <span className="text-sm font-medium text-fg">Validação do response (Output projection)</span>
-              <p className="mt-0.5 text-[11px] text-fg-muted">
-                Decide o que o agente recebe quando o endpoint responde. Schema declarado em
-                {' '}<strong>Output</strong> é usado pra filtrar/validar antes do LLM ver.
-              </p>
-              <select
-                value={form.outputProjectionMode}
-                onChange={(e) => set('outputProjectionMode', e.target.value as OutputProjectionMode)}
-                className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-fg"
-              >
-                <option value="Off">Off — entrega o response cru (sem validação)</option>
-                <option value="Project">Project — drop silencioso de campos extras + falha em required ausente</option>
-                <option value="Strict">Strict — Project + falha em qualquer campo extra</option>
-              </select>
-            </label>
-          </div>
-        )}
       </Card>
 
       {/* URL bar estilo Postman */}
@@ -682,51 +657,44 @@ export function ToolEditor({ mode }: Props) {
         </div>
       </Card>
 
-      {/* Avançado */}
-      <details className="mb-5 rounded-xl border border-border bg-surface px-5 py-3 shadow-card">
-        <summary className="cursor-pointer text-xs font-medium text-fg-muted hover:text-fg">
-          Configurações avançadas
-        </summary>
-        <div className="mt-4 max-w-xs">
-          <Input
-            label="Timeout (segundos)"
-            type="number"
-            min={1}
-            value={form.timeoutSeconds}
-            onChange={(e) => set('timeoutSeconds', e.target.value)}
-            placeholder="usa o padrão se vazio"
-          />
-        </div>
-      </details>
-
       {error && <ErrorMessage message={error} className="mb-4" />}
 
+      {!testPassed && (
+        <p className="mb-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] text-warning">
+          Teste a ferramenta contra o endpoint real antes de salvar. O botão é
+          habilitado quando o endpoint responde 2xx.
+        </p>
+      )}
+
       <div className="flex items-center justify-end gap-2">
-        {mode === 'edit' && id && (
-          <Button
-            variant="secondary"
-            leftIcon={<BoltIcon className="h-4 w-4" />}
-            onClick={() => setTestOpen(true)}
-          >
-            Testar
-          </Button>
-        )}
+        <Button
+          variant={testPassed ? 'secondary' : 'primary'}
+          leftIcon={<BoltIcon className="h-4 w-4" />}
+          onClick={() => setTestOpen(true)}
+        >
+          {testPassed ? 'Testar novamente' : 'Testar ferramenta'}
+        </Button>
         <Button variant="ghost" onClick={() => navigate('/ferramentas')}>
           Cancelar
         </Button>
-        <Button onClick={onSave} loading={submitting}>
+        <Button
+          onClick={onSave}
+          loading={submitting}
+          disabled={!testPassed}
+          title={!testPassed ? 'Teste a ferramenta primeiro (endpoint precisa responder 2xx).' : undefined}
+        >
           {mode === 'edit' ? 'Salvar alterações' : 'Criar ferramenta'}
         </Button>
       </div>
 
-      {mode === 'edit' && id && (
-        <TestToolModal
-          open={testOpen}
-          onClose={() => setTestOpen(false)}
-          toolId={id}
-          form={form}
-        />
-      )}
+      <TestToolModal
+        open={testOpen}
+        onClose={() => setTestOpen(false)}
+        mode={mode}
+        toolId={id ?? null}
+        form={form}
+        onTestPassed={() => setTestPassed(true)}
+      />
     </div>
   )
 }
@@ -798,8 +766,13 @@ function ParamValEditor({ val, onChange, requiredLocked }: ParamValEditorProps) 
 interface TestToolModalProps {
   open: boolean
   onClose: () => void
-  toolId: string
+  /** Em modo 'edit' o teste vai contra a tool já persistida; em 'create' usa o sandbox endpoint que aceita a config inline. */
+  mode: 'create' | 'edit'
+  /** Id da tool já persistida (somente em modo 'edit'). */
+  toolId: string | null
   form: FormState
+  /** Disparado quando o teste passa (success && statusCode 2xx). Caller usa pra liberar o botão de salvar. */
+  onTestPassed: () => void
 }
 
 // Pré-popula o JSON de args com chaves de path/query/body do schema atual.
@@ -826,7 +799,7 @@ function buildArgsTemplate(form: FormState): string {
   return `{\n${lines}\n}`
 }
 
-function TestToolModal({ open, onClose, toolId, form }: TestToolModalProps) {
+function TestToolModal({ open, onClose, mode, toolId, form, onTestPassed }: TestToolModalProps) {
   const [argsText, setArgsText] = useState('')
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<GenericToolTestResult | null>(null)
@@ -854,11 +827,27 @@ function TestToolModal({ open, onClose, toolId, form }: TestToolModalProps) {
       setArgsError('JSON inválido.')
       return
     }
+    const built = buildBodyFromForm(form)
+    if (built.error || !built.body) {
+      setArgsError(built.error ?? 'Form inválido.')
+      return
+    }
+    const body = built.body
     setRunning(true)
     setResult(null)
     try {
-      const r = await executeGenericTool(toolId, parsed)
+      // Edit usa o endpoint de execute em cima da tool persistida (preserva
+      // exatamente o que vai rodar em prod). Create usa o sandbox endpoint
+      // que aceita a config inline e não persiste nada.
+      const r = mode === 'edit' && toolId
+        ? await executeGenericTool(toolId, parsed)
+        : await testDraftGenericTool(body, parsed)
       setResult(r)
+      // Considera passou quando upstream respondeu 2xx e o tester reportou
+      // sucesso (sem schema violation nem falha de parse).
+      if (r.success && r.statusCode !== null && r.statusCode >= 200 && r.statusCode < 300) {
+        onTestPassed()
+      }
     } catch (err) {
       setResult({
         success: false,
@@ -1006,11 +995,11 @@ function TestResultPanel({ result }: { result: GenericToolTestResult }) {
           que o LLM efetivamente vê em runtime (em modo Project/Strict). UI
           esconde quando projection foi bypass (modo Off ou schema ausente)
           pra não duplicar a tab "Resposta parseada". */}
-      {!result.projectionBypassed && result.schemaErrors.length > 0 && (
+      {!result.projectionBypassed && (result.schemaErrors?.length ?? 0) > 0 && (
         <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
           <div className="mb-1 font-semibold uppercase tracking-wider">Schema violation</div>
           <ul className="ml-4 list-disc space-y-0.5">
-            {result.schemaErrors.map((err, i) => (
+            {(result.schemaErrors ?? []).map((err, i) => (
               <li key={i} className="font-mono">{err}</li>
             ))}
           </ul>

@@ -466,7 +466,12 @@ function PayloadPreview({ draft }: { draft: AgentDraft }) {
   const tools = (p.tools as Array<{ type: string; name?: string | null; genericToolId?: string | null; mcpServerId?: string | null }>) || []
   const visibility = (p as { visibility?: string }).visibility ?? '—'
   const enabled = (p as { enabled?: boolean }).enabled
-  const instructions = p.instructions ?? ''
+  // Texto cru autoral vive em authorInstructions desde o split.
+  // Drafts pré-split ainda gravam o cru em instructions — leitura tolera ambos.
+  const instructions =
+    p.authorInstructions
+    ?? (p as { instructions?: string | null }).instructions
+    ?? ''
 
   return (
     <Card padded className="space-y-3">

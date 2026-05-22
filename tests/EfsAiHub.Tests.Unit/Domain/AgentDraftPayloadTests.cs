@@ -14,7 +14,7 @@ public class AgentDraftPayloadTests
             Description = "agente coletor",
             Model = new AgentModelConfig { DeploymentName = "gpt-4o", Temperature = 0.5f },
             Provider = new AgentProviderConfig { Type = "AzureOpenAI" },
-            Instructions = "Você é coletor.",
+            AuthorInstructions = "Você é coletor.",
             Visibility = "global",
             Enabled = true,
         };

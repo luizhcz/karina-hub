@@ -3,8 +3,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Badge, Button, Card, CardHeader, cn } from '../../ui'
 import type { GenericTool } from '../../api/genericTools'
-import type { McpServer } from '../../api/mcpServers'
-import type { PredefinedModel } from '../../api/predefinedModels'
 import { listRouterIntents, type RouterIntent } from '../../api/routerIntents'
 import { encodeInstructions } from './instructionsCodec'
 import {
@@ -20,31 +18,109 @@ import { ToolCallExample } from './preview/ToolCallExample'
 
 interface ReviewStepProps {
   form: FormState
-  setForm: (mutator: (prev: FormState) => FormState) => void
-  models: PredefinedModel[]
   tools: GenericTool[]
-  mcps: McpServer[]
-  readonly: boolean
 }
 
-export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: ReviewStepProps) {
+// Espelha PromptRenderer.RenderRouterIntentsBlock do backend — bloco
+// "# Intenções disponíveis" + "# Memória operacional" injetado no
+// Instructions do snapshot em compose-time. Manter sincronizado com
+// src/EfsAiHub.Core.Agents/Services/PromptRenderer.cs.
+function buildRouterIntentsPromptBlock(intents: RouterIntent[]): string | null {
+  if (intents.length === 0) return null
+  const lines: string[] = []
+  lines.push('# Intenções disponíveis')
+  lines.push('')
+  lines.push(
+    'Escolha **exatamente uma** categoria do enum `intent` para cada input. ' +
+      'Não invente categorias. Não combine. **Quando nenhuma intent de negócio combinar ' +
+      '(saudações, perguntas genéricas, fora do domínio do agente), escolha `out_of_scope` ' +
+      'com `confidence >= 0.7`**. Não force uma intent de negócio com confidence baixa — ' +
+      'isso é um sintoma de classificação ruim, use a intent de fora-de-escopo.',
+  )
+  lines.push('')
+  for (const intent of intents) {
+    const name = intent.name.trim()
+    if (!name) continue
+    const desc = intent.description.trim()
+    lines.push(desc ? `- \`${name}\` — ${desc}` : `- \`${name}\``)
+    const validExamples = (intent.examples ?? [])
+      .map((e) => (e ?? '').trim())
+      .filter((e) => e.length > 0)
+    if (validExamples.length > 0) {
+      lines.push('  Exemplos:')
+      for (const ex of validExamples) lines.push(`  • "${ex}"`)
+    }
+  }
+  lines.push('')
+  lines.push('# Memória operacional')
+  lines.push('')
+  lines.push(
+    'No campo `operationalMemory` do output, **sempre preencha**:\n' +
+      '- `last_intent`: copie o valor de `intent` que você escolheu.\n' +
+      '- `last_reason`: copie o valor de `reason` (até 200 chars).\n\n' +
+      'Esta memória é persistida e injetada no próximo turno como contexto. ' +
+      'Não invente outros campos.',
+  )
+  return lines.join('\n')
+}
+
+// Compose final do system prompt do Router pra preview: esqueleto autoral
+// (encodeRouterInstructions) seguido do bloco auto-injetado de intenções.
+// Quando o set de intents ainda não carregou, devolve só o esqueleto.
+function buildRouterFullSystemPrompt(name: string, intents: RouterIntent[]): string {
+  const skeleton = encodeRouterInstructions(name)
+  const block = buildRouterIntentsPromptBlock(intents)
+  if (!block) return skeleton
+  return `${skeleton}\n\n${block}`
+}
+
+export function ReviewStep({ form, tools }: ReviewStepProps) {
   const includeStructured = form.agentMode === 'advanced'
   const inputForCodec = form.input.mode === 'structured' ? form.input : { description: '', schema: '' }
   const outputForCodec = form.output.mode === 'structured' ? form.output : { description: '', schema: '' }
 
-  // Descritores ricos das tools/MCPs anexados. Vão pra <ToolsPreview> +
+  // Descritores ricos das tools anexadas. Vão pra <ToolsPreview> +
   // <ToolCallExample> renderizarem visão estruturada (JSON Schema, badges,
   // exemplo de tool_call) — não pro prompt (tools chegam ao LLM via
   // function-calling nativo, não como texto concatenado).
   const enrichedTools = useMemo(
-    () => buildEnrichedDescriptors(form.toolIds, form.mcpIds, tools, mcps),
-    [form.toolIds, form.mcpIds, tools, mcps],
+    () => buildEnrichedDescriptors(form.toolIds, tools),
+    [form.toolIds, tools],
+  )
+
+  // Pool de intents só carrega quando o agente é Router — usado pra resolver
+  // o prompt de preview com o enum visível.
+  const [routerIntentsPool, setRouterIntentsPool] = useState<RouterIntent[]>([])
+  const [routerIntentsLoading, setRouterIntentsLoading] = useState(false)
+  useEffect(() => {
+    if (form.type !== 'Router') return
+    let cancelled = false
+    setRouterIntentsLoading(true)
+    listRouterIntents()
+      .then((items) => {
+        if (!cancelled) setRouterIntentsPool(items)
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setRouterIntentsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [form.type])
+
+  const selectedRouterIntents = useMemo(
+    () =>
+      form.type === 'Router'
+        ? routerIntentsPool.filter((i) => form.routerIntentIds.includes(i.id))
+        : [],
+    [form.type, routerIntentsPool, form.routerIntentIds],
   )
 
   const prompt = useMemo(
     () =>
       form.type === 'Router'
-        ? encodeRouterInstructions(form.name)
+        ? buildRouterFullSystemPrompt(form.name, selectedRouterIntents)
         : form.type === 'Worker'
           ? encodeWorkerInstructions(form.name)
           : form.type === 'ToolRunner'
@@ -59,10 +135,9 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
       inputForCodec,
       outputForCodec,
       includeStructured,
+      selectedRouterIntents,
     ],
   )
-
-  const selectedModel = models.find((m) => m.id === form.predefinedModelId) ?? null
 
   const [copied, setCopied] = useState(false)
 
@@ -76,56 +151,21 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
 
   return (
     <div className="space-y-5">
-      <Card className="space-y-3">
-        <CardHeader
-          title="Identificação"
-          description="Resumo do que será gravado no rascunho."
+      {form.type === 'Router' && (
+        <RouterPreview
+          intents={selectedRouterIntents}
+          loading={routerIntentsLoading}
+          declaredCount={form.routerIntentIds.length}
         />
-        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Nome</dt>
-            <dd className="mt-1 text-sm text-fg">
-              {form.name.trim() || <span className="italic text-fg-dim">não preenchido</span>}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Tipo</dt>
-            <dd className="mt-1 text-sm text-fg">
-              <Badge tone={form.type === 'Router' ? 'accent' : 'neutral'}>
-                {form.type}
-              </Badge>
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[11px] uppercase tracking-wider text-fg-dim">Modelo</dt>
-            <dd className="mt-1 text-sm text-fg">
-              {selectedModel ? selectedModel.displayName : <span className="italic text-fg-dim">não selecionado</span>}
-            </dd>
-          </div>
-        </dl>
-      </Card>
-
-      {form.type === 'Router' && <RouterPreview form={form} />}
+      )}
 
       {form.type === 'Worker' && <WorkerPreview form={form} />}
 
       {form.type === 'ToolRunner' && (
-        <ToolRunnerPreview form={form} tools={tools} mcps={mcps} />
+        <ToolRunnerPreview form={form} tools={tools} />
       )}
 
       {form.type === 'Conversational' && <ConversationalPreview form={form} />}
-
-      <SecurityReviewCard
-        enabled={form.security.enabled}
-        type={form.type}
-        disabled={readonly}
-        onToggle={() =>
-          setForm((prev) => ({
-            ...prev,
-            security: { ...prev.security, enabled: !prev.security.enabled },
-          }))
-        }
-      />
 
       <Card className="space-y-4">
         <CardHeader
@@ -154,77 +194,181 @@ export function ReviewStep({ form, setForm, models, tools, mcps, readonly }: Rev
 }
 
 interface RouterPreviewProps {
-  form: FormState
+  intents: RouterIntent[]
+  loading: boolean
+  declaredCount: number
 }
 
-// Preview no Review das intents que este Router atende. Fetch do pool global
-// + filter pelas selecionadas em form.routerIntentIds. Mostra warning quando
-// <2 selecionadas — backend rejeita o save.
-function RouterPreview({ form }: RouterPreviewProps) {
-  const [pool, setPool] = useState<RouterIntent[]>([])
-  const [loading, setLoading] = useState(true)
-  useEffect(() => {
-    let cancelled = false
-    listRouterIntents()
-      .then((items) => {
-        if (!cancelled) setPool(items)
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+// Reproduz o schema canônico de RouterDefaults.OutputSchemaJson com o enum
+// de `intent` populado pelas intents resolvidas — espelha o que o composer
+// grava no snapshot via OutputSchemaRenderer.ApplyRouterEnumIfApplicable.
+// Mantém sincronizado com o backend; se RouterDefaults mudar, atualizar aqui.
+function buildRouterCanonicalSchema(intents: RouterIntent[]): Record<string, unknown> {
+  const enumValues = intents.map((i) => i.name).filter((n) => n.length > 0)
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      intent: {
+        type: 'string',
+        description: 'Categoria escolhida do enum de intents resolvido em runtime.',
+        ...(enumValues.length > 0 ? { enum: enumValues } : {}),
+      },
+      confidence: {
+        type: 'number',
+        minimum: 0,
+        maximum: 1,
+        description: 'Confiança da classificação (0..1).',
+      },
+      reason: {
+        type: 'string',
+        description: 'Justificativa curta da escolha (uso interno de auditoria/debug).',
+      },
+      operationalMemory: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          last_intent: { type: 'string' },
+          last_reason: { type: 'string' },
+        },
+        required: ['last_intent', 'last_reason'],
+      },
+    },
+    required: ['intent', 'confidence', 'reason', 'operationalMemory'],
+  }
+}
 
-  const selected = pool.filter((i) => form.routerIntentIds.includes(i.id))
-  const tooFew = form.routerIntentIds.length < 2
+// Preview do Router no Review com duas visões alternáveis (mirror do
+// Conversational): "visual" explica em PT-BR o contrato — para diretor — e
+// "schema" mostra o JSON Schema cru que vai pro response_format do LLM.
+// Tecnicamente o LLM recebe as intents via enum no schema, NÃO no system
+// prompt — esse card é onde elas ficam transparentes no review.
+function RouterPreview({ intents, loading, declaredCount }: RouterPreviewProps) {
+  const [viewMode, setViewMode] = useState<'visual' | 'schema'>('visual')
+  const tooFew = declaredCount < 2
+  const canonicalSchema = useMemo(() => buildRouterCanonicalSchema(intents), [intents])
+  const canonicalSchemaJson = useMemo(
+    () => JSON.stringify(canonicalSchema, null, 2),
+    [canonicalSchema],
+  )
 
   return (
     <Card className="space-y-3">
       <CardHeader
-        title="Intenções atendidas"
-        description="As categorias que este Router pode escolher. Edits no pool propagam pra próxima chamada — adicionar intenção nova ao pool não inclui automaticamente neste Router."
+        title="Modelo pré definido enviado ao LLM"
+        description="Garanta que as respostas do classificador estejam em conformidade com um esquema JSON definido por você. O enum de intent é injetado a partir das intenções selecionadas."
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setViewMode((prev) => (prev === 'visual' ? 'schema' : 'visual'))}
+          >
+            {viewMode === 'visual' ? 'Ver JSON Schema' : 'Ver versão visual'}
+          </Button>
+        }
       />
-      {loading ? (
-        <p className="text-xs text-fg-muted">Carregando…</p>
-      ) : form.routerIntentIds.length === 0 ? (
-        <p
-          className={cn(
-            'rounded-lg border px-3 py-2 text-xs',
-            'border-warning/40 bg-warning/10 text-warning',
-          )}
-        >
-          Nenhuma intenção marcada. Volte pra etapa Intenções e selecione ao menos 2 antes de submeter.
+      {loading && <p className="text-xs text-fg-muted">Carregando intenções…</p>}
+      {tooFew && (
+        <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+          Pelo menos 2 intenções são obrigatórias. Selecione mais antes de submeter.
         </p>
+      )}
+      {viewMode === 'schema' ? (
+        <pre className="m-0 max-h-72 overflow-auto rounded-lg border border-border bg-bg-soft px-3 py-2 font-mono text-[11px] leading-snug text-fg">
+          {canonicalSchemaJson}
+        </pre>
       ) : (
-        <>
-          <ul className="space-y-2">
-            {selected.map((intent) => (
-              <li
-                key={intent.id}
-                className="rounded-lg border border-border bg-bg-soft px-3 py-2"
-              >
-                <div className="flex items-center gap-2">
-                  <Badge tone="accent">{intent.name}</Badge>
-                </div>
-                {intent.description.trim() && (
-                  <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-                    {intent.description.trim()}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
-          {tooFew && (
-            <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-              Pelo menos 2 intenções são obrigatórias. Selecione mais antes de submeter.
-            </p>
-          )}
-        </>
+        <RouterVisualPreview intents={intents} />
       )}
     </Card>
+  )
+}
+
+interface RouterVisualPreviewProps {
+  intents: RouterIntent[]
+}
+
+// Versão "executiva" do contrato do Router — 4 blocos representando os
+// campos top-level que o LLM preenche: intent (escolhida do enum),
+// confidence, reason, operationalMemory.
+function RouterVisualPreview({ intents }: RouterVisualPreviewProps) {
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            🎯
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Intenção escolhida</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          A cada classificação, o agente escolhe exatamente uma das intenções abaixo.
+        </p>
+        <div className="mt-2 pl-9">
+          {intents.length === 0 ? (
+            <p className="text-xs text-fg-dim">Nenhuma intenção selecionada.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {intents.map((intent) => {
+                const label = (intent.displayName?.trim() || intent.name).trim()
+                const desc = intent.description.trim()
+                return (
+                  <li key={intent.id} className="flex flex-col gap-0.5">
+                    <div className="flex items-baseline gap-2">
+                      <Badge tone="accent">
+                        <code className="font-mono text-[11px]">{intent.name}</code>
+                      </Badge>
+                      {label !== intent.name && (
+                        <span className="text-xs text-fg-muted">{label}</span>
+                      )}
+                    </div>
+                    {desc && (
+                      <p className="pl-1 text-[11px] leading-relaxed text-fg-muted">{desc}</p>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            📊
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Confiança</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          Número entre 0 e 1 indicando quão certa foi a classificação. Abaixo de 0,5 sinaliza ambiguidade.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            💭
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Justificativa</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          Texto curto explicando por que a intenção foi escolhida — usado em auditoria e debug.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            🧠
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Memória operacional</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          Última intenção e razão persistidas a cada turno — alimenta a próxima classificação com contexto.
+        </p>
+      </div>
+    </div>
   )
 }
 
@@ -280,18 +424,16 @@ function WorkerPreview({ form }: WorkerPreviewProps) {
 interface ToolRunnerPreviewProps {
   form: FormState
   tools: GenericTool[]
-  mcps: McpServer[]
 }
 
-// Preview do Tool Runner no Review: mostra tools/MCPs selecionados (cada
-// um sinaliza requiresApproval=true se aplicável), status do flag HITL e
+// Preview do Tool Runner no Review: mostra tools selecionadas (cada uma
+// sinaliza requiresApproval=true se aplicável), status do flag HITL e
 // status do middleware AccountGuard (presente no payload.middlewares —
 // avaliado via FormState pra UX, valor real é montado no save).
 // Tool Runner sem tools recebe warning soft no save; aqui é sinalizado.
-function ToolRunnerPreview({ form, tools, mcps }: ToolRunnerPreviewProps) {
+function ToolRunnerPreview({ form, tools }: ToolRunnerPreviewProps) {
   const selectedTools = tools.filter((t) => form.toolIds.includes(t.id))
-  const selectedMcps = mcps.filter((m) => form.mcpIds.includes(m.id))
-  const noTools = selectedTools.length === 0 && selectedMcps.length === 0
+  const noTools = selectedTools.length === 0
   const hitlOn = form.toolRunnerHitlRequired
 
   return (
@@ -305,38 +447,16 @@ function ToolRunnerPreview({ form, tools, mcps }: ToolRunnerPreviewProps) {
           Nenhuma ferramenta selecionada. Tool Runner sem tools não tem o que executar — volte pra etapa Ferramentas e marque ao menos uma.
         </p>
       ) : (
-        <div className="space-y-2">
-          <div>
-            <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
-              Ferramentas
-            </p>
-            {selectedTools.length === 0 ? (
-              <p className="text-sm text-fg-muted">Nenhuma function/HTTP selecionada.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {selectedTools.map((t) => (
-                  <Badge key={t.id} tone="accent">
-                    {t.name || t.id}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-          <div>
-            <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
-              MCPs
-            </p>
-            {selectedMcps.length === 0 ? (
-              <p className="text-sm text-fg-muted">Nenhum MCP selecionado.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {selectedMcps.map((m) => (
-                  <Badge key={m.id} tone="accent">
-                    {m.name || m.serverLabel || m.id}
-                  </Badge>
-                ))}
-              </div>
-            )}
+        <div>
+          <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
+            Ferramentas
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {selectedTools.map((t) => (
+              <Badge key={t.id} tone="accent">
+                {t.name || t.id}
+              </Badge>
+            ))}
           </div>
         </div>
       )}
@@ -363,9 +483,74 @@ interface ConversationalPreviewProps {
   form: FormState
 }
 
-// Lê o sub-schema do output (form.output.schema é texto JSON) e devolve a
-// lista das propriedades top-level pra exibir no Review como bullets.
-// Schema inválido devolve null (caller mostra warning).
+// Descrições espelham as constantes do backend (AgentTemplateService.cs).
+// Manter sincronizado — schema mostrado aqui ≡ schema gravado/enviado ao LLM.
+const CONVERSATIONAL_OUTPUT_TYPE_DESCRIPTION =
+  'Família de renderer que o frontend deve usar pra esta resposta. Valor único definido pelo agente.'
+const CONVERSATIONAL_OUTPUT_STATUS_DESCRIPTION =
+  'Variação de status dentro do output_type. Valor escolhido entre as opções configuradas pelo agente.'
+const CONVERSATIONAL_MESSAGE_DESCRIPTION =
+  'Texto humano em PT-BR pro usuário — curto, claro, direto.'
+
+// Reproduz o wrap canônico { output_type, output_status, message, output? }
+// que o backend monta via AgentTemplateService.BuildCanonicalSchema. Defaults
+// alinhados (text + ["default"]) pra que basic mode mostre o schema final
+// mesmo sem o user configurar os campos.
+function buildConversationalCanonicalSchema(
+  outputType: string,
+  outputStatuses: string[],
+  outputSchemaJson: string,
+  isStructured: boolean,
+): Record<string, unknown> {
+  const sanitizedType = outputType.trim().length > 0 ? outputType.trim() : 'text'
+  const sanitizedStatuses = outputStatuses
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  const finalStatuses = sanitizedStatuses.length > 0 ? sanitizedStatuses : ['default']
+
+  const properties: Record<string, unknown> = {
+    output_type: {
+      type: 'string',
+      description: CONVERSATIONAL_OUTPUT_TYPE_DESCRIPTION,
+      enum: [sanitizedType],
+    },
+    output_status: {
+      type: 'string',
+      description: CONVERSATIONAL_OUTPUT_STATUS_DESCRIPTION,
+      enum: finalStatuses,
+    },
+    message: {
+      type: 'string',
+      description: CONVERSATIONAL_MESSAGE_DESCRIPTION,
+    },
+  }
+  const required = ['output_type', 'output_status', 'message']
+
+  if (isStructured) {
+    const trimmed = outputSchemaJson.trim()
+    if (trimmed.length > 0) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          properties.output = parsed
+          required.push('output')
+        }
+      } catch {
+        // Schema inválido — bloco invalid aparece acima; aqui só omite output.
+      }
+    }
+  }
+
+  return {
+    type: 'object',
+    properties,
+    required,
+    additionalProperties: false,
+  }
+}
+
+// Resumo dos campos top-level do output sub-schema pra view visual. Devolve
+// null quando o schema é JSON inválido — UI mostra warning.
 interface OutputFieldSummary {
   name: string
   typeLabel: string
@@ -393,8 +578,6 @@ function summarizeOutputFields(rawSchema: string): OutputFieldSummary[] | null {
     let typeLabel = '—'
     if (sub && typeof sub === 'object' && !Array.isArray(sub)) {
       const subObj = sub as Record<string, unknown>
-      // type pode ser string (primitive) ou array (nullable JSON Schema
-      // standard). Em arrays mostra "lista de X".
       const t = subObj.type
       if (typeof t === 'string') typeLabel = t
       else if (Array.isArray(t)) typeLabel = t.filter((x) => x !== 'null').join('|') || '—'
@@ -408,132 +591,174 @@ function summarizeOutputFields(rawSchema: string): OutputFieldSummary[] | null {
   })
 }
 
-// Preview do Conversational no Review: mostra o nome do cartão (info
-// exclusiva do tipo) e os dados que ele preenche a cada resposta — bullets
-// dos campos top-level com tipo e obrigatoriedade. A descrição em markdown
-// já aparece renderizada no card "Prompt do agente" logo abaixo; aqui
-// concentramos no contrato do cartão (cartão + dados), que é o que o time
-// de frontend precisa pra construir o renderer.
+// Preview do Conversational no Review com duas visões alternáveis:
+//   - "visual" (default): explica em linguagem executiva o que o agente
+//     entrega a cada turno — para o diretor enxergar o contrato sem
+//     precisar ler JSON Schema.
+//   - "schema": o JSON Schema cru que vai pro response_format do LLM —
+//     para PM/dev validar o contrato técnico.
 function ConversationalPreview({ form }: ConversationalPreviewProps) {
-  const uiComponents = form.conversationalUiComponents
-  const noUiComponents = uiComponents.length === 0
+  const [viewMode, setViewMode] = useState<'visual' | 'schema'>('visual')
   const isStructured = form.output.mode === 'structured'
+  const outputType = form.conversationalOutputType.trim().length > 0
+    ? form.conversationalOutputType.trim()
+    : 'text'
+  const outputStatuses = form.conversationalOutputStatuses
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  const effectiveStatuses = outputStatuses.length > 0 ? outputStatuses : ['default']
   const outputFields = isStructured ? summarizeOutputFields(form.output.schema) : []
   const schemaInvalid = outputFields === null
+  const fieldList = outputFields ?? []
+  const canonicalSchema = buildConversationalCanonicalSchema(
+    outputType,
+    outputStatuses,
+    form.output.schema,
+    isStructured,
+  )
+  const canonicalSchemaJson = JSON.stringify(canonicalSchema, null, 2)
 
   return (
     <Card className="space-y-3">
       <CardHeader
-        title="Cartões possíveis no chat"
-        description="Lista de visuais que o agente pode entregar a cada resposta — o LLM escolhe exatamente um da lista."
+        title="Modelo pré definido enviado ao LLM"
+        description={
+          'Garanta que as respostas de texto do modelo estejam em conformidade com um esquema JSON definido por você.'
+        }
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setViewMode((prev) => (prev === 'visual' ? 'schema' : 'visual'))}
+          >
+            {viewMode === 'visual' ? 'Ver JSON Schema' : 'Ver versão visual'}
+          </Button>
+        }
       />
-      {noUiComponents ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone="neutral">
-            <code className="font-mono text-[11px]">text</code>
-          </Badge>
-          <span className="text-[11px] text-fg-dim">
-            Lista vazia — agente cai no padrão "text" (só a mensagem do chat).
-          </span>
-        </div>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          {uiComponents.map((value) => (
-            <Badge key={value} tone="accent">
-              <code className="font-mono text-[11px]">{value}</code>
-            </Badge>
-          ))}
-        </div>
-      )}
 
-      <div>
-        <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
-          Dados que o cartão recebe
-        </p>
-        {!isStructured ? (
-          <p className="rounded-lg border border-border bg-bg-soft px-3 py-2 text-xs text-fg-muted">
-            Resposta em texto livre — o agente só entrega a mensagem, sem dados extras pro cartão.
-          </p>
-        ) : schemaInvalid ? (
-          <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-            Estrutura do cartão inválida — corrija na etapa Output.
-          </p>
-        ) : outputFields.length === 0 ? (
-          <p className="rounded-lg border border-border bg-bg-soft px-3 py-2 text-xs text-fg-muted">
-            Nenhum campo definido — o cartão recebe só a mensagem.
-          </p>
-        ) : (
-          <ul className="space-y-1 rounded-lg border border-border bg-bg-soft px-3 py-2">
-            {outputFields.map((field) => (
-              <li
-                key={field.name}
-                className="flex items-baseline gap-2 text-xs text-fg"
-              >
-                <code className="font-mono text-[11px] text-accent">{field.name}</code>
-                <span className="text-fg-muted">·</span>
-                <span className="text-fg-muted">{field.typeLabel}</span>
-                {field.required && (
-                  <Badge tone="neutral" className="text-[10px]">obrigatório</Badge>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {viewMode === 'schema' ? (
+        <pre className="m-0 max-h-72 overflow-auto rounded-lg border border-border bg-bg-soft px-3 py-2 font-mono text-[11px] leading-snug text-fg">
+          {canonicalSchemaJson}
+        </pre>
+      ) : (
+        <ConversationalVisualPreview
+          outputType={outputType}
+          outputStatuses={effectiveStatuses}
+          isStructured={isStructured}
+          schemaInvalid={schemaInvalid}
+          fields={fieldList}
+        />
+      )}
     </Card>
   )
 }
 
-interface SecurityReviewCardProps {
-  enabled: boolean
-  type: FormState['type']
-  disabled: boolean
-  onToggle: () => void
+interface ConversationalVisualPreviewProps {
+  outputType: string
+  outputStatuses: string[]
+  isStructured: boolean
+  schemaInvalid: boolean
+  fields: OutputFieldSummary[]
 }
 
-// Card permanente de Segurança no Review. Diferente do SecurityBanner (que é
-// reativo e pode passar despercebido quando ativo), este sempre aparece com
-// estado on/off + toggle inline + hint específico pelo tipo do agente —
-// crítico pro Router que não tem step próprio de Segurança no Stepper.
-function SecurityReviewCard({ enabled, type, disabled, onToggle }: SecurityReviewCardProps) {
-  const description =
-    type === 'Router'
-      ? 'Router classifica e devolve label estruturada — output não vai pro usuário, então o vetor de prompt injection é menor. Ative se o input vem de canal hostil e quer proteção extra; do contrário, manter desligado economiza ~300 tokens/chamada.'
-      : 'Adiciona política de sistema fixa: trata input do usuário como dado (não instrução), bloqueia troca de persona, recusa pedidos fora do escopo e impede vazamento de instruções/identificadores. Custo ~300 tokens por chamada.'
-
+// Versão "executiva" do contrato — sem JSON, sem schema. Blocos representando
+// os campos que o agente preenche a cada resposta: tipo do cartão (fixo),
+// status escolhido (entre opções), mensagem (sempre presente) e dados
+// anexos (quando o output é estruturado).
+function ConversationalVisualPreview({
+  outputType,
+  outputStatuses,
+  isStructured,
+  schemaInvalid,
+  fields,
+}: ConversationalVisualPreviewProps) {
   return (
-    <Card className="space-y-3">
-      <CardHeader
-        title="Guardrails de segurança"
-        description={description}
-        actions={
-          <Badge tone={enabled ? 'success' : 'neutral'}>
-            {enabled ? 'Ativos' : 'Desligados'}
-          </Badge>
-        }
-      />
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-bg-soft px-3 py-2.5">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-fg">
-            {enabled
-              ? 'Guardrails ativos — agente bloqueia prompt injection e respostas fora do escopo.'
-              : 'Sem guardrails — agente segue apenas o perfil declarado.'}
-          </p>
-          <p className="mt-0.5 text-[11px] text-fg-muted">
-            Política fixa da plataforma; texto não é editável.
-          </p>
+    <div className="space-y-3">
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            🧩
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Tipo do cartão</h4>
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onToggle}
-          disabled={disabled}
-          className="shrink-0"
-        >
-          {enabled ? 'Desativar' : 'Ativar'}
-        </Button>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          Família de renderer fixa do agente — o front sabe qual cartão desenhar.
+        </p>
+        <div className="mt-2 pl-9">
+          <Badge tone="accent">
+            <code className="font-mono text-[11px]">{outputType}</code>
+          </Badge>
+        </div>
       </div>
-    </Card>
+
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            🎯
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Status escolhido</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          A cada resposta, o agente escolhe exatamente um dos status abaixo.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2 pl-9">
+          {outputStatuses.map((value) => (
+            <Badge key={value} tone="neutral">
+              <code className="font-mono text-[11px]">{value}</code>
+            </Badge>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            💬
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Mensagem para o usuário</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          Texto curto em PT-BR que aparece no chat. Sempre presente em toda resposta do agente.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            📦
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Dados anexos</h4>
+        </div>
+        <div className="mt-2 pl-9">
+          {!isStructured ? (
+            <p className="text-xs text-fg-muted">
+              Resposta em texto livre — agente entrega só a mensagem, sem dados extras.
+            </p>
+          ) : schemaInvalid ? (
+            <p className="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-xs text-warning">
+              Estrutura dos dados inválida — corrija na etapa Output.
+            </p>
+          ) : fields.length === 0 ? (
+            <p className="text-xs text-fg-muted">
+              Nenhum campo definido — agente entrega só a mensagem.
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {fields.map((field) => (
+                <li key={field.name} className="flex items-baseline gap-2 text-xs">
+                  <code className="font-mono text-[11px] text-accent">{field.name}</code>
+                  <span className="text-fg-dim">·</span>
+                  <span className="text-fg-muted">{field.typeLabel}</span>
+                  {field.required && (
+                    <Badge tone="neutral" className="text-[10px]">obrigatório</Badge>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 

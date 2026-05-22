@@ -11,7 +11,6 @@ import {
 } from '../../api/agentDrafts'
 import { listPredefinedModels, type PredefinedModel } from '../../api/predefinedModels'
 import { listGenericTools, type GenericTool } from '../../api/genericTools'
-import { listMcpServers, type McpServer } from '../../api/mcpServers'
 import { ApiError, friendlyError } from '../../api/client'
 import {
   AssistantFailureError,
@@ -36,7 +35,6 @@ import {
 } from '../../ui'
 import { applyOperationToMarkdown, type AssistantOperacao } from './instructionsCodec'
 import { Stepper, type StepDescriptor } from './Stepper'
-import { TypeStep } from './TypeStep'
 import { ProfileStep } from './ProfileStep'
 import { RouterProfileStep } from './RouterProfileStep'
 import { WorkerProfileStep } from './WorkerProfileStep'
@@ -51,7 +49,6 @@ import { ReviewStep } from './ReviewStep'
 import { ChangeReasonModal } from './ChangeReasonModal'
 import { AssistantDrawer } from './AssistantDrawer'
 import { buildPayload, emptyFormState, fromDraft } from './formCodec'
-import { AGENT_TEMPLATES } from './templates'
 import type { AgentMode, FormState, StepKey } from './types'
 import type { AgentType } from '../../api/agentDrafts'
 
@@ -62,15 +59,6 @@ const COOLDOWN_MS = 10 * 60 * 1000
 const MIN_PROFILE_CHARS = 20
 
 // Formata um countdown em segundos pra display compacto: <60s usa "Xs";
-// >=60s usa "Xm Ys" (e omite o "Ys" quando bate em minutos cheios). Reduz
-// ruído visual no botão durante cooldowns longos.
-function formatCooldown(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return s === 0 ? `${m}m` : `${m}m ${s}s`
-}
-
 function profileInputFrom(form: FormState): ProfileInput {
   return {
     name: form.name,
@@ -94,8 +82,11 @@ const STATUS_LABEL: Record<AgentDraftStatus, string> = {
   Rejected: 'Rejeitado',
 }
 
+// O tipo é escolhido no modal "Novo agente" antes de entrar no editor — pra
+// trocar o tipo o usuário volta na listagem e abre um novo. Por isso o wizard
+// começa direto no step de Perfil/Intenções/Identificação/Domínio (conforme o tipo).
+
 const BASIC_STEPS: StepDescriptor[] = [
-  { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Perfil' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'model', label: 'Modelo' },
@@ -103,7 +94,6 @@ const BASIC_STEPS: StepDescriptor[] = [
 ]
 
 const ADVANCED_STEPS: StepDescriptor[] = [
-  { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Perfil' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'security', label: 'Segurança' },
@@ -118,7 +108,6 @@ const ADVANCED_STEPS: StepDescriptor[] = [
 // foram fundidos num step único; tools/security/memory/input/output não fazem
 // sentido pro template e ficam de fora.
 const ROUTER_STEPS: StepDescriptor[] = [
-  { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Intenções' },
   { key: 'model', label: 'Modelo' },
   { key: 'review', label: 'Revisão' },
@@ -130,7 +119,6 @@ const ROUTER_STEPS: StepDescriptor[] = [
 // Memória e Input — Worker é single-shot, sem multi-turn nem schema de
 // input separado.
 const WORKER_STEPS: StepDescriptor[] = [
-  { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Domínio' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'security', label: 'Segurança' },
@@ -145,7 +133,6 @@ const WORKER_STEPS: StepDescriptor[] = [
 // diferente do Worker), Output (opcional), Modelo. Sem Input — schema de
 // input é coberto pelas tools (cada uma carrega seu schema).
 const TOOL_RUNNER_STEPS: StepDescriptor[] = [
-  { key: 'type', label: 'Tipo' },
   { key: 'profile', label: 'Identificação' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'security', label: 'Segurança' },
@@ -155,15 +142,21 @@ const TOOL_RUNNER_STEPS: StepDescriptor[] = [
   { key: 'review', label: 'Revisão' },
 ]
 
-// Conversational substitui o ProfileStep por um step próprio (Identificação
-// + Persona). Inclui Tools (opcional), Segurança (recomendado on), Memória
-// (frequente pra continuidade entre turns), Output (combina componente UI +
-// sub-schema do shape canônico — output é SEMPRE structured pro Conversational
-// porque o frontend chat exige `ui_component`), Modelo. Sem Input — chat
-// consome ChatTurnContext, schema de input é implícito.
-const CONVERSATIONAL_STEPS: StepDescriptor[] = [
-  { key: 'type', label: 'Tipo' },
-  { key: 'profile', label: 'Identificação' },
+// Conversational substitui o ProfileStep por um step próprio (Perfil =
+// Identificação + Persona). Avançado expõe Componente/Segurança/Memória/
+// Output explicitamente; básico usa defaults conservadores e fica com
+// Perfil → Ferramentas → Modelo → Revisão. Output é SEMPRE structured pro
+// Conversational (frontend chat exige `ui_component`) — o encoder usa
+// schema canônico mesmo em basic.
+const CONVERSATIONAL_BASIC_STEPS: StepDescriptor[] = [
+  { key: 'profile', label: 'Perfil' },
+  { key: 'tools', label: 'Ferramentas' },
+  { key: 'model', label: 'Modelo' },
+  { key: 'review', label: 'Revisão' },
+]
+
+const CONVERSATIONAL_ADVANCED_STEPS: StepDescriptor[] = [
+  { key: 'profile', label: 'Perfil' },
   { key: 'tools', label: 'Ferramentas' },
   { key: 'security', label: 'Segurança' },
   { key: 'memory', label: 'Memória' },
@@ -171,30 +164,15 @@ const CONVERSATIONAL_STEPS: StepDescriptor[] = [
   { key: 'model', label: 'Modelo' },
   { key: 'review', label: 'Revisão' },
 ]
-
-// Labels visíveis dos tipos no Stepper. Espelha PT-BR amigável quando faz
-// sentido (Tool Runner com espaço), mantém English nos demais.
-const TYPE_STEP_LABEL: Record<AgentType, string> = {
-  Custom: 'Custom',
-  Router: 'Router',
-  Worker: 'Worker',
-  ToolRunner: 'Tool Runner',
-  Conversational: 'Conversational',
-}
 
 function stepsFor(mode: AgentMode, type: AgentType): StepDescriptor[] {
-  const raw = ((): StepDescriptor[] => {
-    if (type === 'Router') return ROUTER_STEPS
-    if (type === 'Worker') return WORKER_STEPS
-    if (type === 'ToolRunner') return TOOL_RUNNER_STEPS
-    if (type === 'Conversational') return CONVERSATIONAL_STEPS
-    return mode === 'advanced' ? ADVANCED_STEPS : BASIC_STEPS
-  })()
-  // Substitui o label genérico "Tipo" pelo tipo selecionado (ex: "Custom",
-  // "Conversational") — fica explícito no stepper qual fluxo o user escolheu.
-  return raw.map((s) =>
-    s.key === 'type' ? { ...s, label: TYPE_STEP_LABEL[type] ?? 'Tipo' } : s,
-  )
+  if (type === 'Router') return ROUTER_STEPS
+  if (type === 'Worker') return WORKER_STEPS
+  if (type === 'ToolRunner') return TOOL_RUNNER_STEPS
+  if (type === 'Conversational') {
+    return mode === 'advanced' ? CONVERSATIONAL_ADVANCED_STEPS : CONVERSATIONAL_BASIC_STEPS
+  }
+  return mode === 'advanced' ? ADVANCED_STEPS : BASIC_STEPS
 }
 
 export function AgentEditor({ mode }: Props) {
@@ -205,9 +183,8 @@ export function AgentEditor({ mode }: Props) {
   // No fluxo de criação, ?mode=advanced (ou ?mode=basic) define o modo inicial
   // — a tela é aberta a partir do modal de "Novo agente" da listagem com esse
   // parâmetro. Em edit, o modo é inferido do conteúdo do draft pelo formCodec.
-  // ?type=Router|Custom define o tipo formal e o set de steps. ?template=<key>
-  // hidrata Profile + nome + descrição com um modelo pronto (sempre Custom —
-  // ver routes/AgentEditor/templates.ts) — atalho pro time-to-first-agent.
+  // ?type=Router|Custom|Conversational|Worker|ToolRunner define o tipo formal
+  // e o set de steps.
   const initialMode = mode === 'create' && searchParams.get('mode') === 'advanced'
     ? 'advanced'
     : 'basic'
@@ -223,36 +200,26 @@ export function AgentEditor({ mode }: Props) {
               ? 'Conversational'
               : 'Custom'
       : 'Custom'
-  const initialTemplateKey = mode === 'create' ? searchParams.get('template') : null
   const [form, setForm] = useState<FormState>(() => {
-    // Router pula o step de "Tipo" porque já foi escolhido no modal — entra
-    // direto no step próprio (Intenções). Custom também: se já chegou via modal
-    // (com mode definido na query), o step de Tipo é redundante. Quando vem
-    // via template, mesmo raciocínio — pula direto pra Perfil.
-    const base: FormState = {
-      ...emptyFormState(),
+    const base = emptyFormState()
+    // Custom e Conversational em basic exigem guardrail sempre ligado — o
+    // step Segurança fica oculto no fluxo básico e o agente roda em
+    // contexto adversarial (fala direto com o usuário). Avançado expõe o
+    // toggle pro user decidir.
+    const forceSecurity =
+      initialMode === 'basic'
+      && (initialType === 'Custom' || initialType === 'Conversational')
+    const security = forceSecurity
+      ? { ...base.security, enabled: true }
+      : base.security
+    return {
+      // Router/Custom/Conversational pulam o step "Tipo" — já foi escolhido no
+      // modal — e entram direto em Perfil/Intenções/Identificação.
+      ...base,
+      security,
       agentMode: initialMode,
       type: initialType,
       currentStep: 'profile',
-    }
-    if (!initialTemplateKey) return base
-    const tpl = AGENT_TEMPLATES.find((t) => t.key === initialTemplateKey)
-    if (!tpl) return base
-    // Template pode override o tipo (ex.: Conversational templates trazem
-    // `type: 'Conversational'`). Sem `type` no template, herda o tipo da
-    // URL (default Custom).
-    const tplType = tpl.type ?? base.type
-    return {
-      ...base,
-      type: tplType,
-      name: tpl.defaults.name,
-      profile: tpl.defaults.profile,
-      // Conversational template pode pré-popular o componente único de UI.
-      // Mantém compat com FormState (array de 1) — o input do step Output
-      // lê o primeiro item e escreve de volta como array de 1 elemento.
-      conversationalUiComponents: tpl.defaults.conversationalUiComponent
-        ? [tpl.defaults.conversationalUiComponent]
-        : base.conversationalUiComponents,
     }
   })
   const [draft, setDraft] = useState<AgentDraft | null>(null)
@@ -297,10 +264,6 @@ export function AgentEditor({ mode }: Props) {
   const [toolsLoading, setToolsLoading] = useState(true)
   const [toolsError, setToolsError] = useState<string | null>(null)
 
-  const [mcps, setMcps] = useState<McpServer[]>([])
-  const [mcpsLoading, setMcpsLoading] = useState(true)
-  const [mcpsError, setMcpsError] = useState<string | null>(null)
-
   useEffect(() => {
     let cancelled = false
     setModelsLoading(true)
@@ -331,24 +294,6 @@ export function AgentEditor({ mode }: Props) {
       })
       .finally(() => {
         if (!cancelled) setToolsLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    setMcpsLoading(true)
-    listMcpServers()
-      .then((list) => {
-        if (!cancelled) setMcps(list)
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setMcpsError(friendlyError(err, 'Não foi possível carregar os MCPs.'))
-      })
-      .finally(() => {
-        if (!cancelled) setMcpsLoading(false)
       })
     return () => {
       cancelled = true
@@ -531,13 +476,20 @@ export function AgentEditor({ mode }: Props) {
         next === 'basic' && prev.memory.enabled
           ? { ...prev.memory, enabled: false }
           : prev.memory
-      // Mesma lógica do toggle de memória: o step de Segurança só aparece em
-      // advanced; descer pra basic desliga o middleware pra evitar config
-      // ativa que o user não vê na UI.
-      const nextSecurity =
-        next === 'basic' && prev.security.enabled
-          ? { ...prev.security, enabled: false }
-          : prev.security
+      // Custom e Conversational em basic exigem guardrail sempre ligado —
+      // step Segurança fica oculto no fluxo básico, então não dá pra
+      // desligar conscientemente; pra optar out, troca pra advanced.
+      // Demais tipos (Worker/ToolRunner) seguem o que o user deixou.
+      const nextSecurity = (() => {
+        if (
+          next === 'basic'
+          && (prev.type === 'Custom' || prev.type === 'Conversational')
+          && !prev.security.enabled
+        ) {
+          return { ...prev.security, enabled: true }
+        }
+        return prev.security
+      })()
       return {
         ...prev,
         agentMode: next,
@@ -847,26 +799,12 @@ export function AgentEditor({ mode }: Props) {
           <div className="flex shrink-0 flex-col items-end gap-1">
             <Button
               size="sm"
-              variant={assistantResult ? 'secondary' : 'primary'}
-              onClick={runAnalysis}
-              disabled={assistantDisabled}
-              loading={assistantLoading}
-              leftIcon={!assistantLoading ? <SparklesIcon className="h-4 w-4" /> : undefined}
-              title={
-                !profileReady
-                  ? `Preencha o perfil com pelo menos ${MIN_PROFILE_CHARS} caracteres pra habilitar.`
-                  : onCooldown
-                  ? `Aguarde ${formatCooldown(cooldownRemaining)} pra rodar de novo.`
-                  : 'Analisa o perfil e devolve sugestões granulares.'
-              }
+              variant="secondary"
+              disabled
+              leftIcon={<SparklesIcon className="h-4 w-4" />}
+              title="Refinamento com IA está temporariamente desativado nesta fase do MVP."
             >
-              {assistantLoading
-                ? 'Analisando perfil…'
-                : onCooldown
-                ? `Aguarde ${formatCooldown(cooldownRemaining)}`
-                : assistantResult
-                ? 'Reanalisar perfil'
-                : 'Refinar com IA'}
+              Refinar com IA
             </Button>
           </div>
         )}
@@ -903,8 +841,7 @@ export function AgentEditor({ mode }: Props) {
           </div>
           {form.type !== 'Router'
             && form.type !== 'Worker'
-            && form.type !== 'ToolRunner'
-            && form.type !== 'Conversational' && (
+            && form.type !== 'ToolRunner' && (
             <div className="flex rounded-lg border border-border bg-bg-soft p-1">
               <ModeToggleButton
                 active={form.agentMode === 'basic'}
@@ -946,9 +883,6 @@ export function AgentEditor({ mode }: Props) {
       </Card>
 
       <div className="mb-5">
-        {form.currentStep === 'type' && (
-          <TypeStep form={form} setForm={setForm} readonly={readonly} />
-        )}
         {form.currentStep === 'profile' && form.type === 'Router' && (
           <RouterProfileStep form={form} setForm={setForm} readonly={readonly} />
         )}
@@ -1001,9 +935,6 @@ export function AgentEditor({ mode }: Props) {
             tools={tools}
             toolsLoading={toolsLoading}
             toolsError={toolsError}
-            mcps={mcps}
-            mcpsLoading={mcpsLoading}
-            mcpsError={mcpsError}
             readonly={readonly}
           />
         )}
@@ -1038,7 +969,7 @@ export function AgentEditor({ mode }: Props) {
           />
         )}
         {form.currentStep === 'review' && (
-          <ReviewStep form={form} setForm={setForm} models={models} tools={tools} mcps={mcps} readonly={readonly} />
+          <ReviewStep form={form} tools={tools} />
         )}
       </div>
 

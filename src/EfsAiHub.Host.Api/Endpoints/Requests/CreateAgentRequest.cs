@@ -18,7 +18,12 @@ public class CreateAgentRequest
 
     public required AgentModelConfig Model { get; init; }
     public AgentProviderConfig Provider { get; init; } = new();
-    public string? Instructions { get; init; }
+
+    /// <summary>
+    /// Texto cru autoral. Composer renderiza
+    /// <see cref="AgentDefinition.Instructions"/> a partir daqui.
+    /// </summary>
+    public string? AuthorInstructions { get; init; }
     public List<AgentToolDefinition> Tools { get; init; } = [];
     public AgentStructuredOutputDefinition? StructuredOutput { get; init; }
     public AgentOperationalMemoryDefinition? OperationalMemory { get; init; }
@@ -79,7 +84,10 @@ public class CreateAgentRequest
         Type = Type ?? AgentType.Custom,
         Model = Model,
         Provider = Provider,
-        Instructions = Instructions,
+        AuthorInstructions = AuthorInstructions,
+        // Composer recompõe Instructions a partir de AuthorInstructions
+        // imediatamente após o ToDomain — não vaza valor parcial daqui.
+        Instructions = null,
         Tools = Tools,
         StructuredOutput = StructuredOutput,
         OperationalMemory = OperationalMemory,

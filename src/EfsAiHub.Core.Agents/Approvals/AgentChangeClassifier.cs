@@ -23,7 +23,10 @@ public static class AgentChangeClassifier
         // (mantém valor de `before`). Por isso só comparamos quando o campo veio
         // explicitamente preenchido. Bool? segue mesma semântica: null = inalterado.
         if (after.Name is not null && NotEqualString(before.Name, after.Name)) return AgentChangeTier.Behavioral;
-        if (after.Instructions is not null && NotEqualString(before.Instructions, after.Instructions)) return AgentChangeTier.Behavioral;
+        // Compara texto cru autoral — é o que o owner edita. Composto vive
+        // em campo separado e é recriado pelo composer; não faz sentido
+        // comparar pra detectar mudança behavioral.
+        if (after.AuthorInstructions is not null && NotEqualString(before.AuthorInstructions, after.AuthorInstructions)) return AgentChangeTier.Behavioral;
         if (after.Visibility is not null && NotEqualString(before.Visibility, after.Visibility)) return AgentChangeTier.Behavioral;
         if (after.Enabled.HasValue && before.Enabled != after.Enabled.Value) return AgentChangeTier.Behavioral;
         if (after.RegressionTestSetId is not null && NotEqualString(before.RegressionTestSetId, after.RegressionTestSetId)) return AgentChangeTier.Behavioral;

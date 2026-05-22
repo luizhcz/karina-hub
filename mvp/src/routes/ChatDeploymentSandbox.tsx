@@ -29,7 +29,7 @@ import {
   cn,
 } from '../ui'
 import { extractConversationalDisplay } from '../utils/conversationalDisplay'
-import { OutputDetails, TypingDots, UiComponentChip } from '../components/ConversationalExtras'
+import { ConversationalOutputChip, OutputDetails, TypingDots } from '../components/ConversationalExtras'
 
 const HITL_TOOL_NAME = 'request_approval'
 const VERSION_CURRENT = ''
@@ -483,7 +483,13 @@ function BubbleRow({
   // JSON inteiro vazar na bolha).
   const display = !isUser && !streaming
     ? extractConversationalDisplay(bubble.content)
-    : { message: bubble.content, uiComponent: null, output: undefined, structured: false }
+    : {
+        message: bubble.content,
+        outputType: null,
+        outputStatus: null,
+        output: undefined,
+        structured: false,
+      }
   const showTyping = !isUser && streaming && bubble.content.length === 0
   return (
     <div className={cn('flex flex-col', isUser ? 'items-end' : 'items-start')}>
@@ -509,9 +515,12 @@ function BubbleRow({
           <TypingDots />
         ) : (
           <>
-            {display.uiComponent && (
+            {display.outputType && (
               <div className="mb-1.5">
-                <UiComponentChip value={display.uiComponent} />
+                <ConversationalOutputChip
+                  outputType={display.outputType}
+                  outputStatus={display.outputStatus}
+                />
               </div>
             )}
             <div className="whitespace-pre-wrap break-words">{display.message}</div>

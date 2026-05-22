@@ -15,7 +15,6 @@ export interface GenericTool {
   projectId: string
   tenantId: string
   name: string
-  description: string
   httpMethod: HttpMethodType
   urlTemplate: string
   pathParams: Record<string, ParamDefinition>
@@ -26,7 +25,6 @@ export interface GenericTool {
   outputContentType: OutputContentType
   outputSchema: string | null
   timeoutSecondsOverride: number | null
-  whenToUse: string | null
   /**
    * Quando true, é "exclusiva do usuário": backend forwarda app_origin e
    * access_token da request original na chamada downstream. Tool geral
@@ -34,22 +32,20 @@ export interface GenericTool {
    */
   isExclusive: boolean
   /**
-   * Controla validação + projeção do response contra `outputSchema` antes do
-   * LLM (e do tester) receber. Default 'Off' preserva o comportamento legacy
-   * de tools cadastradas antes da feature; admin opta in via o select no
-   * ToolEditor.
+   * Modo de projeção do response contra `outputSchema`. Setado automaticamente:
+   * `'Project'` para Json/Csv (drop silencioso de extras + fail-loud em
+   * required/type), `'Off'` apenas para Text (sem shape pra projetar).
    */
   outputProjectionMode: OutputProjectionMode
   createdAt: string
   updatedAt: string
 }
 
-export type OutputProjectionMode = 'Off' | 'Project' | 'Strict'
+export type OutputProjectionMode = 'Off' | 'Project'
 
 export interface CreateGenericToolBody {
   id?: string
   name: string
-  description: string
   httpMethod: HttpMethodType
   urlTemplate: string
   pathParams: Record<string, ParamDefinition>
@@ -60,7 +56,6 @@ export interface CreateGenericToolBody {
   outputContentType: OutputContentType
   outputSchema: string | null
   timeoutSecondsOverride: number | null
-  whenToUse: string | null
   isExclusive: boolean
   outputProjectionMode: OutputProjectionMode
 }
@@ -102,6 +97,16 @@ export interface GenericToolTestResult {
 
 export const executeGenericTool = (id: string, args: Record<string, unknown>) =>
   post<GenericToolTestResult>(`/generic-tools/${id}/execute`, { args })
+
+/**
+ * Testa uma configuração de tool ANTES dela ser persistida. UI usa pra
+ * gatear a habilitação do botão "Criar/Salvar" — PM tem que ver 2xx no
+ * endpoint real antes de salvar.
+ */
+export const testDraftGenericTool = (
+  tool: CreateGenericToolBody,
+  args: Record<string, unknown>,
+) => post<GenericToolTestResult>('/generic-tools/test-draft', { tool, args })
 
 // Detecta placeholders {nome} no UrlTemplate em ordem de aparição. Usado pra
 // auto-popular path params no editor.

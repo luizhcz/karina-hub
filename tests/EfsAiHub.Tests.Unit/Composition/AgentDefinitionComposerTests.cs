@@ -28,7 +28,8 @@ public class AgentDefinitionComposerTests
 
         var composed = await NewComposer().ComposeAsync(input);
 
-        composed.Instructions.Should().Be(input.Instructions);
+        composed.AuthorInstructions.Should().Be(input.AuthorInstructions);
+        composed.Instructions.Should().Be(input.AuthorInstructions);
     }
 
     [Fact]
@@ -55,9 +56,10 @@ public class AgentDefinitionComposerTests
 
         var composed = await NewComposer().ComposeAsync(input);
 
-        composed.Instructions.Should().Contain(AgentInstructionsMarkers.IntentsBegin);
-        composed.Instructions.Should().Contain(AgentInstructionsMarkers.IntentsEnd);
+        composed.Instructions.Should().NotContain("<!--", "system prompt do LLM não pode embutir markers HTML");
+        composed.Instructions.Should().Contain("# Intenções disponíveis");
         composed.Instructions.Should().Contain("consultar_cotacao");
+        composed.AuthorInstructions.Should().Be("Classifique a entrada.");
         composed.RouterIntentIds.Should().BeEquivalentTo(new[] { "intent-cot" });
     }
 
@@ -72,7 +74,6 @@ public class AgentDefinitionComposerTests
                 ProjectId = "p",
                 TenantId = "t",
                 Name = "Get Quote",
-                Description = "Consulta cotação por ticker.",
                 HttpMethod = HttpMethodType.GET,
                 UrlTemplate = "https://api.example.com/{ticker}",
                 PathParams = new Dictionary<string, ParamDefinition>
@@ -101,7 +102,6 @@ public class AgentDefinitionComposerTests
         tool.PathParams.Should().ContainKey("ticker");
         tool.OutputContentType.Should().Be(OutputContentType.Json);
         tool.OutputSchemaJson.Should().Be("{\"type\":\"object\"}");
-        tool.Description.Should().Be("Consulta cotação por ticker.");
     }
 
     [Fact]
@@ -134,8 +134,9 @@ public class AgentDefinitionComposerTests
 
         var composed = await NewComposer().ComposeAsync(input);
 
-        composed.Instructions.Should().Contain(AgentInstructionsMarkers.SkillsBegin);
+        composed.Instructions.Should().NotContain("<!--", "addendum de skill é texto puro, sem markers");
         composed.Instructions.Should().Contain("Conhecimento financeiro");
+        composed.AuthorInstructions.Should().Be("Atendimento financeiro.");
         composed.Tools.Should().Contain(t => t.Name == "calc_taxa" && t.SourceSkillId == "skill-finance");
     }
 
@@ -180,7 +181,8 @@ public class AgentDefinitionComposerTests
         var composed = await NewComposer().ComposeAsync(input);
         var decomposed = NewDecomposer().Decompose(composed);
 
-        decomposed.Instructions.Should().Be(input.Instructions);
+        decomposed.AuthorInstructions.Should().Be(input.AuthorInstructions);
+        decomposed.Instructions.Should().BeNull("decomposer não devolve o composto pro editor");
         decomposed.Tools.Should().BeEquivalentTo(input.Tools);
     }
 
@@ -208,10 +210,12 @@ public class AgentDefinitionComposerTests
             routerIntentIds: new[] { "i1" });
 
         var composed = await NewComposer().ComposeAsync(input);
-        composed.Instructions.Should().Contain(AgentInstructionsMarkers.IntentsBegin);
+        composed.Instructions.Should().NotContain("<!--");
+        composed.Instructions.Should().Contain("# Intenções disponíveis");
 
         var decomposed = NewDecomposer().Decompose(composed);
-        decomposed.Instructions.Should().Be(input.Instructions);
+        decomposed.AuthorInstructions.Should().Be(input.AuthorInstructions);
+        decomposed.Instructions.Should().BeNull();
         decomposed.RouterIntentIds.Should().BeEquivalentTo(new[] { "i1" });
     }
 
@@ -247,7 +251,7 @@ public class AgentDefinitionComposerTests
         composed.Tools[0].UrlTemplate.Should().NotBeNull();
 
         var decomposed = NewDecomposer().Decompose(composed);
-        decomposed.Instructions.Should().Be(input.Instructions);
+        decomposed.AuthorInstructions.Should().Be(input.AuthorInstructions);
         decomposed.Tools[0].UrlTemplate.Should().BeNull();
         decomposed.Tools[0].GenericToolId.Should().Be("tool-rt");
         decomposed.Tools[0].HttpMethod.Should().BeNull();
@@ -278,7 +282,7 @@ public class AgentDefinitionComposerTests
         composed.Tools.Should().Contain(t => t.SourceSkillId == "skill-y");
 
         var decomposed = NewDecomposer().Decompose(composed);
-        decomposed.Instructions.Should().Be(input.Instructions);
+        decomposed.AuthorInstructions.Should().Be(input.AuthorInstructions);
         decomposed.Tools.Should().NotContain(t => t.SourceSkillId == "skill-y");
         decomposed.Tools.Should().BeEmpty();
     }
@@ -298,7 +302,7 @@ public class AgentDefinitionComposerTests
             Name = id,
             Type = type,
             Model = model ?? new AgentModelConfig { DeploymentName = "gpt-4o" },
-            Instructions = instructions,
+            AuthorInstructions = instructions,
             Tools = tools ?? Array.Empty<AgentToolDefinition>(),
             SkillRefs = skillRefs ?? Array.Empty<SkillRef>(),
             RouterIntentIds = routerIntentIds,
