@@ -41,7 +41,7 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
 
     public async Task<AgentDefinition> ComposeAsync(AgentDefinition input, CancellationToken ct = default)
     {
-        var resolvedModel = await ResolvePredefinedModelAsync(input, ct);
+        var (resolvedModel, resolvedProvider) = await ResolvePresetAsync(input, ct);
         var resolvedTools = await ResolveGenericToolsAsync(input, ct);
         var skills = await ResolveSkillsAsync(input, ct);
         var routerIntents = await ResolveRouterIntentsAsync(input, ct);
@@ -84,7 +84,7 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
             Type = input.Type,
             RouterIntentIds = routerIntentIds,
             Model = resolvedModel,
-            Provider = input.Provider,
+            Provider = resolvedProvider,
             AuthorInstructions = authorText,
             Instructions = instructions,
             Tools = skillTools,
@@ -111,11 +111,22 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
         };
     }
 
-    private async Task<AgentModelConfig> ResolvePredefinedModelAsync(AgentDefinition input, CancellationToken ct)
+    /// <summary>
+    /// Resolve o preset (quando referenciado em <c>Model.PredefinedModelId</c>)
+    /// e produz tanto o <see cref="AgentModelConfig"/> quanto o
+    /// <see cref="AgentProviderConfig"/> derivados. Sem preset, devolve os
+    /// objetos do input intactos.
+    ///
+    /// O preset é a fonte canônica da "receita" — Provider/ClientType/Endpoint
+    /// saem dele. ApiKey é preservada do input (segredo é independente do
+    /// catálogo curado e pode ser per-agent ou global).
+    /// </summary>
+    private async Task<(AgentModelConfig Model, AgentProviderConfig Provider)> ResolvePresetAsync(
+        AgentDefinition input, CancellationToken ct)
     {
         var presetId = input.Model.PredefinedModelId;
         if (string.IsNullOrWhiteSpace(presetId))
-            return input.Model;
+            return (input.Model, input.Provider);
 
         var preset = await _predefinedModels.GetByIdAsync(presetId!, ct)
             ?? throw new DomainException(
@@ -125,16 +136,35 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
             throw new DomainException(
                 $"Agent '{input.Id}': PredefinedModel '{presetId}' está desabilitado — publish bloqueado.");
 
-        // Os campos resolvidos viram a fonte de verdade no snapshot. O cliente
-        // pode até ter enviado DeploymentName=null (default quando preset está
-        // setado) — o composer sobrescreve com o valor expandido.
-        return new AgentModelConfig
+        // Cliente pode ter enviado DeploymentName=null (default quando preset
+        // está setado) — composer sobrescreve com o valor expandido.
+        var resolvedModel = new AgentModelConfig
         {
             DeploymentName = preset.DeploymentName,
             Temperature = input.Model.Temperature ?? preset.DefaultTemperature,
             MaxTokens = input.Model.MaxTokens ?? preset.DefaultMaxTokens,
             PredefinedModelId = preset.Id,
         };
+
+        // Provider derivado do preset. Sem isso, o default
+        // (AgentProviderConfig.Type = "AzureFoundry") sobreescrevia silenciosamente
+        // a escolha do preset — bug onde agents que usam preset AzureOpenAI eram
+        // publicados como AzureFoundry e caíam em fallback de SP em runtime.
+        var resolvedProvider = new AgentProviderConfig
+        {
+            Type = preset.Provider,
+            ClientType = !string.IsNullOrWhiteSpace(preset.ClientType)
+                ? preset.ClientType!
+                : (string.IsNullOrWhiteSpace(input.Provider.ClientType)
+                    ? "ChatCompletion"
+                    : input.Provider.ClientType),
+            Endpoint = !string.IsNullOrWhiteSpace(preset.Endpoint)
+                ? preset.Endpoint
+                : input.Provider.Endpoint,
+            ApiKey = input.Provider.ApiKey,
+        };
+
+        return (resolvedModel, resolvedProvider);
     }
 
     private async Task<IReadOnlyList<AgentToolDefinition>> ResolveGenericToolsAsync(

@@ -171,6 +171,84 @@ public class AgentDefinitionComposerTests
     }
 
     [Fact]
+    public async Task Compose_PredefinedModel_SobreescreveProviderDoInput()
+    {
+        // Regressão: sem propagação, qualquer agent criado via preset sem
+        // Provider explícito caía no default "AzureFoundry" e era publicado
+        // com o tipo errado — runtime caía em fallback de SP em vez de usar
+        // a ApiKey configurada pro preset.
+        _predefinedModels
+            .GetByIdAsync("aoai-preset", Arg.Any<CancellationToken>())
+            .Returns(new PredefinedModel
+            {
+                Id = "aoai-preset",
+                DisplayName = "Azure OpenAI Preset",
+                Provider = "AzureOpenAI",
+                ClientType = "ChatCompletion",
+                DeploymentName = "gpt-4o",
+                Endpoint = "https://my-aoai.openai.azure.com",
+            });
+
+        var input = BuildAgent(
+            id: "agent-aoai-preset",
+            type: AgentType.Custom,
+            instructions: "use o preset",
+            model: new AgentModelConfig
+            {
+                DeploymentName = string.Empty,
+                PredefinedModelId = "aoai-preset",
+            });
+        // Provider chega com o default ("AzureFoundry") porque a UI não
+        // serializa Provider quando o user só seleciona preset.
+        input.Provider.Type.Should().Be("AzureFoundry");
+
+        var composed = await NewComposer().ComposeAsync(input);
+
+        composed.Provider.Type.Should().Be("AzureOpenAI");
+        composed.Provider.ClientType.Should().Be("ChatCompletion");
+        composed.Provider.Endpoint.Should().Be("https://my-aoai.openai.azure.com");
+    }
+
+    [Fact]
+    public async Task Compose_PredefinedModel_PreservaApiKeyDoInput()
+    {
+        // ApiKey é independente do preset — pode ser per-agent (override do
+        // user) ou global (config). Preset não tem ApiKey; composer não pode
+        // limpar a key que veio do input.
+        _predefinedModels
+            .GetByIdAsync("preset-x", Arg.Any<CancellationToken>())
+            .Returns(new PredefinedModel
+            {
+                Id = "preset-x",
+                DisplayName = "X",
+                Provider = "OpenAI",
+                DeploymentName = "gpt-4o",
+            });
+
+        var input = new AgentDefinition
+        {
+            Id = "agent-with-key",
+            Name = "agent-with-key",
+            Type = AgentType.Custom,
+            Model = new AgentModelConfig { DeploymentName = string.Empty, PredefinedModelId = "preset-x" },
+            Provider = new AgentProviderConfig
+            {
+                Type = "AzureFoundry", // será sobrescrito pelo preset
+                ApiKey = "secret://aws/efs-ai-hub/openai-default",
+            },
+            Tools = Array.Empty<AgentToolDefinition>(),
+            SkillRefs = Array.Empty<SkillRef>(),
+            ProjectId = "p",
+            TenantId = "t",
+        };
+
+        var composed = await NewComposer().ComposeAsync(input);
+
+        composed.Provider.Type.Should().Be("OpenAI");
+        composed.Provider.ApiKey.Should().Be("secret://aws/efs-ai-hub/openai-default");
+    }
+
+    [Fact]
     public async Task Roundtrip_Custom_ComposeDecomposeRetornaAutoral()
     {
         var input = BuildAgent(
