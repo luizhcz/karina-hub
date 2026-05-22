@@ -335,18 +335,81 @@ function summarizeOutputFields(rawSchema: string): OutputFieldSummary[] | null {
   })
 }
 
+// Descrições espelham as constantes do backend (AgentTemplateService.cs):
+// UiComponentDescription + MessageDescription. Manter sincronizado quando o
+// template for renomeado/reescrito — schema mostrado aqui ≡ schema gravado.
+const CONVERSATIONAL_UI_COMPONENT_DESCRIPTION =
+  'Identificador do componente UI que o frontend deve renderizar pra esta resposta.'
+const CONVERSATIONAL_MESSAGE_DESCRIPTION =
+  'Texto humano em PT-BR pro usuário — curto, claro, direto.'
+
+// Reproduz o wrap canônico { ui_component, message, output } que o backend
+// monta via AgentTemplateService.BuildCanonicalSchema. Pra Review ficar
+// transparente — o PM/dev vê exatamente o JSON Schema que entra no
+// response_format do LLM.
+function buildConversationalCanonicalSchema(
+  uiComponents: string[],
+  outputSchemaJson: string,
+  isStructured: boolean,
+): Record<string, unknown> {
+  const uiComponentProp: Record<string, unknown> = {
+    type: 'string',
+    description: CONVERSATIONAL_UI_COMPONENT_DESCRIPTION,
+  }
+  if (uiComponents.length > 0) {
+    uiComponentProp.enum = uiComponents
+  }
+
+  const properties: Record<string, unknown> = {
+    ui_component: uiComponentProp,
+    message: {
+      type: 'string',
+      description: CONVERSATIONAL_MESSAGE_DESCRIPTION,
+    },
+  }
+  const required = ['ui_component', 'message']
+
+  if (isStructured) {
+    const trimmed = outputSchemaJson.trim()
+    if (trimmed.length > 0) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          properties.output = parsed
+          required.push('output')
+        }
+      } catch {
+        // Schema inválido — bloco invalid aparece acima; aqui só omite output.
+      }
+    }
+  }
+
+  return {
+    type: 'object',
+    properties,
+    required,
+    additionalProperties: false,
+  }
+}
+
 // Preview do Conversational no Review: mostra o nome do cartão (info
-// exclusiva do tipo) e os dados que ele preenche a cada resposta — bullets
-// dos campos top-level com tipo e obrigatoriedade. A descrição em markdown
-// já aparece renderizada no card "Prompt do agente" logo abaixo; aqui
-// concentramos no contrato do cartão (cartão + dados), que é o que o time
-// de frontend precisa pra construir o renderer.
+// exclusiva do tipo), os dados que ele preenche a cada resposta E o JSON
+// Schema completo que vai pro LLM via response_format. A descrição em
+// markdown já aparece renderizada no card "Prompt do agente" logo abaixo;
+// aqui concentramos no contrato canônico que o modelo enxerga.
 function ConversationalPreview({ form }: ConversationalPreviewProps) {
   const uiComponents = form.conversationalUiComponents
   const noUiComponents = uiComponents.length === 0
   const isStructured = form.output.mode === 'structured'
   const outputFields = isStructured ? summarizeOutputFields(form.output.schema) : []
   const schemaInvalid = outputFields === null
+
+  const canonicalSchema = buildConversationalCanonicalSchema(
+    uiComponents,
+    form.output.schema,
+    isStructured,
+  )
+  const canonicalSchemaJson = JSON.stringify(canonicalSchema, null, 2)
 
   return (
     <Card className="space-y-3">
@@ -406,6 +469,19 @@ function ConversationalPreview({ form }: ConversationalPreviewProps) {
             ))}
           </ul>
         )}
+      </div>
+
+      <div>
+        <p className="mb-1 text-[11px] uppercase tracking-wider text-fg-dim">
+          JSON Schema enviado ao LLM
+        </p>
+        <p className="mb-2 text-[11px] text-fg-muted">
+          Contrato exato que o modelo recebe no <code className="font-mono">response_format</code>.
+          Toda resposta vai bater nesse shape.
+        </p>
+        <pre className="m-0 max-h-72 overflow-auto rounded-lg border border-border bg-bg-soft px-3 py-2 font-mono text-[11px] leading-snug text-fg">
+          {canonicalSchemaJson}
+        </pre>
       </div>
     </Card>
   )
