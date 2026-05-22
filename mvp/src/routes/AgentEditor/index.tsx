@@ -202,13 +202,16 @@ export function AgentEditor({ mode }: Props) {
       : 'Custom'
   const [form, setForm] = useState<FormState>(() => {
     const base = emptyFormState()
-    // Conversational basic exige guardrail sempre ligado — agente fala
-    // direto com o usuário, vetor de prompt injection é alto e o step
-    // Segurança fica oculto. Avançado expõe o toggle.
-    const security =
-      initialType === 'Conversational' && initialMode === 'basic'
-        ? { ...base.security, enabled: true }
-        : base.security
+    // Custom e Conversational em basic exigem guardrail sempre ligado — o
+    // step Segurança fica oculto no fluxo básico e o agente roda em
+    // contexto adversarial (fala direto com o usuário). Avançado expõe o
+    // toggle pro user decidir.
+    const forceSecurity =
+      initialMode === 'basic'
+      && (initialType === 'Custom' || initialType === 'Conversational')
+    const security = forceSecurity
+      ? { ...base.security, enabled: true }
+      : base.security
     return {
       // Router/Custom/Conversational pulam o step "Tipo" — já foi escolhido no
       // modal — e entram direto em Perfil/Intenções/Identificação.
@@ -473,18 +476,17 @@ export function AgentEditor({ mode }: Props) {
         next === 'basic' && prev.memory.enabled
           ? { ...prev.memory, enabled: false }
           : prev.memory
-      // Conversational basic exige guardrail sempre ligado — o agente fala
-      // direto com o usuário e o vetor de prompt injection é alto. Pra
-      // desligar, troca pra advanced (que expõe o step Segurança). Os
-      // demais tipos desligam ao descer pra basic.
+      // Custom e Conversational em basic exigem guardrail sempre ligado —
+      // step Segurança fica oculto no fluxo básico, então não dá pra
+      // desligar conscientemente; pra optar out, troca pra advanced.
+      // Demais tipos (Worker/ToolRunner) seguem o que o user deixou.
       const nextSecurity = (() => {
-        if (next === 'basic') {
-          if (prev.type === 'Conversational') {
-            return { ...prev.security, enabled: true }
-          }
-          return prev.security.enabled
-            ? { ...prev.security, enabled: false }
-            : prev.security
+        if (
+          next === 'basic'
+          && (prev.type === 'Custom' || prev.type === 'Conversational')
+          && !prev.security.enabled
+        ) {
+          return { ...prev.security, enabled: true }
         }
         return prev.security
       })()
