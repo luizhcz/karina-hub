@@ -39,7 +39,29 @@ public class AgentDefinition
     /// </summary>
     public AgentProviderConfig Provider { get; init; } = new();
 
+    /// <summary>
+    /// Texto final que vai pro LLM como system message. Função pura de
+    /// <see cref="AuthorInstructions"/> + dependências resolvidas
+    /// (intents, skills, worker scope) — produzido pelo composer.
+    /// Não embute marcadores nem metadados de origem; o LLM enxerga o
+    /// texto inteiro como instrução.
+    ///
+    /// O único writer autorizado é <c>AgentDefinitionComposer</c>.
+    /// Qualquer caller que escreva direto está rompendo o contrato.
+    /// </summary>
     public string? Instructions { get; init; }
+
+    /// <summary>
+    /// Texto cru autoral — exatamente o que o owner do agente digitou
+    /// no editor, sem injeção de dependências. Editor sempre lê deste
+    /// campo; composer recompõe <see cref="Instructions"/> a partir
+    /// daqui mais o set vivo de intents/skills/worker scope a cada save.
+    ///
+    /// Nunca vai pro LLM. Pode conter qualquer texto livre, incluindo
+    /// strings que coincidam com tokens reservados antigos — o composer
+    /// não faz parse reverso.
+    /// </summary>
+    public string? AuthorInstructions { get; init; }
 
     /// <summary>
     /// Identificador da versão do master prompt que produziu

@@ -66,7 +66,12 @@ export interface AgentDraftPayload {
   type?: AgentType | null
   /** "project" | "global". Conversational é forçado pra "global" no backend. */
   visibility?: string | null
-  instructions?: string | null
+  /**
+   * Texto cru autoral. O backend compõe a partir desse campo + dependências
+   * resolvidas (intents/skills/worker scope) — composto vive em campo
+   * separado e nunca volta no payload do draft.
+   */
+  authorInstructions?: string | null
   model?: AgentDraftModelConfig | null
   tools?: AgentToolDefinition[] | null
   structuredOutput?: AgentDraftStructuredOutput | null

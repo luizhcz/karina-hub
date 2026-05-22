@@ -491,6 +491,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
             Description = definition.Description,
             Model = definition.Model,
             Provider = definition.Provider,
+            AuthorInstructions = definition.AuthorInstructions,
             Instructions = definition.Instructions,
             Tools = rebuilt,
             StructuredOutput = definition.StructuredOutput,

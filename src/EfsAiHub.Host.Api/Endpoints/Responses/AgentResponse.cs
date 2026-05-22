@@ -17,7 +17,13 @@ public class AgentResponse
 
     public required AgentModelConfig Model { get; init; }
     public AgentProviderConfig Provider { get; init; } = new();
-    public string? Instructions { get; init; }
+
+    /// <summary>
+    /// Texto cru autoral que o owner digitou. É o que o editor consome.
+    /// O texto composto que vai pro LLM (<see cref="AgentDefinition.Instructions"/>)
+    /// não é exposto via HTTP — vive apenas no snapshot pro runtime.
+    /// </summary>
+    public string? AuthorInstructions { get; init; }
     public IReadOnlyList<AgentToolDefinition> Tools { get; init; } = [];
     public AgentStructuredOutputDefinition? StructuredOutput { get; init; }
     public AgentOperationalMemoryDefinition? OperationalMemory { get; init; }
@@ -88,7 +94,7 @@ public class AgentResponse
         Type = def.Type,
         Model = def.Model,
         Provider = def.Provider,
-        Instructions = def.Instructions,
+        AuthorInstructions = def.AuthorInstructions,
         Tools = def.Tools,
         StructuredOutput = def.StructuredOutput,
         OperationalMemory = def.OperationalMemory,

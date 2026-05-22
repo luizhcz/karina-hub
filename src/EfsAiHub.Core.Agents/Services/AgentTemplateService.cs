@@ -117,6 +117,7 @@ public sealed class AgentTemplateService : IAgentTemplateService
             RouterIntentIds = def.RouterIntentIds,
             Model = def.Model,
             Provider = def.Provider,
+            AuthorInstructions = def.AuthorInstructions,
             Instructions = def.Instructions,
             Tools = def.Tools,
             StructuredOutput = structuredOutput,

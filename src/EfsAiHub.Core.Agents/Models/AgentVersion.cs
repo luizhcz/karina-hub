@@ -40,7 +40,8 @@ public sealed record AgentVersion(
     AgentProviderSnapshot? FallbackProvider = null,
     IReadOnlyList<AgentToolSnapshot>? Tools = null,
     bool BreakingChange = false,
-    AgentOperationalMemorySnapshot? OperationalMemory = null)
+    AgentOperationalMemorySnapshot? OperationalMemory = null,
+    string? AuthorPromptContent = null)
 {
     /// <summary>
     /// Constrói um snapshot a partir de uma AgentDefinition viva + conteúdo de prompt resolvido.
@@ -231,6 +232,11 @@ public sealed record AgentVersion(
             metadata,
             type = definition.Type,
             prompt = promptContent,
+            // Texto cru autoral entra no canonical pra que mudanças que só
+            // afetem o autoral (sem alterar o rendered) ainda criem revision
+            // — rollback de owner-text deve ser distinguível mesmo quando o
+            // composer rende output idêntico.
+            authorPrompt = definition.AuthorInstructions,
             model = canonicalModel,
             provider = new { provider.Type, provider.ClientType, provider.Endpoint, provider.HasValue },
             fallbackProvider = fallbackProvider is null
@@ -279,7 +285,8 @@ public sealed record AgentVersion(
             FallbackProvider: fallbackProvider,
             Tools: tools,
             BreakingChange: breakingChange,
-            OperationalMemory: operationalMemory);
+            OperationalMemory: operationalMemory,
+            AuthorPromptContent: definition.AuthorInstructions);
     }
 
     /// <summary>
@@ -379,6 +386,9 @@ public sealed record AgentVersion(
             Provider = providerConfig,
             FallbackProvider = fallbackConfig,
             Instructions = PromptContent,
+            // Recupera texto autoral pro editor. Snapshots pré-refactor têm
+            // null aqui — caller (rollback) precisa decidir como tratar.
+            AuthorInstructions = AuthorPromptContent,
             PromptVersionId = PromptVersionId,
             Tools = tools,
             StructuredOutput = outputDef,

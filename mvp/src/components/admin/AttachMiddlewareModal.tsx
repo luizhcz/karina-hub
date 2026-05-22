@@ -55,7 +55,7 @@ function buildPayload(agent: Agent, mw: MiddlewareTypeInfo, changeReason: string
     // PredefinedModelId — backend hidrata em runtime. Repassamos o que veio.
     model: agent.model ?? { deploymentName: '' },
     provider: agent.provider ?? undefined,
-    instructions: agent.instructions ?? null,
+    authorInstructions: agent.authorInstructions ?? null,
     tools: agent.tools ?? [],
     middlewares: [...withoutDup, next],
     metadata: agent.metadata ?? {},

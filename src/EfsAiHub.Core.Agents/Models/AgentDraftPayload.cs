@@ -23,7 +23,14 @@ public sealed class AgentDraftPayload
 
     public AgentModelConfig? Model { get; set; }
     public AgentProviderConfig? Provider { get; set; }
-    public string? Instructions { get; set; }
+
+    /// <summary>
+    /// Texto cru autoral que o owner digitou no editor. Editor lê/escreve
+    /// daqui. Composer recompõe <see cref="AgentDefinition.Instructions"/>
+    /// a partir desse campo + dependências resolvidas no publish.
+    /// Nunca contém marcadores nem texto auto-injetado.
+    /// </summary>
+    public string? AuthorInstructions { get; set; }
     public IReadOnlyList<AgentToolDefinition>? Tools { get; set; }
     public AgentStructuredOutputDefinition? StructuredOutput { get; set; }
     public AgentOperationalMemoryDefinition? OperationalMemory { get; set; }
@@ -74,7 +81,11 @@ public sealed class AgentDraftPayload
             Type = Type ?? AgentType.Custom,
             Model = Model ?? new AgentModelConfig { DeploymentName = string.Empty },
             Provider = Provider ?? new AgentProviderConfig(),
-            Instructions = Instructions,
+            AuthorInstructions = AuthorInstructions,
+            // Instructions é deixado em branco propositalmente — o composer
+            // recompõe a partir de AuthorInstructions + dependências resolvidas
+            // imediatamente após este materialize. Não copiar lixo do payload.
+            Instructions = null,
             Tools = Tools ?? Array.Empty<AgentToolDefinition>(),
             StructuredOutput = StructuredOutput,
             OperationalMemory = OperationalMemory,
@@ -111,7 +122,9 @@ public sealed class AgentDraftPayload
         Type = def.Type,
         Model = def.Model,
         Provider = def.Provider,
-        Instructions = def.Instructions,
+        // Editor consome o texto cru autoral; o composto vive em def.Instructions
+        // mas é redundante no payload — o composer regenera no save.
+        AuthorInstructions = def.AuthorInstructions,
         Tools = def.Tools,
         StructuredOutput = def.StructuredOutput,
         OperationalMemory = def.OperationalMemory,

@@ -21,6 +21,59 @@ interface ReviewStepProps {
   tools: GenericTool[]
 }
 
+// Espelha PromptRenderer.RenderRouterIntentsBlock do backend — bloco
+// "# Intenções disponíveis" + "# Memória operacional" injetado no
+// Instructions do snapshot em compose-time. Manter sincronizado com
+// src/EfsAiHub.Core.Agents/Services/PromptRenderer.cs.
+function buildRouterIntentsPromptBlock(intents: RouterIntent[]): string | null {
+  if (intents.length === 0) return null
+  const lines: string[] = []
+  lines.push('# Intenções disponíveis')
+  lines.push('')
+  lines.push(
+    'Escolha **exatamente uma** categoria do enum `intent` para cada input. ' +
+      'Não invente categorias. Não combine. **Quando nenhuma intent de negócio combinar ' +
+      '(saudações, perguntas genéricas, fora do domínio do agente), escolha `out_of_scope` ' +
+      'com `confidence >= 0.7`**. Não force uma intent de negócio com confidence baixa — ' +
+      'isso é um sintoma de classificação ruim, use a intent de fora-de-escopo.',
+  )
+  lines.push('')
+  for (const intent of intents) {
+    const name = intent.name.trim()
+    if (!name) continue
+    const desc = intent.description.trim()
+    lines.push(desc ? `- \`${name}\` — ${desc}` : `- \`${name}\``)
+    const validExamples = (intent.examples ?? [])
+      .map((e) => (e ?? '').trim())
+      .filter((e) => e.length > 0)
+    if (validExamples.length > 0) {
+      lines.push('  Exemplos:')
+      for (const ex of validExamples) lines.push(`  • "${ex}"`)
+    }
+  }
+  lines.push('')
+  lines.push('# Memória operacional')
+  lines.push('')
+  lines.push(
+    'No campo `operationalMemory` do output, **sempre preencha**:\n' +
+      '- `last_intent`: copie o valor de `intent` que você escolheu.\n' +
+      '- `last_reason`: copie o valor de `reason` (até 200 chars).\n\n' +
+      'Esta memória é persistida e injetada no próximo turno como contexto. ' +
+      'Não invente outros campos.',
+  )
+  return lines.join('\n')
+}
+
+// Compose final do system prompt do Router pra preview: esqueleto autoral
+// (encodeRouterInstructions) seguido do bloco auto-injetado de intenções.
+// Quando o set de intents ainda não carregou, devolve só o esqueleto.
+function buildRouterFullSystemPrompt(name: string, intents: RouterIntent[]): string {
+  const skeleton = encodeRouterInstructions(name)
+  const block = buildRouterIntentsPromptBlock(intents)
+  if (!block) return skeleton
+  return `${skeleton}\n\n${block}`
+}
+
 export function ReviewStep({ form, tools }: ReviewStepProps) {
   const includeStructured = form.agentMode === 'advanced'
   const inputForCodec = form.input.mode === 'structured' ? form.input : { description: '', schema: '' }
@@ -35,10 +88,39 @@ export function ReviewStep({ form, tools }: ReviewStepProps) {
     [form.toolIds, tools],
   )
 
+  // Pool de intents só carrega quando o agente é Router — usado pra resolver
+  // o prompt de preview com o enum visível.
+  const [routerIntentsPool, setRouterIntentsPool] = useState<RouterIntent[]>([])
+  const [routerIntentsLoading, setRouterIntentsLoading] = useState(false)
+  useEffect(() => {
+    if (form.type !== 'Router') return
+    let cancelled = false
+    setRouterIntentsLoading(true)
+    listRouterIntents()
+      .then((items) => {
+        if (!cancelled) setRouterIntentsPool(items)
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setRouterIntentsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [form.type])
+
+  const selectedRouterIntents = useMemo(
+    () =>
+      form.type === 'Router'
+        ? routerIntentsPool.filter((i) => form.routerIntentIds.includes(i.id))
+        : [],
+    [form.type, routerIntentsPool, form.routerIntentIds],
+  )
+
   const prompt = useMemo(
     () =>
       form.type === 'Router'
-        ? encodeRouterInstructions(form.name)
+        ? buildRouterFullSystemPrompt(form.name, selectedRouterIntents)
         : form.type === 'Worker'
           ? encodeWorkerInstructions(form.name)
           : form.type === 'ToolRunner'
@@ -53,6 +135,7 @@ export function ReviewStep({ form, tools }: ReviewStepProps) {
       inputForCodec,
       outputForCodec,
       includeStructured,
+      selectedRouterIntents,
     ],
   )
 
@@ -68,7 +151,13 @@ export function ReviewStep({ form, tools }: ReviewStepProps) {
 
   return (
     <div className="space-y-5">
-      {form.type === 'Router' && <RouterPreview form={form} />}
+      {form.type === 'Router' && (
+        <RouterPreview
+          intents={selectedRouterIntents}
+          loading={routerIntentsLoading}
+          declaredCount={form.routerIntentIds.length}
+        />
+      )}
 
       {form.type === 'Worker' && <WorkerPreview form={form} />}
 
@@ -105,77 +194,181 @@ export function ReviewStep({ form, tools }: ReviewStepProps) {
 }
 
 interface RouterPreviewProps {
-  form: FormState
+  intents: RouterIntent[]
+  loading: boolean
+  declaredCount: number
 }
 
-// Preview no Review das intents que este Router atende. Fetch do pool global
-// + filter pelas selecionadas em form.routerIntentIds. Mostra warning quando
-// <2 selecionadas — backend rejeita o save.
-function RouterPreview({ form }: RouterPreviewProps) {
-  const [pool, setPool] = useState<RouterIntent[]>([])
-  const [loading, setLoading] = useState(true)
-  useEffect(() => {
-    let cancelled = false
-    listRouterIntents()
-      .then((items) => {
-        if (!cancelled) setPool(items)
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+// Reproduz o schema canônico de RouterDefaults.OutputSchemaJson com o enum
+// de `intent` populado pelas intents resolvidas — espelha o que o composer
+// grava no snapshot via OutputSchemaRenderer.ApplyRouterEnumIfApplicable.
+// Mantém sincronizado com o backend; se RouterDefaults mudar, atualizar aqui.
+function buildRouterCanonicalSchema(intents: RouterIntent[]): Record<string, unknown> {
+  const enumValues = intents.map((i) => i.name).filter((n) => n.length > 0)
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      intent: {
+        type: 'string',
+        description: 'Categoria escolhida do enum de intents resolvido em runtime.',
+        ...(enumValues.length > 0 ? { enum: enumValues } : {}),
+      },
+      confidence: {
+        type: 'number',
+        minimum: 0,
+        maximum: 1,
+        description: 'Confiança da classificação (0..1).',
+      },
+      reason: {
+        type: 'string',
+        description: 'Justificativa curta da escolha (uso interno de auditoria/debug).',
+      },
+      operationalMemory: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          last_intent: { type: 'string' },
+          last_reason: { type: 'string' },
+        },
+        required: ['last_intent', 'last_reason'],
+      },
+    },
+    required: ['intent', 'confidence', 'reason', 'operationalMemory'],
+  }
+}
 
-  const selected = pool.filter((i) => form.routerIntentIds.includes(i.id))
-  const tooFew = form.routerIntentIds.length < 2
+// Preview do Router no Review com duas visões alternáveis (mirror do
+// Conversational): "visual" explica em PT-BR o contrato — para diretor — e
+// "schema" mostra o JSON Schema cru que vai pro response_format do LLM.
+// Tecnicamente o LLM recebe as intents via enum no schema, NÃO no system
+// prompt — esse card é onde elas ficam transparentes no review.
+function RouterPreview({ intents, loading, declaredCount }: RouterPreviewProps) {
+  const [viewMode, setViewMode] = useState<'visual' | 'schema'>('visual')
+  const tooFew = declaredCount < 2
+  const canonicalSchema = useMemo(() => buildRouterCanonicalSchema(intents), [intents])
+  const canonicalSchemaJson = useMemo(
+    () => JSON.stringify(canonicalSchema, null, 2),
+    [canonicalSchema],
+  )
 
   return (
     <Card className="space-y-3">
       <CardHeader
-        title="Intenções atendidas"
-        description="As categorias que este Router pode escolher. Edits no pool propagam pra próxima chamada — adicionar intenção nova ao pool não inclui automaticamente neste Router."
+        title="Modelo pré definido enviado ao LLM"
+        description="Garanta que as respostas do classificador estejam em conformidade com um esquema JSON definido por você. O enum de intent é injetado a partir das intenções selecionadas."
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setViewMode((prev) => (prev === 'visual' ? 'schema' : 'visual'))}
+          >
+            {viewMode === 'visual' ? 'Ver JSON Schema' : 'Ver versão visual'}
+          </Button>
+        }
       />
-      {loading ? (
-        <p className="text-xs text-fg-muted">Carregando…</p>
-      ) : form.routerIntentIds.length === 0 ? (
-        <p
-          className={cn(
-            'rounded-lg border px-3 py-2 text-xs',
-            'border-warning/40 bg-warning/10 text-warning',
-          )}
-        >
-          Nenhuma intenção marcada. Volte pra etapa Intenções e selecione ao menos 2 antes de submeter.
+      {loading && <p className="text-xs text-fg-muted">Carregando intenções…</p>}
+      {tooFew && (
+        <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+          Pelo menos 2 intenções são obrigatórias. Selecione mais antes de submeter.
         </p>
+      )}
+      {viewMode === 'schema' ? (
+        <pre className="m-0 max-h-72 overflow-auto rounded-lg border border-border bg-bg-soft px-3 py-2 font-mono text-[11px] leading-snug text-fg">
+          {canonicalSchemaJson}
+        </pre>
       ) : (
-        <>
-          <ul className="space-y-2">
-            {selected.map((intent) => (
-              <li
-                key={intent.id}
-                className="rounded-lg border border-border bg-bg-soft px-3 py-2"
-              >
-                <div className="flex items-center gap-2">
-                  <Badge tone="accent">{intent.name}</Badge>
-                </div>
-                {intent.description.trim() && (
-                  <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-                    {intent.description.trim()}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
-          {tooFew && (
-            <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-              Pelo menos 2 intenções são obrigatórias. Selecione mais antes de submeter.
-            </p>
-          )}
-        </>
+        <RouterVisualPreview intents={intents} />
       )}
     </Card>
+  )
+}
+
+interface RouterVisualPreviewProps {
+  intents: RouterIntent[]
+}
+
+// Versão "executiva" do contrato do Router — 4 blocos representando os
+// campos top-level que o LLM preenche: intent (escolhida do enum),
+// confidence, reason, operationalMemory.
+function RouterVisualPreview({ intents }: RouterVisualPreviewProps) {
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            🎯
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Intenção escolhida</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          A cada classificação, o agente escolhe exatamente uma das intenções abaixo.
+        </p>
+        <div className="mt-2 pl-9">
+          {intents.length === 0 ? (
+            <p className="text-xs text-fg-dim">Nenhuma intenção selecionada.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {intents.map((intent) => {
+                const label = (intent.displayName?.trim() || intent.name).trim()
+                const desc = intent.description.trim()
+                return (
+                  <li key={intent.id} className="flex flex-col gap-0.5">
+                    <div className="flex items-baseline gap-2">
+                      <Badge tone="accent">
+                        <code className="font-mono text-[11px]">{intent.name}</code>
+                      </Badge>
+                      {label !== intent.name && (
+                        <span className="text-xs text-fg-muted">{label}</span>
+                      )}
+                    </div>
+                    {desc && (
+                      <p className="pl-1 text-[11px] leading-relaxed text-fg-muted">{desc}</p>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            📊
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Confiança</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          Número entre 0 e 1 indicando quão certa foi a classificação. Abaixo de 0,5 sinaliza ambiguidade.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            💭
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Justificativa</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          Texto curto explicando por que a intenção foi escolhida — usado em auditoria e debug.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-bg-soft p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-subtle text-base">
+            🧠
+          </span>
+          <h4 className="text-sm font-semibold text-fg">Memória operacional</h4>
+        </div>
+        <p className="mt-2 pl-9 text-xs text-fg-muted">
+          Última intenção e razão persistidas a cada turno — alimenta a próxima classificação com contexto.
+        </p>
+      </div>
+    </div>
   )
 }
 

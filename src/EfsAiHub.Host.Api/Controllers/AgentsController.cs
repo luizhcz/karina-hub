@@ -504,7 +504,17 @@ public class AgentsController : ControllerBase
             ClientType = snapshot.Provider.ClientType,
             Endpoint = snapshot.Provider.Endpoint
         },
-        Instructions = snapshot.PromptContent ?? current.Instructions,
+        // Rollback: prefere o texto autoral do snapshot pra recompor a partir
+        // da fonte editável. Snapshot pré-refactor não tem AuthorPromptContent
+        // — recompor a partir de PromptContent ali leva ao composer renderizar
+        // texto rendered como se fosse autoral. Fallback explícito ao current
+        // pra preservar o estado vivo nesse caso (perde-se rollback de prompt,
+        // mas o resto da config da version é aplicado).
+        AuthorInstructions = snapshot.AuthorPromptContent ?? current.AuthorInstructions,
+        // Instructions é regerado pelo composer no UpdateAsync. Deixar null
+        // garante que o fallback (input.AuthorInstructions ?? input.Instructions)
+        // não pegue lixo de uma snapshot legada.
+        Instructions = null,
         Tools = snapshot.Tools is null
             ? current.Tools
             : snapshot.Tools.Select(t => t.ToDefinition()).ToList(),

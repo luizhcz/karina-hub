@@ -139,7 +139,18 @@ function metadataRowsFromPayload(payload: AgentDraftPayload | undefined): KvRow<
 
 export function fromDraft(draft: AgentDraft): FormState {
   const payload = draft.payload ?? {}
-  const decoded = decodeInstructions(payload.instructions ?? null)
+  // Backend grava o texto cru em authorInstructions desde o split entre
+  // autoral × renderizado. Drafts pré-split ainda têm o cru em instructions
+  // (mesma string, sem composição auto-injetada porque o save antigo nunca
+  // passava o draft pelo composer) — preferimos authorInstructions quando
+  // presente e caímos pro instructions só pra back-compat de drafts antigos.
+  const rawAuthor =
+    (typeof payload.authorInstructions === 'string'
+      ? payload.authorInstructions
+      : typeof (payload as { instructions?: string | null }).instructions === 'string'
+        ? (payload as { instructions?: string | null }).instructions ?? null
+        : null) ?? null
+  const decoded = decodeInstructions(rawAuthor)
 
   const tools = payload.tools ?? []
   const toolIds: string[] = []
@@ -484,7 +495,7 @@ export function buildPayload(
     name: form.name.trim(),
     description: prev?.description ?? null,
     type: form.type,
-    instructions,
+    authorInstructions: instructions,
     model: nextModel,
     tools: mergedTools,
     structuredOutput,
@@ -492,6 +503,10 @@ export function buildPayload(
     middlewares: mergedMiddlewares,
     metadata,
   }
+  // Limpa chave legada caso `prev` venha de draft pré-split (ainda gravado
+  // com `instructions` no JSON). Sem isso o payload viajaria com os dois
+  // campos e o backend descartaria o legado em silêncio — ruído desnecessário.
+  delete (payload as Record<string, unknown>).instructions
   if (form.type === 'Router') {
     ;(payload as Record<string, unknown>).routerIntentIds = [...form.routerIntentIds]
   } else {

@@ -47,9 +47,15 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
         var routerIntents = await ResolveRouterIntentsAsync(input, ct);
 
         var skillTools = MergeSkillTools(resolvedTools, skills);
+        // Texto autoral é o que sai do editor. Preferimos AuthorInstructions
+        // (campo canônico após o split). Se chegar null mas Instructions vier
+        // populado (cliente desatualizado ou backfill em row legada), usamos
+        // Instructions como autoral — o composer regrava ambos com o output
+        // renderizado, então o "vazamento" de markers se autodestrói no save.
+        var authorText = input.AuthorInstructions ?? input.Instructions;
         var instructions = PromptRenderer.Render(
             input.Type,
-            input.Instructions,
+            authorText,
             input.Metadata,
             routerIntents,
             skills);
@@ -79,6 +85,7 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
             RouterIntentIds = routerIntentIds,
             Model = resolvedModel,
             Provider = input.Provider,
+            AuthorInstructions = authorText,
             Instructions = instructions,
             Tools = skillTools,
             StructuredOutput = structuredOutput,
