@@ -364,7 +364,7 @@ function ConversationalPreview({ form }: ConversationalPreviewProps) {
   return (
     <Card className="space-y-3">
       <CardHeader
-        title="JSON Schema enviado ao LLM"
+        title="Modelo pré definido enviado ao LLM"
         description={
           'Contrato exato que o modelo recebe no response_format. Toda resposta vai bater nesse shape.'
         }
