@@ -231,7 +231,6 @@ public static class AgUiEndpoints
                 runId,
                 session.ConversationId,
                 persisted,
-                sharedState,
                 messageRepo,
                 ct);
             return;

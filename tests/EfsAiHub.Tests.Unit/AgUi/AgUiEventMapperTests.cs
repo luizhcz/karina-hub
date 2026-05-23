@@ -142,10 +142,8 @@ public class AgUiEventMapperTests
 
         var events = _mapper.Map(env, "run-1", "thread-1");
 
-        // STEP_FINISHED + CUSTOM[agent.lifecycle finished]
-        events.Should().HaveCount(2);
+        events.Should().HaveCount(1);
         events[0].Type.Should().Be("STEP_FINISHED");
-        events[1].CustomName.Should().Be("agent.lifecycle");
     }
 
     [Fact]
@@ -155,34 +153,30 @@ public class AgUiEventMapperTests
 
         var events = _mapper.Map(env, "run-1", "thread-1");
 
-        // STEP_FINISHED + CUSTOM[agent.lifecycle] + TEXT_MESSAGE_START + TEXT_MESSAGE_CONTENT + TEXT_MESSAGE_END
-        events.Should().HaveCount(5);
+        // STEP_FINISHED + TEXT_MESSAGE_START + TEXT_MESSAGE_CONTENT + TEXT_MESSAGE_END
+        events.Should().HaveCount(4);
         events[0].Type.Should().Be("STEP_FINISHED");
-        events[1].CustomName.Should().Be("agent.lifecycle");
-        events[2].Type.Should().Be("TEXT_MESSAGE_START");
-        events[3].Type.Should().Be("TEXT_MESSAGE_CONTENT");
-        events[4].Type.Should().Be("TEXT_MESSAGE_END");
+        events[1].Type.Should().Be("TEXT_MESSAGE_START");
+        events[2].Type.Should().Be("TEXT_MESSAGE_CONTENT");
+        events[3].Type.Should().Be("TEXT_MESSAGE_END");
     }
 
     // ── Bifurcação por nodeType ───────────────────────────────────────────────
 
     [Fact]
-    public void NodeStarted_NodeTypeAgent_EmiteStepStartedCanonico()
+    public void NodeStarted_NodeTypeAgent_EmiteApenasStepStarted()
     {
         var env = Envelope("node_started", new { nodeId = "router", nodeType = "agent", agentName = "router-x" });
 
         var events = _mapper.Map(env, "run-1", "thread-1");
 
-        // STEP_STARTED canônico + CUSTOM[agent.lifecycle] paralelo
-        events.Should().HaveCount(2);
+        events.Should().HaveCount(1);
         events[0].Type.Should().Be("STEP_STARTED");
         events[0].StepName.Should().Be("router-x");
-        events[1].Type.Should().Be("CUSTOM");
-        events[1].CustomName.Should().Be("agent.lifecycle");
     }
 
     [Fact]
-    public void NodeStarted_NodeTypeAgent_LifecycleCarregaAgentType()
+    public void NodeStarted_NodeTypeAgent_StepCarregaAgentTypeNoMetadata()
     {
         var env = Envelope("node_started", new
         {
@@ -194,16 +188,14 @@ public class AgUiEventMapperTests
 
         var events = _mapper.Map(env, "run-1", "thread-1");
 
-        var lifecycle = events.Should().Contain(e => e.CustomName == "agent.lifecycle").Subject;
-        var value = lifecycle.CustomValue!.Value;
-        value.GetProperty("phase").GetString().Should().Be("started");
-        value.GetProperty("nodeId").GetString().Should().Be("router-sales-trader");
-        value.GetProperty("agentName").GetString().Should().Be("Router Sales Trader");
-        value.GetProperty("agentType").GetString().Should().Be("Router");
+        var step = events.Should().ContainSingle(e => e.Type == "STEP_STARTED").Subject;
+        step.Metadata.Should().NotBeNull();
+        step.Metadata!["agentType"].Should().Be("Router");
+        step.Metadata["agentName"].Should().Be("Router Sales Trader");
     }
 
     [Fact]
-    public void NodeCompleted_NodeTypeAgent_LifecycleFinishedCarregaAgentType()
+    public void NodeCompleted_NodeTypeAgent_StepFinishedCarregaAgentTypeNoMetadata()
     {
         var env = Envelope("node_completed", new
         {
@@ -217,10 +209,10 @@ public class AgUiEventMapperTests
 
         var events = _mapper.Map(env, "run-1", "thread-1");
 
-        var lifecycle = events.Should().Contain(e => e.CustomName == "agent.lifecycle").Subject;
-        var value = lifecycle.CustomValue!.Value;
-        value.GetProperty("phase").GetString().Should().Be("finished");
-        value.GetProperty("agentType").GetString().Should().Be("Conversational");
+        var step = events.Should().ContainSingle(e => e.Type == "STEP_FINISHED").Subject;
+        step.Metadata.Should().NotBeNull();
+        step.Metadata!["agentType"].Should().Be("Conversational");
+        step.Metadata["agentName"].Should().Be("Trader Cotação Especialista");
     }
 
     [Fact]
@@ -268,10 +260,8 @@ public class AgUiEventMapperTests
 
         var events = _mapper.Map(env, "run-1", "thread-1");
 
-        // STEP_STARTED canônico + CUSTOM[agent.lifecycle] (agentType=null no payload)
-        events.Should().HaveCount(2);
+        events.Should().HaveCount(1);
         events[0].Type.Should().Be("STEP_STARTED");
-        events[1].CustomName.Should().Be("agent.lifecycle");
     }
 
     // ── Unknown events ────────────────────────────────────────────────────────

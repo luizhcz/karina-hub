@@ -205,21 +205,19 @@ public sealed class AgUiEventMapper
 
         if (IsExecutor(nodeType))
         {
+            // Executors de código não têm STEP_* canônico (não são "fala");
+            // CUSTOM[executor.lifecycle] é o único veículo dessa info na timeline.
             return [BuildExecutorLifecycle(payload, "started")];
         }
 
-        // Para agentes: emitimos o STEP_STARTED canônico (clientes legados) E um
-        // CUSTOM[agent.lifecycle] espelhando o pattern do executor.lifecycle. O
-        // custom event carrega agentType — info que o STEP_STARTED não tem por
-        // design (o stepName é só string display).
         return [
             new AgUiEvent
             {
                 Type = "STEP_STARTED",
                 StepId = nodeId,
-                StepName = GetString(payload, "agentName") ?? GetString(payload, "name") ?? nodeId
-            },
-            BuildAgentLifecycle(payload, "started")
+                StepName = GetString(payload, "agentName") ?? GetString(payload, "name") ?? nodeId,
+                Metadata = BuildAgentMetadata(payload)
+            }
         ];
     }
 
@@ -240,9 +238,9 @@ public sealed class AgUiEventMapper
             {
                 Type = "STEP_FINISHED",
                 StepId = nodeId,
-                StepName = GetString(payload, "agentName") ?? GetString(payload, "name") ?? nodeId
-            },
-            BuildAgentLifecycle(payload, "finished")
+                StepName = GetString(payload, "agentName") ?? GetString(payload, "name") ?? nodeId,
+                Metadata = BuildAgentMetadata(payload)
+            }
         };
 
         var output = GetString(payload, "output");
@@ -299,31 +297,21 @@ public sealed class AgUiEventMapper
     }
 
     /// <summary>
-    /// Empacota fase do ciclo de vida de um <b>agente</b> (Router, Conversational,
-    /// Worker, ToolRunner, Custom) num CUSTOM event AG-UI. Paralelo ao
-    /// <see cref="BuildExecutorLifecycle"/> — mantém STEP_STARTED/FINISHED
-    /// canônicos intactos pra clientes legados e expõe <c>agentType</c> +
-    /// <c>agentName</c> via mecanismo CUSTOM (extensibilidade fora do core spec).
-    /// Shape: { nodeId, phase, agentType?, agentName?, durationMs? }.
+    /// Metadata anexada ao STEP_STARTED/STEP_FINISHED de agentes. Carrega
+    /// <c>agentType</c>/<c>agentName</c>/<c>durationMs</c> — info que o
+    /// <c>StepName</c> puro não comporta. Substitui o CUSTOM[agent.lifecycle]
+    /// (anterior espelhava STEP_* e gerava 2× INSERTs no audit por node).
     /// </summary>
-    private static AgUiEvent BuildAgentLifecycle(JsonElement? payload, string phase)
+    private static IReadOnlyDictionary<string, object?> BuildAgentMetadata(JsonElement? payload)
     {
         var meta = new Dictionary<string, object?>
         {
-            ["nodeId"] = GetString(payload, "nodeId"),
-            ["phase"] = phase,
             ["agentType"] = GetString(payload, "agentType"),
             ["agentName"] = GetString(payload, "agentName")
         };
         var duration = GetInt(payload, "durationMs");
         if (duration is not null) meta["durationMs"] = duration;
-
-        return new AgUiEvent
-        {
-            Type = "CUSTOM",
-            CustomName = "agent.lifecycle",
-            CustomValue = JsonSerializer.SerializeToElement(meta)
-        };
+        return meta;
     }
 
     private static bool IsExecutor(string? nodeType)

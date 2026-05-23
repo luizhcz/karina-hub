@@ -127,16 +127,24 @@ interface ToolCallResult extends AgUiEventBase {
   messageId?: string
 }
 
+interface StepMetadata {
+  agentType?: string
+  agentName?: string
+  durationMs?: number
+}
+
 interface StepStarted extends AgUiEventBase {
   type: 'STEP_STARTED'
   stepId: string
   stepName: string
+  metadata?: StepMetadata
 }
 
 interface StepFinished extends AgUiEventBase {
   type: 'STEP_FINISHED'
   stepId: string
   stepName: string
+  metadata?: StepMetadata
 }
 
 interface RunStarted extends AgUiEventBase {
@@ -215,8 +223,8 @@ export interface UseChatStreamResult {
   sharedState: unknown
   errorMessage: string | null
   rawEvents: ChatRawEvent[]
-  /** Tipo de cada agente extraído do CUSTOM[agent.lifecycle] do servidor.
-   *  Fonte autoritativa (backend conhece AgentDefinition.Type). Quando vazio,
+  /** Tipo de cada agente extraído do metadata dos STEP_STARTED/STEP_FINISHED.
+   *  Fonte autoritativa (backend conhece AgentDefinition.Type). Quando ausente,
    *  o consumidor pode usar listAgents() como fallback. */
   agentTypeByNodeId: Map<string, string>
   send: (userText: string) => Promise<void>
@@ -280,6 +288,16 @@ export function useChatStream({
     setErrorMessage(null)
     setRawEvents([])
     setAgentTypeByNodeId(new Map())
+  }
+
+  function indexAgentTypeFromStep(nodeId: string | undefined, agentType: string | undefined) {
+    if (!nodeId || !agentType) return
+    setAgentTypeByNodeId((prev) => {
+      if (prev.get(nodeId) === agentType) return prev
+      const next = new Map(prev)
+      next.set(nodeId, agentType)
+      return next
+    })
   }
 
   function applyEvent(evt: AgUiEvent) {
@@ -398,6 +416,7 @@ export function useChatStream({
       case 'STEP_STARTED': {
         const e = evt as StepStarted
         setSteps((prev) => [...prev, { id: e.stepId, name: e.stepName, status: 'started' }])
+        indexAgentTypeFromStep(e.stepId, e.metadata?.agentType)
         break
       }
       case 'STEP_FINISHED': {
@@ -405,33 +424,12 @@ export function useChatStream({
         setSteps((prev) =>
           prev.map((s) => (s.id === e.stepId ? { ...s, status: 'finished' as const } : s)),
         )
+        indexAgentTypeFromStep(e.stepId, e.metadata?.agentType)
         break
       }
       case 'STATE_SNAPSHOT': {
         const e = evt as StateSnapshot
         setSharedState(e.snapshot ?? null)
-        break
-      }
-      case 'CUSTOM': {
-        // agent.lifecycle traz nodeId + agentType + agentName direto do servidor.
-        // Indexamos por nodeId pra UI consumir sem precisar de listAgents()
-        // (fallback ainda existe pro caso de stream que não emite o custom).
-        const c = evt as AgUiEventBase & {
-          customName?: string
-          customValue?: { nodeId?: string; agentType?: string } | null
-        }
-        if (c.customName === 'agent.lifecycle' && c.customValue) {
-          const nodeId = c.customValue.nodeId
-          const agentType = c.customValue.agentType
-          if (nodeId && agentType) {
-            setAgentTypeByNodeId((prev) => {
-              if (prev.get(nodeId) === agentType) return prev
-              const next = new Map(prev)
-              next.set(nodeId, agentType)
-              return next
-            })
-          }
-        }
         break
       }
       case 'STATE_DELTA': {
@@ -471,7 +469,8 @@ export function useChatStream({
         break
       }
       default:
-        // Eventos ignorados em V1: CUSTOM, MESSAGES_SNAPSHOT. Não derrubam o stream.
+        // Eventos ignorados em V1: CUSTOM (actor.persisted, executor.lifecycle, ESCALATION),
+        // MESSAGES_SNAPSHOT. Não derrubam o stream.
         break
     }
   }

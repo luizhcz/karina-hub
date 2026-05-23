@@ -50,6 +50,15 @@ public sealed record AgUiEvent
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public JsonElement? CustomValue { get; init; }
 
+    /// <summary>
+    /// Extension dictionary anexada a eventos canônicos (STEP_*, etc) — carrega
+    /// atributos não-spec sem precisar de um CUSTOM separado. Hoje usado em
+    /// STEP_STARTED/STEP_FINISHED pra transportar agentType/agentName/durationMs
+    /// (info que stepName puro não carrega).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, object?>? Metadata { get; init; }
+
     // Error
     public string? Error { get; init; }
     public string? ErrorCode { get; init; }

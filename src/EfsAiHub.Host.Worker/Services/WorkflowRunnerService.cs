@@ -482,8 +482,8 @@ public class WorkflowRunnerService
         {
             // Lookup do agente vs executor: agentNames carrega só agentes registrados.
             // Quando kind="agent", anexamos agentName + agentType no payload pra que
-            // o AgUiEventMapper consiga emitir CUSTOM[agent.lifecycle] sem precisar
-            // de DI no mapper (que é stateless por design).
+            // o AgUiEventMapper consiga popular Metadata em STEP_STARTED/FINISHED
+            // sem precisar de DI no mapper (que é stateless por design).
             AgentNodeInfo? agentInfo = null;
             if (agentNames is not null) agentNames.TryGetValue(nodeId, out agentInfo);
             var kind = agentInfo is not null ? "agent" : "executor";

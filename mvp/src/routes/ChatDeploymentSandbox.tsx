@@ -870,8 +870,8 @@ function MemoryStatusBadge({ status }: { status: AgentMemoryState['status'] }) {
 
 // Mapeia AgentType pra cor coerente com a paleta usada em outros lugares
 // (AgentsList, badges de tipo). Cores soft pra não competir com o status badge.
-// Merge: dado vindo do servidor (CUSTOM[agent.lifecycle]) tem precedência sobre
-// o cache do listAgents() — backend conhece a Type autoritativa do snapshot
+// Merge: dado vindo do servidor (STEP_STARTED.metadata.agentType) tem precedência
+// sobre o cache do listAgents() — backend conhece a Type autoritativa do snapshot
 // versionado executado, enquanto listAgents só retorna o tipo atual da
 // AgentDefinition (pode estar em flight pra outra rev).
 function mergeAgentTypes(
