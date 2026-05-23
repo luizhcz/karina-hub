@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Conversations;
 using EfsAiHub.Core.Orchestration.Workflows;
@@ -37,7 +38,10 @@ public sealed class AgUiReconnectionHandler
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+            // PT-BR preserva legibilidade no wire SSE (sem \u00XX escapes).
+            // Coerente com AgUiSseHandler e AgUiEventMapper.
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
     }
 

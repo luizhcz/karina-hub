@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Channels;
@@ -57,7 +58,10 @@ public sealed class AgUiSseHandler
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            // Não escapa acentos/símbolos não-ASCII (PT-BR preserva legibilidade no
+            // wire SSE). Coerente com JsonDefaults.Domain e AgUiEventMapper.JsonOpts.
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
     }
 

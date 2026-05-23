@@ -521,6 +521,14 @@ public class WorkflowRunnerService
                     record.Status = "completed";
                     record.CompletedAt = DateTime.UtcNow;
                     record.Output = data;
+                    // Se o tracker já recebeu tokens do mesmo node via
+                    // AgentResponseUpdateEvent, marca wasStreamed=true pra que
+                    // o AgUiEventMapper NÃO emita o trio sintético TEXT_MESSAGE_*
+                    // (o conteúdo já foi entregue ao cliente chunk a chunk).
+                    var wasStreamed = nodeTracker.HasStreamedOutput(nodeId);
+                    // output vai INTEIRO no payload — em modo non-streaming o
+                    // mapper reconstroi o TEXT_MESSAGE_CONTENT a partir daqui;
+                    // truncar quebra a mensagem renderizada no chat.
                     _nodePersistence.Enqueue(new NodePersistenceJob(
                         record,
                         execution.ExecutionId,
@@ -532,7 +540,8 @@ public class WorkflowRunnerService
                                 nodeType = kind,
                                 agentName = agentInfo?.Name,
                                 agentType = agentInfo?.Type,
-                                output = data[..Math.Min(300, data.Length)],
+                                output = data,
+                                wasStreamed,
                                 timestamp = record.CompletedAt
                             },
                             JsonDefaults.Domain)));

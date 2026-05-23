@@ -19,8 +19,6 @@ namespace EfsAiHub.Host.Worker.Services.EventHandlers;
 /// </remarks>
 public sealed class AgentHandoffEventHandler
 {
-    private const int NodeCompletedOutputPreviewChars = 300;
-
     private readonly INodeExecutionRepository _nodeRepo;
     private readonly IWorkflowEventBus _eventBus;
     private readonly TokenBatcher _tokenBatcher;
@@ -100,6 +98,11 @@ public sealed class AgentHandoffEventHandler
             && agentNames.TryGetValue(previousAgentId, out var pan) ? pan : null;
 
         var output = prev.Output ?? string.Empty;
+        // wasStreamed=true marca que o output já foi entregue via tokens (este
+        // handler só é invocado a partir de AgentResponseUpdateEvent — i.e. o
+        // LLM streamou). Sem essa flag, o AgUiEventMapper reconstroi o trio
+        // sintético TEXT_MESSAGE_*, duplicando a mensagem que o cliente já
+        // recebeu chunk a chunk.
         await PublishEventAsync(execution.ExecutionId, "node_completed", new
         {
             nodeId = previousAgentId,
@@ -107,7 +110,8 @@ public sealed class AgentHandoffEventHandler
             agentId = previousAgentId,
             agentName = previousInfo?.Name,
             agentType = previousInfo?.Type,
-            output = output[..Math.Min(NodeCompletedOutputPreviewChars, output.Length)],
+            output,
+            wasStreamed = true,
             timestamp = prev.CompletedAt
         });
     }
