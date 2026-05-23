@@ -119,29 +119,6 @@ public class AgentTemplateServiceTests
     }
 
     [Fact]
-    public void Apply_Conversational_AnexaBlocoFormatoDaResposta()
-    {
-        var def = NewConversational(instructions: "Você é um agente de teste.");
-
-        var result = Service.Apply(def);
-
-        result.Instructions.Should().Contain("## Formato da resposta");
-        result.Instructions.Should().StartWith("Você é um agente de teste.");
-    }
-
-    [Fact]
-    public void Apply_Conversational_BlocoJaPresente_NaoDuplica()
-    {
-        var def = NewConversational(instructions:
-            "Você é um agente.\n\n## Formato da resposta\nResponda em JSON.");
-
-        var result = Service.Apply(def);
-
-        var occurrences = Occurrences(result.Instructions!, "## Formato da resposta");
-        occurrences.Should().Be(1);
-    }
-
-    [Fact]
     public void Apply_Conversational_InjetaStructuredOutputStateMiddleware()
     {
         var def = NewConversational();
@@ -314,15 +291,4 @@ public class AgentTemplateServiceTests
         first.Middlewares.Count.Should().Be(second.Middlewares.Count);
     }
 
-    private static int Occurrences(string source, string needle)
-    {
-        var count = 0;
-        var index = 0;
-        while ((index = source.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
-        {
-            count++;
-            index += needle.Length;
-        }
-        return count;
-    }
 }

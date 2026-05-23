@@ -24,19 +24,19 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
 {
     private readonly IGenericToolRepository _genericTools;
     private readonly IPredefinedModelRepository _predefinedModels;
-    private readonly IAgentRouterIntentLinkRepository? _routerIntentLinks;
+    private readonly IRouterIntentRepository _routerIntents;
     private readonly ISkillResolver _skillResolver;
 
     public AgentDefinitionComposer(
         IGenericToolRepository genericTools,
         IPredefinedModelRepository predefinedModels,
         ISkillResolver skillResolver,
-        IAgentRouterIntentLinkRepository? routerIntentLinks = null)
+        IRouterIntentRepository routerIntents)
     {
         _genericTools = genericTools;
         _predefinedModels = predefinedModels;
         _skillResolver = skillResolver;
-        _routerIntentLinks = routerIntentLinks;
+        _routerIntents = routerIntents;
     }
 
     public async Task<AgentDefinition> ComposeAsync(AgentDefinition input, CancellationToken ct = default)
@@ -242,9 +242,14 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
         CancellationToken ct)
     {
         if (input.Type != AgentType.Router) return null;
-        if (_routerIntentLinks is null) return null;
+        if (input.RouterIntentIds is not { Count: > 0 }) return null;
 
-        return await _routerIntentLinks.ListIntentsForAgentAsync(input.Id, ct);
+        // `input.RouterIntentIds` é o set declarado pelo caller — único source
+        // of truth no compose-time. A tabela de link só existe pro inverse
+        // lookup (quais agents usam X intent) e é populada DEPOIS do save;
+        // ler dela aqui criaria race no CREATE (snapshot sem o bloco de
+        // intents porque o link ainda não foi persistido).
+        return await _routerIntents.GetByIdsAsync(input.RouterIntentIds, ct);
     }
 
     private static IReadOnlyList<AgentToolDefinition> MergeSkillTools(

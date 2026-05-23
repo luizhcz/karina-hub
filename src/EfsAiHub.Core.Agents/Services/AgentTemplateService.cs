@@ -61,15 +61,6 @@ public sealed class AgentTemplateService : IAgentTemplateService
     private const string DefaultOutputType = "text";
     private static readonly IReadOnlyList<string> DefaultOutputStatuses = new[] { "default" };
 
-    private const string ResponseFormatBlockHeader = "## Formato da resposta";
-
-    // Bloco anexado ao final das instructions do Conversational quando ainda
-    // não está presente. Texto idempotente — detectado via regex sobre o
-    // header pra evitar duplicação em re-saves.
-    private const string ResponseFormatBlockBody =
-        "Responda SEMPRE em JSON com os campos top-level definidos no schema. " +
-        "Não escreva texto fora do JSON; não invente campos top-level extras.";
-
     private const string StructuredOutputStateMiddlewareType = "StructuredOutputState";
 
     public AgentDefinition Apply(AgentDefinition definition)
@@ -331,22 +322,6 @@ public sealed class AgentTemplateService : IAgentTemplateService
         {
             return DefaultOutputStatuses;
         }
-    }
-
-    private static string EnsureResponseFormatBlock(string? instructions)
-    {
-        var current = instructions ?? string.Empty;
-        // Presence check é case-sensitive — backend grava sempre o header
-        // canônico em PT-BR exato. Variações ortográficas dão match falso-negativo
-        // e o bloco é re-anexado, o que é aceitável (round-trip subsequente
-        // converge).
-        if (current.Contains(ResponseFormatBlockHeader, StringComparison.Ordinal))
-        {
-            return current;
-        }
-
-        var sep = string.IsNullOrWhiteSpace(current) ? string.Empty : "\n\n";
-        return $"{current.TrimEnd()}{sep}{ResponseFormatBlockHeader}\n{ResponseFormatBlockBody}";
     }
 
     private static IReadOnlyList<AgentMiddlewareConfig> EnsureStructuredOutputStateMiddleware(

@@ -11,10 +11,10 @@ public class AgentDefinitionComposerTests
     private readonly IGenericToolRepository _genericTools = Substitute.For<IGenericToolRepository>();
     private readonly IPredefinedModelRepository _predefinedModels = Substitute.For<IPredefinedModelRepository>();
     private readonly ISkillResolver _skillResolver = Substitute.For<ISkillResolver>();
-    private readonly IAgentRouterIntentLinkRepository _routerIntentLinks = Substitute.For<IAgentRouterIntentLinkRepository>();
+    private readonly IRouterIntentRepository _routerIntents = Substitute.For<IRouterIntentRepository>();
 
     private AgentDefinitionComposer NewComposer() =>
-        new(_genericTools, _predefinedModels, _skillResolver, _routerIntentLinks);
+        new(_genericTools, _predefinedModels, _skillResolver, _routerIntents);
 
     private AgentDefinitionDecomposer NewDecomposer() => new();
 
@@ -35,8 +35,9 @@ public class AgentDefinitionComposerTests
     [Fact]
     public async Task Compose_Router_InjetaIntentsBlock_NoInstructions()
     {
-        _routerIntentLinks
-            .ListIntentsForAgentAsync("agent-router", Arg.Any<CancellationToken>())
+        _routerIntents
+            .GetByIdsAsync(Arg.Is<IReadOnlyList<string>>(ids => ids.SequenceEqual(new[] { "intent-cot" })),
+                Arg.Any<CancellationToken>())
             .Returns(new List<RouterIntent>
             {
                 new()
@@ -52,7 +53,8 @@ public class AgentDefinitionComposerTests
         var input = BuildAgent(
             id: "agent-router",
             type: AgentType.Router,
-            instructions: "Classifique a entrada.");
+            instructions: "Classifique a entrada.",
+            routerIntentIds: new[] { "intent-cot" });
 
         var composed = await NewComposer().ComposeAsync(input);
 
@@ -61,6 +63,21 @@ public class AgentDefinitionComposerTests
         composed.Instructions.Should().Contain("consultar_cotacao");
         composed.AuthorInstructions.Should().Be("Classifique a entrada.");
         composed.RouterIntentIds.Should().BeEquivalentTo(new[] { "intent-cot" });
+    }
+
+    [Fact]
+    public async Task Compose_Conversational_AnexaBlocoFormatoDaResposta()
+    {
+        var input = BuildAgent(
+            id: "agent-conv",
+            type: AgentType.Conversational,
+            instructions: "Você é um agente conversacional.");
+
+        var composed = await NewComposer().ComposeAsync(input);
+
+        composed.AuthorInstructions.Should().Be("Você é um agente conversacional.");
+        composed.Instructions.Should().StartWith("Você é um agente conversacional.");
+        composed.Instructions.Should().Contain("## Formato da resposta");
     }
 
     [Fact]
@@ -267,8 +284,9 @@ public class AgentDefinitionComposerTests
     [Fact]
     public async Task Roundtrip_Router_ComIntents_DecomposeRetornaAutoral()
     {
-        _routerIntentLinks
-            .ListIntentsForAgentAsync("agent-router-rt", Arg.Any<CancellationToken>())
+        _routerIntents
+            .GetByIdsAsync(Arg.Is<IReadOnlyList<string>>(ids => ids.SequenceEqual(new[] { "i1" })),
+                Arg.Any<CancellationToken>())
             .Returns(new List<RouterIntent>
             {
                 new()
