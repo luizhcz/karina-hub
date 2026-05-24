@@ -146,8 +146,8 @@ const TOOL_RUNNER_STEPS: StepDescriptor[] = [
 // Identificação + Persona). Avançado expõe Componente/Segurança/Memória/
 // Output explicitamente; básico usa defaults conservadores e fica com
 // Perfil → Ferramentas → Modelo → Revisão. Output é SEMPRE structured pro
-// Conversational (frontend chat exige `ui_component`) — o encoder usa
-// schema canônico mesmo em basic.
+// Conversational (frontend chat exige `output_type` + `output_status`) —
+// o encoder usa schema canônico mesmo em basic.
 const CONVERSATIONAL_BASIC_STEPS: StepDescriptor[] = [
   { key: 'profile', label: 'Perfil' },
   { key: 'tools', label: 'Ferramentas' },

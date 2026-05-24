@@ -4,6 +4,7 @@ using System.Text.Json;
 using EfsAiHub.Core.Orchestration.Workflows;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Agents.AI.Workflows.Checkpointing;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Infra.Persistence.Checkpointing;
 
@@ -48,7 +49,7 @@ public sealed class FrameworkCheckpointStoreAdapter : ICheckpointStore<JsonEleme
                 CheckpointId = checkpointId,
                 Data = value
             };
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(envelope);
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(envelope, JsonDefaults.Domain);
 
             await _inner.SaveCheckpointAsync(sessionId, bytes);
 

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.AI;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Sandbox;
 
@@ -35,7 +36,7 @@ public sealed class MockedAIFunction : AIFunction
                 kvp => kvp.Value?.ToString() ?? "null")
         };
 
-        return new ValueTask<object?>(JsonSerializer.Serialize(result));
+        return new ValueTask<object?>(JsonSerializer.Serialize(result, JsonDefaults.Domain));
     }
 }
 

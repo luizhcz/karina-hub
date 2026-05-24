@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Agents.AI.Workflows;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Host.Worker.Services.EventHandlers;
 
@@ -180,7 +181,7 @@ public sealed class AgentHandoffEventHandler
         {
             EventType = eventType,
             ExecutionId = executionId,
-            Payload = JsonSerializer.Serialize(payload)
+            Payload = JsonSerializer.Serialize(payload, JsonDefaults.Domain)
         });
     }
 }

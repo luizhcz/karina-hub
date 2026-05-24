@@ -2,6 +2,7 @@ using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Agents.RouterIntents;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Services;
 
@@ -358,7 +359,7 @@ public class AgentService : IAgentService
                     breakingChange,
                     changeReason,
                     contentHash = persisted.ContentHash,
-                }));
+                }, JsonDefaults.Domain));
                 await _auditLogger.RecordAsync(new AdminAuditEntry
                 {
                     ActorUserId = createdBy ?? "system:agent-service",
@@ -838,8 +839,7 @@ public class AgentService : IAgentService
         }
         else
         {
-            // Shape canônico atual (pós split ui_component → output_type +
-            // output_status): top-level exige output_type (família única do
+            // Shape canônico: top-level exige output_type (família única do
             // renderer), output_status (variação dentro da família) e message
             // (texto humano). output é opcional e só aparece quando o caller
             // declara o sub-schema (modo estruturado).

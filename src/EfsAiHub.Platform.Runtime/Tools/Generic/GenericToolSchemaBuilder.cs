@@ -1,5 +1,6 @@
 using System.Text.Json;
 using EfsAiHub.Core.Agents.GenericTools;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Tools.Generic;
 
@@ -49,7 +50,7 @@ public static class GenericToolSchemaBuilder
             required = required.ToArray(),
             additionalProperties = false,
         };
-        var json = JsonSerializer.Serialize(rootObject);
+        var json = JsonSerializer.Serialize(rootObject, JsonDefaults.Domain);
         return JsonDocument.Parse(json).RootElement.Clone();
     }
 
@@ -59,7 +60,7 @@ public static class GenericToolSchemaBuilder
         {
             type = NormalizeType(type),
             description,
-        });
+        }, JsonDefaults.Domain);
         return JsonDocument.Parse(json).RootElement.Clone();
     }
 
@@ -145,7 +146,7 @@ public static class GenericToolSchemaBuilder
         }
         if (!dict.ContainsKey("description"))
             dict["description"] = prefix.TrimEnd();
-        var json = JsonSerializer.Serialize(dict);
+        var json = JsonSerializer.Serialize(dict, JsonDefaults.Domain);
         return JsonDocument.Parse(json).RootElement.Clone();
     }
 }

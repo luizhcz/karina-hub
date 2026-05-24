@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Tools;
 
@@ -50,7 +51,7 @@ public class BoletaToolFunctions(IHttpClientFactory httpClientFactory, ILogger<B
 
             var nome = ativoEl.TryGetProperty("nome", out var nomeEl) ? nomeEl.GetString() : ticker;
             var result = new[] { new { ticker, name = nome, exchange = "BVMF" } };
-            return JsonSerializer.Serialize(result);
+            return JsonSerializer.Serialize(result, JsonDefaults.Domain);
         }
         catch (Exception ex)
         {
@@ -87,7 +88,7 @@ public class BoletaToolFunctions(IHttpClientFactory httpClientFactory, ILogger<B
                                    : el.TryGetProperty("financialVolume", out var fv) ? fv.GetDouble() : 0
                 });
             }
-            return JsonSerializer.Serialize(items);
+            return JsonSerializer.Serialize(items, JsonDefaults.Domain);
         }
         catch (Exception ex)
         {

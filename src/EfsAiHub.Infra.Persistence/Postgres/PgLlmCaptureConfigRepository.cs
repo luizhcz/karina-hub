@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Persistence;
 using EfsAiHub.Core.Agents.Capture;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -107,7 +108,7 @@ RETURNING ""UpdatedAt"";";
     {
         var p = new NpgsqlParameter(name, NpgsqlDbType.Jsonb);
         if (values is { Count: > 0 })
-            p.Value = JsonSerializer.Serialize(values);
+            p.Value = JsonSerializer.Serialize(values, JsonDefaults.Domain);
         else
             p.Value = DBNull.Value;
         return p;

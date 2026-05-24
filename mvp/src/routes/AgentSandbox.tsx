@@ -525,9 +525,8 @@ function AssistantBubble({ msg }: { msg: AssistantMsg }) {
   const showTyping = msg.streaming && msg.content.length === 0 && msg.toolCalls.length === 0
   // Durante streaming exibimos o cru (chunks parciais não parseiam). No turno
   // final, extractConversationalDisplay reconhece o canônico do Conversational
-  // ({ output_type, output_status, message, output }) — com fallback pro
-  // legado { ui_component, message, output } — e o Custom legacy ({ response }),
-  // evitando o JSON inteiro vazar pra bolha.
+  // ({ output_type, output_status, message, output }) e o Custom com
+  // structuredOutput ({ response }), evitando o JSON inteiro vazar pra bolha.
   const display = msg.streaming
     ? {
         message: msg.content,

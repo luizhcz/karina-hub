@@ -5,6 +5,7 @@ using System.Threading.Channels;
 using EfsAiHub.Platform.Runtime.Execution;
 using EfsAiHub.Core.Abstractions.AgUi;
 using Microsoft.Extensions.AI;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Factories;
 
@@ -103,7 +104,7 @@ public class TokenTrackingChatClient : DelegatingChatClient
                     if (ctx?.ExecutionId is { } execId)
                     {
                         var argsJson = fcc.Arguments is not null
-                            ? JsonSerializer.Serialize(fcc.Arguments)
+                            ? JsonSerializer.Serialize(fcc.Arguments, JsonDefaults.Domain)
                             : "{}";
                         _tokenSink.WriteToolCallArgs(execId, fcc.CallId ?? "", fcc.Name ?? "", argsJson);
                     }

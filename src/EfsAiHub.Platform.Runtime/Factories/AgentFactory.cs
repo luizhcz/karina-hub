@@ -15,6 +15,7 @@ using EfsAiHub.Platform.Runtime.Resilience;
 using EfsAiHub.Platform.Runtime.Tools.Generic;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Factories;
 
@@ -344,7 +345,7 @@ public class AgentFactory : IAgentFactory
                             ownerProjectId = definition.ProjectId,
                             workflowId = workflow.Id,
                             agentId = definition.Id,
-                        }));
+                        }, JsonDefaults.Domain));
                         await _auditLogger.RecordAsync(new EfsAiHub.Core.Abstractions.Observability.AdminAuditEntry
                         {
                             ActorUserId = "system:agent-factory",

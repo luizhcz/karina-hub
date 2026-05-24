@@ -178,15 +178,12 @@ public sealed class AgentTemplateService : IAgentTemplateService
     }
 
     // Desempacota schemas que já chegaram no shape canônico
-    // (re-saves sucessivos). Reconhece tanto o shape novo
-    // `{output_type, output_status, message, output?}` quanto o legado
-    // `{ui_component, message, output?}` pra que agentes pré-migration
-    // continuem round-trippando até o backfill rodar.
+    // `{output_type, output_status, message, output?}` (re-saves sucessivos).
     //
     // CONTRATO IMPORTANTE: agentes com Type=Conversational mas schema custom
-    // sem nenhuma das chaves canônicas em properties (ex.: agentes seedados
-    // direto via SQL, importados, ou tipo mal-atribuído) terão o documento
-    // INTEIRO tratado como sub-schema do user — o template wrappa em
+    // sem as chaves canônicas em properties (ex.: agentes seedados direto via
+    // SQL, importados, ou tipo mal-atribuído) terão o documento INTEIRO tratado
+    // como sub-schema do user — o template wrappa em
     // `{output_type, output_status, message, output: <schema antigo>}` e a
     // semântica original do agente é alterada silenciosamente. Pra esses
     // casos use Type=Custom no seed/import; um warning é emitido em runtime.
@@ -203,24 +200,21 @@ public sealed class AgentTemplateService : IAgentTemplateService
             return CloneAsNode(root);
         }
 
-        var hasMessage = props.TryGetProperty("message", out _);
-        var hasNewShape = props.TryGetProperty("output_type", out _)
+        var hasCanonicalShape = props.TryGetProperty("output_type", out _)
             && props.TryGetProperty("output_status", out _)
-            && hasMessage;
-        var hasLegacyShape = props.TryGetProperty("ui_component", out _) && hasMessage;
+            && props.TryGetProperty("message", out _);
 
-        if (hasNewShape || hasLegacyShape)
+        if (hasCanonicalShape)
         {
-            // Wrap canônico reconhecido (novo ou legado). `output` ausente =
-            // texto livre; presente = sub-schema do user, desempacotamos.
+            // `output` ausente = texto livre; presente = sub-schema do user.
             return props.TryGetProperty("output", out var output)
                 ? CloneAsNode(output)
                 : null;
         }
 
-        // Schema custom não bate nenhum shape canônico — Conversational com
-        // schema arbitrário é caso conhecido de tipo mal-atribuído. Emite
-        // warning pra que o operador revise.
+        // Schema custom não bate o shape canônico — Conversational com schema
+        // arbitrário é caso conhecido de tipo mal-atribuído. Emite warning pra
+        // que o operador revise.
         _logger.LogWarning(
             "[AgentTemplate] Agente '{AgentId}' (Conversational) tem schema custom sem 'output_type'/'output_status'/'message' " +
             "em properties — documento inteiro será wrappado como sub-schema do user. " +
@@ -290,19 +284,13 @@ public sealed class AgentTemplateService : IAgentTemplateService
         return trimmed.Length == 0 ? DefaultOutputType : trimmed;
     }
 
-    // Lê a lista de output_statuses do metadata. Fallback pra chave legada
-    // (x-conversational-ui-components) enquanto a migration 011 não rodar em
-    // todos os ambientes. Lista vazia/inválida vira o default ["default"].
+    // Lê a lista de output_statuses do metadata. Lista vazia/inválida vira
+    // o default ["default"].
     private static IReadOnlyList<string> ReadOutputStatuses(IReadOnlyDictionary<string, string>? metadata)
     {
         if (metadata is null) return DefaultOutputStatuses;
-        var raw = metadata.TryGetValue(AgentDefinition.ConversationalOutputStatusesMetadataKey, out var primary)
-            ? primary
-#pragma warning disable CS0618 // Type or member is obsolete — leitura legacy intencional pra BC.
-            : metadata.TryGetValue(AgentDefinition.ConversationalUiComponentsMetadataKey, out var legacy)
-                ? legacy
-                : null;
-#pragma warning restore CS0618
+        if (!metadata.TryGetValue(AgentDefinition.ConversationalOutputStatusesMetadataKey, out var raw))
+            return DefaultOutputStatuses;
         if (string.IsNullOrWhiteSpace(raw)) return DefaultOutputStatuses;
 
         try

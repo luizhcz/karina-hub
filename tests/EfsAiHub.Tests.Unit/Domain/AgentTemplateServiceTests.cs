@@ -86,39 +86,6 @@ public class AgentTemplateServiceTests
     }
 
     [Fact]
-    public void Apply_Conversational_WrappedLegado_DesempacotaSubschemaERewrappa()
-    {
-        var wrapped = JsonDoc("""
-            {
-              "type":"object",
-              "properties":{
-                "ui_component":{"type":"string","enum":["text","card"]},
-                "message":{"type":"string"},
-                "output":{"type":"object","properties":{"ticker":{"type":"string"}}}
-              },
-              "required":["ui_component","message","output"],
-              "additionalProperties":false
-            }
-        """);
-        var def = NewConversational(structuredOutput: new AgentStructuredOutputDefinition
-        {
-            ResponseFormat = "json_schema",
-            SchemaName = "ConversationalTurn",
-            Schema = wrapped,
-        });
-
-        var result = Service.Apply(def);
-
-        var root = result.StructuredOutput!.Schema!.RootElement;
-        var output = root.GetProperty("properties").GetProperty("output");
-        // O sub-schema original foi preservado intacto — properties.output
-        // não acumula nesting (sem `output.properties.output`).
-        output.GetProperty("properties").GetProperty("ticker").GetProperty("type").GetString()
-            .Should().Be("string");
-        output.TryGetProperty("output", out _).Should().BeFalse();
-    }
-
-    [Fact]
     public void Apply_Conversational_InjetaStructuredOutputStateMiddleware()
     {
         var def = NewConversational();
@@ -226,26 +193,6 @@ public class AgentTemplateServiceTests
         properties.GetProperty("output_status").GetProperty("enum").EnumerateArray()
             .Select(e => e.GetString()).ToArray()
             .Should().BeEquivalentTo(new[] { "default" });
-    }
-
-    [Fact]
-    public void Apply_Conversational_LegadoUiComponents_FallbackPraOutputStatus()
-    {
-        // Migration 011 deve mover x-conversational-ui-components → output-statuses,
-        // mas até rodar em todos ambientes o template precisa ler como fallback.
-#pragma warning disable CS0618 // legacy key intencional pra cobrir BC
-        var def = NewConversational(metadata: new Dictionary<string, string>
-        {
-            [AgentDefinition.ConversationalUiComponentsMetadataKey] = "[\"text\",\"card\"]",
-        });
-#pragma warning restore CS0618
-
-        var result = Service.Apply(def);
-
-        var properties = result.StructuredOutput!.Schema!.RootElement.GetProperty("properties");
-        properties.GetProperty("output_status").GetProperty("enum").EnumerateArray()
-            .Select(e => e.GetString()).ToArray()
-            .Should().BeEquivalentTo(new[] { "text", "card" });
     }
 
     [Fact]

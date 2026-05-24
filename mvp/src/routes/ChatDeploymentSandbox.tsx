@@ -74,10 +74,15 @@ export function ChatDeploymentSandbox() {
     workflowVersionId: selectedVersionId || null,
   })
 
-  // Mapa agentId → estado da memória operacional. Populado on-demand quando
-  // um STEP_STARTED emite stepId novo. ThreadId vem do RUN_STARTED.
+  // Mapa agentId → estado da memória operacional. Populado on-demand ao final
+  // de cada turn (quando stream.status sai de 'streaming'). ThreadId vem do
+  // RUN_STARTED.
   const [memories, setMemories] = useState<Map<string, AgentMemoryState>>(new Map())
   const fetchedKeysRef = useRef(new Set<string>())
+  // Detecta transição streaming → terminal pra refetchar memória a cada turn
+  // (middleware persiste no fim do OnAfterResponseAsync). Sem este sinal,
+  // fetchedKeysRef bloqueia o re-fetch e a UI mostra estado do turn anterior.
+  const lastStreamStatusRef = useRef<typeof stream.status | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -120,15 +125,35 @@ export function ChatDeploymentSandbox() {
     }
   }, [id])
 
-  // Quando um step novo aparece + threadId está populado, busca a memória
-  // operacional desse agente pra esse escopo. Idempotente via fetchedKeysRef
-  // (chave = agentId+threadId) — recarrega só se o user clicar em "atualizar".
+  // Busca a memória operacional dos agents que rodaram no turn — só DEPOIS
+  // que o stream encerra. O middleware persiste a memória ao final do
+  // `OnAfterResponseAsync`; ler durante o streaming retornaria estado velho
+  // (turn anterior) ou empty pra primeiro turn. Quando o stream completa,
+  // varre `stream.steps` e dispara um fetch por agentId+threadId ainda não
+  // fetchado. Idempotente via fetchedKeysRef.
+  //
   // Agents sem memória configurada (Router classifier, Conversational sem
   // schema declarado) são puláveis — o endpoint retorna 404 e o browser
   // loga ruído no DevTools sem nenhum ganho funcional.
   useEffect(() => {
     const tid = stream.threadId
     if (!tid) return
+    // Só busca quando o turn terminou. 'streaming' = ainda rodando;
+    // 'idle' = nada disparado ainda. Demais ('completed', 'error',
+    // 'cancelled') significam que o middleware já teve chance de persistir.
+    if (stream.status === 'streaming' || stream.status === 'idle') {
+      lastStreamStatusRef.current = stream.status
+      return
+    }
+
+    // Transição streaming → terminal: invalida cache pra refetchar a memória
+    // atualizada deste turn. Sem isso, fetchedKeysRef bloquearia turns
+    // subsequentes e o usuário veria estado congelado do primeiro turn.
+    if (lastStreamStatusRef.current === 'streaming') {
+      fetchedKeysRef.current.clear()
+    }
+    lastStreamStatusRef.current = stream.status
+
     for (const step of stream.steps) {
       const agentId = step.id
       const key = `${agentId}::${tid}`
@@ -171,7 +196,7 @@ export function ChatDeploymentSandbox() {
           })
         })
     }
-  }, [stream.steps, stream.threadId, agentsWithMemoryRef])
+  }, [stream.status, stream.steps, stream.threadId, agentsWithMemoryRef])
 
   // Reset limpa também o cache de memórias pra próxima conversa começar limpa.
   function handleReset() {
@@ -479,8 +504,8 @@ function BubbleRow({
   const isUser = bubble.role === 'user'
   // Durante streaming os chunks chegam parciais e o parse JSON falha — exibimos
   // o cru. Quando o turno fecha, extractConversationalDisplay separa
-  // message/ui_component/output e mostra cada parte no seu lugar (em vez do
-  // JSON inteiro vazar na bolha).
+  // message/output_type/output_status/output e mostra cada parte no seu lugar
+  // (em vez do JSON inteiro vazar na bolha).
   const display = !isUser && !streaming
     ? extractConversationalDisplay(bubble.content)
     : {

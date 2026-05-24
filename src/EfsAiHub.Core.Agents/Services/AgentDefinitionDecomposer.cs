@@ -335,12 +335,12 @@ public sealed class AgentDefinitionDecomposer : IAgentDefinitionDecomposer
     }
 
     /// <summary>
-    /// Detecta o wrap canônico do Conversational (shape novo
-    /// <c>output_type/output_status/message/output</c> ou legacy
-    /// <c>ui_component/message/output</c>) e devolve apenas o subschema interno
-    /// (<c>properties.output</c>) — que é o que o editor exibe pro user. Quando
-    /// o wrap não é reconhecido (schema custom ou sem <c>properties.output</c>),
-    /// preserva o schema cru pra não destruir input legítimo.
+    /// Detecta o wrap canônico do Conversational
+    /// (<c>output_type/output_status/message/output</c>) e devolve apenas o
+    /// subschema interno (<c>properties.output</c>) — que é o que o editor
+    /// exibe pro user. Quando o wrap não é reconhecido (schema custom ou sem
+    /// <c>properties.output</c>), preserva o schema cru pra não destruir
+    /// input legítimo.
     /// </summary>
     private static AgentStructuredOutputDefinition? UnwrapConversationalSchema(AgentStructuredOutputDefinition structuredOutput)
     {
@@ -360,13 +360,11 @@ public sealed class AgentDefinitionDecomposer : IAgentDefinitionDecomposer
             return structuredOutput;
         }
 
-        var hasMessage = properties.ContainsKey("message");
-        var hasNewShape = properties.ContainsKey("output_type")
+        var hasCanonicalShape = properties.ContainsKey("output_type")
             && properties.ContainsKey("output_status")
-            && hasMessage;
-        var hasLegacyShape = properties.ContainsKey("ui_component") && hasMessage;
+            && properties.ContainsKey("message");
 
-        if (!hasNewShape && !hasLegacyShape) return structuredOutput;
+        if (!hasCanonicalShape) return structuredOutput;
         if (properties["output"] is not JsonObject outputSubSchema) return null;
 
         // Subschema autoral preservado intacto; SchemaName/SchemaDescription do

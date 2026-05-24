@@ -9,6 +9,7 @@ using EfsAiHub.Core.Orchestration.Executors;
 using EfsAiHub.Platform.Runtime.Sanitization;
 using EfsAiHub.Platform.Runtime.Services;
 using Microsoft.Extensions.AI;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Middlewares;
 
@@ -335,7 +336,7 @@ public sealed class LlmInvocationCaptureChatClient : DelegatingChatClient
             type = ClassifyMessage(m, messages)
         }).ToList();
 
-        var asJson = JsonSerializer.Serialize(msgs);
+        var asJson = JsonSerializer.Serialize(msgs, JsonDefaults.Domain);
         if (Encoding.UTF8.GetByteCount(asJson) <= MaxPayloadBytes)
             return (asJson, false);
 
@@ -363,7 +364,7 @@ public sealed class LlmInvocationCaptureChatClient : DelegatingChatClient
                 }
                 truncated.Add(msgs[i]);
             }
-            asJson = JsonSerializer.Serialize(truncated);
+            asJson = JsonSerializer.Serialize(truncated, JsonDefaults.Domain);
         }
 
         // Última defesa: hard truncate string (substring na borda final).
@@ -397,7 +398,7 @@ public sealed class LlmInvocationCaptureChatClient : DelegatingChatClient
             totalTokens = (long?)usage?.TotalTokenCount,
             error = error?.Message,
         };
-        var asJson = JsonSerializer.Serialize(dto);
+        var asJson = JsonSerializer.Serialize(dto, JsonDefaults.Domain);
         if (Encoding.UTF8.GetByteCount(asJson) <= MaxPayloadBytes)
             return (asJson, false);
 
@@ -412,7 +413,7 @@ public sealed class LlmInvocationCaptureChatClient : DelegatingChatClient
             totalTokens = dto.totalTokens,
             error = dto.error,
         };
-        return (JsonSerializer.Serialize(truncatedDto), true);
+        return (JsonSerializer.Serialize(truncatedDto, JsonDefaults.Domain), true);
     }
 
     private static string SerializeChatOptions(ChatOptions options)
@@ -431,6 +432,6 @@ public sealed class LlmInvocationCaptureChatClient : DelegatingChatClient
                 description = (t as AIFunction)?.Description,
             }).ToList(),
         };
-        return JsonSerializer.Serialize(dto);
+        return JsonSerializer.Serialize(dto, JsonDefaults.Domain);
     }
 }

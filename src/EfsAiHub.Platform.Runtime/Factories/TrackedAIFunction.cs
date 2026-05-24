@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
 using Microsoft.Extensions.AI;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Factories;
 
@@ -52,7 +53,7 @@ public sealed class TrackedAIFunction : AIFunction
 
         try
         {
-            argsJson = JsonSerializer.Serialize(arguments.ToDictionary(kv => kv.Key, kv => kv.Value));
+            argsJson = JsonSerializer.Serialize(arguments.ToDictionary(kv => kv.Key, kv => kv.Value), JsonDefaults.Domain);
         }
         catch (Exception ex2) { argsJson = $"[serialize-error: {ex2.Message}]"; }
 

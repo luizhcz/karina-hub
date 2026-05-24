@@ -2,6 +2,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Host.Api.Chat.AgUi.Models;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Host.Api.Chat.AgUi;
 
@@ -89,7 +90,7 @@ public sealed class AgUiEventMapper
                     Type = "TOOL_CALL_ARGS",
                     ToolCallId = GetString(payload, "toolCallId"),
                     ToolCallName = GetString(payload, "toolName"),
-                    Delta = JsonSerializer.SerializeToElement(GetString(payload, "argsChunk") ?? "")
+                    Delta = JsonSerializer.SerializeToElement(GetString(payload, "argsChunk") ?? "", JsonDefaults.Domain)
                 }
             ],
 
@@ -100,7 +101,7 @@ public sealed class AgUiEventMapper
                     Type = "TEXT_MESSAGE_CONTENT",
                     MessageId = GetString(payload, "messageId"),
                     Delta = JsonSerializer.SerializeToElement(
-                        GetString(payload, "content") ?? GetString(payload, "token") ?? "")
+                        GetString(payload, "content") ?? GetString(payload, "token") ?? "", JsonDefaults.Domain)
                 }
             ],
 
@@ -261,7 +262,7 @@ public sealed class AgUiEventMapper
             {
                 Type = "TEXT_MESSAGE_CONTENT",
                 MessageId = messageId,
-                Delta = JsonSerializer.SerializeToElement(output)
+                Delta = JsonSerializer.SerializeToElement(output, JsonDefaults.Domain)
             });
             events.Add(new AgUiEvent
             {
@@ -292,7 +293,7 @@ public sealed class AgUiEventMapper
         {
             Type = "CUSTOM",
             CustomName = "executor.lifecycle",
-            CustomValue = JsonSerializer.SerializeToElement(meta)
+            CustomValue = JsonSerializer.SerializeToElement(meta, JsonDefaults.Domain)
         };
     }
 
@@ -329,11 +330,11 @@ public sealed class AgUiEventMapper
             options = GetStringArray(payload, "options"),
             timeoutSeconds = GetInt(payload, "timeoutSeconds"),
             interactionType = GetString(payload, "interactionType") ?? "Approval"
-        });
+        }, JsonDefaults.Domain);
 
         return [
             new AgUiEvent { Type = "TOOL_CALL_START", ToolCallId = interactionId, ToolCallName = "request_approval" },
-            new AgUiEvent { Type = "TOOL_CALL_ARGS",  ToolCallId = interactionId, Delta = JsonSerializer.SerializeToElement(args) },
+            new AgUiEvent { Type = "TOOL_CALL_ARGS",  ToolCallId = interactionId, Delta = JsonSerializer.SerializeToElement(args, JsonDefaults.Domain) },
             new AgUiEvent { Type = "TOOL_CALL_END",   ToolCallId = interactionId }
         ];
     }

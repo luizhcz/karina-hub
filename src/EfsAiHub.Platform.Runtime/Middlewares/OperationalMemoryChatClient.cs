@@ -137,7 +137,14 @@ public sealed class OperationalMemoryChatClient : AgentMiddlewareBase
         ChatResponse response,
         CancellationToken ct)
     {
-        if (!IsScopeReady()) return response;
+        if (!IsScopeReady())
+        {
+            Logger.LogWarning(
+                "[OperationalMemory] {AgentId}: scope NÃO pronto em OnAfter — strip BYPASSED. " +
+                "projectId={ProjectId} scopeType={ScopeType} scopeId={ScopeId}",
+                AgentId, _projectId, _scopeType, _scopeId);
+            return response;
+        }
 
         var (assistantMsg, contentIndex, originalText) = FindAssistantText(response);
         if (assistantMsg is null || originalText is null)
@@ -147,7 +154,16 @@ public sealed class OperationalMemoryChatClient : AgentMiddlewareBase
         }
 
         var (strippedText, persistJson) = TryExtractAndStrip(originalText);
-        if (persistJson is null) return response;
+        if (persistJson is null)
+        {
+            Logger.LogInformation(
+                "[OperationalMemory] {AgentId}: strip NO-OP em OnAfter (sem campo '{Field}' no output ou JSON inválido). " +
+                "originalLen={OriginalLen} containsField={ContainsField}",
+                AgentId, MemoryFieldName,
+                originalText.Length,
+                originalText.Contains(MemoryFieldName));
+            return response;
+        }
 
         await TryPersistAsync(persistJson, ct).ConfigureAwait(false);
 
@@ -155,6 +171,9 @@ public sealed class OperationalMemoryChatClient : AgentMiddlewareBase
         // contents (function calls, usage data) intactos.
         assistantMsg.Contents[contentIndex] = new TextContent(strippedText);
         EmitEvent("strip");
+        Logger.LogInformation(
+            "[OperationalMemory] {AgentId}: STRIP OK em OnAfter. originalLen={OriginalLen} strippedLen={StrippedLen}",
+            AgentId, originalText.Length, strippedText.Length);
 
         return response;
     }
@@ -186,7 +205,20 @@ public sealed class OperationalMemoryChatClient : AgentMiddlewareBase
         var fullText = textBuffer.ToString();
         var finalText = fullText;
 
-        if (IsScopeReady() && !string.IsNullOrWhiteSpace(fullText))
+        if (!IsScopeReady())
+        {
+            Logger.LogWarning(
+                "[OperationalMemory] {AgentId}: scope NÃO pronto em GetStreamingResponseAsync — strip BYPASSED. " +
+                "projectId={ProjectId} scopeType={ScopeType} scopeId={ScopeId}",
+                AgentId, _projectId, _scopeType, _scopeId);
+        }
+        else if (string.IsNullOrWhiteSpace(fullText))
+        {
+            Logger.LogWarning(
+                "[OperationalMemory] {AgentId}: streaming sem texto — strip BYPASSED.",
+                AgentId);
+        }
+        else
         {
             var (stripped, persistJson) = TryExtractAndStrip(fullText);
             if (persistJson is not null)
@@ -194,6 +226,16 @@ public sealed class OperationalMemoryChatClient : AgentMiddlewareBase
                 await TryPersistAsync(persistJson, cancellationToken).ConfigureAwait(false);
                 finalText = stripped;
                 EmitEvent("strip");
+                Logger.LogInformation(
+                    "[OperationalMemory] {AgentId}: STRIP OK em streaming. originalLen={OriginalLen} strippedLen={StrippedLen}",
+                    AgentId, fullText.Length, stripped.Length);
+            }
+            else
+            {
+                Logger.LogInformation(
+                    "[OperationalMemory] {AgentId}: strip NO-OP em streaming. " +
+                    "fullLen={FullLen} containsField={ContainsField}",
+                    AgentId, fullText.Length, fullText.Contains(MemoryFieldName));
             }
         }
 

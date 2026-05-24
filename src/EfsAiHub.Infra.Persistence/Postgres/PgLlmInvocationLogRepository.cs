@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Persistence;
 using EfsAiHub.Core.Agents.Capture;
 using EfsAiHub.Core.Agents.Composition;
 using Microsoft.Extensions.DependencyInjection;
@@ -65,7 +66,7 @@ VALUES (@turnId, @attempt, @execId, @wfId, @agentId,
             cmd.Parameters.Add(NullableStr("intent", e.Intent));
             cmd.Parameters.AddWithValue("reqPayload", e.RequestPayload);
             cmd.Parameters.AddWithValue("respPayload", e.ResponsePayload);
-            cmd.Parameters.Add(NullableStr("composition", e.Composition is { Count: > 0 } ? JsonSerializer.Serialize(e.Composition) : null));
+            cmd.Parameters.Add(NullableStr("composition", e.Composition is { Count: > 0 } ? JsonSerializer.Serialize(e.Composition, JsonDefaults.Domain) : null));
             cmd.Parameters.Add(NullableStr("chatOpts", e.ChatOptionsSnapshot));
             cmd.Parameters.AddWithValue("status", e.Status);
             cmd.Parameters.Add(NullableStr("err", e.ErrorMessage));

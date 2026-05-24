@@ -1,6 +1,7 @@
 using System.Text.Json;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Infra.Persistence.Postgres;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Host.Worker.Services;
 
@@ -90,7 +91,7 @@ public sealed class DatabaseBootstrapService : IHostedService
                     {
                         error = "Execução interrompida por restart do processo.",
                         category = nameof(ErrorCategory.FrameworkError)
-                    })
+                    }, JsonDefaults.Domain)
                 });
 
                 _logger.LogWarning(

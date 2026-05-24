@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using EfsAiHub.Core.Agents.GenericTools;
 using Json.Schema;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Tools.Generic;
 
@@ -104,7 +105,7 @@ public sealed class GenericResponseProjector
             // via SerializeToNode pra payloads grandes (evita serialize→parse).
             return JsonNode.Parse(el.GetRawText());
         }
-        return JsonSerializer.SerializeToNode(parsed);
+        return JsonSerializer.SerializeToNode(parsed, JsonDefaults.Domain);
     }
 
     private static IReadOnlyList<string> ExtractErrors(EvaluationResults evaluation)

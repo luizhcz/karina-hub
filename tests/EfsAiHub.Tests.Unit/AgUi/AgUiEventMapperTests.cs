@@ -203,7 +203,7 @@ public class AgUiEventMapperTests
             nodeType = "agent",
             agentName = "Trader Cotação Especialista",
             agentType = "Conversational",
-            output = "{\"ui_component\":\"text\",\"message\":\"PETR4 ...\",\"output\":\"\"}",
+            output = "{\"output_type\":\"text\",\"output_status\":\"default\",\"message\":\"PETR4 ...\",\"output\":\"\"}",
             wasStreamed = false
         });
 

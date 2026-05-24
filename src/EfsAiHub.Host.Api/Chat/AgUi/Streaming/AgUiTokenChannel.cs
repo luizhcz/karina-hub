@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using EfsAiHub.Host.Api.Chat.AgUi.Models;
 using EfsAiHub.Core.Abstractions.AgUi;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Host.Api.Chat.AgUi.Streaming;
 
@@ -77,7 +78,7 @@ public sealed class AgUiTokenChannel : IAgUiTokenSink
             Type = "TOOL_CALL_ARGS",
             ToolCallId = toolCallId,
             ToolCallName = toolName,
-            Delta = JsonSerializer.SerializeToElement(argsChunk)
+            Delta = JsonSerializer.SerializeToElement(argsChunk, JsonDefaults.Domain)
         });
     }
 }

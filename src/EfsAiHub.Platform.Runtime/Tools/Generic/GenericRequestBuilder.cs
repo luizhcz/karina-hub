@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using EfsAiHub.Core.Agents.GenericTools;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Tools.Generic;
 
@@ -69,7 +70,7 @@ public static class GenericRequestBuilder
             case InputContentType.Json:
             {
                 var bodyArgs = ProjectBodyArgs(tool, args);
-                var json = JsonSerializer.Serialize(bodyArgs);
+                var json = JsonSerializer.Serialize(bodyArgs, JsonDefaults.Domain);
                 return new StringContent(json, Encoding.UTF8, "application/json");
             }
 

@@ -5,6 +5,7 @@ using EfsAiHub.Core.Orchestration.Enums;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Core.Orchestration.Executors;
 using Microsoft.Extensions.AI;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Host.Api.CodeExecutors;
 
@@ -50,7 +51,7 @@ public static class RedemptionTestSetup
             startDate    = "2024-06-15",
             holdingDays  = 665,
             currency     = "BRL"
-        });
+        }, JsonDefaults.Domain);
     }
 
     [Description("Calcula IR sobre resgate considerando tabela regressiva")]
@@ -79,7 +80,7 @@ public static class RedemptionTestSetup
                 <= 720 => "361-720 dias (17.5%)",
                 _      => "acima de 720 dias (15%)"
             }
-        });
+        }, JsonDefaults.Domain);
     }
 
     [Description("Retorna detalhes de um fundo de investimento")]
@@ -97,7 +98,7 @@ public static class RedemptionTestSetup
             ytdReturn      = 0.0892m,
             benchmarkCdi   = 0.0901m,
             aum            = 450_000_000.00m
-        });
+        }, JsonDefaults.Domain);
     }
 
     [Description("Retorna dados de mercado atuais")]
@@ -110,7 +111,7 @@ public static class RedemptionTestSetup
             ipcaAccumulated = 0.0445m,
             usdBrl          = 5.12m,
             date            = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd")
-        });
+        }, JsonDefaults.Domain);
     }
 
     /// <summary>
@@ -153,7 +154,7 @@ public static class RedemptionTestSetup
                     orderId,
                     options        = new[] { "Aprovar", "Rejeitar" },
                     timeoutSeconds = 300
-                })
+                }, JsonDefaults.Domain)
             }, ct);
 
             // Aguarda resolução humana — bloqueia até que /resolve-hitl seja chamado
@@ -176,7 +177,7 @@ public static class RedemptionTestSetup
                     orderId,
                     message    = "Resgate cancelado pelo cliente.",
                     resolution
-                });
+                }, JsonDefaults.Domain);
 
             return JsonSerializer.Serialize(new
             {
@@ -193,7 +194,7 @@ public static class RedemptionTestSetup
                 createdAt           = DateTimeOffset.UtcNow,
                 estimatedCreditDate = DateTime.Today.AddDays(1).ToString("yyyy-MM-dd"),
                 approvalNote        = resolution
-            });
+            }, JsonDefaults.Domain);
         }
 
         // Fallback sem HITL (testes unitários / ambiente sem serviços)
@@ -211,7 +212,7 @@ public static class RedemptionTestSetup
             status              = "pending_approval",
             createdAt           = DateTimeOffset.UtcNow,
             estimatedCreditDate = DateTime.Today.AddDays(1).ToString("yyyy-MM-dd")
-        });
+        }, JsonDefaults.Domain);
     }
 
     [Description("Executa a ordem de resgate no sistema")]
@@ -225,7 +226,7 @@ public static class RedemptionTestSetup
             transactionId = txId,
             status        = "executed",
             executedAt    = DateTimeOffset.UtcNow
-        });
+        }, JsonDefaults.Domain);
     }
 
     [Description("Gera comprovante do resgate")]
@@ -237,6 +238,6 @@ public static class RedemptionTestSetup
             transactionId,
             receiptUrl  = $"/receipts/{transactionId}.pdf",
             generatedAt = DateTimeOffset.UtcNow
-        });
+        }, JsonDefaults.Domain);
     }
 }

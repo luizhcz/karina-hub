@@ -333,7 +333,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
                 agentId = definition.Id,
                 previousValidatedAgentVersionId,
                 newAgentVersionId,
-            }));
+            }, JsonDefaults.Domain));
             await _auditLogger.RecordAsync(new AdminAuditEntry
             {
                 TenantId = _tenantAccessor.Current.TenantId,

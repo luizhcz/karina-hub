@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Tools;
 
@@ -34,7 +35,7 @@ public static class ApexHandoffFunctions
             }
         };
 
-        return Task.FromResult(JsonSerializer.Serialize(portfolio));
+        return Task.FromResult(JsonSerializer.Serialize(portfolio, JsonDefaults.Domain));
     }
 
     // ── redeem_asset ──────────────────────────────────────────────────────────
@@ -59,7 +60,7 @@ public static class ApexHandoffFunctions
             liquidacao = "D+1 útil",
             mensagem = $"Resgate de R${valor} em {ativo} registrado com sucesso. Ref: {refId}. Crédito em D+1 útil."
         };
-        return Task.FromResult(JsonSerializer.Serialize(resultado));
+        return Task.FromResult(JsonSerializer.Serialize(resultado, JsonDefaults.Domain));
     }
 
     // ── invest_asset ──────────────────────────────────────────────────────────
@@ -84,7 +85,7 @@ public static class ApexHandoffFunctions
             liquidacao = "D+0",
             mensagem = $"Aplicação de R${valor} em {ativo} registrada com sucesso. Ref: {refId}. Liquidação em D+0."
         };
-        return Task.FromResult(JsonSerializer.Serialize(resultado));
+        return Task.FromResult(JsonSerializer.Serialize(resultado, JsonDefaults.Domain));
     }
 
     // ── calculate_asset_redemption_tax ────────────────────────────────────────
@@ -114,7 +115,7 @@ public static class ApexHandoffFunctions
                 irEstimado = 0.0,
                 valorLiquido = (double)valorBruto,
                 fundamento = "Isento de IR para pessoa física (Lei 11.033/2004)"
-            }));
+            }, JsonDefaults.Domain));
         }
 
         // Tabela regressiva de renda fixa
@@ -139,6 +140,6 @@ public static class ApexHandoffFunctions
             irEstimado = ir,
             valorLiquido = liquido,
             fundamento = $"Tabela regressiva IR — {aliquota * 100:F1}% para {faixa} (Lei 11.033/2004, Art. 1°)"
-        }));
+        }, JsonDefaults.Domain));
     }
 }

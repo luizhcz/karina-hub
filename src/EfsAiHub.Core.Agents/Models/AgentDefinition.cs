@@ -157,16 +157,6 @@ public class AgentDefinition
     public const string ConversationalOutputStatusesMetadataKey = "x-conversational-output-statuses";
 
     /// <summary>
-    /// Legacy: chave anterior ao split output_type/output_status. Lida no
-    /// decoder/template service como fallback quando as keys novas estão
-    /// ausentes — migration 011 move pra <see cref="ConversationalOutputStatusesMetadataKey"/>
-    /// + injeta default <c>output_type=text</c>. Mantida no domain só pra
-    /// o composer/template enxergar agentes pré-migration sem crashar.
-    /// </summary>
-    [Obsolete("Use ConversationalOutputTypeMetadataKey + ConversationalOutputStatusesMetadataKey. Removida após migration 011 + window de leitura.")]
-    public const string ConversationalUiComponentsMetadataKey = "x-conversational-ui-components";
-
-    /// <summary>
     /// Chave em <see cref="Metadata"/> que carrega, pra Conversational, o
     /// texto de persona do agente (papel, personalidade, estilo). Backend
     /// concatena em <c>Instructions</c> no codec do save. Persiste em

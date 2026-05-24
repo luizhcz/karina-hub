@@ -44,13 +44,15 @@ public enum AgentType
     /// humano em tempo real e mantém contexto entre turns. Sempre roda em
     /// workflow com <c>Configuration.InputMode=Chat</c>. Output estruturado
     /// é obrigatório com shape canônico:
-    /// <c>{ ui_component: enum, message: string, output: &lt;subschema livre&gt; }</c>.
-    /// O frontend renderer consome <c>ui_component</c> pra escolher
-    /// componente UI; <c>message</c> é texto humano; <c>output</c> é payload
-    /// customizável pelo agente (subschema declarado pelo user). A lista de
-    /// valores válidos de <c>ui_component</c> vive em
-    /// <c>metadata['x-conversational-ui-components']</c> como JSON array
-    /// e é injetada como enum no schema pelo codec ao montar o payload.
+    /// <c>{ output_type: enum, output_status: enum, message: string, output: &lt;subschema livre&gt; }</c>.
+    /// O frontend renderer consome <c>output_type</c> pra escolher a família
+    /// de componente UI; <c>output_status</c> seleciona a variação dentro da
+    /// família; <c>message</c> é texto humano; <c>output</c> é payload
+    /// customizável pelo agente (subschema declarado pelo user). O valor
+    /// único de <c>output_type</c> vive em
+    /// <c>metadata['x-conversational-output-type']</c> e a lista de valores
+    /// válidos de <c>output_status</c> em
+    /// <c>metadata['x-conversational-output-statuses']</c> como JSON array.
     /// Defaults: modelo balanced, Temperature 0.5–0.8, MaxTokens 1500–2000,
     /// SecurityGuardrails recomendado.
     /// </summary>

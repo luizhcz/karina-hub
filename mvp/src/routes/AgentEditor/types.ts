@@ -78,10 +78,9 @@ export interface FormState {
    */
   conversationalOutputType: string
   /**
-   * Lista canônica de variações de status (substituiu o antigo
-   * ui_components). Persistida como JSON array em
-   * payload.metadata['x-conversational-output-statuses']. O codec
-   * injeta como enum em `output_status`; frontend chat usa pra escolher
+   * Lista canônica de variações de status do output_type. Persistida como
+   * JSON array em payload.metadata['x-conversational-output-statuses']. O
+   * codec injeta como enum em `output_status`; frontend chat usa pra escolher
    * a variação dentro da família output_type.
    * Vazio quando type !== 'Conversational'.
    *

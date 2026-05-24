@@ -4,6 +4,7 @@ using EfsAiHub.Core.Orchestration.Enums;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Core.Orchestration.Executors;
 using Microsoft.Extensions.AI;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Tools;
 
@@ -73,7 +74,7 @@ public static class ConfirmBoletaFunction
         // ── Publicar hitl_required e bloquear ──
         var ctx = DelegateExecutor.Current.Value;
         if (ctx == null || _hitlService == null || _eventBus == null)
-            return JsonSerializer.Serialize(new { confirmed = false, message = "Serviço HITL indisponível." });
+            return JsonSerializer.Serialize(new { confirmed = false, message = "Serviço HITL indisponível." }, JsonDefaults.Domain);
 
         var interactionId = Guid.NewGuid().ToString();
 
@@ -88,7 +89,7 @@ public static class ConfirmBoletaFunction
                 question       = prompt,
                 options        = new[] { "Confirmar", "Cancelar" },
                 timeoutSeconds = 180
-            })
+            }, JsonDefaults.Domain)
         }, CancellationToken.None);
 
         var resolution = await _hitlService.RequestAsync(new HumanInteractionRequest
@@ -105,13 +106,13 @@ public static class ConfirmBoletaFunction
 
         // ── Interpretar resposta ──
         if (HitlResolutionClassifier.IsRejected(resolution))
-            return JsonSerializer.Serialize(new { confirmed = false, message = "Ordem cancelada pelo usuário." });
+            return JsonSerializer.Serialize(new { confirmed = false, message = "Ordem cancelada pelo usuário." }, JsonDefaults.Domain);
 
         return JsonSerializer.Serialize(new
         {
             confirmed = true,
             message = $"Ordem confirmada — {tipoLabel} {quantidade} {ticker} ({tipoPrecoLabel}" +
                       (valorBrl.HasValue ? $" R$ {valorBrl.Value:N2}" : "") + ")."
-        });
+        }, JsonDefaults.Domain);
     }
 }
