@@ -37,7 +37,8 @@ public sealed class AgentDefinitionDecomposer : IAgentDefinitionDecomposer
         var authorInstructions = ResolveAuthorInstructions(stored);
         var authorTools = StripExpandedTools(stored.Tools);
         var authorModel = StripExpandedModel(stored.Model);
-        var authorStructuredOutput = StripRouterEnum(stored);
+        var authorStructuredOutput = StripStructuredOutputForAuthor(stored);
+        var authorMiddlewares = StripAutoInjectedMiddlewares(stored);
 
         return new AgentDefinition
         {
@@ -57,7 +58,7 @@ public sealed class AgentDefinitionDecomposer : IAgentDefinitionDecomposer
             Tools = authorTools,
             StructuredOutput = authorStructuredOutput,
             OperationalMemory = stored.OperationalMemory,
-            Middlewares = stored.Middlewares,
+            Middlewares = authorMiddlewares,
             FallbackProvider = stored.FallbackProvider,
             Resilience = stored.Resilience,
             CostBudget = stored.CostBudget,
@@ -167,16 +168,54 @@ public sealed class AgentDefinitionDecomposer : IAgentDefinitionDecomposer
         };
     }
 
-    private static AgentStructuredOutputDefinition? StripRouterEnum(AgentDefinition stored)
+    /// <summary>
+    /// Reverte as transformações que o composer/template aplica no
+    /// <c>StructuredOutput</c> pra devolver pro editor a forma autoral:
+    /// <list type="bullet">
+    ///   <item><b>Router</b>: o composer injeta enum dinâmico em
+    ///   <c>properties.intent</c> com os names das intents. Editor declara
+    ///   o intent como <c>{ type: "string" }</c> puro; removemos o enum.</item>
+    ///   <item><b>Conversational</b>: o template envolve o subschema autoral
+    ///   num wrap canônico <c>{ output_type, output_status, message, output }</c>.
+    ///   Editor declara apenas o subschema interno; devolvemos <c>properties.output</c>
+    ///   como o schema puro.</item>
+    ///   <item><b>OperationalMemory</b> (todos os tipos): quando o agent tem
+    ///   memória habilitada, o <c>OutputSchemaRenderer</c> injeta a property
+    ///   <c>operationalMemory</c> no schema. Editor não declarou essa property —
+    ///   ela vive no campo top-level <c>OperationalMemory.Schema</c>. Removemos
+    ///   pra evitar shape duplicado no form.</item>
+    /// </list>
+    /// </summary>
+    private static AgentStructuredOutputDefinition? StripStructuredOutputForAuthor(AgentDefinition stored)
     {
         var structuredOutput = stored.StructuredOutput;
         if (structuredOutput?.Schema is null) return structuredOutput;
-        if (stored.Type != AgentType.Router) return structuredOutput;
 
+        var typeStripped = stored.Type switch
+        {
+            AgentType.Router => StripRouterEnum(structuredOutput),
+            AgentType.Conversational => UnwrapConversationalSchema(structuredOutput),
+            _ => structuredOutput,
+        };
+
+        // Pós-passo: tira `operationalMemory` do schema quando o agent tem
+        // memória habilitada. O wrap conversational já descarta isso ao
+        // pegar `properties.output`; pros demais tipos é necessário aqui.
+        if (typeStripped?.Schema is not null
+            && stored.OperationalMemory?.Schema is not null)
+        {
+            return StripOperationalMemoryProperty(typeStripped);
+        }
+
+        return typeStripped;
+    }
+
+    private static AgentStructuredOutputDefinition? StripRouterEnum(AgentStructuredOutputDefinition structuredOutput)
+    {
         JsonNode? parsed;
         try
         {
-            parsed = JsonNode.Parse(structuredOutput.Schema.RootElement.GetRawText());
+            parsed = JsonNode.Parse(structuredOutput.Schema!.RootElement.GetRawText());
         }
         catch (JsonException)
         {
@@ -198,6 +237,147 @@ public sealed class AgentDefinitionDecomposer : IAgentDefinitionDecomposer
             ResponseFormat = structuredOutput.ResponseFormat,
             SchemaName = structuredOutput.SchemaName,
             SchemaDescription = structuredOutput.SchemaDescription,
+            Schema = doc,
+        };
+    }
+
+    /// <summary>
+    /// Remove middlewares que o <see cref="IAgentTemplateService"/> injeta
+    /// automaticamente em runtime mas que o user nunca declarou no editor.
+    /// O middleware continua presente no snapshot persistido (runtime precisa
+    /// dele); só sumimos da view de edição pra que re-saves não exponham
+    /// detalhes do template.
+    /// </summary>
+    /// <remarks>
+    /// Hoje cobre:
+    /// <list type="bullet">
+    ///   <item><b>StructuredOutputState</b> em <see cref="AgentType.Conversational"/>:
+    ///   o <see cref="IAgentTemplateService"/> sempre injeta esse middleware no
+    ///   apply pra emitir STATE_DELTA via SSE — o user não controla esse aspecto
+    ///   diretamente.</item>
+    /// </list>
+    /// Settings declaradas pelo user (ex.: <c>stateKey</c>) seriam perdidas no
+    /// strip — hoje o template service não persiste settings autorais nesse
+    /// middleware, então não há regressão. Se isso mudar, lembrar de preservar.
+    /// </remarks>
+    private static IReadOnlyList<AgentMiddlewareConfig> StripAutoInjectedMiddlewares(AgentDefinition stored)
+    {
+        if (stored.Middlewares.Count == 0) return stored.Middlewares;
+        if (stored.Type != AgentType.Conversational) return stored.Middlewares;
+
+        const string AutoInjectedType = "StructuredOutputState";
+
+        var hasAutoInjected = stored.Middlewares.Any(m =>
+            string.Equals(m.Type, AutoInjectedType, StringComparison.OrdinalIgnoreCase));
+        if (!hasAutoInjected) return stored.Middlewares;
+
+        return stored.Middlewares
+            .Where(m => !string.Equals(m.Type, AutoInjectedType, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Remove a property <c>operationalMemory</c> e a entry correspondente em
+    /// <c>required</c> do schema retornado, quando ela foi injetada pelo
+    /// <c>OutputSchemaRenderer</c> a partir de <c>OperationalMemory.Schema</c>.
+    /// A memória continua disponível no campo top-level <c>OperationalMemory</c>
+    /// do response — o editor renderiza a partir de lá, sem ver a duplicação
+    /// no schema do output.
+    /// </summary>
+    private static AgentStructuredOutputDefinition StripOperationalMemoryProperty(AgentStructuredOutputDefinition structuredOutput)
+    {
+        const string MemoryFieldName = "operationalMemory";
+
+        JsonNode? parsed;
+        try
+        {
+            parsed = JsonNode.Parse(structuredOutput.Schema!.RootElement.GetRawText());
+        }
+        catch (JsonException)
+        {
+            return structuredOutput;
+        }
+
+        if (parsed is not JsonObject root) return structuredOutput;
+
+        var properties = root["properties"] as JsonObject;
+        var required = root["required"] as JsonArray;
+
+        var hadInProperties = properties is not null && properties.ContainsKey(MemoryFieldName);
+        var hadInRequired = required is not null
+            && required.Any(n => n is JsonValue v && v.TryGetValue<string>(out var s) && s == MemoryFieldName);
+
+        if (!hadInProperties && !hadInRequired) return structuredOutput;
+
+        properties?.Remove(MemoryFieldName);
+
+        if (required is not null)
+        {
+            for (var i = required.Count - 1; i >= 0; i--)
+            {
+                if (required[i] is JsonValue v
+                    && v.TryGetValue<string>(out var s)
+                    && s == MemoryFieldName)
+                {
+                    required.RemoveAt(i);
+                }
+            }
+        }
+
+        var doc = JsonDocument.Parse(root.ToJsonString());
+        return new AgentStructuredOutputDefinition
+        {
+            ResponseFormat = structuredOutput.ResponseFormat,
+            SchemaName = structuredOutput.SchemaName,
+            SchemaDescription = structuredOutput.SchemaDescription,
+            Schema = doc,
+        };
+    }
+
+    /// <summary>
+    /// Detecta o wrap canônico do Conversational (shape novo
+    /// <c>output_type/output_status/message/output</c> ou legacy
+    /// <c>ui_component/message/output</c>) e devolve apenas o subschema interno
+    /// (<c>properties.output</c>) — que é o que o editor exibe pro user. Quando
+    /// o wrap não é reconhecido (schema custom ou sem <c>properties.output</c>),
+    /// preserva o schema cru pra não destruir input legítimo.
+    /// </summary>
+    private static AgentStructuredOutputDefinition? UnwrapConversationalSchema(AgentStructuredOutputDefinition structuredOutput)
+    {
+        JsonNode? parsed;
+        try
+        {
+            parsed = JsonNode.Parse(structuredOutput.Schema!.RootElement.GetRawText());
+        }
+        catch (JsonException)
+        {
+            return structuredOutput;
+        }
+
+        if (parsed is not JsonObject root
+            || root["properties"] is not JsonObject properties)
+        {
+            return structuredOutput;
+        }
+
+        var hasMessage = properties.ContainsKey("message");
+        var hasNewShape = properties.ContainsKey("output_type")
+            && properties.ContainsKey("output_status")
+            && hasMessage;
+        var hasLegacyShape = properties.ContainsKey("ui_component") && hasMessage;
+
+        if (!hasNewShape && !hasLegacyShape) return structuredOutput;
+        if (properties["output"] is not JsonObject outputSubSchema) return null;
+
+        // Subschema autoral preservado intacto; SchemaName/SchemaDescription do
+        // wrap canônico são descartados — o editor não usa esses campos (o
+        // user só edita o shape interno).
+        var doc = JsonDocument.Parse(outputSubSchema.ToJsonString());
+        return new AgentStructuredOutputDefinition
+        {
+            ResponseFormat = structuredOutput.ResponseFormat,
+            SchemaName = null,
+            SchemaDescription = null,
             Schema = doc,
         };
     }
