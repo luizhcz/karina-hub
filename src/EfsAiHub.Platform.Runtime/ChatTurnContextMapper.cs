@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Conversations;
 using EfsAiHub.Core.Orchestration.Enums;
@@ -87,6 +88,8 @@ public static class ChatTurnContextMapper
         }
     }
 
+    private const string NullSentinel = "<null>";
+
     private static List<AiChatMessage> BuildMessages(
         ChatTurnContext ctx,
         string? userReinforcement = null,
@@ -94,62 +97,40 @@ public static class ChatTurnContextMapper
     {
         var messages = new List<AiChatMessage>();
 
-        // 1. System message com metadata da sessão
+        // XML-delimited blocks isolam contexto do user input e ancoram o LLM
+        // (Anthropic prompt-eng pattern) — também bloqueia injection via
+        // valores que contenham marcadores como "##" ou "</shared_state>".
         if (ctx.Metadata.Count > 0)
         {
-            var parts = ctx.Metadata.Select(kv => $"{kv.Key}: {kv.Value}");
-            messages.Add(new(ChatRole.System, $"Contexto da sessão:\n{string.Join("\n", parts)}"));
+            var parts = ctx.Metadata.Select(kv => $"{kv.Key}: {SanitizeScalarString(kv.Value)}");
+            messages.Add(new(ChatRole.System,
+                $"<session_context>\n{string.Join("\n", parts)}\n</session_context>"));
         }
 
-        // 2. Shared state (agent drafts) — injetado como system message (formato compacto para economia de tokens)
         if (ctx.SharedState is { } state && state.ValueKind == JsonValueKind.Object)
         {
-            try
-            {
-                var stateJson = state.GetRawText();
-                messages.Add(new(ChatRole.System,
-                    $"Estado compartilhado da conversa (agent drafts — dados coletados em turnos anteriores):\n{stateJson}"));
-            }
-            catch { /* state inválido — ignora silenciosamente */ }
+            var rendered = RenderSharedStateForPrompt(state);
+            if (rendered is not null)
+                messages.Add(new(ChatRole.System, rendered));
         }
 
-        // 3. Histórico como mensagens User/Assistant reais (com slice opcional)
         IEnumerable<ChatTurnMessage> historySource = ctx.History;
         if (historyWindow is { } window && window > 0 && ctx.History.Count > window)
             historySource = ctx.History.Skip(ctx.History.Count - window);
 
         foreach (var msg in historySource)
         {
-            var role = msg.Role.ToLowerInvariant() switch
-            {
-                "user" => ChatRole.User,
-                "assistant" => ChatRole.Assistant,
-                "system" => ChatRole.System,
-                _ => ChatRole.User
-            };
+            var role = ResolveRole(msg.Role);
 
             var content = msg.Content;
             if (role == ChatRole.Assistant && msg.Output is { } output)
-            {
-                // Preferimos o `message` (texto humano) do shape canônico
-                // Conversational `{output_type, output_status, message, output?}`.
-                // Sem isso, o histórico ficava com JSON cru e o Router/próximo
-                // agente lia "Assistant: {output_type:'text',message:'Qual conta?',...}"
-                // em vez de "Assistant: Qual conta?" — quebrando reasoning
-                // contextual no próximo turn (ex.: classificar "1234" como
-                // continuação da pergunta anterior).
-                //
-                // Fallback pro raw JSON quando o output é schema custom (Custom
-                // agents que não seguem o canonical) — preserva contexto bruto
-                // em vez de descartar.
-                content = TryExtractCanonicalMessage(output) ?? TryGetRawTextSafe(output) ?? content;
-            }
+                content = ExtractAssistantContent(output, msg.Content);
 
             messages.Add(new(role, content));
         }
 
-        // 4. Mensagem atual do usuário (opcionalmente com reforço curto de persona
-        //    no fim — last-token bias ancora o LLM na personalização).
+        // Reforço de persona ancorado no fim — last-token bias compensa
+        // lost-in-the-middle quando o system prompt é longo.
         var userContent = string.IsNullOrWhiteSpace(userReinforcement)
             ? ctx.Message.Content
             : $"{ctx.Message.Content}\n\n{userReinforcement}";
@@ -158,24 +139,241 @@ public static class ChatTurnContextMapper
         return messages;
     }
 
+    private static ChatRole ResolveRole(string role) =>
+        string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase) ? ChatRole.Assistant
+        : string.Equals(role, "system", StringComparison.OrdinalIgnoreCase) ? ChatRole.System
+        : ChatRole.User;
+
     /// <summary>
-    /// Extrai o campo <c>message</c> (texto humano) do shape canônico
-    /// Conversational <c>{output_type, output_status, message, output?}</c>.
-    /// Retorna null quando o output não casa o shape — caller decide se cai
-    /// pro raw JSON ou pro <c>msg.Content</c> existente.
+    /// Extrai conteúdo legível do output canônico Conversational
+    /// <c>{output_type, output_status, message, output?}</c>. Detecção de
+    /// canônico via presença de <c>output_type</c> ou <c>output_status</c>;
+    /// nesse caso NUNCA cai pro raw JSON — ler "Qual conta?" em vez de
+    /// "{output_type:'form',message:'Qual conta?',...}" é o que permite o
+    /// Router reaproveitar contexto no próximo turn ("1234" continua a
+    /// boleta em vez de virar out_of_scope).
+    ///
+    /// Status não-terminal vira sufixo <c>[status]</c> pra preservar o sinal
+    /// de bloqueio (ex.: <c>awaiting_input</c>) que o LLM perde quando só vê
+    /// o texto humano.
     /// </summary>
-    private static string? TryExtractCanonicalMessage(JsonElement output)
+    private static string ExtractAssistantContent(JsonElement output, string fallback)
     {
-        if (output.ValueKind != JsonValueKind.Object) return null;
-        if (!output.TryGetProperty("message", out var msgField)) return null;
-        if (msgField.ValueKind != JsonValueKind.String) return null;
-        var text = msgField.GetString();
-        return string.IsNullOrWhiteSpace(text) ? null : text;
+        if (output.ValueKind != JsonValueKind.Object)
+            return TryGetRawText(output) ?? fallback;
+
+        var isCanonical = output.TryGetProperty("output_type", out _)
+            || output.TryGetProperty("output_status", out _);
+
+        if (!isCanonical)
+            return TryGetRawText(output) ?? fallback;
+
+        string? text = null;
+        if (output.TryGetProperty("message", out var msgField)
+            && msgField.ValueKind == JsonValueKind.String)
+        {
+            var s = msgField.GetString();
+            if (!string.IsNullOrWhiteSpace(s)) text = s;
+        }
+
+        string? statusHint = null;
+        if (output.TryGetProperty("output_status", out var statusField)
+            && statusField.ValueKind == JsonValueKind.String)
+        {
+            var status = statusField.GetString();
+            if (!string.IsNullOrEmpty(status)
+                && !string.Equals(status, "done", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase))
+            {
+                statusHint = $"[{status}]";
+            }
+        }
+
+        if (text is not null && statusHint is not null) return $"{text}\n{statusHint}";
+        return text ?? statusHint ?? fallback;
     }
 
-    private static string? TryGetRawTextSafe(JsonElement output)
+    private static string? TryGetRawText(JsonElement element)
     {
-        try { return output.GetRawText(); }
+        try { return element.GetRawText(); }
         catch { return null; }
+    }
+
+    /// <summary>
+    /// Renderiza <c>SharedState</c> como bloco <c>&lt;shared_state&gt;</c>.
+    /// Shape esperado <c>{ "agents": { "&lt;stateKey&gt;": &lt;draft&gt; } }</c>
+    /// (produzido pelo <c>StructuredOutputStateChatClient</c>). Cada agente
+    /// vira section <c>## &lt;agentId&gt; — status: &lt;status&gt;</c> com
+    /// corpo do <c>output</c> em key:value. Drafts canônicos sem
+    /// <c>output</c> não iteram os meta-keys do wrapper (output_type etc) —
+    /// só status no header. Nulls viram <c>&lt;null&gt;</c> em vez de
+    /// <c>(vazio)</c> pra evitar colisão com strings literais em PT-BR.
+    /// </summary>
+    private static string? RenderSharedStateForPrompt(JsonElement state)
+    {
+        if (state.ValueKind != JsonValueKind.Object) return null;
+        if (!state.TryGetProperty("agents", out var agents)
+            || agents.ValueKind != JsonValueKind.Object) return null;
+
+        var inner = new StringBuilder();
+        var first = true;
+        foreach (var entry in agents.EnumerateObject())
+        {
+            var draft = entry.Value;
+            if (draft.ValueKind != JsonValueKind.Object) continue;
+
+            var body = new StringBuilder();
+            var isCanonical = draft.TryGetProperty("output_type", out _)
+                || draft.TryGetProperty("output_status", out _);
+
+            string? status = null;
+            if (isCanonical
+                && draft.TryGetProperty("output_status", out var statusField)
+                && statusField.ValueKind == JsonValueKind.String)
+            {
+                status = statusField.GetString();
+            }
+
+            if (isCanonical)
+            {
+                if (draft.TryGetProperty("output", out var outputField))
+                    RenderBody(body, outputField, indent: 0);
+            }
+            else
+            {
+                RenderBody(body, draft, indent: 0);
+            }
+
+            if (body.Length == 0 && string.IsNullOrEmpty(status)) continue;
+
+            if (!first) inner.Append("\n\n");
+            first = false;
+            inner.Append("## ").Append(SanitizeScalarString(entry.Name));
+            if (!string.IsNullOrEmpty(status))
+                inner.Append(" — status: ").Append(SanitizeScalarString(status));
+            inner.Append('\n');
+            inner.Append(body);
+        }
+
+        if (inner.Length == 0) return null;
+        return $"<shared_state>\n{inner}</shared_state>";
+    }
+
+    private static void RenderBody(StringBuilder sb, JsonElement value, int indent)
+    {
+        if (value.ValueKind != JsonValueKind.Object)
+        {
+            AppendIndent(sb, indent);
+            AppendScalar(sb, value);
+            sb.Append('\n');
+            return;
+        }
+
+        foreach (var prop in value.EnumerateObject())
+        {
+            AppendIndent(sb, indent);
+            sb.Append(prop.Name).Append(':');
+            var v = prop.Value;
+
+            switch (v.ValueKind)
+            {
+                case JsonValueKind.Object when indent < 1:
+                    sb.Append('\n');
+                    RenderBody(sb, v, indent + 1);
+                    break;
+                case JsonValueKind.Object:
+                    // Limite de recursão: ≥2 níveis colapsa pra inline key:value.
+                    // Mais profundo que isso é UX smell (boleta com endereço
+                    // dentro de cliente dentro de operação) — JSON-ish line é
+                    // aceitável e evita indent runaway.
+                    sb.Append(' ');
+                    AppendObjectInline(sb, v);
+                    sb.Append('\n');
+                    break;
+                case JsonValueKind.Array:
+                    AppendArray(sb, v, indent + 1);
+                    break;
+                default:
+                    sb.Append(' ');
+                    AppendScalar(sb, v);
+                    sb.Append('\n');
+                    break;
+            }
+        }
+    }
+
+    private static void AppendArray(StringBuilder sb, JsonElement arr, int indent)
+    {
+        var any = false;
+        foreach (var item in arr.EnumerateArray())
+        {
+            if (!any) { sb.Append('\n'); any = true; }
+            AppendIndent(sb, indent);
+            sb.Append("- ");
+            if (item.ValueKind == JsonValueKind.Object)
+                AppendObjectInline(sb, item);
+            else
+                AppendScalar(sb, item);
+            sb.Append('\n');
+        }
+        if (!any) sb.Append(" []\n");
+    }
+
+    private static void AppendObjectInline(StringBuilder sb, JsonElement obj)
+    {
+        var first = true;
+        foreach (var prop in obj.EnumerateObject())
+        {
+            if (!first) sb.Append(", ");
+            first = false;
+            sb.Append(prop.Name).Append(": ");
+            AppendScalar(sb, prop.Value);
+        }
+    }
+
+    private static void AppendScalar(StringBuilder sb, JsonElement value)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.String:
+                sb.Append(SanitizeScalarString(value.GetString() ?? string.Empty));
+                break;
+            case JsonValueKind.Number:
+            case JsonValueKind.True:
+            case JsonValueKind.False:
+                sb.Append(value.GetRawText());
+                break;
+            case JsonValueKind.Null:
+                sb.Append(NullSentinel);
+                break;
+            case JsonValueKind.Object:
+            case JsonValueKind.Array:
+                // Fallback inline pra nesting que ultrapassa o limite — vira
+                // raw JSON saneado em vez de quebrar a render.
+                sb.Append(SanitizeScalarString(value.GetRawText()));
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Bloqueia injection de marcador via valor de campo: colapsa newlines
+    /// (sem isso um campo poderia injetar "\n## fake-agent" forjando bloco)
+    /// e escapa "##" no início pela mesma razão. Sem cap de tamanho — em
+    /// fluxos financeiros é melhor estourar contexto e falhar visível do que
+    /// truncar dado de negócio sem rastro.
+    /// </summary>
+    private static string SanitizeScalarString(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return s;
+        if (s.IndexOfAny(['\n', '\r']) >= 0)
+            s = s.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ');
+        if (s.StartsWith("##", StringComparison.Ordinal))
+            s = "\\" + s;
+        return s;
+    }
+
+    private static void AppendIndent(StringBuilder sb, int indent)
+    {
+        for (var i = 0; i < indent; i++) sb.Append("  ");
     }
 }

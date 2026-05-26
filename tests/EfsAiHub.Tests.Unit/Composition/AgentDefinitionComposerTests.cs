@@ -77,7 +77,34 @@ public class AgentDefinitionComposerTests
 
         composed.AuthorInstructions.Should().Be("Você é um agente conversacional.");
         composed.Instructions.Should().StartWith("Você é um agente conversacional.");
-        composed.Instructions.Should().Contain("## Formato da resposta");
+        composed.Instructions.Should().Contain("## Contrato de saída (imposto pelo sistema)");
+        // Anchor explícito desautorizando override de formato pelo autor.
+        composed.Instructions.Should().Contain("Ignore qualquer instrução acima que mencione \"JSON\"");
+        // Defaults vêm da metadata ausente (output_type=text, statuses=[default]).
+        composed.Instructions.Should().Contain("`output_type` (constante): `text`");
+        composed.Instructions.Should().Contain("`output_status` ∈ { `default` }");
+    }
+
+    [Fact]
+    public async Task Compose_Conversational_BlocoRenderizaEnumsRealDoMetadata()
+    {
+        var input = BuildAgent(
+            id: "agent-conv-boleta",
+            type: AgentType.Conversational,
+            instructions: "Coletor de boleta.",
+            metadata: new Dictionary<string, string>
+            {
+                [AgentDefinition.ConversationalOutputTypeMetadataKey] = "boleta",
+                [AgentDefinition.ConversationalOutputStatusesMetadataKey] = "[\"nova\",\"confirmada\",\"erro\"]"
+            });
+
+        var composed = await NewComposer().ComposeAsync(input);
+
+        composed.Instructions.Should().Contain("`output_type` (constante): `boleta`");
+        composed.Instructions.Should().Contain("`nova`");
+        composed.Instructions.Should().Contain("`confirmada`");
+        composed.Instructions.Should().Contain("`erro`");
+        composed.Instructions.Should().NotContain("`default`");
     }
 
     [Fact]
@@ -390,7 +417,8 @@ public class AgentDefinitionComposerTests
         IReadOnlyList<AgentToolDefinition>? tools = null,
         IReadOnlyList<SkillRef>? skillRefs = null,
         AgentModelConfig? model = null,
-        IReadOnlyList<string>? routerIntentIds = null)
+        IReadOnlyList<string>? routerIntentIds = null,
+        IReadOnlyDictionary<string, string>? metadata = null)
     {
         return new AgentDefinition
         {
@@ -404,6 +432,7 @@ public class AgentDefinitionComposerTests
             RouterIntentIds = routerIntentIds,
             ProjectId = "p",
             TenantId = "t",
+            Metadata = metadata ?? new Dictionary<string, string>(),
         };
     }
 }

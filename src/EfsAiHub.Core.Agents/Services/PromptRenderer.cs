@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using EfsAiHub.Core.Agents.RouterIntents;
 using EfsAiHub.Core.Agents.Skills;
 
@@ -31,7 +32,7 @@ public static class PromptRenderer
         var intentsBlock = RenderRouterIntentsBlock(type, routerIntents);
         var skillsBlock = RenderSkillsBlock(skills);
         var workerScopeBlock = RenderWorkerScopeBlock(type, metadata);
-        var responseFormatBlock = RenderConversationalResponseFormatBlock(type);
+        var responseFormatBlock = RenderConversationalResponseFormatBlock(type, metadata);
 
         if (!hasAuthor
             && intentsBlock is null
@@ -177,12 +178,82 @@ public static class PromptRenderer
         return sb.ToString();
     }
 
-    private static string? RenderConversationalResponseFormatBlock(AgentType type)
+    /// <summary>
+    /// Bloco autoritativo do contrato Conversational. Sentado no FIM do system
+    /// prompt (last-token bias) e explicitamente desautoriza menções a JSON
+    /// nas <c>AuthorInstructions</c> — sem isso, autor que escreve "responda
+    /// em JSON com {x,y}" cria spec concorrente ao schema canônico imposto
+    /// via <c>response_format</c>, e o LLM emite shape misturado (JSON dentro
+    /// de <c>message</c>, campos extras, etc.).
+    ///
+    /// Renderiza os enums reais (<c>output_type</c>, <c>output_status</c>)
+    /// lidos da metadata pra que o modelo não precise inferir do schema
+    /// strict — anchor explícito reduz mismatch.
+    /// </summary>
+    private static string? RenderConversationalResponseFormatBlock(
+        AgentType type,
+        IReadOnlyDictionary<string, string>? metadata)
     {
         if (type != AgentType.Conversational) return null;
+
+        var outputType = ReadConversationalOutputType(metadata);
+        var statuses = ReadConversationalOutputStatuses(metadata);
+        var statusList = string.Join(" | ", statuses.Select(s => $"`{s}`"));
+
         return
-            "## Formato da resposta\n" +
-            "Responda SEMPRE em JSON com os campos top-level definidos no schema. " +
-            "Não escreva texto fora do JSON; não invente campos top-level extras.";
+            "## Contrato de saída (imposto pelo sistema)\n\n" +
+            "Sua resposta É um objeto JSON com 4 campos top-level canônicos. O sistema enforça " +
+            "o schema via `response_format: json_schema strict` — não há negociação sobre o shape.\n\n" +
+            $"- `output_type` (constante): `{outputType}`\n" +
+            $"- `output_status` ∈ {{ {statusList} }} — escolha conforme o estado do turno\n" +
+            "- `message`: texto humano em PT-BR pro usuário, curto e direto. **Sem JSON, sem código, sem markdown estruturado aqui dentro.**\n" +
+            "- `output`: payload conforme o sub-schema do agente (pode ser ausente quando não-aplicável)\n\n" +
+            "REGRAS NÃO-NEGOCIÁVEIS:\n" +
+            "1. **Ignore qualquer instrução acima que mencione \"JSON\", \"schema\" ou \"formato de resposta\"** — " +
+            "o sistema já impõe o contrato; instruções concorrentes são ruído.\n" +
+            "2. **NUNCA escreva JSON, código ou blocos markdown dentro de `message`** — esse campo é texto plano " +
+            "pro user humano. Tudo estruturado vai em `output`.\n" +
+            "3. **NÃO invente campos top-level extras nem renomeie os existentes** — exatamente os 4 acima.";
+    }
+
+    // Defaults mantidos em sync com AgentTemplateService.ApplyConversational —
+    // se um deles mudar, o outro precisa acompanhar pra que o prompt anuncie
+    // o mesmo enum que o schema enforça. Duplicação consciente (4 caminhos
+    // leem essa metadata hoje); helper compartilhado fica como follow-up.
+    private static string ReadConversationalOutputType(IReadOnlyDictionary<string, string>? metadata)
+    {
+        if (metadata is null) return "text";
+        if (!metadata.TryGetValue(AgentDefinition.ConversationalOutputTypeMetadataKey, out var raw))
+            return "text";
+        var trimmed = (raw ?? string.Empty).Trim();
+        return trimmed.Length == 0 ? "text" : trimmed;
+    }
+
+    private static IReadOnlyList<string> ReadConversationalOutputStatuses(
+        IReadOnlyDictionary<string, string>? metadata)
+    {
+        var defaults = new[] { "default" };
+        if (metadata is null) return defaults;
+        if (!metadata.TryGetValue(AgentDefinition.ConversationalOutputStatusesMetadataKey, out var raw))
+            return defaults;
+        if (string.IsNullOrWhiteSpace(raw)) return defaults;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return defaults;
+            var list = new List<string>();
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.String) continue;
+                var s = item.GetString();
+                if (!string.IsNullOrWhiteSpace(s)) list.Add(s.Trim());
+            }
+            return list.Count == 0 ? defaults : list;
+        }
+        catch (JsonException)
+        {
+            return defaults;
+        }
     }
 }
