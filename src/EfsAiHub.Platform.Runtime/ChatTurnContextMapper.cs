@@ -131,8 +131,18 @@ public static class ChatTurnContextMapper
             var content = msg.Content;
             if (role == ChatRole.Assistant && msg.Output is { } output)
             {
-                try { content = output.GetRawText(); }
-                catch { /* manter content original */ }
+                // Preferimos o `message` (texto humano) do shape canônico
+                // Conversational `{output_type, output_status, message, output?}`.
+                // Sem isso, o histórico ficava com JSON cru e o Router/próximo
+                // agente lia "Assistant: {output_type:'text',message:'Qual conta?',...}"
+                // em vez de "Assistant: Qual conta?" — quebrando reasoning
+                // contextual no próximo turn (ex.: classificar "1234" como
+                // continuação da pergunta anterior).
+                //
+                // Fallback pro raw JSON quando o output é schema custom (Custom
+                // agents que não seguem o canonical) — preserva contexto bruto
+                // em vez de descartar.
+                content = TryExtractCanonicalMessage(output) ?? TryGetRawTextSafe(output) ?? content;
             }
 
             messages.Add(new(role, content));
@@ -146,5 +156,26 @@ public static class ChatTurnContextMapper
         messages.Add(new(ChatRole.User, userContent));
 
         return messages;
+    }
+
+    /// <summary>
+    /// Extrai o campo <c>message</c> (texto humano) do shape canônico
+    /// Conversational <c>{output_type, output_status, message, output?}</c>.
+    /// Retorna null quando o output não casa o shape — caller decide se cai
+    /// pro raw JSON ou pro <c>msg.Content</c> existente.
+    /// </summary>
+    private static string? TryExtractCanonicalMessage(JsonElement output)
+    {
+        if (output.ValueKind != JsonValueKind.Object) return null;
+        if (!output.TryGetProperty("message", out var msgField)) return null;
+        if (msgField.ValueKind != JsonValueKind.String) return null;
+        var text = msgField.GetString();
+        return string.IsNullOrWhiteSpace(text) ? null : text;
+    }
+
+    private static string? TryGetRawTextSafe(JsonElement output)
+    {
+        try { return output.GetRawText(); }
+        catch { return null; }
     }
 }

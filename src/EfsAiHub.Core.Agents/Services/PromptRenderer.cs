@@ -103,12 +103,33 @@ public static class PromptRenderer
         }
 
         sb.Append('\n');
+        sb.Append("# Classificação contextual (multi-turn)\n\n");
+        sb.Append(
+            "**Sempre leia o histórico da conversa antes de classificar a mensagem atual.** " +
+            "Mensagens curtas isoladas (números, datas, tickers, \"sim\"/\"não\", confirmações) " +
+            "quase nunca são intents independentes — são respostas a um pedido feito no turno anterior.\n\n" +
+            "Regras:\n" +
+            "1. Se o último turno do **assistant** terminou com uma pergunta ou pedido de dado " +
+            "(\"Qual a conta?\", \"Confirma a operação?\", \"Em quanto tempo?\"), a mensagem atual " +
+            "do usuário é, salvo evidência contrária, **continuação do mesmo intent**. Use " +
+            "o `last_intent` da memória operacional como pista principal e mantenha esse mesmo intent.\n" +
+            "2. Se a mensagem atual introduz claramente um novo assunto (mudança de domínio, " +
+            "saudação isolada, pergunta sobre outro produto), **classifique pelo novo conteúdo** " +
+            $"e ignore o `last_intent` — eventualmente cai em `{SystemIntents.OutOfScopeName}` " +
+            "se nada do catálogo combinar.\n" +
+            "3. Em dúvida entre \"continuação\" e \"mudança de assunto\", privilegie continuação " +
+            "(menos disrupção da UX). Mas se o `confidence` da intent anterior aplicada à mensagem " +
+            "atual ficaria abaixo de 0.7, **prefira reclassificar**.\n\n");
+
         sb.Append("# Memória operacional\n\n");
         sb.Append(
             "No campo `operationalMemory` do output, **sempre preencha**:\n" +
-            "- `last_intent`: copie o valor de `intent` que você escolheu.\n" +
+            "- `last_intent`: copie o valor de `intent` que você escolheu **neste turno**.\n" +
             "- `last_reason`: copie o valor de `reason` (até 200 chars).\n\n" +
             "Esta memória é persistida e injetada no próximo turno como contexto. " +
+            "Quando você mantém o mesmo intent do turno anterior (regra 1), preencha " +
+            "`last_reason` mencionando explicitamente que é continuação " +
+            "(ex.: \"continuação de compra_acoes — usuário forneceu a conta solicitada\"). " +
             "Não invente outros campos.");
 
         return sb.ToString();
