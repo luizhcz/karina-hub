@@ -58,7 +58,8 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
             authorText,
             input.Metadata,
             routerIntents,
-            skills);
+            skills,
+            hasOperationalMemory: input.OperationalMemory?.Schema is not null);
 
         var structuredOutput = OutputSchemaRenderer.Render(
             new AgentDefinition

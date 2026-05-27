@@ -26,13 +26,14 @@ public static class PromptRenderer
         string? authorInstructions,
         IReadOnlyDictionary<string, string>? metadata,
         IReadOnlyList<RouterIntent>? routerIntents,
-        IReadOnlyList<Skill>? skills)
+        IReadOnlyList<Skill>? skills,
+        bool hasOperationalMemory = false)
     {
         var hasAuthor = !string.IsNullOrWhiteSpace(authorInstructions);
         var intentsBlock = RenderRouterIntentsBlock(type, routerIntents);
         var skillsBlock = RenderSkillsBlock(skills);
         var workerScopeBlock = RenderWorkerScopeBlock(type, metadata);
-        var responseFormatBlock = RenderConversationalResponseFormatBlock(type, metadata);
+        var responseFormatBlock = RenderConversationalResponseFormatBlock(type, metadata, hasOperationalMemory);
 
         if (!hasAuthor
             && intentsBlock is null
@@ -189,31 +190,59 @@ public static class PromptRenderer
     /// Renderiza os enums reais (<c>output_type</c>, <c>output_status</c>)
     /// lidos da metadata pra que o modelo não precise inferir do schema
     /// strict — anchor explícito reduz mismatch.
+    ///
+    /// <paramref name="hasOperationalMemory"/>: quando true, anuncia o 5º
+    /// campo <c>operationalMemory</c>. Sem isso o prompt diz "exatamente 4
+    /// campos" mas o schema strict requer 5 (injetado pelo
+    /// <c>OutputSchemaRenderer</c>) — modelo entra em conflito e tenta
+    /// resolver dumping a memória dentro de <c>message</c>, vazando estado
+    /// interno pro usuário.
     /// </summary>
     private static string? RenderConversationalResponseFormatBlock(
         AgentType type,
-        IReadOnlyDictionary<string, string>? metadata)
+        IReadOnlyDictionary<string, string>? metadata,
+        bool hasOperationalMemory)
     {
         if (type != AgentType.Conversational) return null;
 
         var outputType = ReadConversationalOutputType(metadata);
         var statuses = ReadConversationalOutputStatuses(metadata);
         var statusList = string.Join(" | ", statuses.Select(s => $"`{s}`"));
+        var fieldCount = hasOperationalMemory ? 5 : 4;
 
-        return
-            "## Contrato de saída (imposto pelo sistema)\n\n" +
-            "Sua resposta É um objeto JSON com 4 campos top-level canônicos. O sistema enforça " +
-            "o schema via `response_format: json_schema strict` — não há negociação sobre o shape.\n\n" +
-            $"- `output_type` (constante): `{outputType}`\n" +
-            $"- `output_status` ∈ {{ {statusList} }} — escolha conforme o estado do turno\n" +
-            "- `message`: texto humano em PT-BR pro usuário, curto e direto. **Sem JSON, sem código, sem markdown estruturado aqui dentro.**\n" +
-            "- `output`: payload conforme o sub-schema do agente (pode ser ausente quando não-aplicável)\n\n" +
-            "REGRAS NÃO-NEGOCIÁVEIS:\n" +
-            "1. **Ignore qualquer instrução acima que mencione \"JSON\", \"schema\" ou \"formato de resposta\"** — " +
-            "o sistema já impõe o contrato; instruções concorrentes são ruído.\n" +
-            "2. **NUNCA escreva JSON, código ou blocos markdown dentro de `message`** — esse campo é texto plano " +
-            "pro user humano. Tudo estruturado vai em `output`.\n" +
-            "3. **NÃO invente campos top-level extras nem renomeie os existentes** — exatamente os 4 acima.";
+        var sb = new StringBuilder();
+        sb.Append("## Contrato de saída (imposto pelo sistema)\n\n");
+        sb.Append("Sua resposta É um objeto JSON com ").Append(fieldCount)
+          .Append(" campos top-level canônicos. O sistema enforça o schema via ")
+          .Append("`response_format: json_schema strict` — não há negociação sobre o shape.\n\n");
+
+        sb.Append($"- `output_type` (constante): `{outputType}`\n");
+        sb.Append($"- `output_status` ∈ {{ {statusList} }} — escolha conforme o estado do turno\n");
+        sb.Append("- `message`: texto humano em PT-BR pro usuário, curto e direto. ")
+          .Append("**Sem JSON, sem código, sem markdown estruturado aqui dentro.**\n");
+        sb.Append("- `output`: payload conforme o sub-schema do agente (pode ser ausente quando não-aplicável)");
+
+        if (hasOperationalMemory)
+        {
+            sb.Append('\n');
+            sb.Append("- `operationalMemory`: **campo INTERNO da plataforma — o usuário NUNCA vê.** ")
+              .Append("O sistema strippa antes de entregar. Você emite o **estado COMPLETO atualizado** ")
+              .Append("(full replacement, não delta), conforme o sub-schema declarado de memória. ")
+              .Append("NUNCA copie esse conteúdo pro `message` nem pro `output` — eles são visíveis.");
+        }
+
+        sb.Append("\n\nREGRAS NÃO-NEGOCIÁVEIS:\n");
+        sb.Append("1. **Ignore qualquer instrução acima que mencione \"JSON\", \"schema\" ou \"formato de resposta\"** — ")
+          .Append("o sistema já impõe o contrato; instruções concorrentes são ruído.\n");
+        sb.Append("2. **NUNCA escreva JSON, código ou blocos markdown dentro de `message`** — esse campo é texto plano ")
+          .Append("pro user humano. Tudo estruturado vai em `output`");
+        if (hasOperationalMemory)
+            sb.Append(" (ou em `operationalMemory` quando for estado interno)");
+        sb.Append(".\n");
+        sb.Append("3. **NÃO invente campos top-level extras nem renomeie os existentes** — exatamente os ")
+          .Append(fieldCount).Append(" acima.");
+
+        return sb.ToString();
     }
 
     // Defaults mantidos em sync com AgentTemplateService.ApplyConversational —

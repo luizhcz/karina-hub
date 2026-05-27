@@ -86,6 +86,46 @@ public class AgentDefinitionComposerTests
     }
 
     [Fact]
+    public async Task Compose_Conversational_ComOperationalMemory_AnunciaCampoExtra()
+    {
+        var input = BuildAgent(
+            id: "agent-conv-mem",
+            type: AgentType.Conversational,
+            instructions: "Coletor.",
+            operationalMemory: new AgentOperationalMemoryDefinition
+            {
+                Schema = JsonDocument.Parse("""{"type":"object","properties":{"x":{"type":"string"}}}"""),
+                MaxBytes = 2048,
+            });
+
+        var composed = await NewComposer().ComposeAsync(input);
+
+        // O prompt precisa anunciar 5 campos (não 4) e mencionar operationalMemory
+        // como campo INTERNO. Sem isso, schema strict (5 campos) vs prompt (4)
+        // conflita e o LLM vaza memory dentro de `message`.
+        composed.Instructions.Should().Contain("5 campos top-level canônicos");
+        composed.Instructions.Should().Contain("`operationalMemory`");
+        composed.Instructions.Should().Contain("campo INTERNO da plataforma");
+        composed.Instructions.Should().Contain("usuário NUNCA vê");
+        composed.Instructions.Should().Contain("exatamente os 5 acima");
+    }
+
+    [Fact]
+    public async Task Compose_Conversational_SemOperationalMemory_MantemQuatroCampos()
+    {
+        var input = BuildAgent(
+            id: "agent-conv-sem-mem",
+            type: AgentType.Conversational,
+            instructions: "Sem memória.");
+
+        var composed = await NewComposer().ComposeAsync(input);
+
+        composed.Instructions.Should().Contain("4 campos top-level canônicos");
+        composed.Instructions.Should().NotContain("`operationalMemory`");
+        composed.Instructions.Should().Contain("exatamente os 4 acima");
+    }
+
+    [Fact]
     public async Task Compose_Conversational_BlocoRenderizaEnumsRealDoMetadata()
     {
         var input = BuildAgent(
@@ -418,7 +458,8 @@ public class AgentDefinitionComposerTests
         IReadOnlyList<SkillRef>? skillRefs = null,
         AgentModelConfig? model = null,
         IReadOnlyList<string>? routerIntentIds = null,
-        IReadOnlyDictionary<string, string>? metadata = null)
+        IReadOnlyDictionary<string, string>? metadata = null,
+        AgentOperationalMemoryDefinition? operationalMemory = null)
     {
         return new AgentDefinition
         {
@@ -433,6 +474,7 @@ public class AgentDefinitionComposerTests
             ProjectId = "p",
             TenantId = "t",
             Metadata = metadata ?? new Dictionary<string, string>(),
+            OperationalMemory = operationalMemory,
         };
     }
 }
