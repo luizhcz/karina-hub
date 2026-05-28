@@ -309,7 +309,12 @@ public static class PromptRenderer
         sb.Append(
             "- `message`: texto humano pro usuário no idioma da conversa, curto e direto.\n");
         sb.Append(
-            "- `output`: payload conforme o sub-schema do agente (pode ser ausente quando não-aplicável).");
+            "- `output`: INSTÂNCIA de dados conforme o sub-schema declarado — nunca a forma " +
+            "literal do schema. Se o sub-schema declara `{\"type\":\"array\",\"items\":{...}}`, " +
+            "o valor de `output` deve ser um array literal `[{...},{...}]`, JAMAIS um objeto " +
+            "como `{\"items\":[...]}` ou `{\"type\":\"array\",...}`. Se o sub-schema é " +
+            "`{\"type\":\"object\",\"properties\":{...}}`, `output` é o objeto com os campos " +
+            "instanciados, não a descrição. Pode ser ausente quando não-aplicável.");
 
         if (hasOperationalMemory)
         {
