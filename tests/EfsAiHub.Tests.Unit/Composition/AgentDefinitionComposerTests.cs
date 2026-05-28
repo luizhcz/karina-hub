@@ -487,7 +487,8 @@ public class AgentDefinitionComposerTests
         AgentModelConfig? model = null,
         IReadOnlyList<string>? routerIntentIds = null,
         IReadOnlyDictionary<string, string>? metadata = null,
-        AgentOperationalMemoryDefinition? operationalMemory = null)
+        AgentOperationalMemoryDefinition? operationalMemory = null,
+        AgentStructuredOutputDefinition? structuredOutput = null)
     {
         return new AgentDefinition
         {
@@ -503,6 +504,114 @@ public class AgentDefinitionComposerTests
             TenantId = "t",
             Metadata = metadata ?? new Dictionary<string, string>(),
             OperationalMemory = operationalMemory,
+            StructuredOutput = structuredOutput,
         };
+    }
+
+    // ── <output_contract>: exemplo concreto renderizado por schema ───────
+    //
+    // O <output_contract> ganha um EXEMPLO JSON COMPLETO derivado dos schemas
+    // declarados do agente (output sub-schema + operationalMemory schema).
+    // Razão: LLMs em strict mode tendem a emitir a forma literal do schema
+    // (ex: {"items":[...]}) quando o sub-schema é array — mostrar exemplo
+    // concreto resolve esse erro.
+
+    [Fact]
+    public async Task Compose_Conversational_SubSchemaArray_GeraExemploArrayNoOutputContract()
+    {
+        // Cenário do boleta: sub-schema do user é {type:"array", items:{...}}.
+        // O AgentTemplateService wrappa esse sub-schema em
+        // properties.output, e o PromptRenderer extrai e renderiza exemplo.
+        var subSchema = JsonDocument.Parse("""
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "Symbol": {"type":"string"},
+              "Side": {"type":"string","enum":["B","S"]}
+            }
+          }
+        }
+        """);
+
+        var input = BuildAgent(
+            id: "boleta-conv",
+            type: AgentType.Conversational,
+            instructions: "Coletor.",
+            metadata: new Dictionary<string, string>
+            {
+                [AgentDefinition.ConversationalOutputTypeMetadataKey] = "boleta",
+            },
+            structuredOutput: new AgentStructuredOutputDefinition
+            {
+                ResponseFormat = "json_schema",
+                SchemaName = "ConversationalTurn",
+                Schema = subSchema,
+            });
+
+        var composed = await NewComposer().ComposeAsync(input);
+
+        // Exemplo deve estar em fenced JSON code block.
+        composed.Instructions.Should().Contain("Sua resposta DEVE seguir EXATAMENTE esta forma estrutural");
+        composed.Instructions.Should().Contain("```json");
+        // Constante output_type no exemplo.
+        composed.Instructions.Should().Contain("\"output_type\": \"boleta\"");
+        // Placeholder do message.
+        composed.Instructions.Should().Contain("\"message\": \"<texto humano em pt-BR");
+        // Sub-schema array vira array literal `[...]` no exemplo, não objeto.
+        composed.Instructions.Should().Contain("\"output\": [");
+        // Enum dentro do array vira placeholder pipe-separated.
+        composed.Instructions.Should().Contain("<B | S>");
+        // Anti-overfit explícito.
+        composed.Instructions.Should().Contain("EXEMPLO ILUSTRATIVO");
+        composed.Instructions.Should().Contain("NUNCA emita placeholders literais");
+    }
+
+    [Fact]
+    public async Task Compose_Conversational_ComOperationalMemory_ExemploInclueMemoryInstance()
+    {
+        var memSchema = new AgentOperationalMemoryDefinition
+        {
+            Schema = JsonDocument.Parse("""
+            {
+              "type": "object",
+              "properties": {
+                "draft_orders": {"type":"array","items":{"type":"string"}},
+                "step": {"type":"string","enum":["start","filled","confirmed"]}
+              }
+            }
+            """),
+            MaxBytes = 2048,
+        };
+
+        var input = BuildAgent(
+            id: "conv-mem",
+            type: AgentType.Conversational,
+            instructions: "Agent com memória.",
+            operationalMemory: memSchema);
+
+        var composed = await NewComposer().ComposeAsync(input);
+
+        // Exemplo inclui chave `operationalMemory` instanciada.
+        composed.Instructions.Should().Contain("\"operationalMemory\": {");
+        composed.Instructions.Should().Contain("\"draft_orders\":");
+        composed.Instructions.Should().Contain("<start | filled | confirmed>");
+    }
+
+    [Fact]
+    public async Task Compose_NonConversational_NaoRenderizaExemploNoOutputContract()
+    {
+        // <output_contract> e o exemplo só são pra Conversational. Custom,
+        // Worker, Router, ToolRunner não recebem.
+        var input = BuildAgent(
+            id: "custom-x",
+            type: AgentType.Custom,
+            instructions: "Custom agent.");
+
+        var composed = await NewComposer().ComposeAsync(input);
+
+        composed.Instructions.Should().NotContain("<output_contract>");
+        composed.Instructions.Should().NotContain("DEVE seguir EXATAMENTE esta forma estrutural");
     }
 }

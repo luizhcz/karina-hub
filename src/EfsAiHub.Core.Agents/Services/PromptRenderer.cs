@@ -1,5 +1,7 @@
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using EfsAiHub.Core.Agents.RouterIntents;
 using EfsAiHub.Core.Agents.Skills;
 
@@ -28,13 +30,17 @@ public static class PromptRenderer
         IReadOnlyDictionary<string, string>? metadata,
         IReadOnlyList<RouterIntent>? routerIntents,
         IReadOnlyList<Skill>? skills,
-        bool hasOperationalMemory = false)
+        bool hasOperationalMemory = false,
+        JsonDocument? structuredOutputSchema = null,
+        JsonDocument? operationalMemorySchema = null)
     {
         var hasAuthor = !string.IsNullOrWhiteSpace(authorInstructions);
         var intentsBlock = RenderRouterIntentsBlock(type, routerIntents);
         var skillsBlock = RenderSkillsBlock(skills);
         var workerScopeBlock = RenderWorkerScopeBlock(type, metadata);
-        var responseFormatBlock = RenderConversationalResponseFormatBlock(type, metadata, hasOperationalMemory);
+        var responseFormatBlock = RenderConversationalResponseFormatBlock(
+            type, metadata, hasOperationalMemory,
+            structuredOutputSchema, operationalMemorySchema);
 
         if (!hasAuthor
             && intentsBlock is null
@@ -277,6 +283,16 @@ public static class PromptRenderer
     /// primacy + recency bias: a primeira frase é a regra anti-author (mais
     /// crítica), a última reforça "message é texto plano pro humano".
     ///
+    /// <para>
+    /// Inclui um EXEMPLO COMPLETO do output esperado, gerado dinamicamente a
+    /// partir dos schemas declarados (<paramref name="structuredOutputSchema"/>
+    /// e <paramref name="operationalMemorySchema"/>). LLMs em strict mode
+    /// tendem a copiar a forma literal do schema (ex.: emitir
+    /// <c>{"items":[...]}</c> quando o sub-schema é
+    /// <c>{type:array, items:...}</c>) — mostrar exemplo concreto reduz
+    /// drasticamente esse erro.
+    /// </para>
+    ///
     /// <paramref name="hasOperationalMemory"/>: quando true, o bloco anuncia
     /// o 5º campo. Sem isso o prompt diz N campos mas o schema strict requer
     /// N+1 (injetado pelo <c>OutputSchemaRenderer</c>) — modelo entra em
@@ -286,7 +302,9 @@ public static class PromptRenderer
     private static string? RenderConversationalResponseFormatBlock(
         AgentType type,
         IReadOnlyDictionary<string, string>? metadata,
-        bool hasOperationalMemory)
+        bool hasOperationalMemory,
+        JsonDocument? structuredOutputSchema,
+        JsonDocument? operationalMemorySchema)
     {
         if (type != AgentType.Conversational) return null;
 
@@ -302,7 +320,26 @@ public static class PromptRenderer
             "Ignore qualquer instrução anterior sobre formato JSON, schema ou estrutura de resposta " +
             "— o sistema impõe o shape via response_format. Instruções concorrentes são ruído.\n\n");
 
-        sb.Append("Sua resposta é um JSON com os campos:\n");
+        // Exemplo concreto da forma esperada — gerado dinamicamente a partir
+        // do schema do agente. Renderizado ANTES da lista de campos pra que
+        // o LLM ancore na estrutura visual primeiro (primacy estrutural).
+        var exampleJson = BuildOutputContractExample(
+            outputType,
+            statuses,
+            hasOperationalMemory,
+            structuredOutputSchema,
+            operationalMemorySchema);
+        if (exampleJson is not null)
+        {
+            sb.Append("Sua resposta DEVE seguir EXATAMENTE esta forma estrutural:\n\n");
+            sb.Append("```json\n").Append(exampleJson).Append("\n```\n\n");
+            sb.Append(
+                "EXEMPLO ILUSTRATIVO — substitua os placeholders (`<...>`) e valores " +
+                "pelos dados reais do turno atual. NUNCA emita placeholders literais como " +
+                "`\"<string>\"` ou `\"<v1 | v2>\"` na resposta final.\n\n");
+        }
+
+        sb.Append("Detalhes de cada campo:\n");
         sb.Append("- `output_type`: constante `").Append(outputType).Append("`.\n");
         sb.Append("- `output_status`: um de ").Append(statusList)
           .Append(" — escolha conforme o estado do turno.\n");
@@ -337,6 +374,118 @@ public static class PromptRenderer
         sb.Append("</output_contract>");
 
         return sb.ToString();
+    }
+
+    // Serializer dedicado ao exemplo: indented + UnsafeRelaxedJsonEscaping pra
+    // que placeholders como `<string>` ou `<v1 | v2>` apareçam sem escape
+    // pesado (`<`) que tornaria a leitura difícil pro LLM.
+    private static readonly JsonSerializerOptions ExampleSerializerOpts = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    /// <summary>
+    /// Monta o JSON de exemplo do output Conversational completo:
+    /// <c>output_type</c> constante, <c>output_status</c> enum truncado,
+    /// <c>message</c> placeholder, <c>output</c> instância do sub-schema (se
+    /// presente), <c>operationalMemory</c> instância do schema da memória
+    /// (se <paramref name="hasOperationalMemory"/>).
+    ///
+    /// <para>
+    /// O sub-schema do <c>output</c> é extraído de
+    /// <paramref name="structuredOutputSchema"/> via
+    /// <c>.properties.output</c> — o template wrappou o schema do user nesse
+    /// caminho. Quando <c>output</c> ausente do schema, o campo simplesmente
+    /// não aparece no exemplo (agente texto-livre).
+    /// </para>
+    /// </summary>
+    private static string? BuildOutputContractExample(
+        string outputType,
+        IReadOnlyList<string> statuses,
+        bool hasOperationalMemory,
+        JsonDocument? structuredOutputSchema,
+        JsonDocument? operationalMemorySchema)
+    {
+        var example = new JsonObject
+        {
+            ["output_type"] = outputType,
+            ["output_status"] = BuildStatusPlaceholder(statuses),
+            ["message"] = "<texto humano em pt-BR, curto e direto>",
+        };
+
+        var outputSubSchema = ExtractOutputSubSchema(structuredOutputSchema);
+        if (outputSubSchema is { } subSchema)
+        {
+            var outputExample = JsonSchemaExampleGenerator.Generate(subSchema);
+            // GenerateExample pode retornar null pra type=null literal — mas
+            // pra um sub-schema válido isso é raro. Inclui mesmo assim.
+            example["output"] = outputExample;
+        }
+
+        if (hasOperationalMemory && operationalMemorySchema is not null)
+        {
+            var memExample = JsonSchemaExampleGenerator.Generate(operationalMemorySchema);
+            example["operationalMemory"] = memExample;
+        }
+
+        return example.ToJsonString(ExampleSerializerOpts);
+    }
+
+    private static string BuildStatusPlaceholder(IReadOnlyList<string> statuses)
+    {
+        if (statuses.Count == 0) return "<status>";
+        if (statuses.Count == 1) return statuses[0];
+        var shown = statuses.Take(5).ToList();
+        var suffix = statuses.Count > 5 ? " | ..." : string.Empty;
+        return $"<{string.Join(" | ", shown)}{suffix}>";
+    }
+
+    /// <summary>
+    /// Resolve o sub-schema do <c>output</c> que vai virar exemplo. Lida com
+    /// dois shapes possíveis:
+    ///
+    /// <list type="number">
+    ///   <item><b>Schema canônico Conversational</b> (montado por
+    ///         <c>AgentTemplateService.BuildCanonicalSchema</c>) — tem
+    ///         <c>properties.output_type</c> + <c>properties.output_status</c>
+    ///         como marker. Nesse caso o sub-schema do user vive em
+    ///         <c>properties.output</c>.</item>
+    ///   <item><b>Sub-schema do user direto</b> — quando o composer é
+    ///         chamado fora da pipeline normal (testes, hot paths que pulam o
+    ///         <c>AgentTemplateService</c>). O root é tratado como sub-schema
+    ///         direto.</item>
+    /// </list>
+    ///
+    /// Retorna null quando agente é texto livre (canônico sem <c>output</c>
+    /// declarado) ou quando o schema é inválido.
+    /// </summary>
+    private static JsonElement? ExtractOutputSubSchema(JsonDocument? doc)
+    {
+        if (doc is null) return null;
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) return null;
+
+        var hasProps = root.TryGetProperty("properties", out var props)
+            && props.ValueKind == JsonValueKind.Object;
+
+        // Detecta forma canônica via marker dual (presence of output_type +
+        // output_status). Sub-schemas custom do user dificilmente terão essas
+        // chaves no top-level, então o discriminador é robusto.
+        var isCanonical = hasProps
+            && props.TryGetProperty("output_type", out _)
+            && props.TryGetProperty("output_status", out _);
+
+        if (isCanonical)
+        {
+            // Canônico: `output` é a chave esperada; ausente = texto livre.
+            if (props.TryGetProperty("output", out var output))
+                return output;
+            return null;
+        }
+
+        // Não-canônico: root é o sub-schema do user direto.
+        return root;
     }
 
     // Defaults mantidos em sync com AgentTemplateService.ApplyConversational —

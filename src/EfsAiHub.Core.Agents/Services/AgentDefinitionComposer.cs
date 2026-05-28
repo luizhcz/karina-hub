@@ -59,7 +59,12 @@ public sealed class AgentDefinitionComposer : IAgentDefinitionComposer
             input.Metadata,
             routerIntents,
             skills,
-            hasOperationalMemory: input.OperationalMemory?.Schema is not null);
+            hasOperationalMemory: input.OperationalMemory?.Schema is not null,
+            // Schemas passados em separado pra que o <output_contract> renderize
+            // exemplo de instância concreta (Conversational). Pra outros tipos
+            // o renderer ignora.
+            structuredOutputSchema: input.StructuredOutput?.Schema,
+            operationalMemorySchema: input.OperationalMemory?.Schema);
 
         var structuredOutput = OutputSchemaRenderer.Render(
             new AgentDefinition
