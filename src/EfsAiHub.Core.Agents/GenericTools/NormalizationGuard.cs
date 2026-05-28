@@ -9,6 +9,11 @@ namespace EfsAiHub.Core.Agents.GenericTools;
 /// como defesa em profundidade — se alguém escrever no banco contornando o
 /// save (script SQL manual, restore de backup velho), o invariant falha alto
 /// em vez de o LLM falhar silencioso.
+///
+/// Foco nos keywords forbidden (<c>$ref</c>, <c>oneOf</c>, <c>anyOf</c>,
+/// <c>allOf</c>) — strictness (<c>additionalProperties: false</c>) só vale pra
+/// Input schemas e o provider LLM rejeita se ausente, então não precisa de
+/// check aqui. Output schemas legitimamente não têm strict.
 /// </summary>
 public static class NormalizationGuard
 {
@@ -16,9 +21,9 @@ public static class NormalizationGuard
 
     /// <summary>
     /// Confirma que o JSON satisfaz as invariantes do schema canônico: parse
-    /// OK, objeto na raiz, sem <c>$ref</c>/<c>oneOf</c>/<c>anyOf</c>/<c>allOf</c>,
-    /// e todo <c>type: "object"</c> tem <c>additionalProperties: false</c>.
-    /// Walk fundida — uma única passada checa todas as invariantes por nó.
+    /// OK, objeto na raiz, sem <c>$ref</c>/<c>oneOf</c>/<c>anyOf</c>/<c>allOf</c>
+    /// em nenhum nível. Walk fundida — uma única passada checa todas as
+    /// invariantes por nó.
     /// </summary>
     public static void AssertCanonical(string? schemaJson, string fieldName)
     {
@@ -50,25 +55,11 @@ public static class NormalizationGuard
     {
         if (node.ValueKind != JsonValueKind.Object) return;
 
-        // Forbidden keywords no nível atual.
         foreach (var keyword in ForbiddenKeywords)
         {
             if (node.TryGetProperty(keyword, out _))
                 throw new DomainException(
                     $"GenericTool.{fieldName} canônico contém '{keyword}' — schema não foi normalizado corretamente.");
-        }
-
-        // Strictness no nível atual quando type=object.
-        if (node.TryGetProperty("type", out var typeNode)
-            && typeNode.ValueKind == JsonValueKind.String
-            && typeNode.GetString() == "object")
-        {
-            if (!node.TryGetProperty("additionalProperties", out var addProp)
-                || addProp.ValueKind != JsonValueKind.False)
-            {
-                throw new DomainException(
-                    $"GenericTool.{fieldName} canônico tem object sem 'additionalProperties: false' — não normalizado.");
-            }
         }
 
         // Recurse — uma única passada visita cada nó uma vez.
