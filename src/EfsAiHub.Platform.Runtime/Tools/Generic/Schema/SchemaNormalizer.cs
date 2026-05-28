@@ -65,7 +65,7 @@ public sealed class SchemaNormalizer : ISchemaNormalizer
         working = AllOfMerger.Merge(working, warnings);
         working = DisjunctionMerger.Merge(working, warnings);
         working = KeywordSanitizer.Sanitize(working, warnings);
-        working = StrictnessEnforcer.Enforce(working, warnings);
+        working = StrictnessEnforcer.Enforce(working, warnings, role);
 
         if (working is not JsonObject finalObj)
             throw new DomainException(

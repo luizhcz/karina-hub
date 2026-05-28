@@ -19,8 +19,11 @@ public class SchemaNormalizerTests
     // ──────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Normalize_ObjectSchema_ForcaAdditionalPropertiesFalse()
+    public void Normalize_InputSchema_ForcaAdditionalPropertiesFalse()
     {
+        // Strict é regra do OpenAI tool input — Output não aplica
+        // (validation de response precisa ser loose pra projector dropar
+        // extras silenciosamente).
         var raw = """
         {
           "type": "object",
@@ -31,13 +34,41 @@ public class SchemaNormalizerTests
         }
         """;
 
-        var canon = Parse(Normalize(raw).CanonicalJson);
+        var canon = Parse(Normalize(raw, SchemaRole.Input).CanonicalJson);
 
         canon.GetProperty("additionalProperties").GetBoolean().Should().BeFalse();
     }
 
     [Fact]
-    public void Normalize_ObjectSchema_RequiredVemPreenchidoComTodasAsProperties()
+    public void Normalize_OutputSchema_PreservaAdditionalPropertiesEReqOriginais()
+    {
+        // Output role NÃO força strict — response com campos extras passa
+        // pelo projector (drop silencioso); response com required ausente
+        // só falha se o user declarou explicitamente required.
+        var raw = """
+        {
+          "type": "object",
+          "properties": {
+            "a": {"type": "string"},
+            "b": {"type": "number"}
+          },
+          "required": ["a"]
+        }
+        """;
+
+        var canon = Parse(Normalize(raw, SchemaRole.Output).CanonicalJson);
+
+        canon.TryGetProperty("additionalProperties", out _).Should().BeFalse(
+            "Output schema não deve forçar additionalProperties:false");
+        canon.GetProperty("required")
+             .EnumerateArray()
+             .Select(e => e.GetString())
+             .Should().BeEquivalentTo(new[] { "a" },
+                 "required do autor é preservado, sem forçar todas as properties");
+    }
+
+    [Fact]
+    public void Normalize_InputSchema_RequiredVemPreenchidoComTodasAsProperties()
     {
         var raw = """
         {
@@ -50,14 +81,14 @@ public class SchemaNormalizerTests
         }
         """;
 
-        var canon = Parse(Normalize(raw).CanonicalJson);
+        var canon = Parse(Normalize(raw, SchemaRole.Input).CanonicalJson);
         var required = canon.GetProperty("required").EnumerateArray().Select(e => e.GetString()).ToArray();
 
         required.Should().BeEquivalentTo(new[] { "a", "b" });
     }
 
     [Fact]
-    public void Normalize_NestedObject_AplicaStrictnessEmTodosOsNiveis()
+    public void Normalize_InputNestedObject_AplicaStrictnessEmTodosOsNiveis()
     {
         var raw = """
         {
@@ -73,7 +104,7 @@ public class SchemaNormalizerTests
         }
         """;
 
-        var canon = Parse(Normalize(raw).CanonicalJson);
+        var canon = Parse(Normalize(raw, SchemaRole.Input).CanonicalJson);
 
         canon.GetProperty("additionalProperties").GetBoolean().Should().BeFalse();
         var user = canon.GetProperty("properties").GetProperty("user");

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Nodes;
 using Json.Schema;
 
 namespace EfsAiHub.Platform.Runtime.Tools.Generic;
@@ -50,7 +51,16 @@ public sealed class SchemaCache
         if (_entries.TryGetValue(key, out var cached))
             return cached;
 
-        var parsed = JsonSchema.FromText(schemaJson)
+        // Defesa em profundidade: tools salvas antes do fix do StrictnessEnforcer
+        // (PR 2) têm canonical Output com additionalProperties:false e required:[all]
+        // — isso é semanticamente errado pra validar response (response com
+        // campos extras viraria erro de validação em vez de drop silencioso
+        // do projector; response sem um campo declarado opcional viraria
+        // erro também). Strip antes de parsear pra que validation seja loose;
+        // o projector iterar 'properties' continua dropando extras corretamente.
+        var loose = LoosenForResponseValidation(schemaJson);
+
+        var parsed = JsonSchema.FromText(loose)
             ?? throw new JsonSchemaException("Schema JSON parseou mas resultou em null.");
 
         if (_entries.TryAdd(key, parsed))
@@ -63,6 +73,45 @@ public sealed class SchemaCache
         // que tiver no cache, ou fallback pro parse local se o eviction
         // removeu antes de ler. Sem race window de NPE.
         return _entries.TryGetValue(key, out var existing) ? existing : parsed;
+    }
+
+    /// <summary>
+    /// Strip recursivo de <c>additionalProperties: false</c> e <c>required</c>
+    /// arrays do schema. Aplicado só ao schema usado pra validação de response
+    /// (na cache); a forma canônica persistida em DB fica intacta pro caso de
+    /// algum consumidor futuro precisar das restrições strict.
+    /// </summary>
+    private static string LoosenForResponseValidation(string schemaJson)
+    {
+        var node = JsonNode.Parse(schemaJson);
+        if (node is null) return schemaJson;
+        LoosenInPlace(node);
+        return node.ToJsonString();
+    }
+
+    private static void LoosenInPlace(JsonNode? node)
+    {
+        if (node is JsonObject obj)
+        {
+            if (obj["additionalProperties"] is JsonValue ap
+                && ap.TryGetValue<bool>(out var b) && b == false)
+            {
+                obj.Remove("additionalProperties");
+            }
+            if (obj["required"] is JsonArray)
+            {
+                obj.Remove("required");
+            }
+            foreach (var key in obj.Select(p => p.Key).ToList())
+            {
+                LoosenInPlace(obj[key]);
+            }
+        }
+        else if (node is JsonArray arr)
+        {
+            for (var i = 0; i < arr.Count; i++)
+                LoosenInPlace(arr[i]);
+        }
     }
 
     /// <summary>Diagnóstico — usado por testes pra verificar reuso de instância.</summary>
