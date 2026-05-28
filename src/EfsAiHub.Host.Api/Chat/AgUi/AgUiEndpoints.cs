@@ -72,13 +72,19 @@ public static class AgUiEndpoints
         // 1. Processar respostas de aprovação pendentes (HITL via request_approval)
         await approvalMiddleware.ProcessApprovalsAsync(input.Messages, hitlResolvedBy, ct);
 
-        // Mensagem efetiva: último Messages[role=user]
-        var effectiveMessage = input.Messages?.LastOrDefault(m => m.Role == "user")?.Content;
+        // AG-UI reenvia o histórico inteiro a cada call; "novas" são as
+        // trailing user messages (após a última assistant/tool/system). Pegar
+        // só a última perde batches onde o cliente envia "Quero comprar" +
+        // "petr4" juntos — Router classifica só "petr4" e perde a intenção
+        // do verbo de operação. Cada uma persiste como ChatMessage separado;
+        // o ConversationService combina elas no trigger do workflow.
+        var newUserMessages = ExtractTrailingUserMessages(input.Messages);
+        var hasNewUserMessage = newUserMessages.Count > 0;
 
         var hasToolMessages = input.Messages?.Any(m => m.Role == "tool") ?? false;
-        var isHitlPure = string.IsNullOrWhiteSpace(effectiveMessage) && hasToolMessages;
+        var isHitlPure = !hasNewUserMessage && hasToolMessages;
 
-        if (string.IsNullOrWhiteSpace(effectiveMessage) && !isHitlPure)
+        if (!hasNewUserMessage && !isHitlPure)
         {
             context.Response.StatusCode = 400;
             await context.Response.WriteAsJsonAsync(
@@ -184,10 +190,13 @@ public static class AgUiEndpoints
         }
 
         var actorEnum = isRobotTurn ? Actor.Robot : Actor.Human;
-        var messages = new List<ChatMessageInput>
-        {
-            new("user", effectiveMessage!, Actor: actorEnum)
-        };
+        // Cada user message nova vira um ChatMessageInput — persiste 1:1 no DB
+        // (granularidade preservada). ConversationService.SendMessagesAsync
+        // combina o run consecutivo no trigger do workflow pra que o Router
+        // veja todas como um único turno.
+        var messages = newUserMessages
+            .Select(m => new ChatMessageInput("user", m.Content, Actor: actorEnum))
+            .ToList();
 
         // Pin opcional: header x-version pinna a execução numa WorkflowVersion
         // específica. Empty/whitespace tratado como ausente — caminho legado
@@ -271,6 +280,26 @@ public static class AgUiEndpoints
     /// </list>
     /// Retorna mensagem de erro se inválido; null se OK.
     /// </summary>
+    /// <summary>
+    /// Coleta o último run consecutivo de mensagens <c>role=user</c> no fim
+    /// de <paramref name="messages"/>. AG-UI reenvia o histórico inteiro a
+    /// cada call; mensagens "novas" são as trailing-user (após a última
+    /// assistant/tool/system). Retorna em ordem original (não invertida).
+    /// </summary>
+    private static List<AgUiInputMessage> ExtractTrailingUserMessages(
+        IReadOnlyList<AgUiInputMessage>? messages)
+    {
+        var trailing = new List<AgUiInputMessage>();
+        if (messages is null) return trailing;
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            if (!string.Equals(messages[i].Role, "user", StringComparison.OrdinalIgnoreCase)) break;
+            if (string.IsNullOrWhiteSpace(messages[i].Content)) continue;
+            trailing.Insert(0, messages[i]);
+        }
+        return trailing;
+    }
+
     private static string? ValidateActorField(IReadOnlyList<AgUiInputMessage>? messages)
     {
         if (messages is null || messages.Count == 0) return null;

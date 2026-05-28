@@ -128,4 +128,116 @@ public class ConversationServiceHelpersTests
         Content = content,
         Actor = actor
     };
+
+    // ── CombineTrailingUserInputs — batch de user messages no mesmo turno ──
+
+    [Fact]
+    public void CombineTrailingUserInputs_UmaSoMensagem_RetornaInputOriginal()
+    {
+        var input = new ChatMessageInput("user", "Quero comprar", Actor.Human);
+        var combined = ConversationService.CombineTrailingUserInputs(new[] { input });
+
+        combined.Should().BeSameAs(input);
+    }
+
+    [Fact]
+    public void CombineTrailingUserInputs_DuasUserConsecutivas_JuntaComDuasNewlines()
+    {
+        // Cenário: cliente envia ["Quero comprar um ativo", "petr4"] num batch.
+        // Router só veria "petr4" antes — agora vê o turno combinado.
+        var inputs = new[]
+        {
+            new ChatMessageInput("user", "Quero comprar um ativo", Actor.Human),
+            new ChatMessageInput("user", "petr4", Actor.Human),
+        };
+
+        var combined = ConversationService.CombineTrailingUserInputs(inputs);
+
+        combined.Role.Should().Be("user");
+        combined.Message.Should().Be("Quero comprar um ativo\n\npetr4");
+    }
+
+    [Fact]
+    public void CombineTrailingUserInputs_TresUserConsecutivas_PreservaOrdem()
+    {
+        var inputs = new[]
+        {
+            new ChatMessageInput("user", "a", Actor.Human),
+            new ChatMessageInput("user", "b", Actor.Human),
+            new ChatMessageInput("user", "c", Actor.Human),
+        };
+
+        var combined = ConversationService.CombineTrailingUserInputs(inputs);
+
+        combined.Message.Should().Be("a\n\nb\n\nc");
+    }
+
+    [Fact]
+    public void CombineTrailingUserInputs_AssistantNoMeio_SoCombinaTrailing()
+    {
+        // Cenário híbrido — caller deveria filtrar antes de chegar aqui, mas
+        // o helper precisa ser robusto: só combina o run consecutivo no fim.
+        var inputs = new[]
+        {
+            new ChatMessageInput("user", "ignored-old", Actor.Human),
+            new ChatMessageInput("assistant", "resp", Actor.Human),
+            new ChatMessageInput("user", "novo-1", Actor.Human),
+            new ChatMessageInput("user", "novo-2", Actor.Human),
+        };
+
+        var combined = ConversationService.CombineTrailingUserInputs(inputs);
+
+        combined.Message.Should().Be("novo-1\n\nnovo-2");
+    }
+
+    [Fact]
+    public void CombineTrailingUserInputs_UltimoNaoEhUser_RetornaUltimo()
+    {
+        // Edge case: trailing run sem user (só assistant/tool). Devolve o
+        // último input intacto pra que callers superiores não branchem em null.
+        var inputs = new[]
+        {
+            new ChatMessageInput("user", "u", Actor.Human),
+            new ChatMessageInput("assistant", "a", Actor.Human),
+        };
+
+        var combined = ConversationService.CombineTrailingUserInputs(inputs);
+
+        combined.Role.Should().Be("assistant");
+        combined.Message.Should().Be("a");
+    }
+
+    [Fact]
+    public void CombineTrailingUserInputs_UserAssistantUser_SoUltimoUserVira_Trigger()
+    {
+        // Padrão AG-UI canônico: cliente reenvia conversa inteira a cada call.
+        // [user_old, assistant_old, user_new] → só user_new é nova; o resto
+        // já está em DB (echo de histórico). Trigger combina só o trailing run
+        // que neste caso é só user_new.
+        var inputs = new[]
+        {
+            new ChatMessageInput("user", "Quero comprar PETR4", Actor.Human),
+            new ChatMessageInput("assistant", "Quantas ações?", Actor.Human),
+            new ChatMessageInput("user", "100", Actor.Human),
+        };
+
+        var combined = ConversationService.CombineTrailingUserInputs(inputs);
+
+        combined.Role.Should().Be("user");
+        combined.Message.Should().Be("100");
+    }
+
+    [Fact]
+    public void CombineTrailingUserInputs_RoleUserCaseInsensitive()
+    {
+        var inputs = new[]
+        {
+            new ChatMessageInput("USER", "a", Actor.Human),
+            new ChatMessageInput("User", "b", Actor.Human),
+        };
+
+        var combined = ConversationService.CombineTrailingUserInputs(inputs);
+
+        combined.Message.Should().Be("a\n\nb");
+    }
 }

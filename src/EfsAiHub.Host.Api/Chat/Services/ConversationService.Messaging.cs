@@ -88,7 +88,31 @@ public partial class ConversationService
             conversation.ActiveExecutionId = null;
         }
 
-        return await TriggerWorkflowAsync(conversation, lastInput, persisted, ct, workflowVersionId);
+        // Cliente pode mandar várias mensagens 'user' num único batch (ex.:
+        // ["Quero comprar um ativo", "petr4"]). Sem combinar, o Router só vê
+        // "petr4" e perde a intenção do verbo de operação. Persiste cada uma
+        // separadamente no DB (preserva granularidade pra audit/timeline) e
+        // combina o trailing run num único trigger pro workflow.
+        var trigger = CombineTrailingUserInputs(inputs);
+
+        return await TriggerWorkflowAsync(conversation, trigger, persisted, ct, workflowVersionId);
+    }
+
+    internal static ChatMessageInput CombineTrailingUserInputs(IReadOnlyList<ChatMessageInput> inputs)
+    {
+        var trailing = new List<ChatMessageInput>();
+        for (var i = inputs.Count - 1; i >= 0; i--)
+        {
+            if (!string.Equals(inputs[i].Role, "user", StringComparison.OrdinalIgnoreCase)) break;
+            trailing.Insert(0, inputs[i]);
+        }
+
+        if (trailing.Count <= 1) return inputs[^1];
+
+        var combined = string.Join("\n\n", trailing.Select(t => t.Message));
+        // Actor preservado do último — quem manda batch típico é o mesmo
+        // ator nas N mensagens, então usar o primeiro/último não muda.
+        return new ChatMessageInput(trailing[^1].Role, combined, trailing[^1].Actor);
     }
 
     private async Task<SendMessageResult> TriggerWorkflowAsync(
