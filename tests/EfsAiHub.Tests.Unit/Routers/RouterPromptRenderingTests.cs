@@ -10,7 +10,7 @@ namespace EfsAiHub.Tests.Unit.Routers;
 /// <c>&lt;ambiguity_handling&gt;</c> com regra de dominância (gap 0.25 / top
 /// 0.6), o caso especial de clarification follow-up em
 /// <c>&lt;multi_turn_classification&gt;</c> e o loop guard de
-/// <c>clarification_depth</c> no <c>&lt;operational_memory&gt;</c>.
+/// <c>clarification_depth</c> no <c>&lt;memory_rules&gt;</c>.
 ///
 /// Testes são string-matching deliberado: o prompt é contrato com o LLM, e
 /// regressões aqui silenciariam o comportamento de ambiguidade inteiro.
@@ -73,19 +73,22 @@ public class RouterPromptRenderingTests
         var prompt = RenderRouter();
 
         // Busca por tag estruturada (com newlines em volta) pra não casar
-        // menções textuais dentro de outros blocos — ex: <multi_turn_classification>
-        // referencia textualmente o estado `<operational_memory>` injetado.
+        // menções textuais dentro de outros blocos. ORDEM ATUAL — multi_turn
+        // antes de ambiguity_handling pra que continuação seja a primeira
+        // pergunta a fazer (primacy). Sem essa ordem, mensagens de resposta
+        // curta a perguntas do assistant viravam needs_clarification.
         var intentsIdx = prompt.IndexOf("\n<intents>\n", StringComparison.Ordinal);
-        var ambiguityIdx = prompt.IndexOf("\n<ambiguity_handling>\n", StringComparison.Ordinal);
         var multiTurnIdx = prompt.IndexOf("\n<multi_turn_classification>\n", StringComparison.Ordinal);
-        var memoryIdx = prompt.IndexOf("\n<operational_memory>\n", StringComparison.Ordinal);
+        var ambiguityIdx = prompt.IndexOf("\n<ambiguity_handling>\n", StringComparison.Ordinal);
+        var memoryIdx = prompt.IndexOf("\n<memory_rules>\n", StringComparison.Ordinal);
 
         intentsIdx.Should().BePositive("bloco <intents> precisa estar presente");
-        ambiguityIdx.Should().BeGreaterThan(intentsIdx, "<ambiguity_handling> vem depois de <intents>");
-        multiTurnIdx.Should().BeGreaterThan(ambiguityIdx,
-            "<multi_turn_classification> vem depois de <ambiguity_handling>");
-        memoryIdx.Should().BeGreaterThan(multiTurnIdx,
-            "<operational_memory> vem por último (recency: regra de copy fica perto do output)");
+        multiTurnIdx.Should().BeGreaterThan(intentsIdx,
+            "<multi_turn_classification> vem ANTES de <ambiguity_handling> (primacy: continuação prevalece)");
+        ambiguityIdx.Should().BeGreaterThan(multiTurnIdx,
+            "<ambiguity_handling> vem depois de <multi_turn_classification>");
+        memoryIdx.Should().BeGreaterThan(ambiguityIdx,
+            "<memory_rules> vem por último (recency: regra de copy fica perto do output)");
     }
 
     [Fact]
@@ -136,6 +139,49 @@ public class RouterPromptRenderingTests
         prompt.Should().Contain("Caso especial");
         prompt.Should().Contain($"`last_intent` == `{SystemIntents.NeedsClarificationName}`");
         prompt.Should().Contain("resolve a ambiguidade");
+    }
+
+    [Fact]
+    public void Render_Router_MultiTurn_DocumentaRegraPrimariaDeAnaliseConjunta()
+    {
+        var prompt = RenderRouter();
+
+        // Regra primária: o LLM SEMPRE precisa avaliar mensagem atual + histórico
+        // + operationalMemory injetado em CONJUNTO antes de classificar. Sem essa
+        // âncora, mensagens curtas de resposta (ex: "12345" depois de "qual conta?")
+        // eram classificadas como needs_clarification por causa do bias do
+        // <ambiguity_handling>.
+        prompt.Should().Contain("REGRA PRIMÁRIA");
+        prompt.Should().Contain("EM CONJUNTO");
+        prompt.Should().Contain("CONTINUAÇÃO vs NOVO ASSUNTO antes");
+    }
+
+    [Fact]
+    public void Render_Router_MultiTurn_DocumentaRegraDuraDeRespostaCurta()
+    {
+        var prompt = RenderRouter();
+
+        // Regra dura — fix do bug de produção (PR pós-revisão do Clarifier):
+        // "conta 12345" como resposta direta a "qual conta?" do assistant DEVE
+        // ser continuação do last_intent. Sem essa regra explícita o LLM achava
+        // que a resposta curta era ambígua e caía em needs_clarification.
+        prompt.Should().Contain("REGRA DURA");
+        prompt.Should().Contain("resposta curta a pergunta do assistant");
+        prompt.Should().Contain($"JAMAIS use `{SystemIntents.NeedsClarificationName}`");
+        prompt.Should().Contain("Continue o intent anterior");
+    }
+
+    [Fact]
+    public void Render_Router_AmbiguityHandling_TemPreRequisitoDeMultiTurnPrimeiro()
+    {
+        var prompt = RenderRouter();
+
+        // Guard: se a mensagem é continuação (resolvida em <multi_turn>), o LLM
+        // deve IGNORAR <ambiguity_handling>. Sem isso, mesmo com a ordem
+        // invertida o LLM tenta aplicar a regra de dominância em mensagens já
+        // decididas como continuação.
+        prompt.Should().Contain("PRÉ-REQUISITO");
+        prompt.Should().Contain("ignore este bloco inteiro");
     }
 
     [Fact]
