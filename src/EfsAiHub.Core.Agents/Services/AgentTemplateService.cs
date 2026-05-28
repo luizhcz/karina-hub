@@ -39,6 +39,15 @@ public sealed class AgentTemplateService : IAgentTemplateService
         _logger = logger;
     }
 
+    // Tipo canônico do middleware de telemetria do Router. Auto-injetado em
+    // ApplyRouter pra que TODO Router tenha métricas + log estruturado + hard
+    // validation de candidate_intents independente do que o admin configurou.
+    // String literal aqui em vez de const compartilhada porque o registry é
+    // criado em Host.Api/Extensions e referencia pelo mesmo nome — qualquer
+    // mudança aqui exige edit no registry (cobertura via warning na inicialização
+    // do AgentMiddlewareRegistry quando type não está registrado).
+    private const string RouterTelemetryMiddlewareType = "RouterDecisionTelemetry";
+
     // Identificadores fixos do template Conversational. Mantidos como const
     // pra que mudanças no shape canônico fiquem centralizadas neste arquivo
     // — qualquer caller que monte schema manualmente referencia daqui.
@@ -83,8 +92,9 @@ public sealed class AgentTemplateService : IAgentTemplateService
 
     /// <summary>
     /// Auto-defaults canônicos do Router: <c>StructuredOutput</c> com schema
-    /// <c>{ intent, confidence, reason, operationalMemory }</c> e
-    /// <c>OperationalMemory</c> com schema <c>{ last_intent, last_reason }</c>.
+    /// <c>{ intent, confidence, reason, candidate_intents, operationalMemory }</c>
+    /// e <c>OperationalMemory</c> com schema
+    /// <c>{ last_intent, last_reason, clarification_depth }</c>.
     /// Aplicado apenas quando o admin não cadastrou schema próprio — preserva
     /// customização. Idempotente: re-aplicar com canônico já presente não muda
     /// nada (o template detecta presença de "intent" no top-level).
@@ -98,6 +108,16 @@ public sealed class AgentTemplateService : IAgentTemplateService
 
         var operationalMemory = def.OperationalMemory
             ?? EfsAiHub.Core.Agents.RouterIntents.RouterDefaults.OperationalMemoryV1();
+
+        // Auto-inject do middleware de telemetria no INÍCIO do array.
+        // AgentFactory reconhece `RouterDecisionTelemetry` como tipo de fase
+        // PRE-MEMORY (lista hardcoded em PreMemoryMiddlewareTypes) e o wrappa
+        // mais interno que o OperationalMemoryChatClient — assim o rewrite
+        // (validação dura + loop guard) acontece ANTES do estado ser persistido
+        // em aihub.operational_memory, mantendo DB e STATE_DELTA SSE em sync.
+        // Idempotente: se admin já declarou explicitamente, preserva
+        // configuração (settings, enabled).
+        var middlewares = EnsureRouterTelemetryMiddleware(def.Middlewares);
 
         return new AgentDefinition
         {
@@ -113,7 +133,7 @@ public sealed class AgentTemplateService : IAgentTemplateService
             Tools = def.Tools,
             StructuredOutput = structuredOutput,
             OperationalMemory = operationalMemory,
-            Middlewares = def.Middlewares,
+            Middlewares = middlewares,
             FallbackProvider = def.FallbackProvider,
             Resilience = def.Resilience,
             CostBudget = def.CostBudget,
@@ -129,6 +149,51 @@ public sealed class AgentTemplateService : IAgentTemplateService
             RegressionTestSetId = def.RegressionTestSetId,
             RegressionEvaluatorConfigVersionId = def.RegressionEvaluatorConfigVersionId,
         };
+    }
+
+    /// <summary>
+    /// Garante que <c>RouterDecisionTelemetry</c> está no array de middlewares
+    /// do Router como primeira entrada (mais interna no pipeline) e habilitada.
+    /// Preserva settings caso o admin tenha customizado. Idempotente.
+    /// </summary>
+    private static IReadOnlyList<AgentMiddlewareConfig> EnsureRouterTelemetryMiddleware(
+        IReadOnlyList<AgentMiddlewareConfig> middlewares)
+    {
+        AgentMiddlewareConfig? existing = null;
+        var remainder = new List<AgentMiddlewareConfig>(middlewares.Count);
+
+        foreach (var m in middlewares)
+        {
+            var isTarget = string.Equals(
+                m.Type, RouterTelemetryMiddlewareType, StringComparison.OrdinalIgnoreCase);
+            if (isTarget && existing is null)
+            {
+                existing = m.Enabled
+                    ? m
+                    : new AgentMiddlewareConfig
+                    {
+                        Type = m.Type,
+                        Enabled = true,
+                        Settings = m.Settings,
+                    };
+            }
+            else if (!isTarget)
+            {
+                remainder.Add(m);
+            }
+            // Duplicatas (segundo+ entry com mesmo Type) são descartadas.
+        }
+
+        existing ??= new AgentMiddlewareConfig
+        {
+            Type = RouterTelemetryMiddlewareType,
+            Enabled = true,
+            Settings = new Dictionary<string, string>(),
+        };
+
+        var result = new List<AgentMiddlewareConfig>(remainder.Count + 1) { existing };
+        result.AddRange(remainder);
+        return result;
     }
 
     private static bool HasRouterCanonicalSchema(AgentStructuredOutputDefinition? structured)

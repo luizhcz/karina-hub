@@ -24,7 +24,13 @@ public class AgentService : IAgentService
         new(StringComparer.OrdinalIgnoreCase) { "never", "always" };
 
     private static readonly HashSet<string> ValidMiddlewareTypes =
-        new(StringComparer.OrdinalIgnoreCase) { "AccountGuard", "StructuredOutputState", "SecurityGuardrails" };
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "AccountGuard",
+            "StructuredOutputState",
+            "SecurityGuardrails",
+            "RouterDecisionTelemetry",
+        };
 
     private readonly IAgentDefinitionRepository _repository;
     private readonly IAgentPromptRepository _promptRepo;
@@ -559,12 +565,14 @@ public class AgentService : IAgentService
         List<string> warnings,
         CancellationToken ct)
     {
-        // Auto-link da intent reservada "out_of_scope" — garantia P1 de que
-        // todo Router sabe classificar mensagens fora do escopo declarado,
-        // independente de o admin lembrar de incluir no set. Resolve via
-        // lookup por Name+Tenant na pool (intent é seedada por
-        // migration 004). Idempotente: se já estiver no set, no-op.
-        await EnsureOutOfScopeLinkedAsync(definition, ct);
+        // Auto-link das intents reservadas — garantia de que todo Router sabe
+        // classificar mensagens fora do escopo (`out_of_scope`) e sinalizar
+        // ambiguidade (`needs_clarification`), independente de o admin lembrar
+        // de incluir no set. Resolve via lookup por Name+Tenant na pool
+        // (seedadas pelas migrations 004 e 012). Idempotente: se já estiver no
+        // set, no-op. Falha de seed por tenant não bloqueia save — só warning.
+        await EnsureSystemIntentLinkedAsync(definition, SystemIntents.OutOfScopeName, ct);
+        await EnsureSystemIntentLinkedAsync(definition, SystemIntents.NeedsClarificationName, ct);
 
         // Count vem do request (transient `RouterIntentIds`) quando o caller
         // está propondo um set novo, ou do link repo quando é validação após
@@ -598,8 +606,9 @@ public class AgentService : IAgentService
 
         // OperationalMemory agora é canônica em todo Router (preenchida via
         // AgentTemplateService.ApplyRouter quando ausente). Persiste
-        // last_intent + last_reason a cada turno via OperationalMemoryChatClient.
-        // Não emite warning — é parte da forma esperada.
+        // last_intent + last_reason + clarification_depth a cada turno via
+        // OperationalMemoryChatClient. Não emite warning — é parte da forma
+        // esperada.
 
         // Consistência declarativa do "Router pra chat": quando a flag
         // metadata['x-router-for-chat']='true' está ativa, o middleware
@@ -633,29 +642,31 @@ public class AgentService : IAgentService
     }
 
     /// <summary>
-    /// Garante que <c>out_of_scope</c> (intent reservada do sistema) está no
-    /// set de intents do Router. Mutação direta em <c>RouterIntentIds</c> —
-    /// caller persiste depois via <c>IAgentRouterIntentLinkRepository</c>.
-    /// No-op quando o repo de intents não está injetado (testes) ou quando a
-    /// intent reservada não foi seedada no tenant.
+    /// Garante que uma intent reservada do sistema (<c>out_of_scope</c>,
+    /// <c>needs_clarification</c>, etc.) está no set de intents do Router.
+    /// Mutação direta em <c>RouterIntentIds</c> — caller persiste depois via
+    /// <c>IAgentRouterIntentLinkRepository</c>. No-op quando o repo de intents
+    /// não está injetado (testes) ou quando a intent reservada não foi
+    /// seedada no tenant (deveria vir das migrations 004/012).
     /// </summary>
-    private async Task EnsureOutOfScopeLinkedAsync(AgentDefinition definition, CancellationToken ct)
+    private async Task EnsureSystemIntentLinkedAsync(
+        AgentDefinition definition, string systemIntentName, CancellationToken ct)
     {
         if (_intentRepo is null) return;
 
         // Lookup por Name+Tenant. O repo já filtra por tenant via query filter.
         var pool = await _intentRepo.ListAsync(ct);
-        var outOfScope = pool.FirstOrDefault(i =>
-            string.Equals(i.Name, SystemIntents.OutOfScopeName, StringComparison.OrdinalIgnoreCase));
+        var systemIntent = pool.FirstOrDefault(i =>
+            string.Equals(i.Name, systemIntentName, StringComparison.OrdinalIgnoreCase));
 
-        if (outOfScope is null)
+        if (systemIntent is null)
         {
-            // Tenant não tem out_of_scope seedada — migration 004 deveria ter
-            // criado. Log e segue (não bloqueia save).
+            // Tenant não tem a intent reservada seedada — alguma migration
+            // (004/012) deveria ter criado. Log e segue (não bloqueia save).
             _logger.LogWarning(
                 "[AgentService] Tenant não tem intent reservada '{Name}' seedada. " +
-                "Router '{AgentId}' não terá auto-fallback. Aplicar migration 004.",
-                SystemIntents.OutOfScopeName, definition.Id);
+                "Router '{AgentId}' não terá auto-fallback dessa intent. Verifique as migrations.",
+                systemIntentName, definition.Id);
             return;
         }
 
@@ -663,13 +674,13 @@ public class AgentService : IAgentService
             ? new List<string>()
             : new List<string>(definition.RouterIntentIds);
 
-        if (!currentIds.Contains(outOfScope.Id, StringComparer.Ordinal))
+        if (!currentIds.Contains(systemIntent.Id, StringComparer.Ordinal))
         {
-            currentIds.Add(outOfScope.Id);
+            currentIds.Add(systemIntent.Id);
             definition.RouterIntentIds = currentIds;
             _logger.LogInformation(
                 "[AgentService] Auto-link '{Name}' (Id={IntentId}) ao Router '{AgentId}'.",
-                SystemIntents.OutOfScopeName, outOfScope.Id, definition.Id);
+                systemIntentName, systemIntent.Id, definition.Id);
         }
     }
 

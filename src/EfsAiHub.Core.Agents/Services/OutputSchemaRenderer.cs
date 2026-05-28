@@ -81,12 +81,30 @@ public static class OutputSchemaRenderer
             return structuredOutput.Schema;
         }
 
-        var enumArr = new JsonArray();
-        foreach (var intent in routerIntents)
-            enumArr.Add(intent.Name);
-        intentNode["enum"] = enumArr;
+        // Enum dos nomes resolvidos do pool — usado em DOIS lugares pra evitar
+        // o LLM inventar intents: (1) no top-level `intent`, (2) no inner
+        // `candidate_intents[].intent` quando o schema canônico expõe esse
+        // campo (Router moderno; schemas custom legados podem não ter).
+        var enumValues = routerIntents.Select(i => i.Name).ToList();
+
+        intentNode["enum"] = BuildEnum(enumValues);
+
+        if (properties["candidate_intents"] is JsonObject candArray
+            && candArray["items"] is JsonObject candItem
+            && candItem["properties"] is JsonObject candItemProps
+            && candItemProps["intent"] is JsonObject innerIntent)
+        {
+            innerIntent["enum"] = BuildEnum(enumValues);
+        }
 
         return JsonDocument.Parse(root.ToJsonString());
+    }
+
+    private static JsonArray BuildEnum(IEnumerable<string> values)
+    {
+        var arr = new JsonArray();
+        foreach (var v in values) arr.Add(v);
+        return arr;
     }
 
     private static AgentStructuredOutputDefinition BuildResponseWithMemory(

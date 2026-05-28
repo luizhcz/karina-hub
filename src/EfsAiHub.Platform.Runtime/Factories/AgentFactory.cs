@@ -25,6 +25,36 @@ namespace EfsAiHub.Platform.Runtime.Factories;
 /// </summary>
 public class AgentFactory : IAgentFactory
 {
+    /// <summary>
+    /// Middlewares declarados pelo agente que devem ser wrappados ANTES de
+    /// <see cref="OperationalMemoryChatClient"/> — ou seja, no OnAfter eles
+    /// rodam ANTES da memória ser persistida + strippada.
+    ///
+    /// <para>
+    /// Caso de uso: hard validators que mutam o output do LLM (ex.:
+    /// <c>RouterDecisionTelemetry</c> reescreve needs_clarification inválido
+    /// pra out_of_scope). Sem essa fase, OpMem persistiria o estado ruim no
+    /// banco antes do rewrite — DB ficaria divergente do JSON emitido ao
+    /// frontend, e o loop guard via <c>clarification_depth</c> seria
+    /// inoperante no próximo turno.
+    /// </para>
+    ///
+    /// <para>
+    /// Middlewares fora desta lista mantêm comportamento legado: wrappam
+    /// APÓS OpMem (mais externo no pipeline), enxergam output já strippado.
+    /// </para>
+    /// </summary>
+    private static readonly HashSet<string> PreMemoryMiddlewareTypes =
+        new(StringComparer.OrdinalIgnoreCase) { "RouterDecisionTelemetry" };
+
+    /// <summary>
+    /// Exposto <c>internal</c> pra cobertura por unit tests sem precisar
+    /// construir uma <see cref="AgentFactory"/> completa (dezenas de
+    /// dependências). Decisão de fase é pura função do nome do middleware
+    /// type — testar a lista é suficiente.
+    /// </summary>
+    internal static bool IsPreMemoryPhase(string type) => PreMemoryMiddlewareTypes.Contains(type);
+
     private readonly IReadOnlyDictionary<string, ILlmClientProvider> _providers;
     private readonly IAgentDefinitionRepository _agentRepo;
     private readonly IFunctionToolRegistry _functionRegistry;
@@ -688,18 +718,23 @@ public class AgentFactory : IAgentFactory
             agentMaxCostUsd: definition.CostBudget?.MaxCostUsd,
             agentOwnerProjectId: definition.ProjectId);
 
-        // Memória operacional fica entre TokenTracking e os middlewares opt-in:
+        // PRE-MEMORY phase: middlewares que precisam rodar no OnAfter ANTES da
+        // memória operacional persistir + strippar o payload. Hard validators
+        // que mutam output (ex: RouterDecisionTelemetry reescrevendo
+        // needs_clarification inválido) entram aqui pra que o estado persistido
+        // em aihub.operational_memory reflita o output FINAL emitido ao usuário,
+        // não o output bruto do LLM.
+        current = WrapMiddlewares(current, definition, IsPreMemoryPhase);
+
+        // Memória operacional fica entre PRE-MEMORY e POST-MEMORY phases:
         // tokens da injeção pré-call são contabilizados; output strippado é o que
         // os demais middlewares (e o Blocklist) veem.
         current = WrapWithOperationalMemory(current, definition, isStandaloneFlow);
 
-        foreach (var mw in definition.Middlewares.Where(m => m.Enabled))
-        {
-            if (!_middlewareRegistry.TryCreate(mw.Type, current, definition.Id, mw.Settings, _logger, out var wrapped))
-                LogAndSkipMiddleware(current, mw.Type, definition.Id);
-            else
-                current = wrapped;
-        }
+        // POST-MEMORY phase: middlewares legados (AccountGuard, StructuredOutputState,
+        // SecurityGuardrails) — veem output já strippado de operationalMemory e
+        // o STATE_DELTA do StructuredOutputState carrega o payload final.
+        current = WrapMiddlewares(current, definition, t => !IsPreMemoryPhase(t));
 
         // Blocklist mais externo que TokenTracking + middlewares opt-in. Input bloqueado
         // não consome token; output bloqueado conta tokens (já consumidos pelo provider).
@@ -755,24 +790,38 @@ public class AgentFactory : IAgentFactory
     /// <summary>
     /// Aplica apenas os middlewares do agente (ex: AccountGuard, StructuredOutputState).
     /// Usado pelo CreateLlmHandlerAsync (Graph mode) que já faz token tracking manual.
+    /// Mesmas duas fases do <c>WrapWithTokenTrackingAsync</c>: pré-memória pra
+    /// hard validators que mutam output, pós-memória pros demais.
     /// </summary>
     private IChatClient WrapWithMiddlewares(
         IChatClient inner, AgentDefinition definition, bool isStandaloneFlow = false)
     {
-        // Mesma posição do caminho não-Graph: memória operacional fica mais
-        // interna que os middlewares opt-in, garantindo que estes vejam o
-        // output já strippado e o Blocklist scaneie o texto final.
-        IChatClient current = WrapWithOperationalMemory(inner, definition, isStandaloneFlow);
-        foreach (var mw in definition.Middlewares.Where(m => m.Enabled))
+        IChatClient current = WrapMiddlewares(inner, definition, IsPreMemoryPhase);
+        current = WrapWithOperationalMemory(current, definition, isStandaloneFlow);
+        current = WrapMiddlewares(current, definition, t => !IsPreMemoryPhase(t));
+        // Blocklist também no Graph mode — coberto independente do pipeline ser via
+        // WrapWithTokenTracking ou direto via CreateLlmHandlerAsync.
+        current = WrapWithBlocklist(current, definition.Id);
+        return current;
+    }
+
+    /// <summary>
+    /// Helper compartilhado: itera <see cref="AgentDefinition.Middlewares"/>
+    /// filtrando por <paramref name="typePredicate"/> e wrappa cada entry
+    /// habilitada. Preserva ordem do array — primeira entry filtrada fica mais
+    /// interna no resultado.
+    /// </summary>
+    private IChatClient WrapMiddlewares(
+        IChatClient inner, AgentDefinition definition, Func<string, bool> typePredicate)
+    {
+        var current = inner;
+        foreach (var mw in definition.Middlewares.Where(m => m.Enabled && typePredicate(m.Type)))
         {
             if (!_middlewareRegistry.TryCreate(mw.Type, current, definition.Id, mw.Settings, _logger, out var wrapped))
                 LogAndSkipMiddleware(current, mw.Type, definition.Id);
             else
                 current = wrapped;
         }
-        // Blocklist também no Graph mode — coberto independente do pipeline ser via
-        // WrapWithTokenTracking ou direto via CreateLlmHandlerAsync.
-        current = WrapWithBlocklist(current, definition.Id);
         return current;
     }
 

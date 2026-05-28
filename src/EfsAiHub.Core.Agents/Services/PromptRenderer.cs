@@ -74,14 +74,21 @@ public static class PromptRenderer
 
         var sb = new StringBuilder();
 
-        // <intents> — catálogo + escape de OOS. Strict enum no schema já
-        // impede valores inventados; texto aqui foca no QUANDO escolher cada.
+        // <intents> — catálogo + hierarquia de saídas. Hierarquia 3-níveis:
+        // intent de negócio → needs_clarification (ambíguo no domínio) →
+        // out_of_scope (fora do domínio). Strict enum no schema já impede
+        // valores inventados; texto aqui foca no QUANDO escolher cada.
         sb.Append("<intents>\n");
         sb.Append(
-            "Escolha exatamente uma intent do enum.\n" +
-            "Quando nenhuma intent de negócio combinar (saudações, perguntas genéricas, fora do domínio), " +
-            $"use `{SystemIntents.OutOfScopeName}` com confidence >= 0.7.\n" +
-            $"Confidence abaixo de 0.7 numa intent de negócio? Caia para `{SystemIntents.OutOfScopeName}`.\n\n");
+            "Escolha exatamente uma intent do enum.\n\n" +
+
+            "Hierarquia de decisão:\n" +
+            "1. Intent de negócio específica: quando a mensagem casa claramente com UMA intent do " +
+            "catálogo (ver <ambiguity_handling> pro critério de \"claramente\").\n" +
+            $"2. `{SystemIntents.NeedsClarificationName}`: quando >=2 intents de negócio aparecem com " +
+            "força similar — mensagem é dentro do produto mas precisa desambiguar.\n" +
+            $"3. `{SystemIntents.OutOfScopeName}`: quando nenhuma intent de negócio combina " +
+            "(saudações isoladas, perguntas genéricas, fora do domínio declarado).\n\n");
 
         sb.Append("Catálogo:\n");
         foreach (var intent in intents)
@@ -108,6 +115,39 @@ public static class PromptRenderer
         }
         sb.Append("</intents>\n\n");
 
+        // <ambiguity_handling> — regra de dominância concentrada num bloco
+        // próprio. Saída do <intents> só lista catálogo + hierarquia; AQUI fica
+        // o COMO decidir entre intent específica e needs_clarification.
+        // Thresholds (0.6 e 0.25) refletem a decisão de produto: top1 precisa
+        // ter confidence absoluta razoável E gap relevante pro segundo.
+        sb.Append("<ambiguity_handling>\n");
+        sb.Append(
+            "Antes de escolher uma intent específica, avalie mentalmente confidence para cada " +
+            "candidata. Identifique top1 (maior) e top2 (segunda maior).\n\n" +
+
+            "Regra de dominância (escolha top1 SEM desambiguar quando ambas as condições valem):\n" +
+            "- `top1.confidence >= 0.6` E\n" +
+            "- `(top1.confidence - top2.confidence) >= 0.25`.\n\n" +
+
+            $"Caso contrário, se top1 e top2 são ambas intents de negócio, use " +
+            $"`{SystemIntents.NeedsClarificationName}` e preencha `candidate_intents` com >=2 itens " +
+            "(top1, top2 e até top3 se relevante), em ordem decrescente de confidence. Use APENAS " +
+            "nomes do enum; não invente intents.\n\n" +
+
+            $"Se nenhuma intent de negócio tem confidence relevante, use `{SystemIntents.OutOfScopeName}`.\n\n" +
+
+            "Padrões típicos de ambiguidade (avalie se o catálogo tem múltiplas variações):\n" +
+            "- Verbo genérico do domínio sem qualificação (ex: \"investir\", \"transferir\", \"comprar\").\n" +
+            "- Substantivo de domínio amplo sem contexto (ex: \"ajuda\", \"informação\").\n" +
+            "- Resposta a turno anterior que ainda não desambigua (ex: \"qualquer um\", \"tanto faz\").\n\n" +
+
+            "Quando NÃO usar needs_clarification:\n" +
+            "- Apenas 1 candidato de negócio com confidence relevante: escolha esse candidato.\n" +
+            $"- Mensagem fora do domínio: use `{SystemIntents.OutOfScopeName}`.\n" +
+            "- Já é o segundo turno consecutivo de ambiguidade (ver <operational_memory>): caia em " +
+            $"`{SystemIntents.OutOfScopeName}` com reason explicando a desistência.\n");
+        sb.Append("</ambiguity_handling>\n\n");
+
         // <multi_turn_classification> — heurística de continuidade. Regras
         // separadas (não enumeradas) pra cada uma ter um único directive,
         // evitando mistura positivo/negativo no mesmo item.
@@ -120,6 +160,16 @@ public static class PromptRenderer
             "Quando o último turno do assistant terminou com pergunta ou pedido de dado, " +
             "a mensagem atual continua o mesmo intent. Use `last_intent` como pista principal.\n\n" +
 
+            "Caso especial — clarificação resolvida:\n" +
+            $"Quando `last_intent` == `{SystemIntents.NeedsClarificationName}`, o turno anterior pediu " +
+            "desambiguação. A mensagem atual resolve a ambiguidade: escolha a intent específica entre " +
+            "as `last_candidate_intents` do estado `<operational_memory>` injetado (lista de nomes " +
+            "exatos do enum). " +
+            $"NÃO repita `{SystemIntents.NeedsClarificationName}` se a resposta agora casa " +
+            "claramente com uma das candidatas. Se a mensagem do usuário continua ambígua, o " +
+            "servidor força fallback (loop guard) — você não precisa contar tentativas, mas " +
+            "registre em `last_reason` que a ambiguidade persistiu.\n\n" +
+
             "Quando a mensagem introduz claramente novo assunto (mudança de domínio, saudação isolada, " +
             $"pergunta sobre outro produto), classifique pelo novo conteúdo. Cai em `{SystemIntents.OutOfScopeName}` " +
             "se nada do catálogo combinar.\n\n" +
@@ -128,13 +178,33 @@ public static class PromptRenderer
             "confidence < 0.7, reclassifique.\n");
         sb.Append("</multi_turn_classification>\n\n");
 
-        // <operational_memory> — o "sempre preencha" sumiu: schema required já força.
-        // Múltiplos exemplos de last_reason (não um só) pra evitar overfit literal.
+        // <operational_memory> — schema required força. Múltiplos exemplos
+        // de last_reason (não um só) pra evitar overfit literal.
+        // Loop guard textual aqui é REFORÇO; servidor enforced também
+        // (RouterDecisionTelemetryChatClient roda como pre-memory middleware
+        // e reescreve pra out_of_scope quando o LLM emite needs_clarification
+        // repetida).
         sb.Append("<operational_memory>\n");
         sb.Append(
             "No campo `operationalMemory` do output:\n" +
             "- `last_intent`: copie o `intent` escolhido neste turno.\n" +
-            "- `last_reason`: copie o `reason` (até 200 chars).\n\n" +
+            "- `last_reason`: copie o `reason` (até 200 chars).\n" +
+            "- `clarification_depth`: contador de turnos consecutivos com " +
+            $"`{SystemIntents.NeedsClarificationName}`.\n" +
+            $"  - Se `intent` != `{SystemIntents.NeedsClarificationName}`: zere para 0.\n" +
+            $"  - Se `intent` == `{SystemIntents.NeedsClarificationName}`: leia o " +
+            "`clarification_depth` do estado anterior (em <operational_memory> injetado) e some 1. " +
+            "Se não houver estado anterior, comece em 1.\n" +
+            "- `last_candidate_intents`: array com os nomes das `candidate_intents` " +
+            $"deste turno (apenas o campo `intent`, sem confidence). Vazio quando `intent` != " +
+            $"`{SystemIntents.NeedsClarificationName}`. Use nomes exatos do enum.\n\n" +
+
+            "Loop guard: o servidor garante que o Router não fica preso em loop de " +
+            $"`{SystemIntents.NeedsClarificationName}`. Se você emitir `{SystemIntents.NeedsClarificationName}` " +
+            "num turno onde `last_intent` já era essa, o servidor reescreve pra " +
+            $"`{SystemIntents.OutOfScopeName}` com `reason` \"loop guard triggered\". Prefira " +
+            "decidir entre candidatas quando possível (caso especial em <multi_turn_classification>).\n\n" +
+
             "Quando mantém o intent do turno anterior, mencione em `last_reason` que é continuação. " +
             "Exemplos: \"continuação: usuário forneceu dado solicitado\", " +
             "\"continuação: confirmação numérica\", " +

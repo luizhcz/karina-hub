@@ -58,6 +58,13 @@ public static class ServiceCollectionExtensions
                 description: "Injeta uma safety policy fixa (anti prompt injection, scope adherence, anti hallucination, anti leakage) como system message a cada chamada.",
                 settings: []);
 
+            registry.Register("RouterDecisionTelemetry", MiddlewarePhase.Post,
+                (inner, agentId, settings, _) =>
+                    new EfsAiHub.Platform.Runtime.Middlewares.RouterDecisionTelemetryChatClient(inner, agentId, settings, logger),
+                label: "Telemetria de decisão do Router",
+                description: "Emite métricas OTel por decisão do Router (router.decisions_total, router.confidence, router.ambiguity_signals_total) + log estruturado por turno. Aplica validação dura: needs_clarification sem candidate_intents válido é reescrito como out_of_scope antes de ir pro downstream.",
+                settings: []);
+
             return registry;
         });
 

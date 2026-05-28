@@ -577,4 +577,47 @@ public static class MetricsRegistry
     public static readonly Counter<long> SecurityEvents =
         _meter.CreateCounter<long>("security.events_total",
             description: "Eventos do middleware de guardrails de segurança. Tags: event, agent_id.");
+
+    // ── Router observability ────────────────────────────────────────────────
+    //
+    // Camada 1 do plano de ambiguidade: telemetria por decisão do Router pra
+    // dashboards (distribuição de classes guard-rail) e debug ad-hoc. Emitidas
+    // por RouterDecisionTelemetryChatClient após cada turno do Router.
+
+    /// <summary>
+    /// Total de decisões emitidas pelo Router (uma por turno, valor da intent
+    /// escolhida no enum canônico). Tags: <c>agent_id</c>, <c>intent</c>,
+    /// <c>project_id</c>. Dashboards quebram por intent pra ver distribuição
+    /// (ex: % out_of_scope, % needs_clarification, % por intent de negócio).
+    /// </summary>
+    public static readonly Counter<long> RouterDecisions =
+        _meter.CreateCounter<long>("router.decisions_total",
+            description: "Decisões do Router (1 por turno). Tags: agent_id, intent, project_id.");
+
+    /// <summary>
+    /// Histograma da confidence emitida pelo Router junto com a intent
+    /// escolhida (range [0, 1]). Tags: <c>agent_id</c>, <c>intent</c>.
+    /// Útil pra detectar regressões de calibração (ex: confidence média
+    /// caindo em intents de negócio indica que o catálogo precisa de mais
+    /// exemplos ou descrição melhor).
+    /// </summary>
+    public static readonly Histogram<double> RouterConfidence =
+        _meter.CreateHistogram<double>("router.confidence",
+            description: "Confidence emitida pelo Router por turno. Tags: agent_id, intent.");
+
+    /// <summary>
+    /// Eventos discretos relacionados à ambiguidade no Router. Tag
+    /// <c>signal</c> com valores:
+    /// <c>dominant</c> (intent de negócio escolhida — caso feliz, gap satisfez a regra de dominância),
+    /// <c>needs_clarification</c> (Router pediu desambiguação válida),
+    /// <c>out_of_scope</c> (Router classificou fora do domínio),
+    /// <c>invalid_clarification</c> (LLM emitiu needs_clarification sem candidate_intents válido — rewrite via schema violation),
+    /// <c>loop_guard_triggered</c> (LLM emitiu needs_clarification num turno onde o estado anterior já era needs_clarification — rewrite server-side força out_of_scope; distinto de invalid_clarification pra que dashboards separem "LLM bugou schema" vs "ambiguidade não resolvida em N tentativas"),
+    /// <c>parse_failure</c> (output não foi JSON válido — telemetry no-op).
+    /// Tag adicional <c>agent_id</c>. North-star (time-to-resolution) é medido
+    /// fora; este counter é o guard-rail de distribuição.
+    /// </summary>
+    public static readonly Counter<long> RouterAmbiguitySignals =
+        _meter.CreateCounter<long>("router.ambiguity_signals_total",
+            description: "Sinais de ambiguidade do Router. Tags: signal, agent_id.");
 }
