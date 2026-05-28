@@ -401,18 +401,19 @@ export function ToolEditor({ mode }: Props) {
     return <ErrorMessage message={loadError} className="mx-auto max-w-5xl" />
   }
 
-  // POST sempre tem aba de input; GET tem quando InputContentType=Json
-  // (properties viram query string). Outros tipos de input (Text/FormUrlEncoded)
-  // só fazem sentido com body real, portanto só em POST.
+  // POST sempre tem aba de body; GET tem quando InputContentType=Json
+  // (envia body JSON — não-padrão HTTP mas comum em APIs internas tipo
+  // Elasticsearch). Pra query string flat, o autor usa QueryParams.
+  // Text/FormUrlEncoded só em POST (sem body em GET não faz sentido).
   const isGetWithStructuredInput =
     form.method === 'GET' && form.inputContentType === 'Json'
   const showBody = form.method === 'POST' || isGetWithStructuredInput
-  const bodyTabLabel = form.method === 'GET' ? 'Input (query)' : 'Body'
+  const bodyTabLabel = 'Body'
   const inputTypeOptions =
     form.method === 'GET'
       ? [
-          { value: 'None', label: 'Sem input estruturado' },
-          { value: 'Json', label: 'JSON (vira query string)' },
+          { value: 'None', label: 'Sem body' },
+          { value: 'Json', label: 'JSON (não-padrão HTTP — APIs internas)' },
         ]
       : [
           { value: 'None', label: 'Sem body' },
@@ -537,6 +538,9 @@ export function ToolEditor({ mode }: Props) {
             {!showBody && form.method === 'GET' && (
               <span className="ml-1 text-[10px] text-fg-dim">(JSON only)</span>
             )}
+            {form.method === 'GET' && showBody && (
+              <span className="ml-1 text-[10px] text-warning">(non-standard)</span>
+            )}
           </TabButton>
           <TabButton active={tab === 'response'} onClick={() => setTab('response')}>
             Resposta
@@ -617,14 +621,14 @@ export function ToolEditor({ mode }: Props) {
           {tab === 'body' && (
             <div className="space-y-4">
               <Select
-                label={form.method === 'GET' ? 'Tipo de input' : 'Tipo do body'}
+                label="Tipo do body"
                 className="max-w-xs"
                 value={form.inputContentType}
                 onChange={(e) => set('inputContentType', e.target.value as InputContentType)}
                 options={inputTypeOptions}
                 hint={
                   form.method === 'GET' && form.inputContentType === 'Json'
-                    ? 'Properties do schema viram query string flattened na chamada (?campo=valor).'
+                    ? 'GET com body JSON é fora do padrão HTTP. Use só se a API consumidora aceita (Elasticsearch, APIs internas). Pra query string flat, use os campos da aba Params → Query.'
                     : undefined
                 }
               />
@@ -632,7 +636,7 @@ export function ToolEditor({ mode }: Props) {
               {(form.inputContentType === 'Json' || form.inputContentType === 'FormUrlEncoded') && (
                 <div>
                   <label className="mb-2 block text-xs font-medium text-fg-muted">
-                    {form.method === 'GET' ? 'Estrutura da query (vira ?k=v na URL)' : 'Estrutura esperada'}
+                    Estrutura esperada
                   </label>
                   <JsonSchemaBuilder
                     value={form.inputBodyExample}
@@ -641,8 +645,6 @@ export function ToolEditor({ mode }: Props) {
                     emptyHint={
                       form.inputContentType === 'FormUrlEncoded'
                         ? 'Form URL-encoded só aceita campos planos (sem objetos aninhados).'
-                        : form.method === 'GET'
-                        ? 'Adicione os campos que viram query params adicionais (?campo=valor).'
                         : 'Adicione os campos que o body deve conter.'
                     }
                   />

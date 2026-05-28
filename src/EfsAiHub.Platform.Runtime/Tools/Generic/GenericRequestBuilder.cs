@@ -27,7 +27,14 @@ public static class GenericRequestBuilder
         foreach (var (key, value) in tool.CustomHeaders)
             request.Headers.TryAddWithoutValidation(key, value);
 
-        if (tool.HttpMethod == HttpMethodType.POST)
+        // GET + Json envia body (apesar de não-padrão HTTP, é comum em APIs
+        // tipo Elasticsearch e endpoints internos). Pra query string flat,
+        // o autor usa QueryParams individuais. POST mantém body do jeito que
+        // sempre foi.
+        var shouldHaveBody = tool.HttpMethod == HttpMethodType.POST
+            || (tool.HttpMethod == HttpMethodType.GET && tool.InputContentType == InputContentType.Json);
+
+        if (shouldHaveBody)
         {
             var body = BuildBody(tool, args);
             if (body is not null)
@@ -46,38 +53,21 @@ public static class GenericRequestBuilder
             return Uri.EscapeDataString(Stringify(value) ?? string.Empty);
         });
 
-        var queryPairs = new List<KeyValuePair<string, string>>();
-        var consumed = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var k in tool.PathParams.Keys) consumed.Add(k);
+        // QueryParams declarados explicitamente viram query string. Schema de
+        // input (GET+Json) vai pro body, NÃO pra query — quem quer query flat
+        // declara cada chave em QueryParams.
+        if (tool.QueryParams.Count == 0) return url;
 
-        // QueryParams declarados explicitamente sempre entram (filtrados por null).
+        var pairs = new List<string>();
         foreach (var (name, _) in tool.QueryParams)
         {
-            consumed.Add(name);
             if (!args.TryGetValue(name, out var value) || value is null) continue;
-            queryPairs.Add(new KeyValuePair<string, string>(name, Stringify(value) ?? string.Empty));
+            pairs.Add($"{Uri.EscapeDataString(name)}={Uri.EscapeDataString(Stringify(value) ?? string.Empty)}");
         }
 
-        // GET + InputContentType=Json: properties extras do args (não-path/query)
-        // viram query string flattened. Permite que o autor declare um schema
-        // estruturado de input num GET, sem precisar enumerar cada campo em
-        // QueryParams.
-        if (tool.HttpMethod == HttpMethodType.GET && tool.InputContentType == InputContentType.Json)
-        {
-            var extras = new Dictionary<string, object?>(StringComparer.Ordinal);
-            foreach (var (k, v) in args)
-            {
-                if (consumed.Contains(k)) continue;
-                extras[k] = v;
-            }
-            queryPairs.AddRange(QueryStringFlattener.Flatten(extras));
-        }
-
-        if (queryPairs.Count == 0) return url;
-
-        var encoded = QueryStringFlattener.Build(queryPairs);
+        if (pairs.Count == 0) return url;
         var separator = url.Contains('?') ? "&" : "?";
-        return url + separator + encoded;
+        return url + separator + string.Join("&", pairs);
     }
 
     private static HttpContent? BuildBody(GenericTool tool, IReadOnlyDictionary<string, object?> args)

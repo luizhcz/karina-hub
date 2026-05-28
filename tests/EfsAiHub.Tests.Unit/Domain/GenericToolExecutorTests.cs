@@ -163,8 +163,10 @@ public class GenericToolExecutorTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_GetComInputJson_FlattenaSchemaPropsComoQueryString()
+    public async Task ExecuteAsync_GetComInputJson_EnviaBodyJsonNaoQueryString()
     {
+        // GET + Json envia body — não-padrão HTTP mas comum em APIs internas
+        // (Elasticsearch, etc). Pra query flat, autor declara em QueryParams.
         var handler = new StubHandler(_ => Json(HttpStatusCode.OK, "{}"));
         var executor = BuildExecutor(handler);
 
@@ -177,7 +179,6 @@ public class GenericToolExecutorTests
             HttpMethod = HttpMethodType.GET,
             UrlTemplate = "https://api.test/search",
             InputContentType = InputContentType.Json,
-            // Schema declarado pro LLM enxergar — properties viram query string.
             InputSchema = """
                 {"type":"object","properties":{"ticker":{"type":"string"},"qty":{"type":"integer"}},"required":["ticker","qty"],"additionalProperties":false}
                 """,
@@ -192,11 +193,16 @@ public class GenericToolExecutorTests
         });
 
         result.Success.Should().BeTrue();
-        var url = handler.Requests.Single().RequestUri!.AbsoluteUri;
-        url.Should().Contain("ticker=PETR4");
-        url.Should().Contain("qty=100");
-        // Sem Content-Length (GET não tem body).
-        handler.Requests.Single().Content.Should().BeNull();
+        var req = handler.Requests.Single();
+        req.Method.Should().Be(HttpMethod.Get);
+        // URL sem query string (não flattened).
+        req.RequestUri!.AbsoluteUri.Should().NotContain("ticker=");
+        req.RequestUri.AbsoluteUri.Should().NotContain("qty=");
+        // Body JSON com as properties — capturado pelo StubHandler antes do
+        // request ser disposed pelo executor.
+        var body = handler.Bodies.Single();
+        body.Should().Contain("PETR4");
+        body.Should().Contain("100");
     }
 
     [Fact]
