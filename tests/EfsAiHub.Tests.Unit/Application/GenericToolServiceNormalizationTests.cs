@@ -52,10 +52,11 @@ public class GenericToolServiceNormalizationTests
     };
 
     [Fact]
-    public async Task CreateAsync_OutputSchemaSemAdditionalProperties_PersisteCanonico()
+    public async Task CreateAsync_OutputSchemaSemAdditionalProperties_PreservaSemForcar()
     {
-        // Schema raw que o usuário cola — sem additionalProperties:false e
-        // required parcial. Normalizer força ambos no canônico.
+        // Output role NÃO força strict (additionalProperties:false /
+        // required:[all]) — response com campos extras passa pelo projector
+        // (drop silencioso); user-declared required (vazio aqui) é preservado.
         var raw = """{"type":"object","properties":{"id":{"type":"string"}}}""";
 
         var (svc, repo) = Build();
@@ -67,9 +68,10 @@ public class GenericToolServiceNormalizationTests
 
         captured.Should().NotBeNull();
         var canon = JsonDocument.Parse(captured!.OutputSchema!).RootElement;
-        canon.GetProperty("additionalProperties").GetBoolean().Should().BeFalse();
-        canon.GetProperty("required").EnumerateArray().Select(e => e.GetString())
-             .Should().BeEquivalentTo(new[] { "id" });
+        canon.TryGetProperty("additionalProperties", out _).Should().BeFalse(
+            "Output canônico não força additionalProperties:false");
+        canon.TryGetProperty("required", out _).Should().BeFalse(
+            "Output canônico não força required quando user não declarou");
     }
 
     [Fact]

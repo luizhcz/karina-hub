@@ -198,6 +198,25 @@ public static class AgUiEndpoints
             .Select(m => new ChatMessageInput("user", m.Content, Actor: actorEnum))
             .ToList();
 
+        // Echo = tudo no input.Messages ANTES do trailing user run. Padrão
+        // AG-UI: cliente reenvia a conversa inteira a cada call. O backend
+        // usa esse echo como história do TURNO quando DB está vazio (conv
+        // nova / synthetic). Conv estabelecida → DB é authoritative.
+        //
+        // SECURITY: role 'system' é EXCLUÍDA do echo — cliente não pode
+        // injetar instruções no system prompt do Router via essa janela.
+        // Role 'tool' também excluída (resposta de aprovação HITL tem
+        // caminho próprio em ProcessApprovalsAsync).
+        var newMessageCount = newUserMessages.Count;
+        var echoHistory = input.Messages is null || input.Messages.Count <= newMessageCount
+            ? null
+            : input.Messages
+                .Take(input.Messages.Count - newMessageCount)
+                .Where(m => !string.IsNullOrWhiteSpace(m.Content)
+                            && (m.Role == "user" || m.Role == "assistant"))
+                .Select(m => new ChatMessageInput(m.Role, m.Content!, Actor.Human))
+                .ToList();
+
         // Pin opcional: header x-version pinna a execução numa WorkflowVersion
         // específica. Empty/whitespace tratado como ausente — caminho legado
         // continua lendo o estado mutável atual.
@@ -208,7 +227,8 @@ public static class AgUiEndpoints
             session.ConversationId,
             resolvedUserId,
             messages, ct,
-            workflowVersionId);
+            workflowVersionId,
+            echoHistory);
 
         if (sendResult.Status != ConversationOperationStatus.Ok)
         {

@@ -63,7 +63,8 @@ public interface IConversationFacade
         string userId,
         IReadOnlyList<ChatMessageInput> inputs,
         CancellationToken ct,
-        string? workflowVersionId = null);
+        string? workflowVersionId = null,
+        IReadOnlyList<ChatMessageInput>? echoHistory = null);
 
     Task<ConversationOperationResult<bool>> DeleteAsync(string conversationId, CancellationToken ct);
 
@@ -154,7 +155,8 @@ public sealed class ConversationFacade : IConversationFacade
         string userId,
         IReadOnlyList<ChatMessageInput> inputs,
         CancellationToken ct,
-        string? workflowVersionId = null)
+        string? workflowVersionId = null,
+        IReadOnlyList<ChatMessageInput>? echoHistory = null)
     {
         if (inputs.Count == 0)
             return ConversationOperationResult<SendMessageResult>.BadRequest("A lista de mensagens não pode ser vazia.");
@@ -178,7 +180,7 @@ public sealed class ConversationFacade : IConversationFacade
 
         try
         {
-            var result = await _conversationService.SendMessagesAsync(session, inputs, ct, workflowVersionId);
+            var result = await _conversationService.SendMessagesAsync(session, inputs, ct, workflowVersionId, echoHistory);
             return ConversationOperationResult<SendMessageResult>.Success(result);
         }
         catch (ChatBackPressureException ex)

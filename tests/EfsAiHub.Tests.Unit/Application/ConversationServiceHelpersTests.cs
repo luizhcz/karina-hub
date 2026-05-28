@@ -207,6 +207,92 @@ public class ConversationServiceHelpersTests
         combined.Message.Should().Be("a");
     }
 
+    // ── ResolveHistoryWithEcho — echo só preenche quando DB vazio ─────────
+
+    [Fact]
+    public void ResolveHistoryWithEcho_DbVazioEEchoPresente_UsaEcho()
+    {
+        // Cenário: conv nova / synthetic. Cliente AG-UI manda
+        // [user, assistant, user] num único call. DB ainda não tem nada.
+        // Sem o echo, Router veria só o último user sem contexto dos turnos
+        // anteriores que o cliente quer mostrar.
+        var echo = new[]
+        {
+            new ChatMessageInput("user", "Quero comprar um ativo", Actor.Human),
+            new ChatMessageInput("assistant", "Qual ativo?", Actor.Human),
+        };
+
+        var result = ConversationService.ResolveHistoryWithEcho(
+            "conv-1",
+            dbHistory: Array.Empty<ChatMessage>(),
+            echoHistory: echo,
+            out var applied);
+
+        applied.Should().BeTrue();
+        result.Should().HaveCount(2);
+        result[0].Role.Should().Be("user");
+        result[0].Content.Should().Be("Quero comprar um ativo");
+        result[1].Role.Should().Be("assistant");
+        result[1].Content.Should().Be("Qual ativo?");
+        result[0].ConversationId.Should().Be("conv-1");
+    }
+
+    [Fact]
+    public void ResolveHistoryWithEcho_DbComMensagens_IgnoraEcho()
+    {
+        // Cenário: conv estabelecida (turnos anteriores já persistidos).
+        // DB é authoritative — preserva StructuredOutput dos assistants,
+        // MessageId real, TokenCount, e impede divergência multi-tab.
+        var dbHistory = new[]
+        {
+            ChatMessageOf("Quero comprar real", Actor.Human),
+        };
+        var echo = new[]
+        {
+            new ChatMessageInput("user", "spoofed prior", Actor.Human),
+            new ChatMessageInput("assistant", "spoofed response", Actor.Human),
+        };
+
+        var result = ConversationService.ResolveHistoryWithEcho(
+            "conv-1",
+            dbHistory: dbHistory,
+            echoHistory: echo,
+            out var applied);
+
+        applied.Should().BeFalse();
+        result.Should().BeSameAs(dbHistory, "DB tem dados — echo é ignorado");
+    }
+
+    [Fact]
+    public void ResolveHistoryWithEcho_EchoNullOuVazio_UsaDb()
+    {
+        var dbHistory = new[]
+        {
+            ChatMessageOf("real", Actor.Human),
+        };
+
+        var nullEcho = ConversationService.ResolveHistoryWithEcho(
+            "conv-1", dbHistory, echoHistory: null, out var applied1);
+        var emptyEcho = ConversationService.ResolveHistoryWithEcho(
+            "conv-1", dbHistory, echoHistory: Array.Empty<ChatMessageInput>(), out var applied2);
+
+        applied1.Should().BeFalse();
+        applied2.Should().BeFalse();
+        nullEcho.Should().BeSameAs(dbHistory);
+        emptyEcho.Should().BeSameAs(dbHistory);
+    }
+
+    [Fact]
+    public void ResolveHistoryWithEcho_DbVazioESemEcho_DevolveDbVazio()
+    {
+        var empty = Array.Empty<ChatMessage>();
+        var result = ConversationService.ResolveHistoryWithEcho(
+            "conv-1", empty, echoHistory: null, out var applied);
+
+        applied.Should().BeFalse();
+        result.Should().BeSameAs(empty);
+    }
+
     [Fact]
     public void CombineTrailingUserInputs_UserAssistantUser_SoUltimoUserVira_Trigger()
     {

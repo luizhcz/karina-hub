@@ -15,7 +15,8 @@ public partial class ConversationService
         ConversationSession conversation,
         IReadOnlyList<ChatMessageInput> inputs,
         CancellationToken ct = default,
-        string? workflowVersionId = null)
+        string? workflowVersionId = null,
+        IReadOnlyList<ChatMessageInput>? echoHistory = null)
     {
         if (inputs.Count == 0)
             return new SendMessageResult(null, false, null);
@@ -95,7 +96,37 @@ public partial class ConversationService
         // combina o trailing run num único trigger pro workflow.
         var trigger = CombineTrailingUserInputs(inputs);
 
-        return await TriggerWorkflowAsync(conversation, trigger, persisted, ct, workflowVersionId);
+        return await TriggerWorkflowAsync(conversation, trigger, persisted, ct, workflowVersionId, echoHistory);
+    }
+
+    /// <summary>
+    /// Decide o histórico do turno: usa <paramref name="echoHistory"/> só
+    /// quando <paramref name="dbHistory"/> está vazio (conv nova/synthetic).
+    /// Conv estabelecida → DB é authoritative (preserva StructuredOutput dos
+    /// assistants, MessageId real, TokenCount, e impede divergência multi-tab).
+    /// </summary>
+    internal static IReadOnlyList<ChatMessage> ResolveHistoryWithEcho(
+        string conversationId,
+        IReadOnlyList<ChatMessage> dbHistory,
+        IReadOnlyList<ChatMessageInput>? echoHistory,
+        out bool echoApplied)
+    {
+        echoApplied = false;
+        if (echoHistory is not { Count: > 0 } || dbHistory.Count > 0)
+            return dbHistory;
+
+        echoApplied = true;
+        return echoHistory
+            .Select(e => new ChatMessage
+            {
+                MessageId = Guid.NewGuid().ToString("N"),
+                ConversationId = conversationId,
+                Role = e.Role,
+                Content = e.Message,
+                TokenCount = 0,
+                CreatedAt = DateTime.UtcNow,
+            })
+            .ToList();
     }
 
     internal static ChatMessageInput CombineTrailingUserInputs(IReadOnlyList<ChatMessageInput> inputs)
@@ -120,7 +151,8 @@ public partial class ConversationService
         ChatMessageInput lastInput,
         List<ChatMessage> persisted,
         CancellationToken ct,
-        string? workflowVersionId = null)
+        string? workflowVersionId = null,
+        IReadOnlyList<ChatMessageInput>? echoHistory = null)
     {
         var workflowDef = await _workflowDefRepo.GetByIdAsync(conversation.WorkflowId, ct);
         var config = workflowDef?.Configuration;
@@ -142,6 +174,17 @@ public partial class ConversationService
         var historyWithoutCurrent = history
             .Where(m => !persisted.Any(p => p.MessageId == m.MessageId))
             .ToList();
+
+        var echoApplied = false;
+        var resolvedHistory = ResolveHistoryWithEcho(
+            conversation.ConversationId, historyWithoutCurrent, echoHistory, out echoApplied);
+        if (echoApplied)
+        {
+            _logger.LogInformation(
+                "[ConvService] Conv '{ConvId}' sem histórico em DB — usando echo do client ({Count} mensagens) como contexto do turno.",
+                conversation.ConversationId, echoHistory!.Count);
+        }
+        historyWithoutCurrent = resolvedHistory.ToList();
 
         // Token-aware trimming: remove as mensagens mais antigas até caber no budget
         if (maxHistoryTokens is > 0)

@@ -31,7 +31,8 @@ public interface IConversationMessaging
         ConversationSession conversation,
         IReadOnlyList<ChatMessageInput> inputs,
         CancellationToken ct = default,
-        string? workflowVersionId = null);
+        string? workflowVersionId = null,
+        IReadOnlyList<ChatMessageInput>? echoHistory = null);
 
     Task OnExecutionCompletedAsync(
         string conversationId, string finalOutput, string executionId,
