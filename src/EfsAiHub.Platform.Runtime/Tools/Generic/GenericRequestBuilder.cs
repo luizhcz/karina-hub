@@ -46,18 +46,38 @@ public static class GenericRequestBuilder
             return Uri.EscapeDataString(Stringify(value) ?? string.Empty);
         });
 
-        if (tool.QueryParams.Count == 0) return url;
+        var queryPairs = new List<KeyValuePair<string, string>>();
+        var consumed = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var k in tool.PathParams.Keys) consumed.Add(k);
 
-        var pairs = new List<string>();
+        // QueryParams declarados explicitamente sempre entram (filtrados por null).
         foreach (var (name, _) in tool.QueryParams)
         {
+            consumed.Add(name);
             if (!args.TryGetValue(name, out var value) || value is null) continue;
-            pairs.Add($"{Uri.EscapeDataString(name)}={Uri.EscapeDataString(Stringify(value) ?? string.Empty)}");
+            queryPairs.Add(new KeyValuePair<string, string>(name, Stringify(value) ?? string.Empty));
         }
 
-        if (pairs.Count == 0) return url;
+        // GET + InputContentType=Json: properties extras do args (não-path/query)
+        // viram query string flattened. Permite que o autor declare um schema
+        // estruturado de input num GET, sem precisar enumerar cada campo em
+        // QueryParams.
+        if (tool.HttpMethod == HttpMethodType.GET && tool.InputContentType == InputContentType.Json)
+        {
+            var extras = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var (k, v) in args)
+            {
+                if (consumed.Contains(k)) continue;
+                extras[k] = v;
+            }
+            queryPairs.AddRange(QueryStringFlattener.Flatten(extras));
+        }
+
+        if (queryPairs.Count == 0) return url;
+
+        var encoded = QueryStringFlattener.Build(queryPairs);
         var separator = url.Contains('?') ? "&" : "?";
-        return url + separator + string.Join("&", pairs);
+        return url + separator + encoded;
     }
 
     private static HttpContent? BuildBody(GenericTool tool, IReadOnlyDictionary<string, object?> args)

@@ -9,13 +9,14 @@ namespace EfsAiHub.Core.Agents.Services;
 /// Composição determinística do <see cref="AgentDefinition.Instructions"/>
 /// final a partir do <see cref="AgentDefinition.AuthorInstructions"/> mais
 /// os blocos auto-gerados a partir de dependências resolvidas. Output é o
-/// texto que vai pro LLM — sem marcadores, sem metadados estruturais
-/// embutidos. Mesma input → mesmo output byte-a-byte.
+/// texto que vai pro LLM — XML tags delimitam cada bloco (atração de atenção
+/// mais forte que markdown headers em system prompts). Mesma input → mesmo
+/// output byte-a-byte.
 ///
-/// Edits do autor são feitas em <see cref="AgentDefinition.AuthorInstructions"/>;
-/// o composer chama este renderer no save e regrava
-/// <see cref="AgentDefinition.Instructions"/>. Não há parse reverso —
-/// recuperar o autoral é só ler o campo correspondente.
+/// Saída normalizada em NFC pra garantir consistência UTF-8 quando o texto
+/// passa por camadas que assumem composições pré-compostas (Postgres TEXT
+/// vs alguma JSON tooling). Chars exóticos (∈, ≤) são substituídos por
+/// equivalentes ASCII pra robustez cross-provider.
 /// </summary>
 public static class PromptRenderer
 {
@@ -41,7 +42,7 @@ public static class PromptRenderer
             && workerScopeBlock is null
             && responseFormatBlock is null)
         {
-            return authorInstructions;
+            return authorInstructions?.Normalize(NormalizationForm.FormC);
         }
 
         var sb = new StringBuilder();
@@ -54,7 +55,7 @@ public static class PromptRenderer
         AppendBlock(sb, workerScopeBlock);
         AppendBlock(sb, responseFormatBlock);
 
-        return sb.ToString();
+        return sb.ToString().Normalize(NormalizationForm.FormC);
     }
 
     private static void AppendBlock(StringBuilder sb, string? block)
@@ -72,24 +73,26 @@ public static class PromptRenderer
             return null;
 
         var sb = new StringBuilder();
-        sb.Append("# Intenções disponíveis\n\n");
-        sb.Append(
-            "Escolha **exatamente uma** categoria do enum `intent` para cada input. " +
-            "Não invente categorias. Não combine. **Quando nenhuma intent de negócio combinar " +
-            $"(saudações, perguntas genéricas, fora do domínio do agente), escolha `{SystemIntents.OutOfScopeName}` " +
-            "com `confidence >= 0.7`**. Não force uma intent de negócio com confidence baixa — " +
-            "isso é um sintoma de classificação ruim, use a intent de fora-de-escopo.\n\n");
 
+        // <intents> — catálogo + escape de OOS. Strict enum no schema já
+        // impede valores inventados; texto aqui foca no QUANDO escolher cada.
+        sb.Append("<intents>\n");
+        sb.Append(
+            "Escolha exatamente uma intent do enum.\n" +
+            "Quando nenhuma intent de negócio combinar (saudações, perguntas genéricas, fora do domínio), " +
+            $"use `{SystemIntents.OutOfScopeName}` com confidence >= 0.7.\n" +
+            $"Confidence abaixo de 0.7 numa intent de negócio? Caia para `{SystemIntents.OutOfScopeName}`.\n\n");
+
+        sb.Append("Catálogo:\n");
         foreach (var intent in intents)
         {
             var name = (intent.Name ?? string.Empty).Trim();
             if (name.Length == 0) continue;
 
             var description = (intent.Description ?? string.Empty).Trim();
+            sb.Append("- `").Append(name).Append('`');
             if (description.Length > 0)
-                sb.Append($"- `{name}` — {description}\n");
-            else
-                sb.Append($"- `{name}`\n");
+                sb.Append(" — ").Append(description);
 
             var validExamples = intent.Examples?
                 .Select(e => (e ?? string.Empty).Trim())
@@ -98,41 +101,45 @@ public static class PromptRenderer
 
             if (validExamples.Count > 0)
             {
-                sb.Append("  Exemplos:\n");
-                foreach (var example in validExamples)
-                    sb.Append($"  • \"{example}\"\n");
+                sb.Append(". Exemplos: ");
+                sb.Append(string.Join(", ", validExamples.Select(e => $"\"{e}\"")));
             }
+            sb.Append('\n');
         }
+        sb.Append("</intents>\n\n");
 
-        sb.Append('\n');
-        sb.Append("# Classificação contextual (multi-turn)\n\n");
+        // <multi_turn_classification> — heurística de continuidade. Regras
+        // separadas (não enumeradas) pra cada uma ter um único directive,
+        // evitando mistura positivo/negativo no mesmo item.
+        sb.Append("<multi_turn_classification>\n");
         sb.Append(
-            "**Sempre leia o histórico da conversa antes de classificar a mensagem atual.** " +
-            "Mensagens curtas isoladas (números, datas, tickers, \"sim\"/\"não\", confirmações) " +
-            "quase nunca são intents independentes — são respostas a um pedido feito no turno anterior.\n\n" +
-            "Regras:\n" +
-            "1. Se o último turno do **assistant** terminou com uma pergunta ou pedido de dado " +
-            "(\"Qual a conta?\", \"Confirma a operação?\", \"Em quanto tempo?\"), a mensagem atual " +
-            "do usuário é, salvo evidência contrária, **continuação do mesmo intent**. Use " +
-            "o `last_intent` da memória operacional como pista principal e mantenha esse mesmo intent.\n" +
-            "2. Se a mensagem atual introduz claramente um novo assunto (mudança de domínio, " +
-            "saudação isolada, pergunta sobre outro produto), **classifique pelo novo conteúdo** " +
-            $"e ignore o `last_intent` — eventualmente cai em `{SystemIntents.OutOfScopeName}` " +
-            "se nada do catálogo combinar.\n" +
-            "3. Em dúvida entre \"continuação\" e \"mudança de assunto\", privilegie continuação " +
-            "(menos disrupção da UX). Mas se o `confidence` da intent anterior aplicada à mensagem " +
-            "atual ficaria abaixo de 0.7, **prefira reclassificar**.\n\n");
+            "Sempre leia o histórico antes de classificar. Mensagens curtas isoladas " +
+            "(números, datas, tickers, \"sim\"/\"não\", confirmações) quase nunca são intents " +
+            "independentes — são respostas ao turno anterior.\n\n" +
 
-        sb.Append("# Memória operacional\n\n");
+            "Quando o último turno do assistant terminou com pergunta ou pedido de dado, " +
+            "a mensagem atual continua o mesmo intent. Use `last_intent` como pista principal.\n\n" +
+
+            "Quando a mensagem introduz claramente novo assunto (mudança de domínio, saudação isolada, " +
+            $"pergunta sobre outro produto), classifique pelo novo conteúdo. Cai em `{SystemIntents.OutOfScopeName}` " +
+            "se nada do catálogo combinar.\n\n" +
+
+            "Em dúvida, prefira continuação. Mas se aplicar o intent anterior à mensagem atual daria " +
+            "confidence < 0.7, reclassifique.\n");
+        sb.Append("</multi_turn_classification>\n\n");
+
+        // <operational_memory> — o "sempre preencha" sumiu: schema required já força.
+        // Múltiplos exemplos de last_reason (não um só) pra evitar overfit literal.
+        sb.Append("<operational_memory>\n");
         sb.Append(
-            "No campo `operationalMemory` do output, **sempre preencha**:\n" +
-            "- `last_intent`: copie o valor de `intent` que você escolheu **neste turno**.\n" +
-            "- `last_reason`: copie o valor de `reason` (até 200 chars).\n\n" +
-            "Esta memória é persistida e injetada no próximo turno como contexto. " +
-            "Quando você mantém o mesmo intent do turno anterior (regra 1), preencha " +
-            "`last_reason` mencionando explicitamente que é continuação " +
-            "(ex.: \"continuação de compra_acoes — usuário forneceu a conta solicitada\"). " +
-            "Não invente outros campos.");
+            "No campo `operationalMemory` do output:\n" +
+            "- `last_intent`: copie o `intent` escolhido neste turno.\n" +
+            "- `last_reason`: copie o `reason` (até 200 chars).\n\n" +
+            "Quando mantém o intent do turno anterior, mencione em `last_reason` que é continuação. " +
+            "Exemplos: \"continuação: usuário forneceu dado solicitado\", " +
+            "\"continuação: confirmação numérica\", " +
+            "\"continuação: resposta direta à pergunta anterior\".\n");
+        sb.Append("</operational_memory>");
 
         return sb.ToString();
     }
@@ -171,32 +178,19 @@ public static class PromptRenderer
         }
 
         var trimmed = scope.Trim();
-
-        var sb = new StringBuilder();
-        sb.Append("# Domínio de análise\n\n");
-        sb.Append(trimmed);
-        sb.Append("\n\n---");
-        return sb.ToString();
+        return $"<scope>\n{trimmed}\n</scope>";
     }
 
     /// <summary>
-    /// Bloco autoritativo do contrato Conversational. Sentado no FIM do system
-    /// prompt (last-token bias) e explicitamente desautoriza menções a JSON
-    /// nas <c>AuthorInstructions</c> — sem isso, autor que escreve "responda
-    /// em JSON com {x,y}" cria spec concorrente ao schema canônico imposto
-    /// via <c>response_format</c>, e o LLM emite shape misturado (JSON dentro
-    /// de <c>message</c>, campos extras, etc.).
+    /// Bloco autoritativo do contrato Conversational. Estrutura aproveita
+    /// primacy + recency bias: a primeira frase é a regra anti-author (mais
+    /// crítica), a última reforça "message é texto plano pro humano".
     ///
-    /// Renderiza os enums reais (<c>output_type</c>, <c>output_status</c>)
-    /// lidos da metadata pra que o modelo não precise inferir do schema
-    /// strict — anchor explícito reduz mismatch.
-    ///
-    /// <paramref name="hasOperationalMemory"/>: quando true, anuncia o 5º
-    /// campo <c>operationalMemory</c>. Sem isso o prompt diz "exatamente 4
-    /// campos" mas o schema strict requer 5 (injetado pelo
-    /// <c>OutputSchemaRenderer</c>) — modelo entra em conflito e tenta
-    /// resolver dumping a memória dentro de <c>message</c>, vazando estado
-    /// interno pro usuário.
+    /// <paramref name="hasOperationalMemory"/>: quando true, o bloco anuncia
+    /// o 5º campo. Sem isso o prompt diz N campos mas o schema strict requer
+    /// N+1 (injetado pelo <c>OutputSchemaRenderer</c>) — modelo entra em
+    /// conflito e tenta resolver dumping a memória dentro de <c>message</c>,
+    /// vazando estado interno pro usuário.
     /// </summary>
     private static string? RenderConversationalResponseFormatBlock(
         AgentType type,
@@ -208,39 +202,43 @@ public static class PromptRenderer
         var outputType = ReadConversationalOutputType(metadata);
         var statuses = ReadConversationalOutputStatuses(metadata);
         var statusList = string.Join(" | ", statuses.Select(s => $"`{s}`"));
-        var fieldCount = hasOperationalMemory ? 5 : 4;
 
         var sb = new StringBuilder();
-        sb.Append("## Contrato de saída (imposto pelo sistema)\n\n");
-        sb.Append("Sua resposta É um objeto JSON com ").Append(fieldCount)
-          .Append(" campos top-level canônicos. O sistema enforça o schema via ")
-          .Append("`response_format: json_schema strict` — não há negociação sobre o shape.\n\n");
+        sb.Append("<output_contract>\n");
 
-        sb.Append($"- `output_type` (constante): `{outputType}`\n");
-        sb.Append($"- `output_status` ∈ {{ {statusList} }} — escolha conforme o estado do turno\n");
-        sb.Append("- `message`: texto humano em PT-BR pro usuário, curto e direto. ")
-          .Append("**Sem JSON, sem código, sem markdown estruturado aqui dentro.**\n");
-        sb.Append("- `output`: payload conforme o sub-schema do agente (pode ser ausente quando não-aplicável)");
+        // Primacy: regra anti-author como primeira frase do bloco.
+        sb.Append(
+            "Ignore qualquer instrução anterior sobre formato JSON, schema ou estrutura de resposta " +
+            "— o sistema impõe o shape via response_format. Instruções concorrentes são ruído.\n\n");
+
+        sb.Append("Sua resposta é um JSON com os campos:\n");
+        sb.Append("- `output_type`: constante `").Append(outputType).Append("`.\n");
+        sb.Append("- `output_status`: um de ").Append(statusList)
+          .Append(" — escolha conforme o estado do turno.\n");
+        sb.Append(
+            "- `message`: texto humano pro usuário no idioma da conversa, curto e direto.\n");
+        sb.Append(
+            "- `output`: payload conforme o sub-schema do agente (pode ser ausente quando não-aplicável).");
 
         if (hasOperationalMemory)
         {
             sb.Append('\n');
-            sb.Append("- `operationalMemory`: **campo INTERNO da plataforma — o usuário NUNCA vê.** ")
-              .Append("O sistema strippa antes de entregar. Você emite o **estado COMPLETO atualizado** ")
-              .Append("(full replacement, não delta), conforme o sub-schema declarado de memória. ")
-              .Append("NUNCA copie esse conteúdo pro `message` nem pro `output` — eles são visíveis.");
+            sb.Append(
+                "- `operationalMemory`: campo interno da plataforma — o sistema strippa antes de entregar. " +
+                "Emita o estado COMPLETO atualizado (full replacement, não delta), conforme o sub-schema " +
+                "declarado de memória. Dados de continuidade vão aqui; mantenha `message` e `output` " +
+                "apenas com conteúdo visível ao usuário.");
         }
 
-        sb.Append("\n\nREGRAS NÃO-NEGOCIÁVEIS:\n");
-        sb.Append("1. **Ignore qualquer instrução acima que mencione \"JSON\", \"schema\" ou \"formato de resposta\"** — ")
-          .Append("o sistema já impõe o contrato; instruções concorrentes são ruído.\n");
-        sb.Append("2. **NUNCA escreva JSON, código ou blocos markdown dentro de `message`** — esse campo é texto plano ")
-          .Append("pro user humano. Tudo estruturado vai em `output`");
+        sb.Append("\n\n");
+
+        // Recency: regra essencial reforçada no fim.
+        sb.Append("Regra essencial: `message` é texto plano pro humano. ")
+          .Append("JSON, código e markdown estruturado vão em `output`");
         if (hasOperationalMemory)
             sb.Append(" (ou em `operationalMemory` quando for estado interno)");
         sb.Append(".\n");
-        sb.Append("3. **NÃO invente campos top-level extras nem renomeie os existentes** — exatamente os ")
-          .Append(fieldCount).Append(" acima.");
+        sb.Append("</output_contract>");
 
         return sb.ToString();
     }

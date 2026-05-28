@@ -35,16 +35,18 @@ public sealed class GenericResponseProjector
     }
 
     /// <summary>
-    /// Projeta o input contra o schema. Quando <paramref name="mode"/> é
-    /// <c>Off</c> ou schema é null/vazio, devolve <see cref="ProjectionResult.AsBypass"/>.
+    /// Projeta o input contra o schema. Quando <paramref name="schemaJson"/>
+    /// é null/vazio (caso de OutputContentType=Text), devolve
+    /// <see cref="ProjectionResult.AsBypass"/>. Caso contrário, sempre valida
+    /// e projeta — drop silencioso de campos extras, fail-loud em required
+    /// ausente ou type mismatch.
     /// </summary>
     public ProjectionResult Project(
         object? parsed,
         string? schemaJson,
-        OutputProjectionMode mode,
         string toolName)
     {
-        if (mode == OutputProjectionMode.Off || string.IsNullOrWhiteSpace(schemaJson))
+        if (string.IsNullOrWhiteSpace(schemaJson))
             return ProjectionResult.AsBypass(parsed);
         if (parsed is null)
             return ProjectionResult.AsBypass(null);
@@ -90,7 +92,7 @@ public sealed class GenericResponseProjector
         }
 
         TruncationInfo? truncation = null;
-        var projected = ProjectNode(node, schema, mode, ref truncation);
+        var projected = ProjectNode(node, schema, ref truncation);
 
         return ProjectionResult.AsSuccess(projected, truncation);
     }
@@ -152,7 +154,6 @@ public sealed class GenericResponseProjector
     private static JsonNode? ProjectNode(
         JsonNode? node,
         JsonSchema schema,
-        OutputProjectionMode mode,
         ref TruncationInfo? truncation)
     {
         if (node is null) return null;
@@ -169,7 +170,7 @@ public sealed class GenericResponseProjector
                 // Reparenting requer detach (sub ainda pertence ao obj original).
                 // Como obj é descartado, é seguro: sub passa a viver na nova árvore.
                 obj.Remove(key);
-                projected[key] = ProjectNode(sub, subSchema, mode, ref truncation);
+                projected[key] = ProjectNode(sub, subSchema, ref truncation);
             }
             return projected;
         }
@@ -185,7 +186,7 @@ public sealed class GenericResponseProjector
             {
                 var element = arr[0];
                 arr.RemoveAt(0);
-                projectedArr.Add(element is null ? null : ProjectNode(element, items, mode, ref truncation));
+                projectedArr.Add(element is null ? null : ProjectNode(element, items, ref truncation));
             }
             if (originalCount > limit && truncation is null)
             {

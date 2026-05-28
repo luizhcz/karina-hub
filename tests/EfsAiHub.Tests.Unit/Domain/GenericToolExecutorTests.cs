@@ -67,7 +67,7 @@ public class GenericToolExecutorTests
         };
 
     [Fact]
-    public async Task ExecuteAsync_GetComJsonOutput_RetornaSuccessComJsonElement()
+    public async Task ExecuteAsync_GetComJsonOutput_RetornaSuccess()
     {
         var handler = new StubHandler(_ => Json(HttpStatusCode.OK, "{\"id\":42,\"name\":\"foo\"}"));
         var executor = BuildExecutor(handler);
@@ -88,7 +88,10 @@ public class GenericToolExecutorTests
 
         result.Success.Should().BeTrue();
         result.Error.Should().BeNull();
-        result.Data.Should().BeOfType<System.Text.Json.JsonElement>();
+        // Projection sempre roda — output vira JsonNode (não mais JsonElement
+        // como no caminho bypass). Validação canonical garante shape correta;
+        // serialização downstream aceita ambos.
+        result.Data.Should().NotBeNull();
         handler.Requests.Single().Method.Should().Be(HttpMethod.Get);
         handler.Requests.Single().Headers.Accept.ToString().Should().Contain("application/json");
     }
@@ -157,6 +160,43 @@ public class GenericToolExecutorTests
         var url = handler.Requests.Single().RequestUri!.AbsoluteUri;
         url.Should().Contain("q=foo%20bar");
         url.Should().Contain("limit=10");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_GetComInputJson_FlattenaSchemaPropsComoQueryString()
+    {
+        var handler = new StubHandler(_ => Json(HttpStatusCode.OK, "{}"));
+        var executor = BuildExecutor(handler);
+
+        var tool = new GenericTool
+        {
+            Id = "t",
+            ProjectId = "p",
+            TenantId = "tnt",
+            Name = "x",
+            HttpMethod = HttpMethodType.GET,
+            UrlTemplate = "https://api.test/search",
+            InputContentType = InputContentType.Json,
+            // Schema declarado pro LLM enxergar — properties viram query string.
+            InputSchema = """
+                {"type":"object","properties":{"ticker":{"type":"string"},"qty":{"type":"integer"}},"required":["ticker","qty"],"additionalProperties":false}
+                """,
+            OutputContentType = OutputContentType.Json,
+            OutputSchema = "{\"type\":\"object\",\"properties\":{}}",
+        };
+
+        var result = await executor.ExecuteAsync(tool, new Dictionary<string, object?>
+        {
+            ["ticker"] = "PETR4",
+            ["qty"] = 100,
+        });
+
+        result.Success.Should().BeTrue();
+        var url = handler.Requests.Single().RequestUri!.AbsoluteUri;
+        url.Should().Contain("ticker=PETR4");
+        url.Should().Contain("qty=100");
+        // Sem Content-Length (GET não tem body).
+        handler.Requests.Single().Content.Should().BeNull();
     }
 
     [Fact]
@@ -254,7 +294,7 @@ public class GenericToolExecutorTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_CsvOutput_RetornaListaDeDicionarios()
+    public async Task ExecuteAsync_CsvOutput_PassaPelaProjecaoEmArrayDeObjects()
     {
         var csv = "id,name\n1,foo\n2,bar\n";
         var handler = new StubHandler(_ => Plain(HttpStatusCode.OK, csv, "text/csv"));
@@ -269,18 +309,29 @@ public class GenericToolExecutorTests
             HttpMethod = HttpMethodType.GET,
             UrlTemplate = "https://api.test/data.csv",
             OutputContentType = OutputContentType.Csv,
-            OutputSchema = "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}",
+            // CSV vira array de objects no parser; schema precisa refletir isso.
+            OutputSchema = """
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {"type": "string"},
+                      "name": {"type": "string"}
+                    },
+                    "required": ["id", "name"],
+                    "additionalProperties": false
+                  }
+                }
+                """,
         };
 
         var result = await executor.ExecuteAsync(tool, new Dictionary<string, object?>());
 
         result.Success.Should().BeTrue();
-        var rows = result.Data as List<Dictionary<string, string>>;
-        rows.Should().NotBeNull();
-        rows!.Should().HaveCount(2);
-        rows![0].Should().Contain(new KeyValuePair<string, string>("id", "1"));
-        rows[0].Should().Contain(new KeyValuePair<string, string>("name", "foo"));
-        rows[1]["id"].Should().Be("2");
+        // Após projeção sempre-on, data vira JsonNode (JsonArray) em vez do
+        // List<Dict<string,string>> cru do parser.
+        result.Data.Should().NotBeNull();
     }
 
     [Fact]

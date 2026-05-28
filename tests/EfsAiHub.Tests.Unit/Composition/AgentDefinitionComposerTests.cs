@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using EfsAiHub.Core.Agents.PredefinedModels;
 using EfsAiHub.Core.Agents.RouterIntents;
@@ -59,7 +60,8 @@ public class AgentDefinitionComposerTests
         var composed = await NewComposer().ComposeAsync(input);
 
         composed.Instructions.Should().NotContain("<!--", "system prompt do LLM não pode embutir markers HTML");
-        composed.Instructions.Should().Contain("# Intenções disponíveis");
+        composed.Instructions.Should().Contain("<intents>");
+        composed.Instructions.Should().Contain("</intents>");
         composed.Instructions.Should().Contain("consultar_cotacao");
         composed.AuthorInstructions.Should().Be("Classifique a entrada.");
         composed.RouterIntentIds.Should().BeEquivalentTo(new[] { "intent-cot" });
@@ -77,12 +79,16 @@ public class AgentDefinitionComposerTests
 
         composed.AuthorInstructions.Should().Be("Você é um agente conversacional.");
         composed.Instructions.Should().StartWith("Você é um agente conversacional.");
-        composed.Instructions.Should().Contain("## Contrato de saída (imposto pelo sistema)");
-        // Anchor explícito desautorizando override de formato pelo autor.
-        composed.Instructions.Should().Contain("Ignore qualquer instrução acima que mencione \"JSON\"");
+        composed.Instructions.Should().Contain("<output_contract>");
+        composed.Instructions.Should().Contain("</output_contract>");
+        // Anchor anti-author como PRIMEIRA frase do bloco (primacy bias).
+        composed.Instructions.Should().Contain(
+            "Ignore qualquer instrução anterior sobre formato JSON, schema ou estrutura de resposta");
         // Defaults vêm da metadata ausente (output_type=text, statuses=[default]).
-        composed.Instructions.Should().Contain("`output_type` (constante): `text`");
-        composed.Instructions.Should().Contain("`output_status` ∈ { `default` }");
+        composed.Instructions.Should().Contain("`output_type`: constante `text`");
+        composed.Instructions.Should().Contain("`output_status`: um de `default`");
+        // Regra essencial como ÚLTIMA frase do bloco (recency bias).
+        composed.Instructions.Should().Contain("Regra essencial: `message` é texto plano pro humano");
     }
 
     [Fact]
@@ -100,18 +106,17 @@ public class AgentDefinitionComposerTests
 
         var composed = await NewComposer().ComposeAsync(input);
 
-        // O prompt precisa anunciar 5 campos (não 4) e mencionar operationalMemory
-        // como campo INTERNO. Sem isso, schema strict (5 campos) vs prompt (4)
-        // conflita e o LLM vaza memory dentro de `message`.
-        composed.Instructions.Should().Contain("5 campos top-level canônicos");
+        // Sem anunciar operationalMemory aqui, schema strict (N+1 campos) vs
+        // prompt (N) conflita e o LLM vaza memory dentro de `message`.
         composed.Instructions.Should().Contain("`operationalMemory`");
-        composed.Instructions.Should().Contain("campo INTERNO da plataforma");
-        composed.Instructions.Should().Contain("usuário NUNCA vê");
-        composed.Instructions.Should().Contain("exatamente os 5 acima");
+        composed.Instructions.Should().Contain("campo interno da plataforma");
+        composed.Instructions.Should().Contain("estado COMPLETO atualizado");
+        composed.Instructions.Should().Contain("full replacement");
+        composed.Instructions.Should().Contain("ou em `operationalMemory` quando for estado interno");
     }
 
     [Fact]
-    public async Task Compose_Conversational_SemOperationalMemory_MantemQuatroCampos()
+    public async Task Compose_Conversational_SemOperationalMemory_NaoMencionaCampoExtra()
     {
         var input = BuildAgent(
             id: "agent-conv-sem-mem",
@@ -120,9 +125,8 @@ public class AgentDefinitionComposerTests
 
         var composed = await NewComposer().ComposeAsync(input);
 
-        composed.Instructions.Should().Contain("4 campos top-level canônicos");
         composed.Instructions.Should().NotContain("`operationalMemory`");
-        composed.Instructions.Should().Contain("exatamente os 4 acima");
+        composed.Instructions.Should().NotContain("estado interno");
     }
 
     [Fact]
@@ -140,11 +144,35 @@ public class AgentDefinitionComposerTests
 
         var composed = await NewComposer().ComposeAsync(input);
 
-        composed.Instructions.Should().Contain("`output_type` (constante): `boleta`");
+        composed.Instructions.Should().Contain("`output_type`: constante `boleta`");
         composed.Instructions.Should().Contain("`nova`");
         composed.Instructions.Should().Contain("`confirmada`");
         composed.Instructions.Should().Contain("`erro`");
         composed.Instructions.Should().NotContain("`default`");
+    }
+
+    [Fact]
+    public async Task Render_OutputEhNormalizadoEmNfc()
+    {
+        // "e" + U+0301 (combining acute) = forma decomposta NFD do char.
+        // Render deve devolver SEMPRE NFC pra que comparação byte-a-byte em
+        // Postgres TEXT / JSON tooling não dê mismatch silencioso quando
+        // autor cola texto de fontes variadas (macOS HFS+ usa NFD em alguns
+        // contextos, Windows e Linux usam NFC).
+        var nfd = "café";
+        var nfc = "café";
+        nfd.IsNormalized(NormalizationForm.FormC).Should().BeFalse();
+        nfc.IsNormalized(NormalizationForm.FormC).Should().BeTrue();
+
+        var input = BuildAgent(
+            id: "agent-nfc",
+            type: AgentType.Conversational,
+            instructions: nfd);
+
+        var composed = await NewComposer().ComposeAsync(input);
+
+        composed.Instructions!.IsNormalized(NormalizationForm.FormC).Should().BeTrue();
+        composed.Instructions.Should().Contain(nfc);
     }
 
     [Fact]
@@ -374,7 +402,7 @@ public class AgentDefinitionComposerTests
 
         var composed = await NewComposer().ComposeAsync(input);
         composed.Instructions.Should().NotContain("<!--");
-        composed.Instructions.Should().Contain("# Intenções disponíveis");
+        composed.Instructions.Should().Contain("<intents>");
 
         var decomposed = NewDecomposer().Decompose(composed);
         decomposed.AuthorInstructions.Should().Be(input.AuthorInstructions);

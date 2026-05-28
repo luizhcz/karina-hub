@@ -115,9 +115,14 @@ public sealed class GenericTool
                     $"GenericTool.CustomHeaders não pode definir '{key}' — header reservado (atribuído pelo executor).");
         }
 
-        if (HttpMethod == HttpMethodType.GET && InputContentType != InputContentType.None)
+        if (HttpMethod == HttpMethodType.GET
+            && InputContentType is InputContentType.FormUrlEncoded or InputContentType.Text)
+        {
+            // GET aceita None (sem body) ou Json (vira query string flattened).
+            // FormUrlEncoded e Text não fazem sentido sem body — bloqueio explícito.
             throw new DomainException(
-                "GenericTool com HttpMethod=GET deve ter InputContentType=None.");
+                "GenericTool com HttpMethod=GET só aceita InputContentType=None ou Json.");
+        }
 
         switch (InputContentType)
         {
@@ -126,10 +131,12 @@ public sealed class GenericTool
                 break;
             case InputContentType.Json:
                 EnsureSchemaPresent(nameof(InputSchema), InputSchema);
+                NormalizationGuard.AssertCanonical(InputSchema, nameof(InputSchema));
                 break;
             case InputContentType.FormUrlEncoded:
                 EnsureSchemaPresent(nameof(InputSchema), InputSchema);
                 EnsureFlatSchema(InputSchema!);
+                NormalizationGuard.AssertCanonical(InputSchema, nameof(InputSchema));
                 break;
         }
 
@@ -137,12 +144,12 @@ public sealed class GenericTool
         {
             EnsureSchemaPresent(nameof(OutputSchema), OutputSchema);
             // Json/Csv sempre projeta — o LLM nunca vê response cru de API
-            // estruturada. Schema vazio ({} ou type=object sem properties),
-            // oneOf/anyOf ou $ref ficam reservados pra V2.
+            // estruturada. Schema canonicalizado upstream pelo SchemaNormalizer;
+            // o guard aqui é defesa em profundidade contra escrita direta no DB.
             if (OutputProjectionMode != OutputProjectionMode.Project)
                 throw new DomainException(
                     "GenericTool.OutputProjectionMode deve ser 'Project' quando OutputContentType é Json ou Csv.");
-            EnsureSchemaIsProjectable(OutputSchema);
+            NormalizationGuard.AssertCanonical(OutputSchema, nameof(OutputSchema));
         }
         else if (OutputProjectionMode != OutputProjectionMode.Off)
         {
@@ -180,132 +187,6 @@ public sealed class GenericTool
     {
         if (string.IsNullOrWhiteSpace(schema))
             throw new DomainException($"GenericTool.{field} é obrigatório pra esse Content-Type.");
-    }
-
-    /// <summary>
-    /// Para tools com <see cref="OutputProjectionMode"/> != Off: o schema
-    /// precisa declarar um contrato útil. Rejeita JSON inválido, schemas
-    /// vazios ({} / sem <c>properties</c> em type=object), e keywords
-    /// <c>oneOf</c>/<c>anyOf</c> em qualquer nível (V1 não suporta — drop-extras
-    /// fica ambíguo sobre qual variant aplicar).
-    /// </summary>
-    private static void EnsureSchemaIsProjectable(string? schemaJson)
-    {
-        if (string.IsNullOrWhiteSpace(schemaJson))
-            throw new DomainException(
-                "GenericTool.OutputSchema é obrigatório quando OutputProjectionMode != Off.");
-
-        JsonDocument doc;
-        try
-        {
-            doc = JsonDocument.Parse(schemaJson);
-        }
-        catch (JsonException ex)
-        {
-            throw new DomainException(
-                $"GenericTool.OutputSchema não é um JSON válido: {ex.Message}");
-        }
-
-        using (doc)
-        {
-            var root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Object)
-                throw new DomainException(
-                    "GenericTool.OutputSchema deve ser um objeto JSON Schema.");
-
-            ScanForUnsupportedKeywords(root);
-
-            // Schema vazio ({}, ou type=object sem properties) não declara
-            // contrato algum — projeção viraria no-op silencioso.
-            if (IsEmptyOrTrivialObjectSchema(root))
-                throw new DomainException(
-                    "GenericTool.OutputSchema não pode ser vazio quando OutputProjectionMode != Off — declare ao menos uma propriedade.");
-        }
-    }
-
-    /// <summary>
-    /// Conjuntos de keywords de JSON Schema que aceitam um sub-schema como
-    /// valor — é onde precisamos descer recursivamente. Demais campos
-    /// (description, enum, default, etc.) podem ter qualquer conteúdo
-    /// arbitrário (incluindo strings literais "oneOf") sem que isso seja
-    /// uma keyword de schema. Descer só nesses containers evita falso
-    /// positivo em property literal nomeada "oneOf"/"anyOf"/"$ref".
-    /// </summary>
-    private static readonly HashSet<string> SchemaContainerKeywords =
-        new(StringComparer.Ordinal)
-        {
-            "items", "additionalProperties", "contains", "if", "then", "else", "not",
-            "propertyNames", "unevaluatedItems", "unevaluatedProperties",
-        };
-    private static readonly HashSet<string> SchemaMapKeywords =
-        new(StringComparer.Ordinal)
-        {
-            "properties", "patternProperties", "definitions", "$defs", "dependentSchemas",
-        };
-    private static readonly HashSet<string> SchemaArrayKeywords =
-        new(StringComparer.Ordinal) { "prefixItems", "allOf" };
-
-    private static void ScanForUnsupportedKeywords(JsonElement node)
-    {
-        if (node.ValueKind != JsonValueKind.Object) return;
-
-        // Detecta keyword de schema unsupported NESTE nível.
-        if (node.TryGetProperty("oneOf", out _))
-            throw new DomainException(
-                "GenericTool.OutputSchema usa 'oneOf', não suportado em OutputProjectionMode != Off — reescreva o schema com type/properties explícitos.");
-        if (node.TryGetProperty("anyOf", out _))
-            throw new DomainException(
-                "GenericTool.OutputSchema usa 'anyOf', não suportado em OutputProjectionMode != Off — reescreva o schema com type/properties explícitos.");
-        if (node.TryGetProperty("$ref", out _))
-            throw new DomainException(
-                "GenericTool.OutputSchema usa '$ref', não suportado em OutputProjectionMode != Off — inline o sub-schema referenciado pra evitar fetch externo em runtime.");
-
-        // Descer apenas nos containers que reconhecidamente carregam sub-schema.
-        foreach (var prop in node.EnumerateObject())
-        {
-            if (SchemaContainerKeywords.Contains(prop.Name))
-            {
-                if (prop.Value.ValueKind == JsonValueKind.Object)
-                    ScanForUnsupportedKeywords(prop.Value);
-            }
-            else if (SchemaMapKeywords.Contains(prop.Name))
-            {
-                if (prop.Value.ValueKind != JsonValueKind.Object) continue;
-                foreach (var sub in prop.Value.EnumerateObject())
-                    if (sub.Value.ValueKind == JsonValueKind.Object)
-                        ScanForUnsupportedKeywords(sub.Value);
-            }
-            else if (SchemaArrayKeywords.Contains(prop.Name))
-            {
-                if (prop.Value.ValueKind != JsonValueKind.Array) continue;
-                foreach (var sub in prop.Value.EnumerateArray())
-                    if (sub.ValueKind == JsonValueKind.Object)
-                        ScanForUnsupportedKeywords(sub);
-            }
-        }
-    }
-
-    private static bool IsEmptyOrTrivialObjectSchema(JsonElement root)
-    {
-        if (root.EnumerateObject().Any() == false) return true;
-
-        var hasType = root.TryGetProperty("type", out var typeNode);
-        var typeStr = hasType && typeNode.ValueKind == JsonValueKind.String ? typeNode.GetString() : null;
-
-        // Arrays: aceita se tem `items` declarado.
-        if (typeStr == "array")
-            return !root.TryGetProperty("items", out _);
-
-        // Object explícito sem properties: trivial.
-        if (typeStr == "object" || typeStr is null)
-        {
-            if (!root.TryGetProperty("properties", out var props)
-                || props.ValueKind != JsonValueKind.Object
-                || !props.EnumerateObject().Any())
-                return true;
-        }
-
-        return false;
     }
 
     private static void EnsureFlatSchema(string schemaJson)

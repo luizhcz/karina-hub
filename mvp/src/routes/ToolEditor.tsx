@@ -14,6 +14,7 @@ import {
   type InputContentType,
   type OutputContentType,
   type ParamDefinition,
+  type SchemaWarning,
 } from '../api/genericTools'
 import { friendlyError } from '../api/client'
 import { KvTable, type KvRow } from '../components/PostmanEditor/KvTable'
@@ -160,20 +161,24 @@ function buildBodyFromForm(form: FormState): { body?: CreateGenericToolBody; err
     customHeaders[key] = r.val
   }
 
-  const isPost = form.method === 'POST'
-  const inputContentType: InputContentType = isPost ? form.inputContentType : 'None'
+  // GET aceita None ou Json (input estruturado vira query string flattened).
+  // FormUrlEncoded/Text só em POST (sem body em GET não faz sentido).
+  const isGet = form.method === 'GET'
+  const requestedInput = form.inputContentType
+  const inputContentType: InputContentType =
+    isGet && (requestedInput === 'FormUrlEncoded' || requestedInput === 'Text')
+      ? 'None'
+      : requestedInput
   let inputSchema: string | null = null
-  if (isPost) {
-    if (inputContentType === 'Json' || inputContentType === 'FormUrlEncoded') {
-      inputSchema = form.inputBodyExample
-    } else if (inputContentType === 'Text') {
-      const fieldName = form.textBodyFieldName.trim() || 'body'
-      inputSchema = JSON.stringify({
-        type: 'object',
-        properties: { [fieldName]: { type: 'string' } },
-        required: [fieldName],
-      })
-    }
+  if (inputContentType === 'Json' || inputContentType === 'FormUrlEncoded') {
+    inputSchema = form.inputBodyExample
+  } else if (inputContentType === 'Text') {
+    const fieldName = form.textBodyFieldName.trim() || 'body'
+    inputSchema = JSON.stringify({
+      type: 'object',
+      properties: { [fieldName]: { type: 'string' } },
+      required: [fieldName],
+    })
   }
 
   let outputSchema: string | null = null
@@ -273,6 +278,10 @@ export function ToolEditor({ mode }: Props) {
   // antes de salvar. Resetado a cada mudança no form (qualquer alteração
   // pode invalidar o teste anterior — URL, params, headers, schema, etc.).
   const [testPassed, setTestPassed] = useState(false)
+  // Warnings emitidos pelo backend quando o schema foi canonicalizado no save
+  // (ex.: oneOf colapsado, pattern com lookahead removido). Mostra banner +
+  // bloqueia navegação até o user clicar pra continuar.
+  const [postSaveWarnings, setPostSaveWarnings] = useState<SchemaWarning[] | null>(null)
 
   // Carrega tool existente em modo edit.
   useEffect(() => {
@@ -337,8 +346,19 @@ export function ToolEditor({ mode }: Props) {
     if (testPassed) setTestPassed(false)
   }
 
+  // GET só aceita InputContentType None ou Json — se o user trocar método pra
+  // GET enquanto Text/FormUrlEncoded estavam selecionados (estado carregado
+  // do edit anterior ou switch interativo), clampa pra None.
+  useEffect(() => {
+    if (form.method === 'GET'
+        && (form.inputContentType === 'Text' || form.inputContentType === 'FormUrlEncoded')) {
+      setForm((prev) => ({ ...prev, inputContentType: 'None' }))
+    }
+  }, [form.method, form.inputContentType])
+
   const onSave = async () => {
     setError(null)
+    setPostSaveWarnings(null)
     const built = buildBodyFromForm(form)
     if (built.error) {
       setError(built.error)
@@ -347,14 +367,22 @@ export function ToolEditor({ mode }: Props) {
     const body = built.body!
     setSubmitting(true)
     try {
+      let saved: GenericTool
       if (mode === 'edit' && id && existingUpdatedAt) {
         const { id: _omit, ...rest } = body
         void _omit
-        await updateGenericTool(id, { ...rest, expectedUpdatedAt: existingUpdatedAt })
+        saved = await updateGenericTool(id, { ...rest, expectedUpdatedAt: existingUpdatedAt })
       } else {
-        await createGenericTool({ ...body, id: generateToolId() })
+        saved = await createGenericTool({ ...body, id: generateToolId() })
       }
-      navigate('/ferramentas')
+      // Backend retorna warnings quando o schema foi canonicalizado (oneOf
+      // colapsado, pattern com lookahead removido, etc). Mostra antes de
+      // navegar — autor precisa ver o que mudou pra revisar se faz sentido.
+      if (saved.schemaWarnings && saved.schemaWarnings.length > 0) {
+        setPostSaveWarnings(saved.schemaWarnings)
+      } else {
+        navigate('/ferramentas')
+      }
     } catch (err) {
       setError(friendlyError(err, 'Não foi possível salvar.'))
     } finally {
@@ -373,7 +401,25 @@ export function ToolEditor({ mode }: Props) {
     return <ErrorMessage message={loadError} className="mx-auto max-w-5xl" />
   }
 
-  const showBody = form.method === 'POST'
+  // POST sempre tem aba de input; GET tem quando InputContentType=Json
+  // (properties viram query string). Outros tipos de input (Text/FormUrlEncoded)
+  // só fazem sentido com body real, portanto só em POST.
+  const isGetWithStructuredInput =
+    form.method === 'GET' && form.inputContentType === 'Json'
+  const showBody = form.method === 'POST' || isGetWithStructuredInput
+  const bodyTabLabel = form.method === 'GET' ? 'Input (query)' : 'Body'
+  const inputTypeOptions =
+    form.method === 'GET'
+      ? [
+          { value: 'None', label: 'Sem input estruturado' },
+          { value: 'Json', label: 'JSON (vira query string)' },
+        ]
+      : [
+          { value: 'None', label: 'Sem body' },
+          { value: 'Json', label: 'JSON' },
+          { value: 'Text', label: 'Texto puro' },
+          { value: 'FormUrlEncoded', label: 'Form URL-encoded' },
+        ]
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -486,8 +532,11 @@ export function ToolEditor({ mode }: Props) {
               </span>
             )}
           </TabButton>
-          <TabButton active={tab === 'body'} onClick={() => setTab('body')} disabled={!showBody}>
-            Body {!showBody && <span className="ml-1 text-[10px] text-fg-dim">(POST)</span>}
+          <TabButton active={tab === 'body'} onClick={() => setTab('body')} disabled={!showBody && form.method !== 'GET'}>
+            {bodyTabLabel}
+            {!showBody && form.method === 'GET' && (
+              <span className="ml-1 text-[10px] text-fg-dim">(JSON only)</span>
+            )}
           </TabButton>
           <TabButton active={tab === 'response'} onClick={() => setTab('response')}>
             Resposta
@@ -568,22 +617,22 @@ export function ToolEditor({ mode }: Props) {
           {tab === 'body' && (
             <div className="space-y-4">
               <Select
-                label="Tipo do body"
+                label={form.method === 'GET' ? 'Tipo de input' : 'Tipo do body'}
                 className="max-w-xs"
                 value={form.inputContentType}
                 onChange={(e) => set('inputContentType', e.target.value as InputContentType)}
-                options={[
-                  { value: 'None', label: 'Sem body' },
-                  { value: 'Json', label: 'JSON' },
-                  { value: 'Text', label: 'Texto puro' },
-                  { value: 'FormUrlEncoded', label: 'Form URL-encoded' },
-                ]}
+                options={inputTypeOptions}
+                hint={
+                  form.method === 'GET' && form.inputContentType === 'Json'
+                    ? 'Properties do schema viram query string flattened na chamada (?campo=valor).'
+                    : undefined
+                }
               />
 
               {(form.inputContentType === 'Json' || form.inputContentType === 'FormUrlEncoded') && (
                 <div>
                   <label className="mb-2 block text-xs font-medium text-fg-muted">
-                    Estrutura esperada
+                    {form.method === 'GET' ? 'Estrutura da query (vira ?k=v na URL)' : 'Estrutura esperada'}
                   </label>
                   <JsonSchemaBuilder
                     value={form.inputBodyExample}
@@ -592,6 +641,8 @@ export function ToolEditor({ mode }: Props) {
                     emptyHint={
                       form.inputContentType === 'FormUrlEncoded'
                         ? 'Form URL-encoded só aceita campos planos (sem objetos aninhados).'
+                        : form.method === 'GET'
+                        ? 'Adicione os campos que viram query params adicionais (?campo=valor).'
                         : 'Adicione os campos que o body deve conter.'
                     }
                   />
@@ -695,7 +746,56 @@ export function ToolEditor({ mode }: Props) {
         form={form}
         onTestPassed={() => setTestPassed(true)}
       />
+
+      <SchemaWarningsModal
+        warnings={postSaveWarnings}
+        onClose={() => {
+          setPostSaveWarnings(null)
+          navigate('/ferramentas')
+        }}
+      />
     </div>
+  )
+}
+
+function SchemaWarningsModal({
+  warnings,
+  onClose,
+}: {
+  warnings: SchemaWarning[] | null
+  onClose: () => void
+}) {
+  return (
+    <Modal open={warnings !== null} onClose={onClose} title="Schema canonicalizado" size="lg">
+      <div className="space-y-4">
+        <p className="text-sm text-fg-muted">
+          A ferramenta foi salva com sucesso. O backend converteu o schema
+          para a forma canônica usada pelo LLM — algumas estruturas foram
+          transformadas. Revise os avisos abaixo:
+        </p>
+        <ul className="space-y-2">
+          {(warnings ?? []).map((w, i) => (
+            <li
+              key={`${w.code}-${i}`}
+              className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12px]"
+            >
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono text-[10px] uppercase tracking-wider text-warning">
+                  {w.code}
+                </span>
+                {w.path && (
+                  <span className="font-mono text-[10px] text-fg-dim">{w.path}</span>
+                )}
+              </div>
+              <p className="mt-1 text-fg">{w.message}</p>
+            </li>
+          ))}
+        </ul>
+        <div className="flex justify-end pt-2">
+          <Button onClick={onClose}>Entendi, voltar pra lista</Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -781,18 +881,20 @@ function buildArgsTemplate(form: FormState): string {
   const keys: string[] = []
   for (const r of form.pathRows) if (r.key.trim()) keys.push(r.key.trim())
   for (const r of form.queryRows) if (r.key.trim()) keys.push(r.key.trim())
-  if (form.method === 'POST') {
-    if (form.inputContentType === 'Json' || form.inputContentType === 'FormUrlEncoded') {
-      try {
-        const schema = JSON.parse(form.inputBodyExample) as { properties?: Record<string, unknown> }
-        if (schema.properties) keys.push(...Object.keys(schema.properties))
-      } catch {
-        // schema inválido — ignora; user preenche manualmente
-      }
-    } else if (form.inputContentType === 'Text') {
-      keys.push(form.textBodyFieldName.trim() || 'body')
+
+  // Json input adiciona properties do schema como chaves — tanto em POST
+  // (vira body) quanto em GET (vira query string flattened).
+  if (form.inputContentType === 'Json' || form.inputContentType === 'FormUrlEncoded') {
+    try {
+      const schema = JSON.parse(form.inputBodyExample) as { properties?: Record<string, unknown> }
+      if (schema.properties) keys.push(...Object.keys(schema.properties))
+    } catch {
+      // schema inválido — ignora; user preenche manualmente
     }
+  } else if (form.method === 'POST' && form.inputContentType === 'Text') {
+    keys.push(form.textBodyFieldName.trim() || 'body')
   }
+
   if (keys.length === 0) return '{}'
   const unique = Array.from(new Set(keys))
   const lines = unique.map((k) => `  "${k}": ""`).join(',\n')

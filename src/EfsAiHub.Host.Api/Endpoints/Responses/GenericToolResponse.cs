@@ -1,4 +1,5 @@
 using EfsAiHub.Core.Agents.GenericTools;
+using EfsAiHub.Platform.Runtime.Tools.Generic.Schema;
 
 namespace EfsAiHub.Host.Api.Models.Responses;
 
@@ -22,7 +23,16 @@ public sealed class GenericToolResponse
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 
-    public static GenericToolResponse FromDomain(GenericTool tool) => new()
+    /// <summary>
+    /// Warnings emitidos quando os schemas foram canonicalizados no save.
+    /// Null em GET/list, populado em Create/Update quando há transformações
+    /// lossy aplicadas (ex.: <c>oneOf</c> mesclado, <c>pattern</c> dropado).
+    /// </summary>
+    public IReadOnlyList<SchemaWarningResponse>? SchemaWarnings { get; init; }
+
+    public static GenericToolResponse FromDomain(
+        GenericTool tool,
+        IReadOnlyList<NormalizationWarning>? warnings = null) => new()
     {
         Id = tool.Id,
         ProjectId = tool.ProjectId,
@@ -41,5 +51,8 @@ public sealed class GenericToolResponse
         IsExclusive = tool.IsExclusive,
         CreatedAt = tool.CreatedAt,
         UpdatedAt = tool.UpdatedAt,
+        SchemaWarnings = warnings is { Count: > 0 }
+            ? warnings.Select(SchemaWarningResponse.FromDomain).ToList()
+            : null,
     };
 }

@@ -14,12 +14,14 @@ public class GenericResponseProjectorTests
         JsonDocument.Parse(raw).RootElement.Clone();
 
     [Fact]
-    public void ModeOff_BypassesAnyPayload()
+    public void NullSchema_Bypasses()
     {
+        // OutputContentType=Text é o único cenário em que OutputSchema chega
+        // null no runtime — projector devolve o input intacto.
         var projector = BuildProjector();
         var input = ParseJson("""{"foo":"bar","extra":[1,2,3]}""");
 
-        var result = projector.Project(input, "{}", OutputProjectionMode.Off, "test");
+        var result = projector.Project(input, null, "test");
 
         result.Bypassed.Should().BeTrue();
         result.Projected.Should().Be(input);
@@ -27,15 +29,14 @@ public class GenericResponseProjectorTests
     }
 
     [Fact]
-    public void ModeOff_NullSchema_AlsoBypasses()
+    public void EmptySchema_Bypasses()
     {
         var projector = BuildProjector();
         var input = ParseJson("""{"foo":"bar"}""");
 
-        var result = projector.Project(input, null, OutputProjectionMode.Off, "test");
+        var result = projector.Project(input, "", "test");
 
         result.Bypassed.Should().BeTrue();
-        result.Projected.Should().Be(input);
     }
 
     [Fact]
@@ -47,7 +48,7 @@ public class GenericResponseProjectorTests
             """;
         var input = ParseJson("""{"id":"abc"}""");
 
-        var result = projector.Project(input, schema, OutputProjectionMode.Project, "test");
+        var result = projector.Project(input, schema, "test");
 
         result.Success.Should().BeTrue();
         result.Bypassed.Should().BeFalse();
@@ -63,7 +64,7 @@ public class GenericResponseProjectorTests
             """;
         var input = ParseJson("""{"id":"abc"}""");
 
-        var result = projector.Project(input, schema, OutputProjectionMode.Project, "test");
+        var result = projector.Project(input, schema, "test");
 
         result.HasErrors.Should().BeTrue();
         result.Errors.Should().NotBeEmpty();
@@ -79,7 +80,7 @@ public class GenericResponseProjectorTests
             """;
         var input = ParseJson("""{"count":"not-a-number"}""");
 
-        var result = projector.Project(input, schema, OutputProjectionMode.Project, "test");
+        var result = projector.Project(input, schema, "test");
 
         result.HasErrors.Should().BeTrue();
     }
@@ -93,7 +94,7 @@ public class GenericResponseProjectorTests
             """;
         var input = ParseJson("""{"id":"abc","ghost":"removeMe","more":42}""");
 
-        var result = projector.Project(input, schema, OutputProjectionMode.Project, "test");
+        var result = projector.Project(input, schema, "test");
 
         result.Success.Should().BeTrue();
         var json = JsonSerializer.Serialize(result.Projected);
@@ -112,8 +113,8 @@ public class GenericResponseProjectorTests
         var validInput = ParseJson("""[{"id":"a"},{"id":"b","extra":"x"}]""");
         var invalidInput = ParseJson("""[{"id":"a"},{"name":"semId"}]""");
 
-        var ok = projector.Project(validInput, schema, OutputProjectionMode.Project, "test");
-        var fail = projector.Project(invalidInput, schema, OutputProjectionMode.Project, "test");
+        var ok = projector.Project(validInput, schema, "test");
+        var fail = projector.Project(invalidInput, schema, "test");
 
         ok.Success.Should().BeTrue();
         JsonSerializer.Serialize(ok.Projected).Should().NotContain("extra");

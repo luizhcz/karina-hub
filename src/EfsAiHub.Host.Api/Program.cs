@@ -146,6 +146,11 @@ builder.Services.AddScoped<EfsAiHub.Core.Agents.IOperationalMemoryRepository,
 // parseados ficam cacheados in-process por hash do JSON. Singleton porque o
 // cache é stateful por instância e cross-request é desejado.
 builder.Services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.Generic.SchemaCache>();
+// SchemaNormalizer é stateless/determinístico — singleton. Consumido só no
+// save-time pelo GenericToolService (PR 2 wira o invoke).
+builder.Services.AddSingleton<
+    EfsAiHub.Platform.Runtime.Tools.Generic.Schema.ISchemaNormalizer,
+    EfsAiHub.Platform.Runtime.Tools.Generic.Schema.SchemaNormalizer>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.GenericResponseProjector>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolExecutor,
     EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolExecutor>();

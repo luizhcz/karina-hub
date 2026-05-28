@@ -30,11 +30,16 @@ public static class GenericToolSchemaBuilder
             if (def.Required) required.Add(name);
         }
 
+        // GET + InputContentType=Json: properties do schema viram query params
+        // adicionais (flattened pela QueryStringFlattener no executor). Pro LLM,
+        // o prefix muda pra [Query] em vez de [Body] pra refletir o destino real.
+        var bodyPrefix = tool.HttpMethod == HttpMethodType.GET ? "[Query] " : "[Body] ";
+
         switch (tool.InputContentType)
         {
             case InputContentType.Json:
             case InputContentType.FormUrlEncoded:
-                MergeBodySchema(tool.InputSchema, properties, required, prefix: "[Body] ");
+                MergeBodySchema(tool.InputSchema, properties, required, prefix: bodyPrefix);
                 break;
             case InputContentType.Text:
                 AddTextBodyProperty(tool.InputSchema, properties, required);
