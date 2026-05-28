@@ -247,10 +247,11 @@ export function useChatStream({
   const [rawEvents, setRawEvents] = useState<ChatRawEvent[]>([])
   const [agentTypeByNodeId, setAgentTypeByNodeId] = useState<Map<string, string>>(new Map())
 
-  // Histórico completo enviado a cada turn — backend AG-UI espera receber o
-  // contexto inteiro de mensagens. Mantemos em ref pra não disparar re-render
-  // só pra trocar o array.
-  const historyRef = useRef<ChatInputMessage[]>([])
+  // Backend AG-UI é authoritative do histórico via DB (ResolveHistoryWithEcho:
+  // se DB tem mensagens, ignora qualquer echo enviado pelo cliente). Por isso
+  // mandamos APENAS a última mensagem do user a cada turn — o backend
+  // reconstrói o contexto sozinho. Mandar o histórico inteiro acumulado seria
+  // O(n) bandwidth por turno e ignorado downstream.
   const abortRef = useRef<AbortController | null>(null)
   const executionIdRef = useRef<string | null>(null)
   const threadIdRef = useRef<string | null>(null)
@@ -274,7 +275,6 @@ export function useChatStream({
     abortRef.current = null
     executionIdRef.current = null
     threadIdRef.current = null
-    historyRef.current = []
     seqRef.current = 0
     turnRef.current = 0
     bubbleUidByMessageIdRef.current.clear()
@@ -557,7 +557,6 @@ export function useChatStream({
         complete: true,
       }
       setBubbles((prev) => [...prev, userBubble])
-      historyRef.current = [...historyRef.current, { role: 'user', content: trimmed }]
 
       setStatus('streaming')
       setErrorMessage(null)
@@ -577,10 +576,15 @@ export function useChatStream({
         headers['x-version'] = workflowVersionId
       }
 
+      // Payload mínimo: só a última mensagem do user. Backend reconstrói
+      // histórico via DB usando o threadId. Mandar histórico acumulado é
+      // anti-pattern — ResolveHistoryWithEcho ignora echo quando o DB tem
+      // mensagens (conv existente), e em conv nova o primeiro turn tem só
+      // essa única mensagem mesmo.
       const body = {
         threadId: threadIdRef.current,
         workflowId,
-        messages: historyRef.current,
+        messages: [{ role: 'user', content: trimmed }] satisfies ChatInputMessage[],
       }
 
       try {
