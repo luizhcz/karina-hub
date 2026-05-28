@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import {
   createGenericTool,
-  executeGenericTool,
   extractPlaceholders,
   getGenericTool,
   testDraftGenericTool,
@@ -743,8 +742,6 @@ export function ToolEditor({ mode }: Props) {
       <TestToolModal
         open={testOpen}
         onClose={() => setTestOpen(false)}
-        mode={mode}
-        toolId={id ?? null}
         form={form}
         onTestPassed={() => setTestPassed(true)}
       />
@@ -868,10 +865,6 @@ function ParamValEditor({ val, onChange, requiredLocked }: ParamValEditorProps) 
 interface TestToolModalProps {
   open: boolean
   onClose: () => void
-  /** Em modo 'edit' o teste vai contra a tool já persistida; em 'create' usa o sandbox endpoint que aceita a config inline. */
-  mode: 'create' | 'edit'
-  /** Id da tool já persistida (somente em modo 'edit'). */
-  toolId: string | null
   form: FormState
   /** Disparado quando o teste passa (success && statusCode 2xx). Caller usa pra liberar o botão de salvar. */
   onTestPassed: () => void
@@ -903,7 +896,7 @@ function buildArgsTemplate(form: FormState): string {
   return `{\n${lines}\n}`
 }
 
-function TestToolModal({ open, onClose, mode, toolId, form, onTestPassed }: TestToolModalProps) {
+function TestToolModal({ open, onClose, form, onTestPassed }: TestToolModalProps) {
   const [argsText, setArgsText] = useState('')
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<GenericToolTestResult | null>(null)
@@ -940,12 +933,12 @@ function TestToolModal({ open, onClose, mode, toolId, form, onTestPassed }: Test
     setRunning(true)
     setResult(null)
     try {
-      // Edit usa o endpoint de execute em cima da tool persistida (preserva
-      // exatamente o que vai rodar em prod). Create usa o sandbox endpoint
-      // que aceita a config inline e não persiste nada.
-      const r = mode === 'edit' && toolId
-        ? await executeGenericTool(toolId, parsed)
-        : await testDraftGenericTool(body, parsed)
+      // Sempre usa o endpoint test-draft com a config montada do form. Em
+      // 'edit' antigo o code chamava executeGenericTool(id) que pegava a
+      // versão persistida no banco — quem editava a URL/schema e clicava
+      // Testar não via as mudanças refletidas. test-draft é stateless
+      // (sem audit, sem write) e aceita config inline em ambos os modos.
+      const r = await testDraftGenericTool(body, parsed)
       setResult(r)
       // Considera passou quando upstream respondeu 2xx e o tester reportou
       // sucesso (sem schema violation nem falha de parse).
