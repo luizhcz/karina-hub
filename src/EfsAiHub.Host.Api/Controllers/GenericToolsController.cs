@@ -157,11 +157,23 @@ public class GenericToolsController : ControllerBase
         {
             var draft = request.Tool.ToDomainTemplate();
 
+            // Mesma normalização do GenericToolService.CreateAsync — GET só
+            // aceita None ou Json (FormUrlEncoded/Text exigem body real e não
+            // fazem sentido em GET). Sem isso, sandbox sai com Json em GET
+            // mas EnsureInvariants rejeita ou (pior, no caso atual) o request
+            // builder não monta o body.
+            var effectiveInputContentType =
+                draft.HttpMethod == HttpMethodType.GET
+                && (draft.InputContentType == InputContentType.FormUrlEncoded
+                    || draft.InputContentType == InputContentType.Text)
+                    ? InputContentType.None
+                    : draft.InputContentType;
+
             // Canonicaliza schemas ANTES do invariants — sem isso, NormalizationGuard
             // dentro de EnsureInvariants falha em schemas que o autor colou em
             // dialect não-canônico. Warnings são descartadas (test-draft é
             // ephemeral) — UI só vê warnings quando o autor salvar.
-            var inputSchema = draft.HttpMethod == HttpMethodType.GET
+            var inputSchema = effectiveInputContentType is InputContentType.None or InputContentType.Text
                 ? null
                 : NormalizeOrNull(draft.InputSchema, SchemaRole.Input);
             var outputSchema = draft.OutputContentType == OutputContentType.Text
@@ -182,9 +194,7 @@ public class GenericToolsController : ControllerBase
                 PathParams = draft.PathParams,
                 QueryParams = draft.QueryParams,
                 CustomHeaders = draft.CustomHeaders,
-                InputContentType = draft.HttpMethod == HttpMethodType.GET
-                    ? InputContentType.None
-                    : draft.InputContentType,
+                InputContentType = effectiveInputContentType,
                 InputSchema = inputSchema,
                 OutputContentType = draft.OutputContentType,
                 OutputSchema = outputSchema,
