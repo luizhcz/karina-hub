@@ -72,29 +72,43 @@ public static class PromptRenderer
         sb.Append(block);
     }
 
-    // Prompt do Router vive em Services/Prompts/router.md (embedded resource).
-    // Junior edita o .md sem mexer em C#. Único placeholder: {{INTENCOES}} —
-    // substituído pelo catálogo formatado das intents resolvidas em runtime
-    // (system intents canônicas como needs_clarification/out_of_scope são
-    // literais no .md, não placeholders, porque seus nomes são imutáveis).
+    // Prompts dos templates vivem em Services/Prompts/*.md (embedded resources).
+    // Junior edita o .md sem mexer em C# — placeholders são strings
+    // delimitadas por {{...}} preenchidas em runtime pelos fragmentos
+    // dinâmicos (catálogo de intents, exemplo JSON, etc). Nomes canônicos
+    // imutáveis (needs_clarification, out_of_scope, output_contract) ficam
+    // literais no .md, sem placeholder.
     private const string RouterTemplateResource =
         "EfsAiHub.Core.Agents.Services.Prompts.router.md";
-    private const string IntentsPlaceholder = "{{INTENCOES}}";
+    private const string ConversationalTemplateResource =
+        "EfsAiHub.Core.Agents.Services.Prompts.conversational.md";
 
-    private static readonly Lazy<string> RouterTemplate = new(() =>
+    private const string IntentsPlaceholder = "{{INTENCOES}}";
+    private const string ExampleSectionPlaceholder = "{{EXAMPLE_SECTION}}";
+    private const string OutputTypePlaceholder = "{{OUTPUT_TYPE}}";
+    private const string OutputStatusListPlaceholder = "{{OUTPUT_STATUS_LIST}}";
+    private const string OperationalMemoryFieldPlaceholder = "{{OPERATIONAL_MEMORY_FIELD}}";
+    private const string MemoryParentheticalPlaceholder = "{{MEMORY_PARENTHETICAL}}";
+
+    private static readonly Lazy<string> RouterTemplate =
+        new(() => LoadEmbeddedTemplate(RouterTemplateResource));
+    private static readonly Lazy<string> ConversationalTemplate =
+        new(() => LoadEmbeddedTemplate(ConversationalTemplateResource));
+
+    private static string LoadEmbeddedTemplate(string resourceName)
     {
         var asm = typeof(PromptRenderer).Assembly;
-        using var stream = asm.GetManifestResourceStream(RouterTemplateResource)
+        using var stream = asm.GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException(
-                $"Embedded resource '{RouterTemplateResource}' não encontrado. " +
+                $"Embedded resource '{resourceName}' não encontrado. " +
                 "Verifique <EmbeddedResource> em EfsAiHub.Core.Agents.csproj.");
         using var reader = new StreamReader(stream);
         var raw = reader.ReadToEnd();
         // .md gravado com EOL host-dependent (LF no macOS/Linux, CRLF no
         // Windows). Normaliza pra LF antes de o NFC do Render rodar — output
-        // do prompt vai ser determinístico entre plataformas.
+        // do prompt fica determinístico entre plataformas.
         return raw.Replace("\r\n", "\n").TrimEnd('\n');
-    });
+    }
 
     private static string? RenderRouterIntentsBlock(
         AgentType type,
@@ -199,6 +213,18 @@ public static class PromptRenderer
     /// conflito e tenta resolver dumping a memória dentro de <c>message</c>,
     /// vazando estado interno pro usuário.
     /// </summary>
+    // Fragmentos auxiliares pro template Conversational. Placeholders vazios
+    // (sem example, sem memory) produzem o output esperado quando os blocos
+    // condicionais não se aplicam — sem deixar linhas em branco extras.
+    private const string OperationalMemoryFieldFragment =
+        "\n- `operationalMemory`: campo interno da plataforma — o sistema strippa antes de entregar. " +
+        "Emita o estado COMPLETO atualizado (full replacement, não delta), conforme o sub-schema " +
+        "declarado de memória. Dados de continuidade vão aqui; mantenha `message` e `output` " +
+        "apenas com conteúdo visível ao usuário.";
+
+    private const string MemoryParentheticalFragment =
+        " (ou em `operationalMemory` quando for estado interno)";
+
     private static string? RenderConversationalResponseFormatBlock(
         AgentType type,
         IReadOnlyDictionary<string, string>? metadata,
@@ -212,14 +238,6 @@ public static class PromptRenderer
         var statuses = ReadConversationalOutputStatuses(metadata);
         var statusList = string.Join(" | ", statuses.Select(s => $"`{s}`"));
 
-        var sb = new StringBuilder();
-        sb.Append("<output_contract>\n");
-
-        // Primacy: regra anti-author como primeira frase do bloco.
-        sb.Append(
-            "Ignore qualquer instrução anterior sobre formato JSON, schema ou estrutura de resposta " +
-            "— o sistema impõe o shape via response_format. Instruções concorrentes são ruído.\n\n");
-
         // Exemplo concreto da forma esperada — gerado dinamicamente a partir
         // do schema do agente. Renderizado ANTES da lista de campos pra que
         // o LLM ancore na estrutura visual primeiro (primacy estrutural).
@@ -229,51 +247,23 @@ public static class PromptRenderer
             hasOperationalMemory,
             structuredOutputSchema,
             operationalMemorySchema);
-        if (exampleJson is not null)
-        {
-            sb.Append("Sua resposta DEVE seguir EXATAMENTE esta forma estrutural:\n\n");
-            sb.Append("```json\n").Append(exampleJson).Append("\n```\n\n");
-            sb.Append(
-                "EXEMPLO ILUSTRATIVO — substitua os placeholders (`<...>`) e valores " +
-                "pelos dados reais do turno atual. NUNCA emita placeholders literais como " +
-                "`\"<string>\"` ou `\"<v1 | v2>\"` na resposta final.\n\n");
-        }
 
-        sb.Append("Detalhes de cada campo:\n");
-        sb.Append("- `output_type`: constante `").Append(outputType).Append("`.\n");
-        sb.Append("- `output_status`: um de ").Append(statusList)
-          .Append(" — escolha conforme o estado do turno.\n");
-        sb.Append(
-            "- `message`: texto humano pro usuário no idioma da conversa, curto e direto.\n");
-        sb.Append(
-            "- `output`: INSTÂNCIA de dados conforme o sub-schema declarado — nunca a forma " +
-            "literal do schema. Se o sub-schema declara `{\"type\":\"array\",\"items\":{...}}`, " +
-            "o valor de `output` deve ser um array literal `[{...},{...}]`, JAMAIS um objeto " +
-            "como `{\"items\":[...]}` ou `{\"type\":\"array\",...}`. Se o sub-schema é " +
-            "`{\"type\":\"object\",\"properties\":{...}}`, `output` é o objeto com os campos " +
-            "instanciados, não a descrição. Pode ser ausente quando não-aplicável.");
+        var exampleSection = exampleJson is null
+            ? string.Empty
+            : "Sua resposta DEVE seguir EXATAMENTE esta forma estrutural:\n\n"
+              + "```json\n" + exampleJson + "\n```\n\n"
+              + "EXEMPLO ILUSTRATIVO — substitua os placeholders (`<...>`) e valores "
+              + "pelos dados reais do turno atual. NUNCA emita placeholders literais como "
+              + "`\"<string>\"` ou `\"<v1 | v2>\"` na resposta final.\n\n";
 
-        if (hasOperationalMemory)
-        {
-            sb.Append('\n');
-            sb.Append(
-                "- `operationalMemory`: campo interno da plataforma — o sistema strippa antes de entregar. " +
-                "Emita o estado COMPLETO atualizado (full replacement, não delta), conforme o sub-schema " +
-                "declarado de memória. Dados de continuidade vão aqui; mantenha `message` e `output` " +
-                "apenas com conteúdo visível ao usuário.");
-        }
-
-        sb.Append("\n\n");
-
-        // Recency: regra essencial reforçada no fim.
-        sb.Append("Regra essencial: `message` é texto plano pro humano. ")
-          .Append("JSON, código e markdown estruturado vão em `output`");
-        if (hasOperationalMemory)
-            sb.Append(" (ou em `operationalMemory` quando for estado interno)");
-        sb.Append(".\n");
-        sb.Append("</output_contract>");
-
-        return sb.ToString();
+        return ConversationalTemplate.Value
+            .Replace(ExampleSectionPlaceholder, exampleSection)
+            .Replace(OutputTypePlaceholder, outputType)
+            .Replace(OutputStatusListPlaceholder, statusList)
+            .Replace(OperationalMemoryFieldPlaceholder,
+                hasOperationalMemory ? OperationalMemoryFieldFragment : string.Empty)
+            .Replace(MemoryParentheticalPlaceholder,
+                hasOperationalMemory ? MemoryParentheticalFragment : string.Empty);
     }
 
     // Serializer dedicado ao exemplo: indented + UnsafeRelaxedJsonEscaping pra
