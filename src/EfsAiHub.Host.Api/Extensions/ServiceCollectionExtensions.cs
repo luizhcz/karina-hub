@@ -79,17 +79,8 @@ public static class ServiceCollectionExtensions
             var registry = new FunctionToolRegistry(
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<FunctionToolRegistry>());
 
-            registry.Register("search_web", AIFunctionFactory.Create(WebSearchFunctions.SearchWeb));
-
-            var boleta = sp.GetRequiredService<BoletaToolFunctions>();
-            registry.Register("search_asset", AIFunctionFactory.Create(boleta.SearchAsset));
-            registry.Register("get_asset_position", AIFunctionFactory.Create(boleta.GetAssetPosition));
-            registry.Register("SendOrder", AIFunctionFactory.Create(boleta.SendOrder));
-
-            registry.Register("get_portfolio", AIFunctionFactory.Create(ApexHandoffFunctions.GetPortfolio));
-            registry.Register("redeem_asset", AIFunctionFactory.Create(ApexHandoffFunctions.RedeemAsset));
-            registry.Register("invest_asset", AIFunctionFactory.Create(ApexHandoffFunctions.InvestAsset));
-            registry.Register("calculate_asset_redemption_tax", AIFunctionFactory.Create(ApexHandoffFunctions.CalculateAssetRedemptionTax));
+            registry.Register("get_datetime", AIFunctionFactory.Create(DateTimeFunctions.GetDateTime));
+            registry.Register("get_asset", AIFunctionFactory.Create(AssetFunctions.GetAsset));
 
             return registry;
         });

@@ -54,12 +54,13 @@ export function toggleId(list: string[], id: string): string[] {
 }
 
 // Mantém entries não-managed do `tools` original e substitui as entries
-// type=generic_http/type=mcp pela seleção corrente da tela. Reusa entries
-// existentes (preserva campos como requiresApproval) pra evitar churn no
-// canonical hash do AgentVersion no publish.
+// type=generic_http/type=function/type=mcp pela seleção corrente da tela. Reusa
+// entries existentes (preserva campos como requiresApproval) pra evitar churn
+// no canonical hash do AgentVersion no publish.
 export function mergeTools(
   prev: AgentToolDefinition[] | null,
   toolIds: string[],
+  functionToolNames: string[],
   mcpIds: string[],
 ): AgentToolDefinition[] {
   const kept: AgentToolDefinition[] = []
@@ -68,6 +69,10 @@ export function mergeTools(
     for (const entry of prev) {
       if (entry.type === 'generic_http' && typeof entry.genericToolId === 'string') {
         prevById.set(`tool:${entry.genericToolId}`, entry)
+        continue
+      }
+      if (entry.type === 'function' && typeof entry.name === 'string') {
+        prevById.set(`fn:${entry.name}`, entry)
         continue
       }
       if (entry.type === 'mcp' && typeof entry.mcpServerId === 'string') {
@@ -82,6 +87,10 @@ export function mergeTools(
   for (const id of toolIds) {
     const existing = prevById.get(`tool:${id}`)
     next.push(existing ?? { type: 'generic_http', genericToolId: id, requiresApproval: false })
+  }
+  for (const name of functionToolNames) {
+    const existing = prevById.get(`fn:${name}`)
+    next.push(existing ?? { type: 'function', name, requiresApproval: false })
   }
   for (const id of mcpIds) {
     const existing = prevById.get(`mcp:${id}`)
@@ -116,6 +125,7 @@ export function emptyFormState(): FormState {
     predefinedModelId: '',
     profile: '',
     toolIds: [],
+    functionToolNames: [],
     mcpIds: [],
     security: { enabled: false },
     memory: emptyMemorySection(),
@@ -154,10 +164,13 @@ export function fromDraft(draft: AgentDraft): FormState {
 
   const tools = payload.tools ?? []
   const toolIds: string[] = []
+  const functionToolNames: string[] = []
   const mcpIds: string[] = []
   for (const t of tools) {
     if (t.type === 'generic_http' && typeof t.genericToolId === 'string' && t.genericToolId) {
       toolIds.push(t.genericToolId)
+    } else if (t.type === 'function' && typeof t.name === 'string' && t.name) {
+      functionToolNames.push(t.name)
     } else if (t.type === 'mcp' && typeof t.mcpServerId === 'string' && t.mcpServerId) {
       mcpIds.push(t.mcpServerId)
     }
@@ -369,6 +382,7 @@ export function fromDraft(draft: AgentDraft): FormState {
     predefinedModelId: payload.model?.predefinedModelId ?? '',
     profile: decoded.profile,
     toolIds,
+    functionToolNames,
     mcpIds,
     security: { enabled: securityEnabled },
     memory: {
@@ -459,7 +473,7 @@ export function buildPayload(
     predefinedModelId: trimmedModelId || null,
   }
 
-  const mergedTools = mergeTools(prev?.tools ?? null, form.toolIds, form.mcpIds)
+  const mergedTools = mergeTools(prev?.tools ?? null, form.toolIds, form.functionToolNames, form.mcpIds)
   const operationalMemory = encodeOperationalMemory(form.memory)
   const mergedMiddlewares = mergeMiddlewares(
     prev?.middlewares,

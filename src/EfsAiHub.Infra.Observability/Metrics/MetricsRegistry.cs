@@ -61,10 +61,6 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("tool.account.overrides",
             description: "Tool calls onde o argumento conta/account foi reescrito pelo AccountGuard (ClientLocked)");
 
-    public static readonly Counter<long> ToolAccountRejections =
-        _meter.CreateCounter<long>("tool.account.rejections",
-            description: "Tool calls rejeitados por divergência de conta (ex: SendOrder com boleta fora do cliente)");
-
     public static readonly Counter<long> ToolAccountOutputAnomaly =
         _meter.CreateCounter<long>("tool.account.output_anomaly",
             description: "Anomalias detectadas pelo AccountGuardChatClient no output final do LLM");

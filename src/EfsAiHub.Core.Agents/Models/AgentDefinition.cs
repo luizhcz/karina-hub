@@ -242,6 +242,50 @@ public class AgentDefinition
     public string? LastChatSandboxValidatedAgentVersionId { get; set; }
 
     /// <summary>
+    /// Retorna uma cópia desta definição com <see cref="Tools"/> substituídas e
+    /// TODOS os demais campos preservados. Existe porque <see cref="Tools"/> é
+    /// init-only — o jeito errado de "trocar tools" seria <c>new AgentDefinition
+    /// { Tools = novo, ... }</c> e esquecer um campo (ProjectId, Type, Visibility
+    /// etc.), o que silenciosamente reseta pro default. Esse caminho já causou
+    /// bug em produção (StampFunctionFingerprints zerava ProjectId/Visibility/Type
+    /// no save de agente Conversational com function tools).
+    /// </summary>
+    public AgentDefinition WithTools(IReadOnlyList<AgentToolDefinition> tools) => new()
+    {
+        Id = Id,
+        Name = Name,
+        Description = Description,
+        Type = Type,
+        RouterIntentIds = RouterIntentIds,
+        Model = Model,
+        Provider = Provider,
+        Instructions = Instructions,
+        AuthorInstructions = AuthorInstructions,
+        PromptVersionId = PromptVersionId,
+        Tools = tools,
+        StructuredOutput = StructuredOutput,
+        OperationalMemory = OperationalMemory,
+        Middlewares = Middlewares,
+        FallbackProvider = FallbackProvider,
+        Resilience = Resilience,
+        CostBudget = CostBudget,
+        SkillRefs = SkillRefs,
+        Metadata = Metadata,
+        ProjectId = ProjectId,
+        Visibility = Visibility,
+        TenantId = TenantId,
+        AllowedProjectIds = AllowedProjectIds,
+        Enabled = Enabled,
+        CreatedAt = CreatedAt,
+        UpdatedAt = UpdatedAt,
+        RegressionTestSetId = RegressionTestSetId,
+        RegressionEvaluatorConfigVersionId = RegressionEvaluatorConfigVersionId,
+        LastChatSandboxValidatedAt = LastChatSandboxValidatedAt,
+        LastChatSandboxValidatedByUserId = LastChatSandboxValidatedByUserId,
+        LastChatSandboxValidatedAgentVersionId = LastChatSandboxValidatedAgentVersionId,
+    };
+
+    /// <summary>
     /// Factory method validante. Única forma correta de construir em código imperativo.
     /// Para deserialização, use <c>new AgentDefinition { ... }</c> + <see cref="EnsureInvariants"/>.
     /// </summary>

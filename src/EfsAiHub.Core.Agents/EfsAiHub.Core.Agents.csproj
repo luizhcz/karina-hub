@@ -20,4 +20,8 @@
     <InternalsVisibleTo Include="EfsAiHub.Tests.Unit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Services\Prompts\router.md" />
+  </ItemGroup>
+
 </Project>

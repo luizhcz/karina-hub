@@ -114,12 +114,6 @@ builder.Services.AddFunctionToolRegistry();
 builder.Services.AddCodeExecutorRegistry();
 
 // ── HttpClients ──────────────────────────────────────────────────────────────
-var efsBackendUrl = builder.Configuration["EfsBackend:BaseUrl"] ?? "http://localhost:5001";
-builder.Services.AddHttpClient("efs-backend", c =>
-{
-    c.BaseAddress = new Uri(efsBackendUrl);
-    c.Timeout = TimeSpan.FromSeconds(30);
-});
 builder.Services.AddHttpClient("mermaid-ink", c =>
 {
     c.BaseAddress = new Uri("https://mermaid.ink");
@@ -137,7 +131,6 @@ builder.Services.AddHttpClient("generic-tool-tester", c =>
 {
     c.Timeout = Timeout.InfiniteTimeSpan;
 });
-builder.Services.AddSingleton<BoletaToolFunctions>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IGenericToolRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgGenericToolRepository>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IOperationalMemoryRepository,
@@ -274,7 +267,6 @@ await RuntimeSecretStoreActivator.PreloadAndRegisterAsync(app.Services);
 }
 
 app.RegisterAtivoExecutors();
-app.RegisterRedemptionTools();
 app.RegisterPixExecutors();
 app.RegisterDocumentIntelligenceExecutor();
 
@@ -312,13 +304,7 @@ app.RegisterDocumentIntelligenceExecutor();
             typedNames.Count);
 }
 
-// ── ConfirmBoleta — HITL simples (request_approval) via function tool ────────
-EfsAiHub.Platform.Runtime.Tools.ConfirmBoletaFunction.Configure(
-    app.Services.GetRequiredService<EfsAiHub.Platform.Runtime.Services.IHumanInteractionService>(),
-    app.Services.GetRequiredService<EfsAiHub.Core.Orchestration.Workflows.IWorkflowEventBus>(),
-    app.Services.GetRequiredService<IFunctionToolRegistry>());
-
-// Fase 6 — loga os fingerprints das function tools registradas no startup (auditoria).
+// Loga os fingerprints das function tools registradas no startup (auditoria).
 {
     var registry = app.Services.GetRequiredService<IFunctionToolRegistry>();
     var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();

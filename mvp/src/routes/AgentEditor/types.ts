@@ -98,6 +98,12 @@ export interface FormState {
    */
   profile: string
   toolIds: string[]
+  /**
+   * Nomes das function tools nativas (C#) atribuídas ao agente. Round-trip
+   * via payload.tools[] entries com type='function'. Read-only no MVP: o
+   * catálogo vem de GET /functions e o usuário só marca/desmarca.
+   */
+  functionToolNames: string[]
   mcpIds: string[]
   security: SecuritySection
   memory: OperationalMemorySection
