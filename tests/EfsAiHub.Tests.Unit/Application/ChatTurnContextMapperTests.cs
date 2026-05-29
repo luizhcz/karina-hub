@@ -412,7 +412,7 @@ public class ChatTurnContextMapperTests
     }
 
     [Fact]
-    public void Build_AssistantHistory_StatusNaoTerminalAdicionaSufixo()
+    public void Build_AssistantHistory_StatusIncompleteInjetaMarkerPrefix()
     {
         var history = new List<ChatTurnMessage>
         {
@@ -422,7 +422,7 @@ public class ChatTurnContextMapperTests
                 Content = "fallback",
                 Output = JsonDocument.Parse(@"{
                     ""output_type"": ""form"",
-                    ""output_status"": ""awaiting_input"",
+                    ""output_status"": ""incomplete"",
                     ""message"": ""Qual sua conta?""
                 }").RootElement
             }
@@ -431,24 +431,41 @@ public class ChatTurnContextMapperTests
 
         var messages = ChatTurnContextMapper.Build(json, OrchestrationMode.Handoff);
 
+        // Marker prefixado machine-grade pro Router (em vez do sufixo livre
+        // antigo) — bloco `<multi_turn_classification>` do prompt do Router
+        // tem regra dura sobre `[ASSISTANT-INCOMPLETE]`.
         messages.Should().Contain(m =>
-            m.Role == ChatRole.Assistant && m.Text == "Qual sua conta?\n[awaiting_input]");
+            m.Role == ChatRole.Assistant && m.Text == "[ASSISTANT-INCOMPLETE] Qual sua conta?");
     }
 
-    [Fact]
-    public void Build_AssistantHistory_StatusDoneNaoAdicionaSufixo()
+    [Theory]
+    // Bucket DONE — qualquer status fora de incomplete/error/none/default/text
+    [InlineData("done", "[ASSISTANT-DONE] ordem enviada")]
+    [InlineData("confirmed", "[ASSISTANT-DONE] ordem enviada")]
+    [InlineData("completed", "[ASSISTANT-DONE] ordem enviada")]
+    [InlineData("partial", "[ASSISTANT-DONE] ordem enviada")]
+    [InlineData("rejeitado_custom", "[ASSISTANT-DONE] ordem enviada")]
+    // Bucket AMBIGUOUS — error/none/default/text
+    [InlineData("error", "[ASSISTANT-AMBIGUOUS] tente novamente")]
+    [InlineData("none", "[ASSISTANT-AMBIGUOUS] tente novamente")]
+    [InlineData("default", "[ASSISTANT-AMBIGUOUS] tente novamente")]
+    [InlineData("text", "[ASSISTANT-AMBIGUOUS] tente novamente")]
+    // Bucket INCOMPLETE — único status que dispara
+    [InlineData("incomplete", "[ASSISTANT-INCOMPLETE] Qual a quantidade?")]
+    public void Build_AssistantHistory_MarkerPorTaxonomia3Buckets(string status, string expectedText)
     {
+        var msg = expectedText.Substring(expectedText.IndexOf(']') + 2);
         var history = new List<ChatTurnMessage>
         {
             new()
             {
                 Role = "assistant",
                 Content = "fallback",
-                Output = JsonDocument.Parse(@"{
+                Output = JsonDocument.Parse($@"{{
                     ""output_type"": ""text"",
-                    ""output_status"": ""done"",
-                    ""message"": ""ordem enviada""
-                }").RootElement
+                    ""output_status"": ""{status}"",
+                    ""message"": ""{msg}""
+                }}").RootElement
             }
         };
         var json = BuildCtxJson(history: history);
@@ -456,7 +473,7 @@ public class ChatTurnContextMapperTests
         var messages = ChatTurnContextMapper.Build(json, OrchestrationMode.Handoff);
 
         messages.Should().Contain(m =>
-            m.Role == ChatRole.Assistant && m.Text == "ordem enviada");
+            m.Role == ChatRole.Assistant && m.Text == expectedText);
     }
 
     [Fact]
@@ -470,7 +487,7 @@ public class ChatTurnContextMapperTests
                 Content = "conteudo-original",
                 Output = JsonDocument.Parse(@"{
                     ""output_type"": ""tool_call"",
-                    ""output_status"": ""awaiting_input"",
+                    ""output_status"": ""incomplete"",
                     ""message"": null
                 }").RootElement
             }
@@ -483,8 +500,10 @@ public class ChatTurnContextMapperTests
         // Não deve dumpar raw JSON do output — regressão que o canonical-detector evita.
         assistant.Text.Should().NotContain("\"output_type\"");
         assistant.Text.Should().NotContain("{");
-        // Sufixo de status entra como sinal mínimo de bloqueio pro próximo agente.
-        assistant.Text.Should().Be("[awaiting_input]");
+        // Marker entra como sinal mínimo de bloqueio pro próximo agente quando
+        // o `message` é null/vazio. Router recebe só o marker, ainda como
+        // sinal load-bearing pra REGRA DURA de continuação.
+        assistant.Text.Should().Be("[ASSISTANT-INCOMPLETE]");
     }
 
     [Fact]

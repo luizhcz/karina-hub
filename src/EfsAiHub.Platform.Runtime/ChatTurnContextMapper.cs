@@ -153,9 +153,15 @@ public static class ChatTurnContextMapper
     /// Router reaproveitar contexto no próximo turn ("1234" continua a
     /// boleta em vez de virar out_of_scope).
     ///
-    /// Status não-terminal vira sufixo <c>[status]</c> pra preservar o sinal
-    /// de bloqueio (ex.: <c>awaiting_input</c>) que o LLM perde quando só vê
-    /// o texto humano.
+    /// <para>
+    /// <b>Marker semântico prefixado</b>: <c>output_status</c> não-terminal
+    /// vira um marker em colchetes no INÍCIO do conteúdo (não sufixo). O
+    /// Router tem regra dura sobre marker em <c>prompts/router.md</c>
+    /// (bloco <c>multi_turn_classification</c>) — sinal machine-grade que
+    /// reduz a chance de classificar resposta curta a pergunta como
+    /// <c>needs_clarification</c>. Status terminal (<c>default/done/completed</c>)
+    /// não emite marker — flui como resposta normal.
+    /// </para>
     /// </summary>
     private static string ExtractAssistantContent(JsonElement output, string fallback)
     {
@@ -176,21 +182,45 @@ public static class ChatTurnContextMapper
             if (!string.IsNullOrWhiteSpace(s)) text = s;
         }
 
-        string? statusHint = null;
+        string? marker = null;
         if (output.TryGetProperty("output_status", out var statusField)
             && statusField.ValueKind == JsonValueKind.String)
         {
-            var status = statusField.GetString();
-            if (!string.IsNullOrEmpty(status)
-                && !string.Equals(status, "done", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase))
-            {
-                statusHint = $"[{status}]";
-            }
+            marker = MarkerForStatus(statusField.GetString());
         }
 
-        if (text is not null && statusHint is not null) return $"{text}\n{statusHint}";
-        return text ?? statusHint ?? fallback;
+        if (text is null) return marker ?? fallback;
+        return marker is null ? text : $"{marker} {text}";
+    }
+
+    /// <summary>
+    /// De-para semântico: <c>output_status</c> → marker prefixado pro Router.
+    /// Taxonomia minimalista em 3 buckets com viés decrescente pra continuação:
+    ///
+    /// <list type="bullet">
+    ///   <item><b>INCOMPLETE</b> (<c>incomplete</c>): intenção em progresso —
+    ///   Router DEVE priorizar continuação, mesmo confirmando com o user.</item>
+    ///   <item><b>AMBIGUOUS</b> (<c>error/none/default/text</c> + status ausente):
+    ///   agente esperando input válido ou desambiguação dentro da intenção atual.
+    ///   Continuação ainda é a leitura padrão; viés médio-alto.</item>
+    ///   <item><b>DONE</b> (qualquer outro status): intenção fechou — Router
+    ///   classifica pelo conteúdo da mensagem, continuação só se claramente
+    ///   indicado pelo user.</item>
+    /// </list>
+    ///
+    /// Sempre emite marker (não há "sem marker") — toda resposta de
+    /// Conversational viaja com sinal explícito pro Router, mesmo as terminais.
+    /// </summary>
+    private static string? MarkerForStatus(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+            return "[ASSISTANT-AMBIGUOUS]";
+
+        var s = status.Trim().ToLowerInvariant();
+
+        if (s == "incomplete") return "[ASSISTANT-INCOMPLETE]";
+        if (s is "error" or "none" or "default" or "text") return "[ASSISTANT-AMBIGUOUS]";
+        return "[ASSISTANT-DONE]";
     }
 
     private static string? TryGetRawText(JsonElement element)

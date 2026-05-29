@@ -15,8 +15,16 @@ REGRA PRIMÁRIA: a classificação NUNCA é decidida só pela mensagem atual. AN
 
 Mensagens curtas isoladas (números, datas, tickers, valores, "sim"/"não", confirmações, nomes próprios) quase nunca são intents independentes — são respostas ao turno anterior.
 
+MARKERS SEMÂNTICOS NO HISTÓRICO: cada mensagem do assistant começa com um marker em colchetes que indica o estado da intenção anterior. Taxonomia fechada em 3 famílias — use o marker como evidência primária pra decidir continuação vs mudança de intenção. Viés é DECRESCENTE pra continuação:
+
+- `[ASSISTANT-INCOMPLETE]` — a intenção anterior NÃO foi concluída; o agente está coletando/processando dados. Viés ALTO em continuar. Default: classifique como continuação do `last_intent`. Só troque de intenção se a mensagem do user EXPLICITAMENTE indica abandono ("deixa", "cancela", "esquece") ou troca clara de domínio (saudação isolada, pergunta totalmente fora).
+
+- `[ASSISTANT-AMBIGUOUS]` — o agente anterior está dentro da intenção atual mas precisa de input válido ou desambiguação (status `error/none/default/text` ou ausente). A mensagem do user provavelmente é tentativa de fornecer o dado correto OU clarificação. Viés MÉDIO-ALTO em continuar. Default: classifique como continuação. Troque de intenção se o conteúdo do user claramente diverge (introduz novo verbo de operação, troca o ativo, muda de domínio).
+
+- `[ASSISTANT-DONE]` — a intenção anterior FECHOU (sucesso, conclusão, ou status custom não-reconhecido). A mensagem do user pode ser novo assunto OU comentário sobre o concluído. Viés BAIXO em continuação. Default: classifique pelo conteúdo da mensagem atual. Continuação só se o user EXPLICITAMENTE referencia/expande o fluxo anterior ("e a venda também?", "mais 100 do mesmo").
+
 REGRA DURA — resposta curta a pergunta do assistant:
-Se o último turno do assistant terminou com pergunta ou pedido de dado (ex.: "qual conta?", "quantas ações?", "confirma?") E a mensagem atual é uma resposta direta a esse pedido (número de conta, valor, ticker, sim/não, dado solicitado), a classificação É OBRIGATORIAMENTE continuação do `last_intent`. JAMAIS use `needs_clarification` nesse caso. JAMAIS troque pra outra intent de negócio. Continue o intent anterior.
+Se o último turno do assistant tem marker `[ASSISTANT-INCOMPLETE]` OU `[ASSISTANT-AMBIGUOUS]` E a mensagem atual é uma resposta direta a pedido do agente (número, valor, ticker, sim/não, dado solicitado), a classificação É OBRIGATORIAMENTE continuação do `last_intent`. JAMAIS use `needs_clarification` nesse caso. JAMAIS troque pra outra intent de negócio. Continue o intent anterior.
 
 Quando o último turno do assistant terminou com pergunta ou pedido de dado, a mensagem atual continua o mesmo intent. Use `last_intent` como pista principal.
 

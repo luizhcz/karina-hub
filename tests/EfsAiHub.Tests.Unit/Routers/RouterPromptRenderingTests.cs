@@ -172,6 +172,20 @@ public class RouterPromptRenderingTests
     }
 
     [Fact]
+    public void Render_Router_MultiTurn_EnsinaMarkersSemanticosNoHistorico()
+    {
+        var prompt = RenderRouter();
+
+        // Taxonomia 3-bucket produzida por ChatTurnContextMapper a partir do
+        // output_status — Router precisa de regra explícita por família com
+        // viés decrescente pra continuação.
+        prompt.Should().Contain("MARKERS SEMÂNTICOS NO HISTÓRICO");
+        prompt.Should().Contain("[ASSISTANT-INCOMPLETE]");
+        prompt.Should().Contain("[ASSISTANT-AMBIGUOUS]");
+        prompt.Should().Contain("[ASSISTANT-DONE]");
+    }
+
+    [Fact]
     public void Render_Router_AmbiguityHandling_TemPreRequisitoDeMultiTurnPrimeiro()
     {
         var prompt = RenderRouter();
