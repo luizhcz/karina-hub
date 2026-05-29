@@ -463,7 +463,12 @@ public static class ServiceCollectionExtensions
             ?? new WorkflowEngineOptions();
 
         services.AddHostedService<DatabaseBootstrapService>();
-        services.AddHostedService<AgentVersionBackfillService>();
+        // AgentVersionBackfillService removido (decisão 2026-05-29): rodar
+        // recompose/upsert a cada startup era opaco (criava revision nova em
+        // silêncio quando o composer divergia do snapshot) e custoso. Agentes
+        // seedados via db/seeds.sql ficam sem agent_versions row até a primeira
+        // edição via API/UI — fluxo aceitável porque seed acontece raramente
+        // e via PR explícito.
         services.AddHostedService<AgentSessionCleanupService>();
         services.AddHostedService<AgentSandboxCleanupService>();
         services.AddHostedService<LlmCostRefreshService>();
