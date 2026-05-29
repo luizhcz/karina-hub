@@ -343,6 +343,7 @@ export function ChatDeploymentSandbox() {
             toolCalls={stream.toolCalls}
             isStreaming={isStreaming}
             agentTypeById={mergedAgentTypes}
+            durationMsByStepId={stream.durationMsByStepId}
             onResolveHitl={(toolCallId, response) => void stream.resolveHitl(toolCallId, response)}
           />
           {stream.errorMessage && (
@@ -403,6 +404,7 @@ interface BubbleStackProps {
   toolCalls: ChatToolCall[]
   isStreaming: boolean
   agentTypeById: Map<string, AgentType>
+  durationMsByStepId: Map<string, number>
   onResolveHitl: (toolCallId: string, response: string) => void
 }
 
@@ -411,6 +413,7 @@ function BubbleStack({
   toolCalls,
   isStreaming,
   agentTypeById,
+  durationMsByStepId,
   onResolveHitl,
 }: BubbleStackProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -448,6 +451,11 @@ function BubbleStack({
       <div className="flex flex-col gap-3">
         {bubbles.map((b) => {
           const agentType = b.agentId ? agentTypeById.get(b.agentId) : undefined
+          // Correlação simples: stepId emitido pelo backend (= nodeId do
+          // workflow) coincide com agentId no caso comum onde nodeName ==
+          // agentId. Quando divergir (workflows com aliases), badge não
+          // aparece — degrada graciosamente.
+          const durationMs = b.agentId ? durationMsByStepId.get(b.agentId) : undefined
           // Router: bubble vira card de decisão (intent + confidence + reasoning)
           // em vez de markdown cru — o content é JSON estruturado do schema
           // router_intent, então renderizar como texto é ilegível pro user.
@@ -462,11 +470,13 @@ function BubbleStack({
                   agentId={b.agentId!}
                   decision={RouterContent}
                   streaming={isStreaming && !b.complete}
+                  durationMs={durationMs}
                 />
               ) : (
                 <BubbleRow
                   bubble={b}
                   agentType={agentType}
+                  durationMs={durationMs}
                   streaming={isStreaming && !b.complete}
                 />
               )}
@@ -495,10 +505,12 @@ function BubbleStack({
 function BubbleRow({
   bubble,
   agentType,
+  durationMs,
   streaming,
 }: {
   bubble: ChatBubble
   agentType?: AgentType
+  durationMs?: number
   streaming: boolean
 }) {
   const isUser = bubble.role === 'user'
@@ -518,12 +530,13 @@ function BubbleRow({
   const showTyping = !isUser && streaming && bubble.content.length === 0
   return (
     <div className={cn('flex flex-col', isUser ? 'items-end' : 'items-start')}>
-      {/* Header pequeno: tipo + agentId pra dar contexto de quem respondeu.
-          Só pra bubbles assistant — user não precisa de header. */}
+      {/* Header pequeno: tipo + agentId + duração pra dar contexto de quem
+          respondeu e quanto demorou. Só pra bubbles assistant — user não precisa. */}
       {!isUser && bubble.agentId && agentType && (
         <div className="mb-1 flex items-center gap-1.5 px-1 text-[10px] text-fg-muted">
           <AgentTypeBadge type={agentType} />
           <span className="font-mono">{bubble.agentId}</span>
+          {durationMs != null && <DurationBadge durationMs={durationMs} />}
         </div>
       )}
       <div
@@ -589,10 +602,12 @@ function RouterDecisionCard({
   agentId,
   decision,
   streaming,
+  durationMs,
 }: {
   agentId: string
   decision: RouterDecision
   streaming: boolean
+  durationMs?: number
 }) {
   const pct = Math.round(decision.confidence * 100)
   // Tons de confidence: alta (≥0.8) verde, média (0.5–0.79) âmbar, baixa rosa.
@@ -608,6 +623,7 @@ function RouterDecisionCard({
       <div className="mb-1 flex items-center gap-1.5 px-1 text-[10px] text-fg-muted">
         <AgentTypeBadge type="Router" />
         <span className="font-mono">{agentId}</span>
+        {durationMs != null && <DurationBadge durationMs={durationMs} />}
       </div>
       <div className="w-full max-w-[80%] rounded-2xl border border-violet-500/30 bg-violet-500/[0.04] p-3 text-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -937,6 +953,25 @@ function AgentTypeBadge({ type }: { type: AgentType }) {
       )}
     >
       {type}
+    </span>
+  )
+}
+
+/**
+ * Tag de tempo de execução do agente. Aparece ao lado do AgentTypeBadge no
+ * header da bubble assistant. Formato: <1s = "Xms", caso contrário "Y.Ys"
+ * (1 casa decimal) — compacto e legível. Sinal visual neutro (border-only,
+ * sem fill colorido) pra não competir com o AgentTypeBadge.
+ */
+function DurationBadge({ durationMs }: { durationMs: number }) {
+  const label =
+    durationMs < 1000 ? `${Math.round(durationMs)}ms` : `${(durationMs / 1000).toFixed(1)}s`
+  return (
+    <span
+      className="inline-flex shrink-0 items-center rounded-md border border-border bg-bg-soft px-1.5 py-px text-[9px] font-medium tabular-nums text-fg-muted"
+      title={`Tempo de execução do agente: ${durationMs}ms`}
+    >
+      {label}
     </span>
   )
 }

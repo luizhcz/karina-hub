@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { applyPatch, type Operation } from 'fast-json-patch'
 import { getAuthHeaders } from '../auth/headers'
 import { API_BASE_URL } from '../api/baseUrl'
@@ -44,6 +44,15 @@ export interface ChatStep {
   id: string
   name: string
   status: 'started' | 'finished'
+  /** Timestamp local (ms) em que STEP_STARTED chegou — base pro fallback de
+   *  duração quando o backend não envia metadata.durationMs. */
+  startedAt: number
+  /** Duração em ms do step. Preferência: `metadata.durationMs` do backend
+   *  (mais preciso, exclui RTT do SSE); fallback: subtração local entre
+   *  STEP_FINISHED e STEP_STARTED. Null enquanto status='started'. */
+  durationMs: number | null
+  /** Tipo do agente extraído de metadata.agentType (Conversational/Router/...). */
+  agentType?: string
 }
 
 export type ChatStreamStatus =
@@ -227,6 +236,10 @@ export interface UseChatStreamResult {
    *  Fonte autoritativa (backend conhece AgentDefinition.Type). Quando ausente,
    *  o consumidor pode usar listAgents() como fallback. */
   agentTypeByNodeId: Map<string, string>
+  /** Duração em ms de cada step finalizado, indexada por stepId (= nodeId do
+   *  workflow). Acumula no turno atual + turnos anteriores — a UI lê o último
+   *  para mostrar tag "took 1.2s" perto da bubble do agente. */
+  durationMsByStepId: Map<string, number>
   send: (userText: string) => Promise<void>
   cancel: () => Promise<void>
   resolveHitl: (toolCallId: string, response: string) => Promise<void>
@@ -415,14 +428,34 @@ export function useChatStream({
       }
       case 'STEP_STARTED': {
         const e = evt as StepStarted
-        setSteps((prev) => [...prev, { id: e.stepId, name: e.stepName, status: 'started' }])
+        setSteps((prev) => [
+          ...prev,
+          {
+            id: e.stepId,
+            name: e.stepName,
+            status: 'started',
+            startedAt: Date.now(),
+            durationMs: null,
+            agentType: e.metadata?.agentType,
+          },
+        ])
         indexAgentTypeFromStep(e.stepId, e.metadata?.agentType)
         break
       }
       case 'STEP_FINISHED': {
         const e = evt as StepFinished
+        const backendDuration = e.metadata?.durationMs
         setSteps((prev) =>
-          prev.map((s) => (s.id === e.stepId ? { ...s, status: 'finished' as const } : s)),
+          prev.map((s) => {
+            if (s.id !== e.stepId) return s
+            // Preferência: durationMs autoritativo do backend (mede o real
+            // tempo de execução do agente, sem RTT do SSE). Fallback: subtração
+            // local — pode estar inflado por latência de rede mas é melhor
+            // que esconder o sinal.
+            const durationMs =
+              typeof backendDuration === 'number' ? backendDuration : Date.now() - s.startedAt
+            return { ...s, status: 'finished' as const, durationMs }
+          }),
         )
         indexAgentTypeFromStep(e.stepId, e.metadata?.agentType)
         break
@@ -647,6 +680,18 @@ export function useChatStream({
     })
   }, [])
 
+  // Derivado: map de stepId → durationMs do último STEP_FINISHED (mesmo step
+   // pode aparecer múltiplas vezes em turnos sucessivos; mantemos sempre o
+   // valor mais recente). Consumidor usa pra renderizar a tag de tempo perto
+   // da bubble do agente (bubble.agentId === stepId no caso comum).
+  const durationMsByStepId = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const s of steps) {
+      if (s.durationMs != null) map.set(s.id, s.durationMs)
+    }
+    return map
+  }, [steps])
+
   return {
     status,
     threadId,
@@ -657,6 +702,7 @@ export function useChatStream({
     errorMessage,
     rawEvents,
     agentTypeByNodeId,
+    durationMsByStepId,
     send,
     cancel,
     resolveHitl,
