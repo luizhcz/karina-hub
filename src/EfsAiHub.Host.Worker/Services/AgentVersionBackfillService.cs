@@ -49,6 +49,14 @@ public sealed class AgentVersionBackfillService(
             return;
         }
 
+        // TemplateService re-aplica os fragmentos auto-injetados por tipo
+        // (StructuredOutputState middleware do Conversational, wrap canônico do
+        // StructuredOutput, etc.). Sem essa etapa, o decompose tira esses
+        // fragmentos e o compose não os reinjeta — backfill grava o agente
+        // mutilado de volta. AgentService.CreateAsync já faz template→compose
+        // nessa ordem; aqui replicamos a simetria.
+        var templateService = sp.GetRequiredService<IAgentTemplateService>();
+
         logger.LogInformation(
             "[VersionBackfill] {Count} agente(s) — recompondo pra garantir snapshot autocontido.",
             rows.Count);
@@ -63,12 +71,14 @@ public sealed class AgentVersionBackfillService(
                 var stored = JsonSerializer.Deserialize<AgentDefinition>(dataJson, JsonDefaults.Domain)
                     ?? throw new InvalidOperationException($"Agente '{id}' tem Data jsonb inválido.");
 
-                // Recompose round-trip: decompose → compose → upsert. UpsertAsync
-                // grava nova revision apenas se ContentHash mudou — idempotente
-                // pra agents já compostos. Composer falha hard se dep faltando
-                // (intent/tool/model removido); falha propaga + lista no final.
+                // Recompose round-trip: decompose → template.Apply → compose →
+                // upsert. UpsertAsync grava nova revision apenas se ContentHash
+                // mudou — idempotente pra agents já compostos. Composer falha
+                // hard se dep faltando (intent/tool/model removido); falha
+                // propaga + lista no final.
                 var authored = decomposer.Decompose(stored);
-                var composed = await composer.ComposeAsync(authored, ct);
+                var templated = templateService.Apply(authored);
+                var composed = await composer.ComposeAsync(templated, ct);
 
                 await agentRepo.UpsertAsync(
                     composed,
