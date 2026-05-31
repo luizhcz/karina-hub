@@ -3,6 +3,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { StreamingCursor } from './StreamingCursor'
+import { MessageFeedbackButtons } from './MessageFeedbackButtons'
 
 function CopyButton({ codeRef }: { codeRef: React.RefObject<HTMLPreElement | null> }) {
   const [copied, setCopied] = useState(false)
@@ -35,7 +36,19 @@ function PreBlock({ children, ...props }: React.ComponentPropsWithoutRef<'pre'>)
   )
 }
 
-export function AssistantBubble({ text, time, isStreaming }: { text: string; time?: string; isStreaming?: boolean }) {
+interface AssistantBubbleProps {
+  text: string
+  time?: string
+  isStreaming?: boolean
+  /** Quando presente (mensagem persistida + não-streaming) renderiza like/dislike. */
+  feedback?: {
+    conversationId: string
+    messageId: string
+    initialSentiment?: 1 | -1 | null
+  }
+}
+
+export function AssistantBubble({ text, time, isStreaming, feedback }: AssistantBubbleProps) {
   return (
     <div className="flex justify-start">
       <div className="max-w-[70%] px-4 py-2.5 rounded-2xl rounded-bl-sm text-sm leading-relaxed bg-bg-tertiary text-text-primary border border-border-primary">
@@ -51,6 +64,13 @@ export function AssistantBubble({ text, time, isStreaming }: { text: string; tim
         </div>
         {time && (
           <p className="text-[10px] mt-1 text-text-muted">{time}</p>
+        )}
+        {feedback && !isStreaming && (
+          <MessageFeedbackButtons
+            conversationId={feedback.conversationId}
+            messageId={feedback.messageId}
+            initialSentiment={feedback.initialSentiment ?? null}
+          />
         )}
       </div>
     </div>

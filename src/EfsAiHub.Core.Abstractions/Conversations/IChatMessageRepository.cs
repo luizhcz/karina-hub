@@ -4,6 +4,12 @@ public interface IChatMessageRepository
 {
     Task<ChatMessage> SaveAsync(ChatMessage message, CancellationToken ct = default);
 
+    Task<ChatMessage?> GetByIdAsync(string messageId, CancellationToken ct = default);
+
+    /// <summary>Lookup batch por MessageId (sem ordenação garantida).</summary>
+    Task<IReadOnlyList<ChatMessage>> GetByIdsAsync(
+        IReadOnlyList<string> messageIds, CancellationToken ct = default);
+
     /// <summary>
     /// Persiste múltiplas mensagens em uma única operação (batch insert).
     /// </summary>

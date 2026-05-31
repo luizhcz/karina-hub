@@ -518,10 +518,16 @@ public class AgentFactory : IAgentFactory
             // hoje o factory não tem o workflowRef em escopo.
             var historyWindow = EfsAiHub.Platform.Runtime.Application.Services
                 .WorkflowAgentHistoryResolver.Resolve(definition.Type, workflowRef: null, workflowConfig: null);
+            // Router não recebe sharedState: sinal de continuação já vem dos
+            // markers [ASSISTANT-*] no histórico + operational_memory próprio.
+            // sharedState carrega detalhes operacionais de Conversational que
+            // viram noise pro classificador (e tokens a mais no TTFT).
+            var includeSharedState = definition.Type != AgentType.Router;
             var expanded = ChatTurnContextMapper.TryExpand(
                 input,
                 composedPersona.UserReinforcement,
-                historyWindow: historyWindow);
+                historyWindow: historyWindow,
+                includeSharedState: includeSharedState);
 
             // Anota provenance per-message: cada item adicionado é tracable
             // pela posição no array final de `messages`.

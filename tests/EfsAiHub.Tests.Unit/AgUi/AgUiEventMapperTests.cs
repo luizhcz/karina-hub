@@ -147,18 +147,42 @@ public class AgUiEventMapperTests
     }
 
     [Fact]
-    public void StepCompleted_ComOutput_MapaStepFinishedMaisTextMessage()
+    public void StepCompleted_ComOutputEMessageId_MapaStepFinishedMaisTextMessage()
     {
+        var env = Envelope("step_completed", new
+        {
+            nodeId = "node-1",
+            output = "resultado",
+            wasStreamed = false,
+            messageId = "abc123",
+        });
+
+        var events = _mapper.Map(env, "run-1", "thread-1");
+
+        // STEP_FINISHED + TEXT_MESSAGE_START + TEXT_MESSAGE_CONTENT + TEXT_MESSAGE_END.
+        // O trio TEXT_MESSAGE_* usa o messageId do payload (mesmo ID persistido em
+        // chat_messages pelo worker) — sem ele o trio é suprimido, ver teste abaixo.
+        events.Should().HaveCount(4);
+        events[0].Type.Should().Be("STEP_FINISHED");
+        events[1].Type.Should().Be("TEXT_MESSAGE_START");
+        events[1].MessageId.Should().Be("abc123");
+        events[2].Type.Should().Be("TEXT_MESSAGE_CONTENT");
+        events[2].MessageId.Should().Be("abc123");
+        events[3].Type.Should().Be("TEXT_MESSAGE_END");
+        events[3].MessageId.Should().Be("abc123");
+    }
+
+    [Fact]
+    public void StepCompleted_ComOutputSemMessageId_SuprimeTrioTextMessage()
+    {
+        // Sem messageId, o cliente não conseguiria referenciar a mensagem depois
+        // (feedback, etc) — o mapper não emite o trio sintético.
         var env = Envelope("step_completed", new { nodeId = "node-1", output = "resultado", wasStreamed = false });
 
         var events = _mapper.Map(env, "run-1", "thread-1");
 
-        // STEP_FINISHED + TEXT_MESSAGE_START + TEXT_MESSAGE_CONTENT + TEXT_MESSAGE_END
-        events.Should().HaveCount(4);
+        events.Should().HaveCount(1);
         events[0].Type.Should().Be("STEP_FINISHED");
-        events[1].Type.Should().Be("TEXT_MESSAGE_START");
-        events[2].Type.Should().Be("TEXT_MESSAGE_CONTENT");
-        events[3].Type.Should().Be("TEXT_MESSAGE_END");
     }
 
     // ── Bifurcação por nodeType ───────────────────────────────────────────────

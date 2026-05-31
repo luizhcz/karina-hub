@@ -34,6 +34,10 @@ public interface IConversationMessaging
         string? workflowVersionId = null,
         IReadOnlyList<ChatMessageInput>? echoHistory = null);
 
+    Task OnStepCompletedAsync(
+        string conversationId, string executionId, string agentId,
+        string messageId, string output, CancellationToken ct = default);
+
     Task OnExecutionCompletedAsync(
         string conversationId, string finalOutput, string executionId,
         string? lastActiveAgentId = null, CancellationToken ct = default);

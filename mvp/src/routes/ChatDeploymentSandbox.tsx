@@ -30,6 +30,7 @@ import {
 } from '../ui'
 import { extractConversationalDisplay } from '../utils/conversationalDisplay'
 import { ConversationalOutputChip, OutputDetails, TypingDots } from '../components/ConversationalExtras'
+import { MessageFeedbackButtons } from './MessageFeedbackButtons'
 
 const HITL_TOOL_NAME = 'request_approval'
 const VERSION_CURRENT = ''
@@ -342,6 +343,7 @@ export function ChatDeploymentSandbox() {
             bubbles={stream.bubbles}
             toolCalls={stream.toolCalls}
             isStreaming={isStreaming}
+            conversationId={stream.threadId}
             agentTypeById={mergedAgentTypes}
             durationMsByStepId={stream.durationMsByStepId}
             onResolveHitl={(toolCallId, response) => void stream.resolveHitl(toolCallId, response)}
@@ -403,6 +405,8 @@ interface BubbleStackProps {
   bubbles: ChatBubble[]
   toolCalls: ChatToolCall[]
   isStreaming: boolean
+  /** Necessário pra postar feedback na mensagem persistida. Null antes do RUN_STARTED. */
+  conversationId: string | null
   agentTypeById: Map<string, AgentType>
   durationMsByStepId: Map<string, number>
   onResolveHitl: (toolCallId: string, response: string) => void
@@ -412,6 +416,7 @@ function BubbleStack({
   bubbles,
   toolCalls,
   isStreaming,
+  conversationId,
   agentTypeById,
   durationMsByStepId,
   onResolveHitl,
@@ -478,6 +483,7 @@ function BubbleStack({
                   agentType={agentType}
                   durationMs={durationMs}
                   streaming={isStreaming && !b.complete}
+                  conversationId={conversationId}
                 />
               )}
               {(toolCallsByParent.get(b.id) ?? []).map((tc) => (
@@ -507,11 +513,13 @@ function BubbleRow({
   agentType,
   durationMs,
   streaming,
+  conversationId,
 }: {
   bubble: ChatBubble
   agentType?: AgentType
   durationMs?: number
   streaming: boolean
+  conversationId: string | null
 }) {
   const isUser = bubble.role === 'user'
   // Durante streaming os chunks chegam parciais e o parse JSON falha — exibimos
@@ -566,6 +574,14 @@ function BubbleRow({
           </>
         )}
       </div>
+      {/* Feedback em qualquer bubble assistant — agora cada step terminal de agente
+          tem ChatMessage própria em chat_messages, e bubble.id é o messageId real. */}
+      {!isUser && !streaming && conversationId && (
+        <MessageFeedbackButtons
+          conversationId={conversationId}
+          messageId={bubble.id}
+        />
+      )}
     </div>
   )
 }

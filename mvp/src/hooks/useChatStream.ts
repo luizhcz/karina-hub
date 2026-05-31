@@ -21,12 +21,14 @@ export interface ChatInputMessage {
 }
 
 export interface ChatBubble {
+  /** ID = messageId do servidor (mesmo que vai pra chat_messages no save).
+   *  Único globalmente — o worker gera GUID por step terminal. */
   id: string
   role: ChatRole
   content: string
   complete: boolean
-  /** AgentId que produziu a bubble — derivado do messageId `msg_<agentId>`
-   *  emitido pelo backend. Permite cruzar com `agentTypeByNodeId` pra trocar
+  /** AgentId que produziu a bubble. Vem no metadata dos eventos STEP_* e do
+   *  parent dos TOOL_CALL. Permite cruzar com `agentTypeByNodeId` pra trocar
    *  o renderer (ex: card de decisão pro Router em vez de markdown cru). */
   agentId?: string
 }
@@ -97,12 +99,14 @@ interface TextMessageStart extends AgUiEventBase {
   type: 'TEXT_MESSAGE_START'
   messageId: string
   role: ChatRole
+  agentId?: string
 }
 
 interface TextMessageContent extends AgUiEventBase {
   type: 'TEXT_MESSAGE_CONTENT'
   messageId: string
   delta: unknown
+  agentId?: string
 }
 
 interface TextMessageEnd extends AgUiEventBase {
@@ -270,12 +274,10 @@ export function useChatStream({
   const threadIdRef = useRef<string | null>(null)
   const seqRef = useRef(0)
 
-  // Backend reusa o mesmo `messageId` por agente entre turns (ex:
-  // "msg_router-sales-trader" aparece em todo turn). Pra UI manter as bubbles
-  // antigas, geramos um UID local por bubble/toolCall a cada turn e mapeamos
-  // do messageId/toolCallId do servidor pra UID interno. Reset em send().
+  // Backend gera messageId único por step terminal (GUID) — bubble.id usa direto
+  // o messageId do servidor, sem reconciliação local. Tool calls ainda têm UID
+  // local por turn pra evitar colisão se algum backend antigo reusar toolCallId.
   const turnRef = useRef(0)
-  const bubbleUidByMessageIdRef = useRef(new Map<string, string>())
   const toolCallUidByIdRef = useRef(new Map<string, string>())
 
   // Cleanup em unmount: aborta o fetch em andamento (não tenta cancelar via
@@ -290,7 +292,6 @@ export function useChatStream({
     threadIdRef.current = null
     seqRef.current = 0
     turnRef.current = 0
-    bubbleUidByMessageIdRef.current.clear()
     toolCallUidByIdRef.current.clear()
     setStatus('idle')
     setThreadId(null)
@@ -327,70 +328,57 @@ export function useChatStream({
       }
       case 'TEXT_MESSAGE_START': {
         const e = evt as TextMessageStart
-        const uid = `${e.messageId}::t${turnRef.current}`
-        bubbleUidByMessageIdRef.current.set(e.messageId, uid)
-        const agentId = extractAgentIdFromMessageId(e.messageId)
-        setBubbles((prev) => [
-          ...prev,
-          { id: uid, role: e.role ?? 'assistant', content: '', complete: false, agentId },
-        ])
+        setBubbles((prev) =>
+          prev.some((b) => b.id === e.messageId)
+            ? prev
+            : [...prev, { id: e.messageId, role: e.role ?? 'assistant', content: '', complete: false, agentId: e.agentId }],
+        )
         break
       }
       case 'TEXT_MESSAGE_CONTENT': {
         const e = evt as TextMessageContent
         const chunk = deltaToString(e.delta)
         if (!chunk) break
-        let uid = bubbleUidByMessageIdRef.current.get(e.messageId)
-        if (!uid) {
-          // Backend pode pular o START em alguns casos — registra UID on-demand.
-          uid = `${e.messageId}::t${turnRef.current}`
-          bubbleUidByMessageIdRef.current.set(e.messageId, uid)
-          const agentId = extractAgentIdFromMessageId(e.messageId)
-          setBubbles((prev) => [
-            ...prev,
-            {
-              id: uid as string,
-              role: 'assistant',
-              content: chunk,
-              complete: false,
-              agentId,
-            },
-          ])
-          break
-        }
-        const targetUid = uid
         setBubbles((prev) => {
-          const idx = prev.findIndex((b) => b.id === targetUid)
-          if (idx === -1) return prev
+          const idx = prev.findIndex((b) => b.id === e.messageId)
+          if (idx === -1) {
+            // Backend pode pular o START — cria bubble on-demand (caso streamed normal
+            // onde só vem TEXT_MESSAGE_CONTENT do token batcher).
+            return [
+              ...prev,
+              { id: e.messageId, role: 'assistant', content: chunk, complete: false, agentId: e.agentId },
+            ]
+          }
+          // Bubble já existe — só atualiza content. agentId pode chegar atrasado em
+          // chunks subsequentes; preenche se ainda não tem.
           const next = prev.slice()
-          next[idx] = { ...next[idx], content: next[idx].content + chunk }
+          next[idx] = {
+            ...next[idx],
+            content: next[idx].content + chunk,
+            agentId: next[idx].agentId ?? e.agentId,
+          }
           return next
         })
         break
       }
       case 'TEXT_MESSAGE_END': {
         const e = evt as TextMessageEnd
-        const uid = bubbleUidByMessageIdRef.current.get(e.messageId)
-        if (!uid) break
-        setBubbles((prev) => prev.map((b) => (b.id === uid ? { ...b, complete: true } : b)))
+        setBubbles((prev) => prev.map((b) => (b.id === e.messageId ? { ...b, complete: true } : b)))
         break
       }
       case 'TOOL_CALL_START': {
         const e = evt as ToolCallStart
         const uid = `${e.toolCallId}::t${turnRef.current}`
         toolCallUidByIdRef.current.set(e.toolCallId, uid)
-        // parentMessageId → mapeia pro UID da bubble corrente do turn (mesmo
-        // messageId em turns diferentes vira UIDs distintos).
-        const parentUid = e.parentMessageId
-          ? bubbleUidByMessageIdRef.current.get(e.parentMessageId)
-          : undefined
+        // parentMessageId vem do backend como o messageId real do bubble pai —
+        // bate direto com bubble.id (que agora também é o messageId real). Sem mapeamento.
         setToolCalls((prev) => [
           ...prev,
           {
             id: uid,
             name: e.toolCallName,
             args: '',
-            parentMessageId: parentUid,
+            parentMessageId: e.parentMessageId,
             complete: false,
           },
         ])
@@ -502,8 +490,8 @@ export function useChatStream({
         break
       }
       default:
-        // Eventos ignorados em V1: CUSTOM (actor.persisted, executor.lifecycle, ESCALATION),
-        // MESSAGES_SNAPSHOT. Não derrubam o stream.
+        // Eventos ignorados em V1: CUSTOM (actor.persisted, executor.lifecycle,
+        // ESCALATION), MESSAGES_SNAPSHOT. Não derrubam o stream.
         break
     }
   }
@@ -575,11 +563,9 @@ export function useChatStream({
       if (!trimmed) return
       if (status === 'streaming') return
 
-      // Novo turn: bump do counter + reset dos mapas messageId/toolCallId →
-      // UID. Cada turn gera UIDs distintos mesmo quando o backend reusa o
-      // messageId do agente entre turns.
+      // Bumpa turn pra mapeamento de tool calls (que ainda usa UID local).
+      // Bubbles assistant não precisam reset — backend gera messageId único por step.
       turnRef.current += 1
-      bubbleUidByMessageIdRef.current.clear()
       toolCallUidByIdRef.current.clear()
 
       const userMsgId = `user-t${turnRef.current}-${Date.now()}`
@@ -708,15 +694,6 @@ export function useChatStream({
     resolveHitl,
     reset,
   }
-}
-
-// Backend emite messageId no formato `msg_<agentId>` (ver AgUiEventMapper:
-// linha 249, `var messageId = $"msg_{nodeId}"`). Extrai o agentId pra cruzar
-// com agentTypeByNodeId no renderer. Em formatos diferentes, retorna undefined.
-function extractAgentIdFromMessageId(messageId: string): string | undefined {
-  if (!messageId.startsWith('msg_')) return undefined
-  const tail = messageId.slice(4)
-  return tail.length > 0 ? tail : undefined
 }
 
 // Encontra o próximo limite de evento SSE (\n\n ou \r\n\r\n). Retorna offset

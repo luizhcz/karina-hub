@@ -57,6 +57,15 @@ export interface FormState {
    */
   routerForChat: boolean
   /**
+   * Override opcional do `authorInstructions` do Router. Vazio = codec gera
+   * o esqueleto determinístico via `encodeRouterInstructions(name)`. Não
+   * vazio = o texto vai integral pro payload e o esqueleto é ignorado.
+   * Round-trip preserva o texto exato (sem decodificação markdown), porque
+   * Router não tem perfil/output estruturado pra extrair. Vazio quando
+   * type !== 'Router'.
+   */
+  routerAuthorInstructions: string
+  /**
    * Domínio de análise do Worker — texto livre PT-BR injetado em runtime
    * ao final das instructions (bloco "# Domínio de análise"). Persistido
    * em payload.metadata['x-worker-scope']. Vazio quando type !== 'Worker'.

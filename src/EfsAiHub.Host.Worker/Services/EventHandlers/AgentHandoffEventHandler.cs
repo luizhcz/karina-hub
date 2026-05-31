@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Agents.AI.Workflows;
 using EfsAiHub.Core.Abstractions.Persistence;
+using EfsAiHub.Platform.Runtime.BackgroundServices;
 
 namespace EfsAiHub.Host.Worker.Services.EventHandlers;
 
@@ -23,17 +24,20 @@ public sealed class AgentHandoffEventHandler
     private readonly INodeExecutionRepository _nodeRepo;
     private readonly IWorkflowEventBus _eventBus;
     private readonly TokenBatcher _tokenBatcher;
+    private readonly ExecutionFailureWriter _failureWriter;
     private readonly ILogger<AgentHandoffEventHandler> _logger;
 
     public AgentHandoffEventHandler(
         INodeExecutionRepository nodeRepo,
         IWorkflowEventBus eventBus,
         TokenBatcher tokenBatcher,
+        ExecutionFailureWriter failureWriter,
         ILogger<AgentHandoffEventHandler> logger)
     {
         _nodeRepo = nodeRepo;
         _eventBus = eventBus;
         _tokenBatcher = tokenBatcher;
+        _failureWriter = failureWriter;
         _logger = logger;
     }
 
@@ -54,7 +58,7 @@ public sealed class AgentHandoffEventHandler
 
         if (agentId is not null && agentId != nodeTracker.CurrentAgentId)
         {
-            await FinalizePreviousAgentAsync(execution, nodeTracker, agentNames);
+            await FinalizePreviousAgentAsync(execution, nodeTracker, agentNames, ct);
             await EmitHandoffAsync(execution, nodeTracker.CurrentAgentId, agentId, agentNames);
             await StartNewAgentAsync(execution, nodeTracker, agentId, agentNames);
         }
@@ -65,13 +69,19 @@ public sealed class AgentHandoffEventHandler
         if (agentId is not null)
             nodeTracker.AppendOutput(agentId, tokenText);
 
-        _tokenBatcher.Enqueue(execution.ExecutionId, tokenEvt.ExecutorId, tokenText);
+        // MessageId aqui é o ID canônico do step (mesmo que vai pra chat_messages no save).
+        // Cliente recebe via TEXT_MESSAGE_CONTENT.messageId e pode usar direto pra feedback.
+        var messageId = agentId is not null && nodeTracker.TryGetRecord(agentId, out var rec)
+            ? rec.MessageId
+            : null;
+        _tokenBatcher.Enqueue(execution.ExecutionId, agentId, messageId, tokenText);
     }
 
     private async Task FinalizePreviousAgentAsync(
         WorkflowExecution execution,
         NodeStateTracker nodeTracker,
-        IReadOnlyDictionary<string, AgentNodeInfo>? agentNames)
+        IReadOnlyDictionary<string, AgentNodeInfo>? agentNames,
+        CancellationToken ct)
     {
         var previousAgentId = nodeTracker.CurrentAgentId;
         if (previousAgentId is null
@@ -99,6 +109,16 @@ public sealed class AgentHandoffEventHandler
             && agentNames.TryGetValue(previousAgentId, out var pan) ? pan : null;
 
         var output = prev.Output ?? string.Empty;
+
+        // Persiste a ChatMessage do step com o MESMO messageId que foi emitido
+        // no stream — cliente que pegou o ID via TEXT_MESSAGE_END pode usar direto
+        // pra referenciar a mensagem no banco (feedback, etc).
+        if (!string.IsNullOrEmpty(prev.MessageId) && !string.IsNullOrEmpty(output))
+        {
+            await _failureWriter.MarkStepCompletedAsync(
+                execution, previousAgentId, prev.MessageId, output, ct);
+        }
+
         // wasStreamed=true marca que o output já foi entregue via tokens (este
         // handler só é invocado a partir de AgentResponseUpdateEvent — i.e. o
         // LLM streamou). Sem essa flag, o AgUiEventMapper reconstroi o trio
@@ -111,6 +131,7 @@ public sealed class AgentHandoffEventHandler
             agentId = previousAgentId,
             agentName = previousInfo?.Name,
             agentType = previousInfo?.Type,
+            messageId = prev.MessageId,
             output,
             wasStreamed = true,
             timestamp = prev.CompletedAt
@@ -146,13 +167,17 @@ public sealed class AgentHandoffEventHandler
         string agentId,
         IReadOnlyDictionary<string, AgentNodeInfo>? agentNames)
     {
+        // MessageId é gerado aqui — quando o agente entra em "running" — e usado
+        // tanto no stream AG-UI (TEXT_MESSAGE_*, token, node_completed) quanto na
+        // persistência em chat_messages. Um único ID, sem reconciliação posterior.
         var record = new NodeExecutionRecord
         {
             NodeId = agentId,
             ExecutionId = execution.ExecutionId,
             NodeType = "agent",
             Status = "running",
-            StartedAt = DateTime.UtcNow
+            StartedAt = DateTime.UtcNow,
+            MessageId = Guid.NewGuid().ToString("N")
         };
         nodeTracker.SetRecord(agentId, record);
         nodeTracker.CurrentAgentId = agentId;

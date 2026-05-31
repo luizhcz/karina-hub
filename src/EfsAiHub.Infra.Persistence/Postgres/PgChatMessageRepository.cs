@@ -22,6 +22,23 @@ public class PgChatMessageRepository : IChatMessageRepository
         return message;
     }
 
+    public async Task<ChatMessage?> GetByIdAsync(string messageId, CancellationToken ct = default)
+    {
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        return await db.ChatMessages.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.MessageId == messageId, ct);
+    }
+
+    public async Task<IReadOnlyList<ChatMessage>> GetByIdsAsync(
+        IReadOnlyList<string> messageIds, CancellationToken ct = default)
+    {
+        if (messageIds.Count == 0) return Array.Empty<ChatMessage>();
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        return await db.ChatMessages.AsNoTracking()
+            .Where(m => messageIds.Contains(m.MessageId))
+            .ToListAsync(ct);
+    }
+
     public async Task SaveBatchAsync(IReadOnlyList<ChatMessage> messages, CancellationToken ct = default)
     {
         if (messages.Count == 0) return;

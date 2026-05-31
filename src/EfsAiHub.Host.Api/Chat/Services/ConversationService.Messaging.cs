@@ -227,6 +227,41 @@ public partial class ConversationService
         return new SendMessageResult(executionId, false, persisted);
     }
 
+    public async Task OnStepCompletedAsync(
+        string conversationId, string executionId, string agentId,
+        string messageId, string output, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(output))
+        {
+            _logger.LogDebug(
+                "[ConvService] Step '{AgentId}' em exec='{ExecId}' não produziu output — sem ChatMessage.",
+                agentId, executionId);
+            return;
+        }
+
+        // Não valida ActiveExecutionId aqui (como OnExecutionCompletedAsync faz):
+        // steps chegam via NodePersistenceService (async), e pode haver race onde
+        // o completion final já zerou ActiveExecutionId antes do step ser processado.
+        // O ExecutionId é preservado na ChatMessage — quem quiser filtrar execuções
+        // canceladas/staled faz no consumer (admin queries, etc).
+        var parsed = ExecutionOutputParser.Parse(output);
+        var assistantMsg = new ChatMessage
+        {
+            MessageId = messageId,
+            ConversationId = conversationId,
+            Role = "assistant",
+            Content = parsed.TextContent,
+            StructuredOutput = parsed.StructuredOutput,
+            TokenCount = 0,
+            ExecutionId = executionId
+        };
+
+        await _msgRepo.SaveAsync(assistantMsg, ct);
+        // TokenCount real é populado fora do hot path por llm_token_usage; o updater
+        // resolve por messageId+executionId, então funciona com IDs vindos do worker.
+        _tokenCountUpdater.EnqueueUpdate(assistantMsg.MessageId, executionId);
+    }
+
     public async Task OnExecutionCompletedAsync(
         string conversationId, string finalOutput, string executionId,
         string? lastActiveAgentId = null, CancellationToken ct = default)
@@ -238,9 +273,6 @@ public partial class ConversationService
         var conversation = await _convRepo.GetByIdAsync(conversationId, ct);
         if (conversation is null) return;
 
-        // Validação idempotente: só persiste a resposta se a execução ainda é a ativa.
-        // Paridade com OnExecutionFailedAsync — evita que um completion atrasado de uma
-        // execução cancelada sobrescreva a resposta de uma nova execução já em curso.
         if (conversation.ActiveExecutionId != executionId)
         {
             MetricsRegistry.StaleExecutionCompletionSkipped.Add(1);
@@ -251,33 +283,17 @@ public partial class ConversationService
             return;
         }
 
-        var parsed = ExecutionOutputParser.Parse(finalOutput);
-
-        var assistantMsg = new ChatMessage
-        {
-            MessageId = Guid.NewGuid().ToString("N"),
-            ConversationId = conversationId,
-            Role = "assistant",
-            Content = parsed.TextContent,
-            StructuredOutput = parsed.StructuredOutput,
-            TokenCount = 0,
-            ExecutionId = executionId
-        };
-
-        await _msgRepo.SaveAsync(assistantMsg, ct);
-
-        // Atualiza TokenCount com valor real de llm_token_usage (fire-and-forget)
-        _tokenCountUpdater.EnqueueUpdate(assistantMsg.MessageId, executionId);
-
+        // Cleanup de estado da conversa. As ChatMessages já foram persistidas
+        // por OnStepCompletedAsync uma a uma — este callback não persiste mais nada.
         conversation.ActiveExecutionId = null;
         conversation.LastActiveAgentId = lastActiveAgentId ?? conversation.LastActiveAgentId;
-        conversation.LastMessageAt = assistantMsg.CreatedAt;
+        conversation.LastMessageAt = DateTime.UtcNow;
 
         await _convRepo.UpdateAsync(conversation, ct);
 
         _logger.LogInformation(
-            "[ConvService] Resposta do assistente persistida para conversa '{ConvId}'. LastActiveAgent='{AgentId}'.",
-            conversationId, conversation.LastActiveAgentId);
+            "[ConvService] Execução '{ExecId}' fechada na conversa '{ConvId}'. LastActiveAgent='{AgentId}'.",
+            executionId, conversationId, conversation.LastActiveAgentId);
     }
 
     private async Task WaitForTerminalStatusAsync(string executionId, TimeSpan timeout, CancellationToken ct)

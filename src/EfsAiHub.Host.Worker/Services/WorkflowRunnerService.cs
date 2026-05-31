@@ -490,13 +490,18 @@ public class WorkflowRunnerService
 
             if (!isCompleted)
             {
+                // MessageId é gerado aqui (apenas para agentes) e propagado em todos os
+                // eventos AG-UI relacionados a esta fala — node_completed, tokens e o
+                // trio TEXT_MESSAGE_* reconstruído. É o mesmo ID usado no save de
+                // chat_messages, garantindo um único identificador end-to-end.
                 var record = new NodeExecutionRecord
                 {
                     NodeId = nodeId,
                     ExecutionId = execution.ExecutionId,
                     NodeType = kind,
                     Status = "running",
-                    StartedAt = DateTime.UtcNow
+                    StartedAt = DateTime.UtcNow,
+                    MessageId = kind == "agent" ? Guid.NewGuid().ToString("N") : null
                 };
                 nodeTracker.SetRecord(nodeId, record);
                 _nodePersistence.Enqueue(new NodePersistenceJob(
@@ -526,6 +531,20 @@ public class WorkflowRunnerService
                     // o AgUiEventMapper NÃO emita o trio sintético TEXT_MESSAGE_*
                     // (o conteúdo já foi entregue ao cliente chunk a chunk).
                     var wasStreamed = nodeTracker.HasStreamedOutput(nodeId);
+
+                    // Persiste a ChatMessage assistant pra agentes non-streamed (kind="agent"
+                    // + wasStreamed=false + output presente). NodePersistenceService chama
+                    // OnStepCompletedAsync ANTES de publicar o evento — ordem garante que
+                    // GET /messages ao receber STEP_FINISHED ache a mensagem.
+                    NodeChatStepInfo? chatInfo = null;
+                    if (kind == "agent" && !wasStreamed
+                        && !string.IsNullOrEmpty(record.MessageId)
+                        && !string.IsNullOrEmpty(data)
+                        && execution.Metadata.TryGetValue("conversationId", out var conversationId))
+                    {
+                        chatInfo = new NodeChatStepInfo(conversationId, nodeId, record.MessageId, data);
+                    }
+
                     // output vai INTEIRO no payload — em modo non-streaming o
                     // mapper reconstroi o TEXT_MESSAGE_CONTENT a partir daqui;
                     // truncar quebra a mensagem renderizada no chat.
@@ -538,13 +557,16 @@ public class WorkflowRunnerService
                             {
                                 nodeId,
                                 nodeType = kind,
+                                agentId = nodeId,
                                 agentName = agentInfo?.Name,
                                 agentType = agentInfo?.Type,
+                                messageId = record.MessageId,
                                 output = data,
                                 wasStreamed,
                                 timestamp = record.CompletedAt
                             },
-                            JsonDefaults.Domain)));
+                            JsonDefaults.Domain),
+                        chatInfo));
                 }
             }
         };
@@ -677,6 +699,15 @@ public class WorkflowRunnerService
             nodeTracker.MaterializeOutput(currentAgentId);
             await _nodeRepo.SetNodeAsync(lastAgent);
             var lastAgentInfo = agentNames is not null && agentNames.TryGetValue(currentAgentId, out var lan) ? lan : null;
+
+            // Persiste ChatMessage do último step com o messageId já emitido no stream.
+            var lastOutput = lastAgent.Output ?? string.Empty;
+            if (!string.IsNullOrEmpty(lastAgent.MessageId) && !string.IsNullOrEmpty(lastOutput))
+            {
+                await _failureWriter.MarkStepCompletedAsync(
+                    execution, currentAgentId, lastAgent.MessageId, lastOutput, CancellationToken.None);
+            }
+
             await PublishEventAsync(execution.ExecutionId, "node_completed",
                 new
                 {
@@ -685,6 +716,7 @@ public class WorkflowRunnerService
                     agentId = currentAgentId,
                     agentName = lastAgentInfo?.Name,
                     agentType = lastAgentInfo?.Type,
+                    messageId = lastAgent.MessageId,
                     timestamp = lastAgent.CompletedAt
                 });
         }

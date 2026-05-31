@@ -37,7 +37,8 @@ public static class ChatTurnContextMapper
         string? rawInput,
         string? userReinforcement = null,
         JsonSerializerOptions? opts = null,
-        int? historyWindow = null)
+        int? historyWindow = null,
+        bool includeSharedState = true)
     {
         if (string.IsNullOrWhiteSpace(rawInput) || rawInput[0] != '{')
             return null;
@@ -56,7 +57,7 @@ public static class ChatTurnContextMapper
         if (ctx is null || ctx.Metadata.Count == 0)
             return null;
 
-        return BuildMessages(ctx, userReinforcement, historyWindow);
+        return BuildMessages(ctx, userReinforcement, historyWindow, includeSharedState);
     }
 
     /// <summary>
@@ -93,7 +94,8 @@ public static class ChatTurnContextMapper
     private static List<AiChatMessage> BuildMessages(
         ChatTurnContext ctx,
         string? userReinforcement = null,
-        int? historyWindow = null)
+        int? historyWindow = null,
+        bool includeSharedState = true)
     {
         var messages = new List<AiChatMessage>();
 
@@ -107,7 +109,13 @@ public static class ChatTurnContextMapper
                 $"<session_context>\n{string.Join("\n", parts)}\n</session_context>"));
         }
 
-        if (ctx.SharedState is { } state && state.ValueKind == JsonValueKind.Object)
+        // sharedState pulado quando includeSharedState=false (Router não usa —
+        // sinal de continuação já vem dos markers [ASSISTANT-*] no histórico +
+        // operational_memory próprio; sharedState carrega detalhes operacionais
+        // de Conversational que viram noise pro classificador).
+        if (includeSharedState
+            && ctx.SharedState is { } state
+            && state.ValueKind == JsonValueKind.Object)
         {
             var rendered = RenderSharedStateForPrompt(state);
             if (rendered is not null)

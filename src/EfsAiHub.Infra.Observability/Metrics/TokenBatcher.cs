@@ -29,9 +29,11 @@ public sealed class TokenBatcher : IAsyncDisposable
     }
 
     /// <summary>
-    /// Acumula um token para publicação em batch.
+    /// Acumula um token para publicação em batch. <paramref name="messageId"/> é o
+    /// ID canônico da assistant message produzida pelo agente — propagado no payload
+    /// pra que o cliente AG-UI receba o mesmo ID que será persistido em chat_messages.
     /// </summary>
-    public void Enqueue(string executionId, string? agentId, string tokenText)
+    public void Enqueue(string executionId, string? agentId, string? messageId, string tokenText)
     {
         var state = _batches.GetOrAdd(executionId, id => new BatchState(id, this));
 
@@ -44,6 +46,7 @@ public sealed class TokenBatcher : IAsyncDisposable
             }
 
             state.AgentId = agentId;
+            state.MessageId = messageId;
             state.Buffer.Append(tokenText);
             state.EnsureTimerStarted();
         }
@@ -77,6 +80,7 @@ public sealed class TokenBatcher : IAsyncDisposable
     {
         string? text;
         string? agentId;
+        string? messageId;
 
         lock (state.Lock)
         {
@@ -85,6 +89,7 @@ public sealed class TokenBatcher : IAsyncDisposable
 
             text = state.Buffer.ToString();
             agentId = state.AgentId;
+            messageId = state.MessageId;
             state.Buffer.Clear();
             state.StopTimer();
         }
@@ -95,7 +100,7 @@ public sealed class TokenBatcher : IAsyncDisposable
             {
                 EventType = "token",
                 ExecutionId = state.ExecutionId,
-                Payload = JsonSerializer.Serialize(new { agentId, text }, JsonDefaults.Domain)
+                Payload = JsonSerializer.Serialize(new { agentId, messageId, text }, JsonDefaults.Domain)
             };
             await _eventBus.PublishAsync(state.ExecutionId, envelope);
         }
@@ -129,6 +134,7 @@ public sealed class TokenBatcher : IAsyncDisposable
         public string ExecutionId { get; }
         public StringBuilder Buffer { get; } = new();
         public string? AgentId { get; set; }
+        public string? MessageId { get; set; }
         public object Lock { get; } = new();
 
         private Timer? _timer;

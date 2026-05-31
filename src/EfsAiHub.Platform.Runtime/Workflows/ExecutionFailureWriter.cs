@@ -71,10 +71,44 @@ public sealed class ExecutionFailureWriter
         execution.Output = output;
         execution.CompletedAt = DateTime.UtcNow;
         await _executionRepo.UpdateAsync(execution, CancellationToken.None);
-        // Salvar mensagem no BD ANTES de publicar o evento para garantir que o frontend
-        // encontre a mensagem ao chamar refetchMessages() após receber RUN_FINISHED.
+        // As ChatMessages dos steps terminais de agente já foram persistidas
+        // individualmente via MarkStepCompletedAsync conforme cada step finalizou.
+        // Aqui só fecha o estado da conversa (ActiveExecutionId, LastMessageAt).
         await NotifyCompletedAsync(execution, output, ct);
         await PublishAsync(execution.ExecutionId, "workflow_completed", new { output });
+    }
+
+    /// <summary>
+    /// Persiste a ChatMessage produzida por um step terminal de agente. Chamado
+    /// pelos handlers do worker (AgentHandoffEventHandler quando há handoff,
+    /// WorkflowRunnerService.FinalizeLastAgentAsync quando é o último step). O
+    /// <paramref name="messageId"/> é o GUID gerado pelo worker quando o agente
+    /// foi registrado — mesmo ID que já foi emitido nos eventos AG-UI desse step.
+    /// </summary>
+    public async Task MarkStepCompletedAsync(
+        WorkflowExecution execution,
+        string agentId,
+        string messageId,
+        string output,
+        CancellationToken ct)
+    {
+        if (!execution.Metadata.TryGetValue("conversationId", out var conversationId))
+            return;
+
+        foreach (var observer in _observers)
+        {
+            try
+            {
+                await observer.OnStepCompletedAsync(
+                    conversationId, execution.ExecutionId, agentId, messageId, output, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Observer '{Observer}' falhou em OnStepCompletedAsync para conversa '{ConversationId}' (step '{AgentId}').",
+                    observer.GetType().Name, conversationId, agentId);
+            }
+        }
     }
 
     private async Task PublishAsync(string executionId, string eventType, object payload)
@@ -113,6 +147,7 @@ public sealed class ExecutionFailureWriter
         if (!execution.Metadata.TryGetValue("conversationId", out var conversationId))
             return;
         execution.Metadata.TryGetValue("lastActiveAgentId", out var lastActiveAgentId);
+
         foreach (var observer in _observers)
         {
             try

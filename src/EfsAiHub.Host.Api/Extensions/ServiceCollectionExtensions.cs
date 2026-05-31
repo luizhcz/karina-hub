@@ -272,6 +272,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<INodeExecutionRepository, PgNodeExecutionRepository>();
         services.AddSingleton<IConversationRepository, PgConversationRepository>();
         services.AddSingleton<IChatMessageRepository, PgChatMessageRepository>();
+        services.AddSingleton<IMessageFeedbackRepository, PgMessageFeedbackRepository>();
         services.AddSingleton<IAtivoRepository, PgAtivoRepository>();
         services.AddSingleton<ILlmTokenUsageRepository, PgLlmTokenUsageRepository>();
         services.AddSingleton<IToolInvocationRepository, PgToolInvocationRepository>();

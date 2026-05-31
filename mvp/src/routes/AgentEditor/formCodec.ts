@@ -118,6 +118,7 @@ export function emptyFormState(): FormState {
     type: 'Custom',
     routerIntentIds: [],
     routerForChat: false,
+    routerAuthorInstructions: '',
     workerScope: '',
     toolRunnerHitlRequired: false,
     conversationalOutputType: 'text',
@@ -235,6 +236,18 @@ export function fromDraft(draft: AgentDraft): FormState {
   const rawRouterForChat = payload.metadata?.[ROUTER_FOR_CHAT_METADATA_KEY]
   const routerForChat =
     typeof rawRouterForChat === 'string' && rawRouterForChat.toLowerCase() === 'true'
+
+  // Router preserva o authorInstructions cru pra que o autor consiga
+  // iterar no prompt pelo MVP sem perder customização via PUT direto na API.
+  // Quando o texto é byte-igual ao esqueleto gerado pelo nome atual,
+  // tratamos como "sem customização" (vazio) — o codec gera o skeleton
+  // de novo no save e o round-trip não introduz divergência espúria.
+  const routerAuthorInstructions =
+    type === 'Router'
+      ? (rawAuthor ?? '') === encodeRouterInstructions(payload.name ?? draft.name ?? '')
+        ? ''
+        : rawAuthor ?? ''
+      : ''
 
   // Worker e Tool Runner gravam o schema em payload.structuredOutput (não
   // no instructions como Custom-advanced). Hidrata o FormState a partir
@@ -375,6 +388,7 @@ export function fromDraft(draft: AgentDraft): FormState {
     type,
     routerIntentIds,
     routerForChat,
+    routerAuthorInstructions,
     workerScope,
     toolRunnerHitlRequired,
     conversationalOutputType,
@@ -436,17 +450,23 @@ export function buildPayload(
   const inputForCodec = form.input.mode === 'structured' ? form.input : { description: '', schema: '' }
   const outputForCodec = form.output.mode === 'structured' ? form.output : { description: '', schema: '' }
 
-  // Router usa placeholder deterministico — runtime (ChatOptionsBuilder)
-  // resolve o conteúdo real ao montar o prompt baseado no set vivo do join
-  // agent_router_intents. Worker usa skeleton mínimo — runtime injeta o
-  // bloco "# Domínio de análise" lendo metadata['x-worker-scope']. Tool
-  // Runner usa skeleton mínimo — semântica de cada tool (o que faz / quando
-  // usar) vive no prompt do agente, não na tool em si. Conversational usa
-  // skeleton + persona injetada no prompt.
-  // Custom segue o encoder genérico do ProfileStep.
+  // Router usa esqueleto determinístico quando o autor não customizou. Se
+  // form.routerAuthorInstructions tem conteúdo, ele vai integral pro
+  // payload — autor pode iterar gatilhos lexicais do domínio sem perder
+  // tudo a cada save. O template global `router.md` (multi-turn,
+  // ambiguidade, memory) é concatenado em runtime independente do caminho.
+  // Worker usa skeleton mínimo — runtime injeta o bloco "# Domínio de
+  // análise" lendo metadata['x-worker-scope']. Tool Runner usa skeleton
+  // mínimo — semântica de cada tool (o que faz / quando usar) vive no
+  // prompt do agente, não na tool em si. Conversational usa skeleton +
+  // persona injetada no prompt. Custom segue o encoder genérico do
+  // ProfileStep.
+  const customRouterAuthor = form.routerAuthorInstructions.trim()
   const instructions =
     form.type === 'Router'
-      ? encodeRouterInstructions(form.name)
+      ? customRouterAuthor.length > 0
+        ? form.routerAuthorInstructions
+        : encodeRouterInstructions(form.name)
       : form.type === 'Worker'
         ? encodeWorkerInstructions(form.name)
         : form.type === 'ToolRunner'

@@ -1,6 +1,8 @@
+using EfsAiHub.Core.Abstractions.Execution;
 using EfsAiHub.Host.Worker.Services;
 using EfsAiHub.Host.Worker.Services.EventHandlers;
 using EfsAiHub.Infra.Observability.Services;
+using EfsAiHub.Platform.Runtime.BackgroundServices;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
@@ -28,8 +30,15 @@ public class AgentHandoffEventHandlerTests
         public Fixture()
         {
             TokenBatcher = new TokenBatcher(EventBus, NullLogger<TokenBatcher>.Instance, flushIntervalMs: 100_000);
+            var failureWriter = new ExecutionFailureWriter(
+                Substitute.For<IWorkflowExecutionRepository>(),
+                EventBus,
+                TokenBatcher,
+                Array.Empty<IExecutionLifecycleObserver>(),
+                Substitute.For<IHumanInteractionService>(),
+                NullLogger<ExecutionFailureWriter>.Instance);
             Handler = new AgentHandoffEventHandler(
-                NodeRepo, EventBus, TokenBatcher,
+                NodeRepo, EventBus, TokenBatcher, failureWriter,
                 NullLogger<AgentHandoffEventHandler>.Instance);
         }
     }

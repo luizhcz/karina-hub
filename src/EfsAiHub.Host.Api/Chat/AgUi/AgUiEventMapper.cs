@@ -100,6 +100,7 @@ public sealed class AgUiEventMapper
                 {
                     Type = "TEXT_MESSAGE_CONTENT",
                     MessageId = GetString(payload, "messageId"),
+                    AgentId = GetString(payload, "agentId"),
                     Delta = JsonSerializer.SerializeToElement(
                         GetString(payload, "content") ?? GetString(payload, "token") ?? "", JsonDefaults.Domain)
                 }
@@ -246,22 +247,28 @@ public sealed class AgUiEventMapper
 
         var output = GetString(payload, "output");
         var wasStreamed = GetBool(payload, "wasStreamed");
+        // messageId é o ID canônico do step (mesmo que vai pra chat_messages no save).
+        // Worker já o gerou em StartNewAgentAsync e propaga em todos os eventos relacionados.
+        var messageId = GetString(payload, "messageId");
+        var agentId = GetString(payload, "agentId") ?? nodeId;
 
         // Agente que produziu output não-streamed → reconstroi os 3 eventos de mensagem
-        // pra UI renderizar bubble.
-        if (output is not null && !wasStreamed)
+        // pra UI renderizar bubble. Sem messageId não há como o cliente referenciar a
+        // mensagem depois (feedback, etc) — então não emitimos o trio sintético.
+        if (output is not null && !wasStreamed && messageId is not null)
         {
-            var messageId = $"msg_{nodeId}";
             events.Add(new AgUiEvent
             {
                 Type = "TEXT_MESSAGE_START",
                 MessageId = messageId,
+                AgentId = agentId,
                 Role = "assistant"
             });
             events.Add(new AgUiEvent
             {
                 Type = "TEXT_MESSAGE_CONTENT",
                 MessageId = messageId,
+                AgentId = agentId,
                 Delta = JsonSerializer.SerializeToElement(output, JsonDefaults.Domain)
             });
             events.Add(new AgUiEvent

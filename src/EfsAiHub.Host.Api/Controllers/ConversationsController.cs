@@ -316,6 +316,119 @@ public class ConversationsController : ControllerBase
         return Ok(new { items, total, page, pageSize });
     }
 
+    [HttpPost("{id}/messages/{messageId}/feedback")]
+    [SwaggerOperation(Summary = "Submete (upsert) feedback do usuário em uma mensagem de assistente (like/dislike)")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SubmitMessageFeedback(
+        string id,
+        string messageId,
+        [FromBody] SubmitMessageFeedbackRequest request,
+        CancellationToken ct)
+    {
+        var user = _identityResolver.TryResolve(Request.Headers, out var errorMsg);
+        if (user is null) return BadRequest(errorMsg);
+
+        if (request is null)
+            return BadRequest("Body inválido.");
+
+        var result = await _facade.SubmitMessageFeedbackAsync(
+            id, messageId, user.UserId, request.Sentiment, request.Comment, ct);
+
+        if (result.Status != ConversationOperationStatus.Ok)
+            return MapError(result.Status, result.ErrorMessage);
+
+        return Ok(FeedbackToPayload(result.Value!));
+    }
+
+    [HttpGet("{id}/messages/{messageId}/feedback")]
+    [SwaggerOperation(Summary = "Retorna o feedback do usuário corrente para uma mensagem (204 se não houver)")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMessageFeedback(
+        string id, string messageId, CancellationToken ct)
+    {
+        var user = _identityResolver.TryResolve(Request.Headers, out var errorMsg);
+        if (user is null) return BadRequest(errorMsg);
+
+        var result = await _facade.GetMessageFeedbackAsync(id, messageId, user.UserId, ct);
+        if (result.Status != ConversationOperationStatus.Ok)
+            return MapError(result.Status, result.ErrorMessage);
+
+        return result.Value is null ? NoContent() : Ok(FeedbackToPayload(result.Value));
+    }
+
+    [HttpDelete("{id}/messages/{messageId}/feedback")]
+    [SwaggerOperation(Summary = "Remove o feedback do usuário corrente para uma mensagem")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteMessageFeedback(
+        string id, string messageId, CancellationToken ct)
+    {
+        var user = _identityResolver.TryResolve(Request.Headers, out var errorMsg);
+        if (user is null) return BadRequest(errorMsg);
+
+        var result = await _facade.DeleteMessageFeedbackAsync(id, messageId, user.UserId, ct);
+        return result.Status == ConversationOperationStatus.Ok
+            ? NoContent()
+            : MapError(result.Status, result.ErrorMessage);
+    }
+
+    [HttpGet("/api/aihub/admin/message-feedbacks")]
+    [SwaggerOperation(Summary = "Admin: lista feedbacks de mensagens com filtros (paginado). " +
+        "Inclui executionId pra navegar até a execução/agente que respondeu.")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> ListMessageFeedbacksAdmin(
+        [FromQuery] int? sentiment,
+        [FromQuery] string? conversationId,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken ct = default)
+    {
+        var (items, total) = await _facade.ListMessageFeedbacksAdminAsync(
+            sentiment, conversationId, from, to, page, pageSize, ct);
+
+        return Ok(new
+        {
+            items = items.Select(item =>
+            {
+                var fb = item.Feedback;
+                return new
+                {
+                    feedbackId = fb.FeedbackId,
+                    messageId = fb.MessageId,
+                    conversationId = fb.ConversationId,
+                    executionId = item.ExecutionId,
+                    userId = fb.UserId,
+                    sentiment = fb.Sentiment,
+                    comment = fb.Comment,
+                    createdAt = fb.CreatedAt,
+                    updatedAt = fb.UpdatedAt
+                };
+            }),
+            total,
+            page,
+            pageSize
+        });
+    }
+
+    private static object FeedbackToPayload(MessageFeedback fb) => new
+    {
+        feedbackId = fb.FeedbackId,
+        messageId = fb.MessageId,
+        conversationId = fb.ConversationId,
+        sentiment = fb.Sentiment,
+        comment = fb.Comment,
+        createdAt = fb.CreatedAt,
+        updatedAt = fb.UpdatedAt
+    };
+
     [HttpDelete("{id}/context")]
     [SwaggerOperation(Summary = "Reseta o contexto da conversa (mensagens antigas ficam visíveis, mas não são enviadas ao próximo workflow)")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

@@ -23,6 +23,12 @@ public sealed record AgUiEvent
     // Text messages
     public string? MessageId { get; init; }
     public string? Role { get; init; }
+    /// <summary>
+    /// AgentId do agente que produziu a mensagem. Acompanha TEXT_MESSAGE_*
+    /// (extensão não-spec mas útil — permite a UI cruzar o bubble com o agente
+    /// que respondeu sem inferir do messageId, que agora é GUID opaco).
+    /// </summary>
+    public string? AgentId { get; init; }
 
     // Output (RUN_FINISHED)
     public string? Output { get; init; }

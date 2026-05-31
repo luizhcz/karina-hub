@@ -588,6 +588,32 @@ CREATE INDEX IF NOT EXISTS "IX_chat_messages_ConversationId"
 CREATE INDEX IF NOT EXISTS "IX_chat_messages_ConversationId_CreatedAt"
     ON aihub.chat_messages ("ConversationId", "CreatedAt");
 
+CREATE TABLE IF NOT EXISTS aihub.message_feedbacks (
+    "FeedbackId"     VARCHAR(64)  NOT NULL,
+    "MessageId"      VARCHAR(64)  NOT NULL,
+    "ConversationId" VARCHAR(64)  NOT NULL,
+    "UserId"         VARCHAR(256) NOT NULL,
+    "Sentiment"      INTEGER      NOT NULL,           -- +1 like | -1 dislike (CHECK enforce)
+    "Comment"        VARCHAR(2000) NULL,
+    "ProjectId"      VARCHAR(128) NOT NULL DEFAULT 'default',
+    "CreatedAt"      TIMESTAMPTZ  NOT NULL,
+    "UpdatedAt"      TIMESTAMPTZ  NULL,
+    CONSTRAINT "PK_message_feedbacks" PRIMARY KEY ("FeedbackId"),
+    CONSTRAINT "CK_message_feedbacks_Sentiment" CHECK ("Sentiment" IN (-1, 1))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "UX_message_feedbacks_UserId_MessageId"
+    ON aihub.message_feedbacks ("UserId", "MessageId");
+
+CREATE INDEX IF NOT EXISTS "IX_message_feedbacks_MessageId"
+    ON aihub.message_feedbacks ("MessageId");
+
+CREATE INDEX IF NOT EXISTS "IX_message_feedbacks_ConversationId"
+    ON aihub.message_feedbacks ("ConversationId");
+
+CREATE INDEX IF NOT EXISTS "IX_message_feedbacks_CreatedAt"
+    ON aihub.message_feedbacks ("CreatedAt");
+
 -- =============================================================================
 -- 11. INTERAÇÕES HUMANAS (HITL — Human-in-the-Loop)
 -- =============================================================================
