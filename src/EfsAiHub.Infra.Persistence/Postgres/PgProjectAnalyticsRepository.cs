@@ -1,3 +1,4 @@
+using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Infra.Persistence.Cache;
 using Microsoft.EntityFrameworkCore;
@@ -6,20 +7,56 @@ namespace EfsAiHub.Infra.Persistence.Postgres;
 
 /// <summary>
 /// Implementação Postgres de <see cref="IProjectAnalyticsRepository"/>.
-/// Padrão: SQL raw via <c>db.Database.SqlQueryRaw</c>, mesma estratégia do
-/// <see cref="PgLlmTokenUsageRepository"/>. Reaproveita a matview
-/// <c>aihub.v_llm_cost</c> (refresh a cada 30min) e <c>workflow_executions</c>.
+/// Padrão: SQL raw via <c>db.Database.SqlQueryRaw</c>. EstimatedCostUsd é
+/// calculado em runtime via CTE com LATERAL JOIN em <c>model_pricing</c> —
+/// substituiu a matview <c>v_llm_cost</c> pra eliminar dependência de
+/// privilege especial (REFRESH MATERIALIZED VIEW) e dar dado fresh.
 ///
 /// JOIN pivô é por <c>ExecutionId</c> — a coluna ProjectId em
 /// <c>llm_token_usage</c> é nullable em rows legadas (pré-fix do AsyncLocal),
 /// mas <c>workflow_executions.ProjectId</c> é NOT NULL e canônico.
 ///
-/// ProjectId chega validado pelo controller (defesa em profundidade aqui é
-/// só parametrização — cross-project não passa do controller via helper de
-/// auth, mas se passar, o WHERE ainda filtra corretamente).
+/// Cache: cada método de leitura serializa o resultado em Redis com TTL de
+/// 30min. Cache key carrega uma versão por projeto — <see cref="InvalidateProjectCacheAsync"/>
+/// incrementa essa versão, fazendo a próxima leitura sofrer cache miss e
+/// recomputar. Keys antigas expiram via TTL natural.
 /// </summary>
 public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
 {
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
+
+    // CTE que substitui a matview v_llm_cost. Calcula EstimatedCostUsd por
+    // chamada via LATERAL JOIN com model_pricing (preço vigente em CreatedAt).
+    // model_pricing é tabela pequena e indexada por ModelId — overhead em
+    // runtime é negligível pro workload de dashboard.
+    private const string LlmCostCte = """
+        llm_cost AS (
+            SELECT
+                u."Id",
+                u."AgentId",
+                u."ModelId",
+                u."ExecutionId",
+                u."WorkflowId",
+                u."InputTokens",
+                u."OutputTokens",
+                u."TotalTokens",
+                u."DurationMs",
+                u."CreatedAt",
+                COALESCE(p."PricePerInputToken"  * u."InputTokens" +
+                         p."PricePerOutputToken" * u."OutputTokens", 0) AS "EstimatedCostUsd"
+            FROM aihub.llm_token_usage u
+            LEFT JOIN LATERAL (
+                SELECT mp."PricePerInputToken", mp."PricePerOutputToken"
+                FROM aihub.model_pricing mp
+                WHERE mp."ModelId" = u."ModelId"
+                  AND mp."EffectiveFrom" <= u."CreatedAt"
+                  AND (mp."EffectiveTo" IS NULL OR mp."EffectiveTo" > u."CreatedAt")
+                ORDER BY mp."EffectiveFrom" DESC
+                LIMIT 1
+            ) p ON true
+        )
+        """;
+
     private readonly IDbContextFactory<AgentFwDbContext> _factory;
     private readonly IEfsRedisCache _cache;
 
@@ -34,6 +71,10 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
     public async Task<ProjectOverview> GetProjectOverviewAsync(
         string projectId, DateTime from, DateTime to, bool ownedOnly = false, CancellationToken ct = default)
     {
+        var key = await BuildCacheKeyAsync(projectId, "overview", from, to, ownedOnly);
+        var cached = await TryReadCacheAsync<ProjectOverview>(key);
+        if (cached is not null) return cached;
+
         await using var db = await _factory.CreateDbContextAsync(ct);
 
         // Quando ownedOnly=true precisamos do AgentId (via llm_token_usage) e do
@@ -46,17 +87,18 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
         var llmExtraWhere = ownedOnly ? @" AND ad.""ProjectId"" = {0}" : "";
 
         string sql = $@"
+            WITH {LlmCostCte}
             SELECT
                 COALESCE(SUM(c.""EstimatedCostUsd""), 0)::numeric AS ""CostUsd"",
                 COALESCE(SUM(c.""TotalTokens""), 0)::bigint        AS ""Tokens"",
                 COUNT(*)::int                                      AS ""Calls""
-            FROM aihub.v_llm_cost c
+            FROM llm_cost c
             INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = c.""ExecutionId""
             {llmJoin}
             WHERE we.""ProjectId"" = {{0}}
               AND c.""CreatedAt"" BETWEEN {{1}} AND {{2}}
               {llmExtraWhere}
-            "; 
+            ";
 
         var llmStats = await db.Database.SqlQueryRaw<LlmAggRaw>(sql, projectId, from, to)
             .ToListAsync(ct);
@@ -83,13 +125,14 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
         var topAgentExtraWhere = ownedOnly ? @" AND ad.""ProjectId"" = {0}" : "";
 
         var topAgentSql = $@"
+            WITH {LlmCostCte}
             SELECT
                 ltu.""AgentId""                                AS ""AgentId"",
                 MAX(ad.""Name"")                                AS ""AgentName"",
                 COALESCE(SUM(c.""EstimatedCostUsd""), 0)::numeric AS ""CostUsd"",
                 COALESCE(SUM(c.""TotalTokens""), 0)::bigint    AS ""Tokens"",
                 COUNT(*)::int                                AS ""Calls""
-            FROM aihub.v_llm_cost c
+            FROM llm_cost c
             INNER JOIN aihub.llm_token_usage ltu ON ltu.""Id"" = c.""Id""
             INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = c.""ExecutionId""
             {topAgentNameJoin}
@@ -108,7 +151,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
         var exec = execStats.FirstOrDefault() ?? new ExecAggRaw();
         var resolved = exec.Completed + exec.Failed;
 
-        return new ProjectOverview
+        var result = new ProjectOverview
         {
             ProjectId = projectId,
             PeriodFrom = from,
@@ -129,6 +172,9 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                 Calls = r.Calls
             }).ToList()
         };
+
+        await WriteCacheAsync(key, result);
+        return result;
     }
 
     public async Task<IReadOnlyList<ProjectTimeseriesBucket>> GetProjectTimeseriesAsync(
@@ -144,6 +190,13 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
         // date_trunc (não é parametrizável em prepared statement). Default = day.
         var trunc = string.Equals(groupBy, "hour", StringComparison.OrdinalIgnoreCase) ? "hour" : "day";
 
+        var excludeKey = excludeAgentIds is { Count: > 0 }
+            ? string.Join(",", excludeAgentIds.OrderBy(x => x, StringComparer.Ordinal))
+            : "";
+        var key = await BuildCacheKeyAsync(projectId, "timeseries", from, to, ownedOnly, trunc, excludeKey);
+        var cached = await TryReadCacheAsync<List<ProjectTimeseriesBucket>>(key);
+        if (cached is not null) return cached;
+
         await using var db = await _factory.CreateDbContextAsync(ct);
 
         // LLM agrega custo/tokens/calls por bucket. Filtros opcionais por agent:
@@ -153,20 +206,19 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
         // ltu fica acoplado quando qualquer um dos dois filtros está ativo —
         // INNER JOIN se ownedOnly (precisa do agent dono); LEFT se só exclude
         // (rows sem AgentId continuam contando).
-        // Exec agrega workflow_executions — granularidade workflow ≠ agent,
-        // não é filtrável por AgentId aqui.
         var hasExclusion = excludeAgentIds is { Count: > 0 };
         var needsLtuJoin = hasExclusion || ownedOnly;
         var ltuJoinKind = ownedOnly ? "INNER" : "LEFT";
 
         var parameters = new List<object> { projectId, from, to };
-        var llmSql = @"
+        var llmSql = $@"
+            WITH {LlmCostCte}
             SELECT
-                date_trunc('" + trunc + @"', c.""CreatedAt"")              AS ""Bucket"",
+                date_trunc('{trunc}', c.""CreatedAt"")              AS ""Bucket"",
                 COALESCE(SUM(c.""EstimatedCostUsd""), 0)::numeric          AS ""CostUsd"",
                 COALESCE(SUM(c.""TotalTokens""), 0)::bigint                AS ""Tokens"",
                 COUNT(*)::int                                              AS ""Calls""
-            FROM aihub.v_llm_cost c
+            FROM llm_cost c
             INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = c.""ExecutionId""";
         if (needsLtuJoin)
         {
@@ -200,15 +252,15 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
             GROUP BY 1
             ORDER BY 1";
 
-        var execSql = @"
+        var execSql = $@"
             SELECT
-                date_trunc('" + trunc + @"', ""StartedAt"")                AS ""Bucket"",
+                date_trunc('{trunc}', ""StartedAt"")                AS ""Bucket"",
                 COUNT(*)::int                                              AS ""Executions"",
                 COUNT(*) FILTER (WHERE ""Status"" = 'Completed')::int      AS ""Completed"",
                 COUNT(*) FILTER (WHERE ""Status"" = 'Failed')::int         AS ""Failed""
             FROM aihub.v_production_executions
-            WHERE ""ProjectId"" = {0}
-              AND ""StartedAt"" BETWEEN {1} AND {2}
+            WHERE ""ProjectId"" = {{0}}
+              AND ""StartedAt"" BETWEEN {{1}} AND {{2}}
             GROUP BY 1
             ORDER BY 1";
 
@@ -224,7 +276,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
         foreach (var l in llmBuckets) byBucket[l.Bucket] = (l, byBucket.GetValueOrDefault(l.Bucket).Exec);
         foreach (var e in execBuckets) byBucket[e.Bucket] = (byBucket.GetValueOrDefault(e.Bucket).Llm, e);
 
-        return byBucket
+        var result = byBucket
             .OrderBy(kv => kv.Key)
             .Select(kv => new ProjectTimeseriesBucket
             {
@@ -237,11 +289,18 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
                 Failed = kv.Value.Exec?.Failed ?? 0
             })
             .ToList();
+
+        await WriteCacheAsync(key, result);
+        return result;
     }
 
     public async Task<IReadOnlyList<ProjectAgentBreakdown>> GetProjectAgentBreakdownAsync(
         string projectId, DateTime from, DateTime to, int top, bool ownedOnly = false, CancellationToken ct = default)
     {
+        var key = await BuildCacheKeyAsync(projectId, "agents", from, to, ownedOnly, top.ToString());
+        var cached = await TryReadCacheAsync<List<ProjectAgentBreakdown>>(key);
+        if (cached is not null) return cached;
+
         await using var db = await _factory.CreateDbContextAsync(ct);
 
         // ownedOnly = true: JOIN com agent_definitions e filtra
@@ -253,19 +312,20 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
             : "";
         var ownedWhere = ownedOnly ? @" AND ad.""ProjectId"" = {0}" : "";
 
-        // CTE com 2 partes: agent_calls (custo/tokens/duration por chamada do
-        // agente) e agent_error_rate (% de execuções distintas envolvendo o
-        // agente que terminaram em Failed). LEFT JOIN garante 0 quando não
-        // há execução resolvida.
-
+        // CTE com 3 partes: llm_cost (substitui a matview), agent_calls (custo/
+        // tokens/duration por chamada do agente) e agent_error_rate (% de
+        // execuções distintas envolvendo o agente que terminaram em Failed).
+        // LEFT JOIN garante 0 quando não há execução resolvida.
+        //
         // LEFT JOIN com agent_definitions na projeção final pra hidratar
         // AgentName em todos os modos (ownedOnly ou não). Tolerante a agent
         // deletado pós-cleanup: AgentName=null → frontend faz fallback pro Id.
         var sql = $@"
-            WITH agent_calls AS (
+            WITH {LlmCostCte},
+            agent_calls AS (
                 SELECT ltu.""AgentId"", ltu.""ModelId"", ltu.""ExecutionId"",
                        ltu.""DurationMs"", c.""EstimatedCostUsd"", c.""TotalTokens""
-                FROM aihub.v_llm_cost c
+                FROM llm_cost c
                 INNER JOIN aihub.llm_token_usage ltu ON ltu.""Id"" = c.""Id""
                 INNER JOIN aihub.v_production_executions we ON we.""ExecutionId"" = c.""ExecutionId""
                 {ownedJoin}
@@ -310,7 +370,7 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
         var rows = await db.Database.SqlQueryRaw<AgentBreakdownRaw>(sql, projectId, from, to, top)
             .ToListAsync(ct);
 
-        return rows.Select(r => new ProjectAgentBreakdown
+        var result = rows.Select(r => new ProjectAgentBreakdown
         {
             AgentId = r.AgentId,
             AgentName = r.AgentName,
@@ -322,12 +382,17 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
             P95DurationMs = r.P95DurationMs,
             ErrorRate = r.ErrorRate
         }).ToList();
+
+        await WriteCacheAsync(key, result);
+        return result;
     }
 
     public async Task<ProjectBudgetStatus> GetProjectBudgetStatusAsync(
         string projectId, int? maxTokensPerDay, decimal? maxCostUsdPerDay, CancellationToken ct = default)
     {
-        // Mesma chave que ProjectBudgetGuard usa pra incrementar.
+        // Budget já lê do Redis em tempo real (counter incrementado por
+        // ProjectBudgetGuard a cada turno). Sem cache adicional — refresh
+        // automático pelo próprio mecanismo de incremento.
         var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
         var tokensStr = await _cache.GetStringAsync($"budget:tokens:{projectId}:{today}");
         var costStr = await _cache.GetStringAsync($"budget:cost:{projectId}:{today}");
@@ -359,6 +424,57 @@ public sealed class PgProjectAnalyticsRepository : IProjectAnalyticsRepository
             CostUsagePct = costUsagePct,
             Exceeded = exceeded
         };
+    }
+
+    public async Task InvalidateProjectCacheAsync(string projectId, CancellationToken ct = default)
+    {
+        // Versionamento: incrementa o counter do projeto. Próximas leituras
+        // montam keys com versão nova → cache miss → recompute. Keys antigas
+        // expiram via TTL natural (não há SCAN/KEYS — operação é O(1)).
+        await _cache.Database.StringIncrementAsync(_cache.BuildKey(VersionKey(projectId)));
+    }
+
+    // ── Cache helpers ───────────────────────────────────────────────────────
+
+    private static string VersionKey(string projectId) => $"analytics:v:{projectId}";
+
+    private async Task<string> GetProjectVersionAsync(string projectId)
+    {
+        var v = await _cache.GetStringAsync(VersionKey(projectId));
+        return string.IsNullOrEmpty(v) ? "0" : v;
+    }
+
+    private async Task<string> BuildCacheKeyAsync(
+        string projectId, string queryName, DateTime from, DateTime to,
+        bool ownedOnly, params string[] extras)
+    {
+        var version = await GetProjectVersionAsync(projectId);
+        var parts = new List<string>
+        {
+            "analytics",
+            queryName,
+            projectId,
+            version,
+            from.ToString("o"),
+            to.ToString("o"),
+            ownedOnly ? "1" : "0"
+        };
+        parts.AddRange(extras);
+        return string.Join(":", parts);
+    }
+
+    private async Task<T?> TryReadCacheAsync<T>(string key) where T : class
+    {
+        var raw = await _cache.GetStringAsync(key);
+        if (string.IsNullOrEmpty(raw)) return null;
+        try { return JsonSerializer.Deserialize<T>(raw, JsonDefaults.Domain); }
+        catch (JsonException) { return null; }
+    }
+
+    private Task WriteCacheAsync<T>(string key, T value)
+    {
+        var raw = JsonSerializer.Serialize(value, JsonDefaults.Domain);
+        return _cache.SetStringAsync(key, raw, CacheTtl);
     }
 
     // Tipos de projeção pra SQL raw.

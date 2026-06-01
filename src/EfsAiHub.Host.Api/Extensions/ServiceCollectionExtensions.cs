@@ -472,7 +472,6 @@ public static class ServiceCollectionExtensions
         // e via PR explícito.
         services.AddHostedService<AgentSessionCleanupService>();
         services.AddHostedService<AgentSandboxCleanupService>();
-        services.AddHostedService<LlmCostRefreshService>();
         services.AddHostedService<AuditRetentionService>();
         if (engineOpts.MultiNode)
             services.AddHostedService<CrossNodeCoordinator>();
@@ -531,7 +530,6 @@ public static class ServiceCollectionExtensions
             registry.Register("NodePersistence", new() { Name = "NodePersistence", Description = "Persiste sequencialmente o estado dos nós de workflow", Lifecycle = "Continuous", ServiceType = typeof(NodePersistenceService) });
             registry.Register("TokenUsagePersistence", new() { Name = "TokenUsagePersistence", Description = "Persiste consumo de tokens em lote", Lifecycle = "Continuous", ServiceType = typeof(TokenUsagePersistenceService) });
             registry.Register("ToolInvocationPersistence", new() { Name = "ToolInvocationPersistence", Description = "Persiste invocações de tools em lote", Lifecycle = "Continuous", ServiceType = typeof(ToolInvocationPersistenceService) });
-            registry.Register("LlmCostRefresh", new() { Name = "LlmCostRefresh", Description = "Atualiza as views materializadas de custo de LLM", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(Math.Max(1, opts.LlmCostRefreshIntervalMinutes)), ServiceType = typeof(LlmCostRefreshService) });
             registry.Register("AgUiTokenChannelCleanup", new() { Name = "AgUiTokenChannelCleanup", Description = "Remove canais SSE inativos do streaming AG-UI", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(5), ServiceType = typeof(EfsAiHub.Host.Api.Chat.AgUi.Streaming.AgUiTokenChannelCleanupService) });
 
             return registry;
