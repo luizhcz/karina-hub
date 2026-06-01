@@ -31,6 +31,8 @@ import {
 import { extractConversationalDisplay } from '../utils/conversationalDisplay'
 import { ConversationalOutputChip, OutputDetails, TypingDots } from '../components/ConversationalExtras'
 import { MessageFeedbackButtons } from './MessageFeedbackButtons'
+import { QuickActionsBar } from './QuickActionsBar'
+import { extractRouterId, type RouterQuickAction } from '../api/routerQuickActions'
 
 const HITL_TOOL_NAME = 'request_approval'
 const VERSION_CURRENT = ''
@@ -208,6 +210,8 @@ export function ChatDeploymentSandbox() {
 
   const isStreaming = stream.status === 'streaming'
   const canSend = !isStreaming && draft.trim().length > 0
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const routerId = useMemo(() => extractRouterId(workflow), [workflow])
 
   function handleSend() {
     if (!canSend) return
@@ -220,6 +224,29 @@ export function ChatDeploymentSandbox() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
+    }
+  }
+
+  /**
+   * Quick action click handler:
+   * - Pattern com wildcard (ex: "comprar *") pré-popula o input pra user completar.
+   * - Pattern exato (sem wildcard) envia imediato.
+   */
+  function handleQuickAction(action: RouterQuickAction) {
+    if (isStreaming) return
+    if (action.hasWildcard) {
+      const prefilled = `${action.displayText} `
+      setDraft(prefilled)
+      // foco + cursor no fim, sem stack overflow se ref está vazia
+      queueMicrotask(() => {
+        const el = textareaRef.current
+        if (!el) return
+        el.focus()
+        el.setSelectionRange(prefilled.length, prefilled.length)
+      })
+    } else {
+      setDraft('')
+      void stream.send(action.displayText)
     }
   }
 
@@ -354,8 +381,14 @@ export function ChatDeploymentSandbox() {
             </div>
           )}
           <div className="border-t border-border bg-bg-soft/50 px-4 py-3">
+            <QuickActionsBar
+              routerId={routerId}
+              disabled={isStreaming || !!loadError}
+              onSelect={handleQuickAction}
+            />
             <div className="flex items-end gap-2">
               <textarea
+                ref={textareaRef}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={handleKeyDown}

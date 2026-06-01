@@ -442,6 +442,7 @@ export function AgentsList() {
           onToggleEnabled={handleOpenToggle}
           onTestInChat={handleTestInChat}
           onPredictRouter={(id) => navigate(`/agentes/${id}/predict`)}
+          onQuickActions={(id) => navigate(`/agentes/${id}/quick-actions`)}
         />
       )}
 
@@ -573,6 +574,7 @@ interface PublishedTabProps {
   onToggleEnabled: (agent: Agent) => void
   onTestInChat: (id: string) => void
   onPredictRouter: (id: string) => void
+  onQuickActions: (id: string) => void
 }
 
 function PublishedTab({
@@ -589,6 +591,7 @@ function PublishedTab({
   onToggleEnabled,
   onTestInChat,
   onPredictRouter,
+  onQuickActions,
 }: PublishedTabProps) {
   if (loading) {
     return (
@@ -630,6 +633,7 @@ function PublishedTab({
           onToggleEnabled={() => onToggleEnabled(a)}
           onTestInChat={() => onTestInChat(a.id)}
           onPredictRouter={() => onPredictRouter(a.id)}
+          onQuickActions={() => onQuickActions(a.id)}
         />
       ))}
     </div>
@@ -812,6 +816,7 @@ interface PublishedAgentCardProps {
   onToggleEnabled: () => void
   onTestInChat: () => void
   onPredictRouter: () => void
+  onQuickActions: () => void
 }
 
 function PublishedAgentCard({
@@ -825,6 +830,7 @@ function PublishedAgentCard({
   onToggleEnabled,
   onTestInChat,
   onPredictRouter,
+  onQuickActions,
 }: PublishedAgentCardProps) {
   const description = agent.description ?? ''
   const modelLabel = agent.model?.predefinedModelId || agent.model?.deploymentName || ''
@@ -940,14 +946,24 @@ function PublishedAgentCard({
           {/* Router é classificador — não tem semântica de execução isolada.
               Caminho dedicado: /agentes/{id}/predict (stateless, sem session). */}
           {isRouter ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={onPredictRouter}
-              title="Classifica um input via LLM sem criar sandbox session (stateless)."
-            >
-              Predict intent
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onPredictRouter}
+                title="Classifica um input via LLM sem criar sandbox session (stateless)."
+              >
+                Predict intent
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onQuickActions}
+                title="Cadastra atalhos que classificam intents sem chamar o LLM (zero token)."
+              >
+                Atalhos
+              </Button>
+            </>
           ) : (
             <Button
               variant="secondary"

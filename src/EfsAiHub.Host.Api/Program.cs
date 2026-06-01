@@ -155,6 +155,12 @@ builder.Services.AddScoped<EfsAiHub.Core.Agents.IRouterIntentRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgRouterIntentRepository>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IAgentRouterIntentLinkRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgAgentRouterIntentLinkRepository>();
+builder.Services.AddScoped<EfsAiHub.Core.Abstractions.RouterQuickActions.IRouterQuickActionRepository,
+    EfsAiHub.Infra.Persistence.Postgres.PgRouterQuickActionRepository>();
+// Matcher é Scoped — pega o repo Scoped na construção. IMemoryCache (Singleton via
+// AddMemoryCache) mantém o cache entre scopes, então a cobertura de hit não se perde.
+builder.Services.AddScoped<EfsAiHub.Core.Agents.RouterQuickActions.IRouterQuickActionMatcher,
+    EfsAiHub.Platform.Runtime.RouterQuickActions.RouterQuickActionMatcher>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Interfaces.IRouterIntentService,
     EfsAiHub.Platform.Runtime.Services.RouterIntentService>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IPredefinedModelRepository,

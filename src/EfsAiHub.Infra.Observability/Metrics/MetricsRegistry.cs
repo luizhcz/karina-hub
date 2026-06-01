@@ -219,6 +219,10 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("chat.robot_messages.persisted",
             description: "Mensagens com actor=robot registradas via short-circuit (sem disparar workflow). Ver ADR 0014.");
 
+    public static readonly Counter<long> RouterQuickActionHits =
+        _meter.CreateCounter<long>("router.quick_action.hits",
+            description: "Mensagens classificadas via Quick Action (bypass do LLM). Dimensões: agent_id, intent.");
+
     public static readonly Counter<long> HitlRecoveries =
         _meter.CreateCounter<long>("hitl.recoveries",
             description: "Execuções retomadas a partir de checkpoint após restart (HitlRecoveryService)");

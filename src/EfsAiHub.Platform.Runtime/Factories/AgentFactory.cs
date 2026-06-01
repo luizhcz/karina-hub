@@ -97,6 +97,12 @@ public class AgentFactory : IAgentFactory
     private readonly EfsAiHub.Platform.Runtime.Sanitization.ILlmPayloadSanitizer? _payloadSanitizer;
     private readonly EfsAiHub.Core.Orchestration.Interfaces.ILlmInvocationLogSink? _captureSink;
 
+    // Router Quick Actions — bypass do LLM em mensagens que batem em padrões
+    // pré-cadastrados. Optional pra preservar BC com testes que não usam.
+    // Quando null, Router sempre invoca LLM (comportamento legado).
+    private readonly EfsAiHub.Core.Agents.RouterQuickActions.IRouterQuickActionMatcher? _quickActionMatcher;
+    private readonly EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor? _tenantContextAccessor;
+
     // Throttle pra cross_project_invoke audit. Capacity 1000, janela 60s,
     // emite métrica ao despejar. Static singleton: factory é registrado scoped em DI
     // mas o throttle precisa ser process-wide pra evitar duplicar logs entre scopes.
@@ -131,7 +137,9 @@ public class AgentFactory : IAgentFactory
         EfsAiHub.Core.Agents.IOperationalMemoryRepository? operationalMemoryRepo = null,
         EfsAiHub.Platform.Runtime.Services.LlmCaptureConfigService? captureConfig = null,
         EfsAiHub.Platform.Runtime.Sanitization.ILlmPayloadSanitizer? payloadSanitizer = null,
-        EfsAiHub.Core.Orchestration.Interfaces.ILlmInvocationLogSink? captureSink = null)
+        EfsAiHub.Core.Orchestration.Interfaces.ILlmInvocationLogSink? captureSink = null,
+        EfsAiHub.Core.Agents.RouterQuickActions.IRouterQuickActionMatcher? quickActionMatcher = null,
+        EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor? tenantContextAccessor = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
@@ -159,6 +167,8 @@ public class AgentFactory : IAgentFactory
         _captureConfig = captureConfig;
         _payloadSanitizer = payloadSanitizer;
         _captureSink = captureSink;
+        _quickActionMatcher = quickActionMatcher;
+        _tenantContextAccessor = tenantContextAccessor;
     }
 
     public async Task<ExecutableWorkflow> CreateAgentAsync(
@@ -548,6 +558,36 @@ public class AgentFactory : IAgentFactory
                 hasReinforcement: !string.IsNullOrEmpty(composedPersona.UserReinforcement),
                 historyWindow: historyWindow);
 
+            // ── Router Quick Action bypass ──────────────────────────────────────
+            // Pra agentes Router, antes de chamar LLM, tenta casar a última user
+            // message contra atalhos pré-cadastrados. Hit → output sintético
+            // idêntico ao que LLM produziria, zero llm_token_usage row, latência
+            // sub-ms. Miss → fluxo LLM normal segue abaixo.
+            if (definition.Type == EfsAiHub.Core.Agents.AgentType.Router
+                && _quickActionMatcher is not null
+                && _tenantContextAccessor is not null)
+            {
+                var lastUserText = ExtractLastUserText(messages);
+                if (!string.IsNullOrWhiteSpace(lastUserText))
+                {
+                    var tenantId = _tenantContextAccessor.Current.TenantId;
+                    var routerProjectId = definition.ProjectId;
+                    var match = await _quickActionMatcher.TryMatchAsync(
+                        definition.Id, tenantId, routerProjectId, lastUserText!, cancellationToken);
+                    if (match is not null)
+                    {
+                        EfsAiHub.Infra.Observability.MetricsRegistry.RouterQuickActionHits.Add(1,
+                            new KeyValuePair<string, object?>("agent_id", definition.Id),
+                            new KeyValuePair<string, object?>("intent", match.Intent));
+                        _logger.LogInformation(
+                            "[QuickAction] Router '{AgentId}' bypass — pattern='{Pattern}' intent='{Intent}'.",
+                            definition.Id, match.Pattern, match.Intent);
+                        return EfsAiHub.Core.Agents.RouterQuickActions
+                            .RouterSyntheticOutputBuilder.Build(match.Intent, match.Pattern);
+                    }
+                }
+            }
+
             var sw = Stopwatch.StartNew();
             var response = await chatClient.GetResponseAsync(messages, chatOptions, cancellationToken);
             sw.Stop();
@@ -882,6 +922,21 @@ public class AgentFactory : IAgentFactory
     {
         _logger.LogWarning("Unknown middleware type '{Type}' on agent '{AgentId}' — ignored.", type, agentId);
         return current;
+    }
+
+    /// <summary>
+    /// Encontra o texto da última mensagem com Role=User na lista enviada ao LLM.
+    /// Usado pelo bypass de Router Quick Action — ignora system prompts e turnos
+    /// anteriores. Retorna null/empty se não há user message (caso defensivo).
+    /// </summary>
+    private static string? ExtractLastUserText(IReadOnlyList<Microsoft.Extensions.AI.ChatMessage> messages)
+    {
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            if (messages[i].Role == ChatRole.User)
+                return messages[i].Text;
+        }
+        return null;
     }
 
     private static AgentDefinition CopyWithInstructions(AgentDefinition d, string instructions) => new()

@@ -1649,6 +1649,34 @@ CREATE INDEX IF NOT EXISTS "IX_agent_router_intents_ProjectId_AgentId"
     ON aihub.agent_router_intents ("ProjectId", "AgentId");
 
 -- =============================================================================
+-- ROUTER QUICK ACTIONS — atalhos determinísticos pra bypass do LLM do Router
+-- Quando Pattern (normalizado) bate na mensagem do usuário, Router retorna
+-- a Intent diretamente sem invocar LLM (zero token usage).
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.router_quick_actions (
+    "Id"           VARCHAR(64)  NOT NULL,
+    "RouterId"     VARCHAR(256) NOT NULL,
+    "Pattern"      VARCHAR(512) NOT NULL,
+    "DisplayText"  VARCHAR(512) NOT NULL,
+    "Intent"       VARCHAR(128) NOT NULL,
+    "Description"  VARCHAR(1024) NULL,
+    "ProjectId"    VARCHAR(128) NOT NULL,
+    "TenantId"     VARCHAR(128) NOT NULL DEFAULT 'default',
+    "CreatedAt"    TIMESTAMPTZ  NOT NULL,
+    "UpdatedAt"    TIMESTAMPTZ  NOT NULL,
+    CONSTRAINT "PK_router_quick_actions" PRIMARY KEY ("Id"),
+    CONSTRAINT "UX_router_quick_actions_Scope_Router_Pattern"
+        UNIQUE ("TenantId", "ProjectId", "RouterId", "Pattern")
+);
+
+CREATE INDEX IF NOT EXISTS "IX_router_quick_actions_RouterId_TenantId"
+    ON aihub.router_quick_actions ("RouterId", "TenantId");
+
+CREATE INDEX IF NOT EXISTS "IX_router_quick_actions_TenantId_ProjectId"
+    ON aihub.router_quick_actions ("TenantId", "ProjectId");
+
+-- =============================================================================
 -- 29. PREDEFINED MODELS — catálogo global de presets para agents
 --
 -- Receitas curadas (DisplayName + Description + Provider + DeploymentName +

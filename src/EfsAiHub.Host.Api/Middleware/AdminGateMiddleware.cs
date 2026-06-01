@@ -185,6 +185,13 @@ public sealed class AdminGateMiddleware
     private static readonly Regex UserConversationsPattern =
         new(@"^/api/aihub/users/[^/]+/conversations$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // /api/aihub/agents/{routerId}/quick-actions[/{id}] — CRUD de atalhos do Router.
+    // Liberado pra non-admin: o controller já valida via HasQueryFilter (filtro por
+    // ProjectId scope) e EnsureRouter rejeita acesso a Router de outro projeto.
+    private static readonly Regex RouterQuickActionsPattern =
+        new(@"^/api/aihub/agents/[^/]+/quick-actions(/[^/]+)?$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     // GET /api/aihub/projects (lista) ou GET /api/aihub/projects/{id} (detalhe). Sub-rotas
     // como /api/aihub/projects/{id}/blocklist são admin-only — caem fora desse pattern.
     private static readonly Regex ProjectsReadPattern =
@@ -395,6 +402,11 @@ public sealed class AdminGateMiddleware
 
         if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
             && ProjectAnalyticsPattern.IsMatch(path))
+            return true;
+
+        // Router Quick Actions — CRUD liberado pra non-admin do projeto. Controller
+        // valida ownership do Router (Type=Router) e usa ProjectContext pra scope.
+        if (RouterQuickActionsPattern.IsMatch(path))
             return true;
 
         // Conversations — todos os métodos (chat via REST)

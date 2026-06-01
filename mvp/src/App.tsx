@@ -26,6 +26,8 @@ const AgentDeploy = lazy(() =>
   import('./routes/AgentDeploy').then(m => ({ default: m.AgentDeploy })))
 const RouterIntentPredictor = lazy(() =>
   import('./routes/RouterIntentPredictor').then(m => ({ default: m.RouterIntentPredictor })))
+const RouterQuickActionsManager = lazy(() =>
+  import('./routes/RouterQuickActionsManager').then(m => ({ default: m.RouterQuickActionsManager })))
 const PipelineEditor = lazy(() =>
   import('./routes/PipelineEditor').then(m => ({ default: m.PipelineEditor })))
 const RoutingDeployEditor = lazy(() =>
@@ -108,6 +110,7 @@ export function App() {
             <Route path="/agentes/:id/versoes" element={<AgentVersions />} />
             <Route path="/agentes/:id/implantar" element={<AgentDeploy />} />
             <Route path="/agentes/:id/predict" element={<RouterIntentPredictor />} />
+            <Route path="/agentes/:id/quick-actions" element={<RouterQuickActionsManager />} />
             <Route path="/implantacoes" element={<Implantacoes />} />
             <Route path="/implantacoes/avancada" element={<PipelineEditor />} />
             <Route path="/implantacoes/avancada/:id" element={<PipelineEditor />} />
