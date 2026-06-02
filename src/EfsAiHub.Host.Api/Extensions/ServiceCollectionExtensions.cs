@@ -79,6 +79,7 @@ public static class ServiceCollectionExtensions
         services.AddOptions<EfsAiHub.Platform.Runtime.Tools.PortfolioApiOptions>()
             .BindConfiguration(EfsAiHub.Platform.Runtime.Tools.PortfolioApiOptions.SectionName);
         services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.PortfolioAnalysisTool>();
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.ClientPositionsTool>();
 
         services.AddSingleton<IFunctionToolRegistry>(sp =>
         {
@@ -90,6 +91,10 @@ public static class ServiceCollectionExtensions
 
             var portfolio = sp.GetRequiredService<EfsAiHub.Platform.Runtime.Tools.PortfolioAnalysisTool>();
             registry.Register("analyze_portfolio", AIFunctionFactory.Create(portfolio.AnalyzePortfolioAsync));
+
+            var positions = sp.GetRequiredService<EfsAiHub.Platform.Runtime.Tools.ClientPositionsTool>();
+            registry.Register("get_portfolio", AIFunctionFactory.Create(positions.GetPortfolioAsync));
+            registry.Register("get_position",  AIFunctionFactory.Create(positions.GetPositionAsync));
 
             return registry;
         });
