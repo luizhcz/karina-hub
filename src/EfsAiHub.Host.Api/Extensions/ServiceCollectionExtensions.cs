@@ -74,6 +74,12 @@ public static class ServiceCollectionExtensions
     // ── Function Tool Registry ──────────────────────────────────────────────────
     public static IServiceCollection AddFunctionToolRegistry(this IServiceCollection services)
     {
+        // Tools com dependências (auth context, HttpClient etc.) registradas
+        // como Singleton — o estado per-request flui via AsyncLocal nos accessors.
+        services.AddOptions<EfsAiHub.Platform.Runtime.Tools.PortfolioApiOptions>()
+            .BindConfiguration(EfsAiHub.Platform.Runtime.Tools.PortfolioApiOptions.SectionName);
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.PortfolioAnalysisTool>();
+
         services.AddSingleton<IFunctionToolRegistry>(sp =>
         {
             var registry = new FunctionToolRegistry(
@@ -81,6 +87,9 @@ public static class ServiceCollectionExtensions
 
             registry.Register("get_datetime", AIFunctionFactory.Create(DateTimeFunctions.GetDateTime));
             registry.Register("get_asset", AIFunctionFactory.Create(AssetFunctions.GetAsset));
+
+            var portfolio = sp.GetRequiredService<EfsAiHub.Platform.Runtime.Tools.PortfolioAnalysisTool>();
+            registry.Register("analyze_portfolio", AIFunctionFactory.Create(portfolio.AnalyzePortfolioAsync));
 
             return registry;
         });

@@ -131,6 +131,18 @@ builder.Services.AddHttpClient("generic-tool-tester", c =>
 {
     c.Timeout = Timeout.InfiniteTimeSpan;
 });
+// PortfolioAnalysisTool — named client com BaseAddress lida de PortfolioApi.BaseUrl
+// no boot. Timeout por chamada é controlado via CTS na tool; o HttpClient fica em
+// Infinite pra não cortar antes. Quando BaseUrl está vazio, a tool throw em
+// EnsureConfigured antes de tocar no client (BaseAddress ausente nunca é exercitada).
+builder.Services.AddHttpClient(EfsAiHub.Platform.Runtime.Tools.PortfolioAnalysisTool.HttpClientName, (sp, c) =>
+{
+    var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<
+        EfsAiHub.Platform.Runtime.Tools.PortfolioApiOptions>>().Value;
+    if (!string.IsNullOrWhiteSpace(opts.BaseUrl))
+        c.BaseAddress = new Uri(opts.BaseUrl);
+    c.Timeout = Timeout.InfiniteTimeSpan;
+});
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IGenericToolRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgGenericToolRepository>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IOperationalMemoryRepository,
