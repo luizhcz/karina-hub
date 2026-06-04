@@ -1,5 +1,6 @@
 using System.Text.Json;
 using EfsAiHub.Host.Api.Chat.AgUi.Models;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Host.Api.Chat.AgUi.Handlers;
 
@@ -42,7 +43,7 @@ public sealed class AgUiFrontendToolHandler
             _frontendAction = true,
             tool = toolName,
             args = JsonSerializer.Deserialize<JsonElement>(argsJson)
-        });
+        }, JsonDefaults.Domain);
     }
 }
 

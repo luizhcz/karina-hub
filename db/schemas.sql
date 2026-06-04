@@ -588,6 +588,32 @@ CREATE INDEX IF NOT EXISTS "IX_chat_messages_ConversationId"
 CREATE INDEX IF NOT EXISTS "IX_chat_messages_ConversationId_CreatedAt"
     ON aihub.chat_messages ("ConversationId", "CreatedAt");
 
+CREATE TABLE IF NOT EXISTS aihub.message_feedbacks (
+    "FeedbackId"     VARCHAR(64)  NOT NULL,
+    "MessageId"      VARCHAR(64)  NOT NULL,
+    "ConversationId" VARCHAR(64)  NOT NULL,
+    "UserId"         VARCHAR(256) NOT NULL,
+    "Sentiment"      INTEGER      NOT NULL,           -- +1 like | -1 dislike (CHECK enforce)
+    "Comment"        VARCHAR(2000) NULL,
+    "ProjectId"      VARCHAR(128) NOT NULL DEFAULT 'default',
+    "CreatedAt"      TIMESTAMPTZ  NOT NULL,
+    "UpdatedAt"      TIMESTAMPTZ  NULL,
+    CONSTRAINT "PK_message_feedbacks" PRIMARY KEY ("FeedbackId"),
+    CONSTRAINT "CK_message_feedbacks_Sentiment" CHECK ("Sentiment" IN (-1, 1))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "UX_message_feedbacks_UserId_MessageId"
+    ON aihub.message_feedbacks ("UserId", "MessageId");
+
+CREATE INDEX IF NOT EXISTS "IX_message_feedbacks_MessageId"
+    ON aihub.message_feedbacks ("MessageId");
+
+CREATE INDEX IF NOT EXISTS "IX_message_feedbacks_ConversationId"
+    ON aihub.message_feedbacks ("ConversationId");
+
+CREATE INDEX IF NOT EXISTS "IX_message_feedbacks_CreatedAt"
+    ON aihub.message_feedbacks ("CreatedAt");
+
 -- =============================================================================
 -- 11. INTERAÇÕES HUMANAS (HITL — Human-in-the-Loop)
 -- =============================================================================
@@ -1621,6 +1647,34 @@ CREATE INDEX IF NOT EXISTS "IX_agent_router_intents_IntentId"
 
 CREATE INDEX IF NOT EXISTS "IX_agent_router_intents_ProjectId_AgentId"
     ON aihub.agent_router_intents ("ProjectId", "AgentId");
+
+-- =============================================================================
+-- ROUTER QUICK ACTIONS — atalhos determinísticos pra bypass do LLM do Router
+-- Quando Pattern (normalizado) bate na mensagem do usuário, Router retorna
+-- a Intent diretamente sem invocar LLM (zero token usage).
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.router_quick_actions (
+    "Id"           VARCHAR(64)  NOT NULL,
+    "RouterId"     VARCHAR(256) NOT NULL,
+    "Pattern"      VARCHAR(512) NOT NULL,
+    "DisplayText"  VARCHAR(512) NOT NULL,
+    "Intent"       VARCHAR(128) NOT NULL,
+    "Description"  VARCHAR(1024) NULL,
+    "ProjectId"    VARCHAR(128) NOT NULL,
+    "TenantId"     VARCHAR(128) NOT NULL DEFAULT 'default',
+    "CreatedAt"    TIMESTAMPTZ  NOT NULL,
+    "UpdatedAt"    TIMESTAMPTZ  NOT NULL,
+    CONSTRAINT "PK_router_quick_actions" PRIMARY KEY ("Id"),
+    CONSTRAINT "UX_router_quick_actions_Scope_Router_Pattern"
+        UNIQUE ("TenantId", "ProjectId", "RouterId", "Pattern")
+);
+
+CREATE INDEX IF NOT EXISTS "IX_router_quick_actions_RouterId_TenantId"
+    ON aihub.router_quick_actions ("RouterId", "TenantId");
+
+CREATE INDEX IF NOT EXISTS "IX_router_quick_actions_TenantId_ProjectId"
+    ON aihub.router_quick_actions ("TenantId", "ProjectId");
 
 -- =============================================================================
 -- 29. PREDEFINED MODELS — catálogo global de presets para agents

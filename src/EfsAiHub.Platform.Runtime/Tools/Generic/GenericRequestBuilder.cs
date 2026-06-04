@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using EfsAiHub.Core.Agents.GenericTools;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Tools.Generic;
 
@@ -26,7 +27,14 @@ public static class GenericRequestBuilder
         foreach (var (key, value) in tool.CustomHeaders)
             request.Headers.TryAddWithoutValidation(key, value);
 
-        if (tool.HttpMethod == HttpMethodType.POST)
+        // GET + Json envia body (apesar de não-padrão HTTP, é comum em APIs
+        // tipo Elasticsearch e endpoints internos). Pra query string flat,
+        // o autor usa QueryParams individuais. POST mantém body do jeito que
+        // sempre foi.
+        var shouldHaveBody = tool.HttpMethod == HttpMethodType.POST
+            || (tool.HttpMethod == HttpMethodType.GET && tool.InputContentType == InputContentType.Json);
+
+        if (shouldHaveBody)
         {
             var body = BuildBody(tool, args);
             if (body is not null)
@@ -45,6 +53,9 @@ public static class GenericRequestBuilder
             return Uri.EscapeDataString(Stringify(value) ?? string.Empty);
         });
 
+        // QueryParams declarados explicitamente viram query string. Schema de
+        // input (GET+Json) vai pro body, NÃO pra query — quem quer query flat
+        // declara cada chave em QueryParams.
         if (tool.QueryParams.Count == 0) return url;
 
         var pairs = new List<string>();
@@ -69,7 +80,7 @@ public static class GenericRequestBuilder
             case InputContentType.Json:
             {
                 var bodyArgs = ProjectBodyArgs(tool, args);
-                var json = JsonSerializer.Serialize(bodyArgs);
+                var json = JsonSerializer.Serialize(bodyArgs, JsonDefaults.Domain);
                 return new StringContent(json, Encoding.UTF8, "application/json");
             }
 

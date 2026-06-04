@@ -156,4 +156,128 @@ public class RouterWorkflowValidatorTests
 
         errors.Should().NotContain(e => e.Contains("não tem caminho de fallback"));
     }
+
+    [Fact]
+    public async Task Switch_FailureMessage_MentionsNeedsClarificationOption()
+    {
+        // PR 4: mensagem de erro agora indica needs_clarification como case
+        // adicional recomendado. Quando o PR do Clarifier introduzir a
+        // migration, a mensagem orienta o autor a também adicionar o case
+        // dedicado em vez de só corrigir o out_of_scope mínimo.
+        var validator = new WorkflowValidator(BuildRepo());
+        var wf = BuildWorkflow(new[] { BusinessCase("compra", "spec-a") });
+
+        var (_, errors) = await validator.ValidateAsync(wf);
+
+        errors.Should().Contain(e =>
+            e.Contains("não tem caminho de fallback")
+            && e.Contains(SystemIntents.NeedsClarificationName));
+    }
+
+    [Fact]
+    public async Task Switch_WithNeedsClarificationCase_StillNeedsFallback()
+    {
+        // Defensiva: needs_clarification SOZINHO não cobre out_of_scope. Sem
+        // default e sem case out_of_scope, a validação continua falhando
+        // mesmo com case needs_clarification declarado — needs_clarification
+        // é um SEGUNDO caminho, não substitui o fallback canônico.
+        var validator = new WorkflowValidator(BuildRepo());
+        var wf = BuildWorkflow(new[]
+        {
+            BusinessCase("compra", "spec-a"),
+            BusinessCase(SystemIntents.NeedsClarificationName, "fallback-atendimento"),
+        });
+
+        var (isValid, errors) = await validator.ValidateAsync(wf);
+
+        isValid.Should().BeFalse();
+        errors.Should().Contain(e => e.Contains("não tem caminho de fallback"));
+    }
+
+    [Fact]
+    public async Task Switch_WithNeedsClarificationAndOutOfScopeCases_PassesValidation()
+    {
+        // Layout esperado pós-PR do Clarifier: dois cases canônicos lado a
+        // lado. out_of_scope → fallback-atendimento; needs_clarification →
+        // (futuro Clarifier; aqui placeholder pra spec-a porque o teste não
+        // simula o agente novo).
+        var validator = new WorkflowValidator(BuildRepo());
+        var wf = BuildWorkflow(new[]
+        {
+            BusinessCase("compra", "spec-a"),
+            BusinessCase(SystemIntents.OutOfScopeName, "fallback-atendimento"),
+            BusinessCase(SystemIntents.NeedsClarificationName, "spec-a"),
+        });
+
+        var (isValid, errors) = await validator.ValidateAsync(wf);
+
+        isValid.Should().BeTrue();
+        errors.Should().NotContain(e => e.Contains("fallback"));
+    }
+
+    // ── Helper internal HasNeedsClarificationCase ──────────────────────────
+    // PR do Clarifier vai usar pra evitar dupla inserção do case na migration.
+    // Testado isoladamente pra não acoplar à pipeline cheia de validação.
+
+    [Fact]
+    public void HasNeedsClarificationCase_QuandoCasePresente_RetornaTrue()
+    {
+        var edge = new WorkflowEdge
+        {
+            From = "router-x",
+            EdgeType = WorkflowEdgeType.Switch,
+            Cases = new List<WorkflowSwitchCase>
+            {
+                BusinessCase(SystemIntents.NeedsClarificationName, "clarifier"),
+            },
+        };
+
+        WorkflowValidator.HasNeedsClarificationCase(edge).Should().BeTrue();
+    }
+
+    [Fact]
+    public void HasNeedsClarificationCase_QuandoAusente_RetornaFalse()
+    {
+        var edge = new WorkflowEdge
+        {
+            From = "router-x",
+            EdgeType = WorkflowEdgeType.Switch,
+            Cases = new List<WorkflowSwitchCase>
+            {
+                BusinessCase("compra", "spec-a"),
+                BusinessCase(SystemIntents.OutOfScopeName, "fallback-atendimento"),
+                DefaultCase("fallback-atendimento"),
+            },
+        };
+
+        WorkflowValidator.HasNeedsClarificationCase(edge).Should().BeFalse();
+    }
+
+    [Fact]
+    public void HasNeedsClarificationCase_CaseInsensitive()
+    {
+        // SystemIntents.NeedsClarificationName é "needs_clarification"; case
+        // do JSON em runtime pode variar (validação no save é OrdinalIgnoreCase).
+        using var doc = JsonDocument.Parse("\"NEEDS_CLARIFICATION\"");
+        var edge = new WorkflowEdge
+        {
+            From = "router-x",
+            EdgeType = WorkflowEdgeType.Switch,
+            Cases = new List<WorkflowSwitchCase>
+            {
+                new()
+                {
+                    Predicate = new EdgePredicate(
+                        Path: "$.intent",
+                        Operator: EdgeOperator.Eq,
+                        Value: doc.RootElement.Clone(),
+                        ValueType: EdgePredicateValueType.String),
+                    Targets = new List<string> { "clarifier" },
+                    IsDefault = false,
+                },
+            },
+        };
+
+        WorkflowValidator.HasNeedsClarificationCase(edge).Should().BeTrue();
+    }
 }

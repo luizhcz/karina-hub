@@ -80,7 +80,7 @@ public sealed class GenericToolTester : IGenericToolTester
                 {
                     using var bodyContent = new StringContent(rawBody, Encoding.UTF8, MediaTypeForOutput(tool));
                     parsed = await GenericResponseParser
-                        .ParseAsync(bodyContent, tool.OutputContentType, cts.Token)
+                        .ParseAsync(bodyContent, tool.OutputContentType, tool.OutputSchema, cts.Token)
                         .ConfigureAwait(false);
                 }
                 catch (Exception parseEx) when (parseEx is not OperationCanceledException)
@@ -89,11 +89,12 @@ public sealed class GenericToolTester : IGenericToolTester
                 }
             }
 
-            // Projection roda mesmo em modo Off (devolve bypass) pra padronizar
-            // o envelope retornado ao tester. Aqui NÃO lançamos exception em
-            // violation — só preenchemos SchemaErrors pra UI renderizar.
+            // Projection roda sempre que há schema. Quando OutputContentType=Text
+            // a tool não tem schema e devolve bypass por contrato. Aqui NÃO
+            // lançamos exception em violation — só preenchemos SchemaErrors
+            // pra UI renderizar.
             var projection = parsed is not null
-                ? _projector.Project(parsed, tool.OutputSchema, tool.OutputProjectionMode, tool.Name)
+                ? _projector.Project(parsed, tool.OutputSchema, tool.Name)
                 : ProjectionResult.AsBypass(null);
 
             sw.Stop();

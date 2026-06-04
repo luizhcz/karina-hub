@@ -94,15 +94,14 @@ public sealed class GenericToolExecutor : IGenericToolExecutor
             }
 
             var data = await GenericResponseParser
-                .ParseAsync(response.Content, tool.OutputContentType, cts.Token)
+                .ParseAsync(response.Content, tool.OutputContentType, tool.OutputSchema, cts.Token)
                 .ConfigureAwait(false);
 
             // Output projection: valida + projeta contra OutputSchema antes
             // do LLM ver. Modo Off (default pra tools legacy) é bypass total.
             // Violation lança ResponseSchemaViolationException; o framework
             // de tool-calling captura e serializa pro LLM como erro estruturado.
-            var projection = _projector.Project(
-                data, tool.OutputSchema, tool.OutputProjectionMode, tool.Name);
+            var projection = _projector.Project(data, tool.OutputSchema, tool.Name);
 
             if (projection.HasErrors)
             {

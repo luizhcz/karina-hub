@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Channels;
@@ -57,14 +58,19 @@ public sealed class AgUiSseHandler
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            // Não escapa acentos/símbolos não-ASCII (PT-BR preserva legibilidade no
+            // wire SSE). Coerente com JsonDefaults.Domain e AgUiEventMapper.JsonOpts.
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
     }
 
     /// <summary>
-    /// Inicia streaming AG-UI SSE para uma execução.
-    /// Emite STATE_SNAPSHOT inicial, depois converte eventos internos
-    /// em eventos AG-UI em tempo real até RUN_FINISHED ou RUN_ERROR.
+    /// Inicia streaming AG-UI SSE para uma execução. Não emite STATE_SNAPSHOT
+    /// inicial — em conexão nova o cliente parte de state vazio (deltas constroem
+    /// o estado); em reconexão o snapshot consolidado já vem via
+    /// <see cref="ResyncAsync"/> antes deste método ser chamado.
+    /// Encerra em RUN_FINISHED, RUN_ERROR ou SAFETY_VIOLATION.
     /// </summary>
     public async Task StreamAsync(
         HttpResponse response,
@@ -86,20 +92,13 @@ public sealed class AgUiSseHandler
         // Cancela grace period pendente caso o usuário reconectou e abriu novo stream
         _disconnectRegistry.Cancel(executionId);
 
-        // 1. Emitir STATE_SNAPSHOT inicial
-        await WriteEventAsync(response, new AgUiEvent
-        {
-            Type = "STATE_SNAPSHOT",
-            Snapshot = sharedState.GetSnapshot()
-        }, sequenceId: null, ct);
-
-        // 2. Criar canal de token para esta execução
+        // Canal de token para esta execução
         var tokenCh = _tokenChannel.GetOrCreate(executionId);
 
-        // 3. Converter eventos do event bus para AG-UI
+        // Converter eventos do event bus para AG-UI
         var eventBusStream = MapEventBusAsync(executionId, runId, threadId, ct);
 
-        // 4. Merge dos dois streams e emitir
+        // Merge dos dois streams e emitir
         var completedNormally = false;
 
         try
@@ -148,19 +147,10 @@ public sealed class AgUiSseHandler
         string runId,
         string threadId,
         IReadOnlyList<ChatMessage> persistedMessages,
-        AgUiSharedState sharedState,
         IChatMessageRepository messageRepo,
         CancellationToken ct)
     {
         if (!response.HasStarted) SetSseHeaders(response);
-
-        // 0. STATE_SNAPSHOT inicial — uniformidade com StreamAsync. Estado não muda no
-        //    robot turn, mas frontend que assume essa sequência inicial não faz race.
-        await WriteEventAsync(response, new AgUiEvent
-        {
-            Type = "STATE_SNAPSHOT",
-            Snapshot = sharedState.GetSnapshot()
-        }, sequenceId: null, ct);
 
         // 1. RUN_STARTED — turn começou
         await WriteEventAsync(response, new AgUiEvent
@@ -288,10 +278,21 @@ public sealed class AgUiSseHandler
             if (envelope.SequenceId > 0)
                 lastSequenceId = envelope.SequenceId;
 
+            // Um envelope do bus pode gerar N eventos AG-UI (ex.: node_completed →
+            // STEP_FINISHED + CUSTOM + TEXT_MESSAGE_*). O 'id:' SSE marca posição
+            // de retomada (last-event-id), não identificador único — emitimos
+            // só no ÚLTIMO evento do lote pra evitar id duplicado em frames
+            // consecutivos (clientes que dedupam por id em runtime descartam
+            // os demais). Eventos intermediários saem sem 'id:'.
             var agUiEvents = _mapper.Map(envelope, runId, threadId);
-
-            foreach (var evt in agUiEvents)
-                yield return evt with { BusSequenceId = lastSequenceId };
+            for (var i = 0; i < agUiEvents.Count; i++)
+            {
+                var isLast = i == agUiEvents.Count - 1;
+                yield return agUiEvents[i] with
+                {
+                    BusSequenceId = isLast ? lastSequenceId : 0L
+                };
+            }
         }
     }
 

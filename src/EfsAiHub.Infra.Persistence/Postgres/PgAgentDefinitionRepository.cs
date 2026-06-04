@@ -333,7 +333,7 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
                 agentId = definition.Id,
                 previousValidatedAgentVersionId,
                 newAgentVersionId,
-            }));
+            }, JsonDefaults.Domain));
             await _auditLogger.RecordAsync(new AdminAuditEntry
             {
                 TenantId = _tenantAccessor.Current.TenantId,
@@ -484,25 +484,11 @@ public class PgAgentDefinitionRepository : IAgentDefinitionRepository
 
         if (!changed) return definition;
 
-        return new AgentDefinition
-        {
-            Id = definition.Id,
-            Name = definition.Name,
-            Description = definition.Description,
-            Model = definition.Model,
-            Provider = definition.Provider,
-            AuthorInstructions = definition.AuthorInstructions,
-            Instructions = definition.Instructions,
-            Tools = rebuilt,
-            StructuredOutput = definition.StructuredOutput,
-            Middlewares = definition.Middlewares,
-            Resilience = definition.Resilience,
-            CostBudget = definition.CostBudget,
-            SkillRefs = definition.SkillRefs,
-            Metadata = definition.Metadata,
-            CreatedAt = definition.CreatedAt,
-            UpdatedAt = definition.UpdatedAt
-        };
+        // WithTools preserva ProjectId/Type/Visibility/TenantId/Enabled etc. — o
+        // rebuild manual anterior omitia esses campos e resetava pro default,
+        // o que rebatia agentes Conversational/Router com function tools pra
+        // Custom/project/default no save (originProjectId vazava).
+        return definition.WithTools(rebuilt);
     }
 
     public async Task<IReadOnlySet<string>> GetExistingIdsAsync(

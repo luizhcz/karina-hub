@@ -32,13 +32,6 @@ public class WorkflowEngineOptions
     public int HitlRecoveryIntervalSeconds { get; init; } = 600;
 
     /// <summary>
-    /// Intervalo em minutos do LlmCostRefreshService (REFRESH MATERIALIZED VIEW CONCURRENTLY).
-    /// Default: 30. Aumente em produção com alto volume de llm_token_usage se o REFRESH ficar caro;
-    /// reduza apenas se os dashboards de custo precisarem estar quase realtime.
-    /// </summary>
-    public int LlmCostRefreshIntervalMinutes { get; init; } = 30;
-
-    /// <summary>
     /// Intervalo em segundos do StuckExecutionRecoveryService — varre execuções
     /// Status=Running paradas há mais de StuckExecutionTimeoutMinutes e marca como Failed.
     /// 0 = desabilita. Default: 1800 (30min).

@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Conversations;
 using EfsAiHub.Core.Abstractions.AgUi;
@@ -30,7 +31,12 @@ public interface IConversationMessaging
         ConversationSession conversation,
         IReadOnlyList<ChatMessageInput> inputs,
         CancellationToken ct = default,
-        string? workflowVersionId = null);
+        string? workflowVersionId = null,
+        IReadOnlyList<ChatMessageInput>? echoHistory = null);
+
+    Task OnStepCompletedAsync(
+        string conversationId, string executionId, string agentId,
+        string messageId, string output, CancellationToken ct = default);
 
     Task OnExecutionCompletedAsync(
         string conversationId, string finalOutput, string executionId,
@@ -62,7 +68,11 @@ public partial class ConversationService : IConversationLifecycle, IConversation
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false
+        WriteIndented = false,
+        // Mantém acentos/símbolos não-ASCII literais no contextJson que vai pro
+        // worker como input do LLM — escape \u00XX inflaria tokens e o LLM lê
+        // chars Unicode diretos sem problema. Coerente com JsonDefaults.Domain.
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
     public ConversationService(

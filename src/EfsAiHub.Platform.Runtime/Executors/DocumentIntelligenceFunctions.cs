@@ -146,7 +146,7 @@ public class DocumentIntelligenceFunctions
                     : "none") + "|fmt=" + outputFormat);
             job.FeaturesHash = featuresHash;
 
-            await _repo.InsertEventAsync(new ExtractionEvent(jobId, "source_validated", JsonSerializer.Serialize(new { sha256, sourceType = job.SourceType })), ct);
+            await _repo.InsertEventAsync(new ExtractionEvent(jobId, "source_validated", JsonSerializer.Serialize(new { sha256, sourceType = job.SourceType }, JsonDefaults.Domain)), ct);
 
             // 3. Validate file size (leve, sem dependências externas)
             if (pdfBytes.Length > _options.MaxFileSizeBytes)
@@ -163,7 +163,7 @@ public class DocumentIntelligenceFunctions
             }
 
             await _repo.InsertEventAsync(new ExtractionEvent(jobId, "file_validated",
-                JsonSerializer.Serialize(new { sizeBytes = pdfBytes.Length, maxSizeBytes = _options.MaxFileSizeBytes })), ct);
+                JsonSerializer.Serialize(new { sizeBytes = pdfBytes.Length, maxSizeBytes = _options.MaxFileSizeBytes }, JsonDefaults.Domain)), ct);
 
             // 4. Cache check
             if (request.CacheEnabled)
@@ -182,7 +182,7 @@ public class DocumentIntelligenceFunctions
                         job.CostUsd = 0m;
                         job.FinishedAt = DateTime.UtcNow;
                         await _repo.InsertJobAsync(job, ct);
-                        await _repo.InsertEventAsync(new ExtractionEvent(jobId, "cache_hit", JsonSerializer.Serialize(new { resultRef = cached.ResultRef })), ct);
+                        await _repo.InsertEventAsync(new ExtractionEvent(jobId, "cache_hit", JsonSerializer.Serialize(new { resultRef = cached.ResultRef }, JsonDefaults.Domain)), ct);
 
                         _logger.LogInformation("[DocIntel] Cache HIT para hash '{Hash}', model '{Model}'.", sha256[..12], request.Model);
                         return BuildSuccessOutput(job, fromCache: true, content: cachedContent);
@@ -197,7 +197,7 @@ public class DocumentIntelligenceFunctions
             await _repo.InsertJobAsync(job, ct);
 
             Interlocked.Increment(ref _queueDepth);
-            await _repo.InsertEventAsync(new ExtractionEvent(jobId, "gate_waiting", JsonSerializer.Serialize(new { queueDepth = _queueDepth })), ct);
+            await _repo.InsertEventAsync(new ExtractionEvent(jobId, "gate_waiting", JsonSerializer.Serialize(new { queueDepth = _queueDepth }, JsonDefaults.Domain)), ct);
 
             if (!await _gate.WaitAsync(TimeSpan.FromSeconds(_options.GateWaitTimeoutSeconds), ct))
             {
@@ -222,7 +222,7 @@ public class DocumentIntelligenceFunctions
 
                 job.OperationId = result.OperationId;
                 await _repo.InsertEventAsync(new ExtractionEvent(jobId, "di_succeeded",
-                    JsonSerializer.Serialize(new { operationId = result.OperationId, pages = result.PageCount, durationMs = result.DurationMs })), ct);
+                    JsonSerializer.Serialize(new { operationId = result.OperationId, pages = result.PageCount, durationMs = result.DurationMs }, JsonDefaults.Domain)), ct);
 
                 // 7. Store in Redis (gzip full + meta)
                 // v2 key inclui outputFormat — cache antigo v1 fica órfão (TTL limpa).
@@ -239,9 +239,9 @@ public class DocumentIntelligenceFunctions
                     hasTables = result.HasTables,
                     hasHandwriting = result.HasHandwriting,
                     primaryLanguage = result.PrimaryLanguage,
-                }), ttl);
+                }, JsonDefaults.Domain), ttl);
 
-                await _repo.InsertEventAsync(new ExtractionEvent(jobId, "pages_stored", JsonSerializer.Serialize(new { resultRef })), ct);
+                await _repo.InsertEventAsync(new ExtractionEvent(jobId, "pages_stored", JsonSerializer.Serialize(new { resultRef }, JsonDefaults.Domain)), ct);
 
                 // 8. Upsert cache
                 job.PageCount = result.PageCount;
@@ -261,7 +261,7 @@ public class DocumentIntelligenceFunctions
                 await _repo.UpdateJobAsync(job, ct);
 
                 await _repo.InsertEventAsync(new ExtractionEvent(jobId, "completed",
-                    JsonSerializer.Serialize(new { costUsd, durationMs = job.DurationMs })), ct);
+                    JsonSerializer.Serialize(new { costUsd, durationMs = job.DurationMs }, JsonDefaults.Domain)), ct);
 
                 _logger.LogInformation("[DocIntel] Job '{JobId}' concluído: {Pages} páginas, custo ${Cost}, {DurationMs}ms.",
                     jobId, result.PageCount, costUsd, job.DurationMs);
@@ -353,7 +353,7 @@ public class DocumentIntelligenceFunctions
 
         try { await _repo.UpdateJobAsync(job, CancellationToken.None); } catch { /* best-effort */ }
         await _repo.InsertEventAsync(new ExtractionEvent(job.Id, "failed",
-            JsonSerializer.Serialize(new { errorCode, errorMessage })), CancellationToken.None);
+            JsonSerializer.Serialize(new { errorCode, errorMessage }, JsonDefaults.Domain)), CancellationToken.None);
 
         _logger.LogWarning("[DocIntel] Job '{JobId}' falhou: {ErrorCode} — {ErrorMessage}.", job.Id, errorCode, errorMessage);
 

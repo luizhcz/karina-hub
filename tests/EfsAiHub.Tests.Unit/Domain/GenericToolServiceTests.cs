@@ -5,6 +5,7 @@ using EfsAiHub.Core.Agents.GenericTools;
 using EfsAiHub.Core.Agents.Services;
 using EfsAiHub.Platform.Runtime.Configuration;
 using EfsAiHub.Platform.Runtime.Services;
+using EfsAiHub.Platform.Runtime.Tools.Generic.Schema;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -31,7 +32,9 @@ public class GenericToolServiceTests
             MaxTimeoutSeconds = maxTimeout,
         });
 
-        var svc = new GenericToolService(repo, agentRepo, propagator, projectAccessor, tenantAccessor, options,
+        var svc = new GenericToolService(
+            repo, agentRepo, propagator, projectAccessor, tenantAccessor, options,
+            new SchemaNormalizer(),
             Substitute.For<ILogger<GenericToolService>>());
 
         return (svc, repo);
@@ -69,10 +72,10 @@ public class GenericToolServiceTests
 
         var result = await svc.CreateAsync(id: null, ValidGetTemplate());
 
-        result.Id.Should().NotBeNullOrEmpty();
-        result.Id.Length.Should().Be(32);
-        result.ProjectId.Should().Be("alpha");
-        result.TenantId.Should().Be("tenant-a");
+        result.Tool.Id.Should().NotBeNullOrEmpty();
+        result.Tool.Id.Length.Should().Be(32);
+        result.Tool.ProjectId.Should().Be("alpha");
+        result.Tool.TenantId.Should().Be("tenant-a");
         await repo.Received(1).CreateAsync(Arg.Any<GenericTool>(), Arg.Any<CancellationToken>());
     }
 
@@ -85,7 +88,7 @@ public class GenericToolServiceTests
 
         var result = await svc.CreateAsync(id: "my-tool", ValidGetTemplate());
 
-        result.Id.Should().Be("my-tool");
+        result.Tool.Id.Should().Be("my-tool");
     }
 
     [Fact]
@@ -114,7 +117,7 @@ public class GenericToolServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_GetComInputContentTypeJson_NormalizaParaNone()
+    public async Task CreateAsync_GetComInputContentTypeJson_PreservaSchemaParaQueryFlatten()
     {
         var (svc, repo) = Build();
         GenericTool? captured = null;
@@ -123,11 +126,35 @@ public class GenericToolServiceTests
 
         var template = ValidGetTemplate();
         template.InputContentType = InputContentType.Json;
-        template.InputSchema = "{\"type\":\"object\",\"properties\":{}}";
+        // Schema canônico — properties servem de declaração de query params
+        // adicionais quando GET+Json.
+        template.InputSchema = """
+            {"type":"object","properties":{"ticker":{"type":"string"}},"required":["ticker"],"additionalProperties":false}
+            """;
 
         await svc.CreateAsync(null, template);
 
         captured.Should().NotBeNull();
+        captured!.InputContentType.Should().Be(InputContentType.Json);
+        captured.InputSchema.Should().NotBeNull();
+        captured.InputSchema!.Should().Contain("ticker");
+    }
+
+    [Fact]
+    public async Task CreateAsync_GetComFormUrlEncoded_NormalizaParaNone()
+    {
+        // FormUrlEncoded em GET é inválido (não há body) — service força None.
+        var (svc, repo) = Build();
+        GenericTool? captured = null;
+        repo.CreateAsync(Arg.Do<GenericTool>(t => captured = t), Arg.Any<CancellationToken>())
+            .Returns(callInfo => callInfo.Arg<GenericTool>());
+
+        var template = ValidGetTemplate();
+        template.InputContentType = InputContentType.FormUrlEncoded;
+        template.InputSchema = "{\"type\":\"object\",\"properties\":{}}";
+
+        await svc.CreateAsync(null, template);
+
         captured!.InputContentType.Should().Be(InputContentType.None);
         captured.InputSchema.Should().BeNull();
     }

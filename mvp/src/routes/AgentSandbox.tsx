@@ -37,6 +37,11 @@ interface AssistantMsg {
   toolCalls: ToolCall[]
   streaming: boolean
   errored?: boolean
+  /** Tempo total da run, em ms, do POST até o evento 'done' ou 'error'.
+   *  Sandbox não recebe STEP_FINISHED do backend (endpoint single-agent),
+   *  então a medição é client-side e inclui RTT — mas é o sinal certo
+   *  pro user ("quanto demorou pra responder"). */
+  durationMs?: number
 }
 
 interface ToolCall {
@@ -218,6 +223,12 @@ export function AgentSandbox() {
     }
     setMessages((prev) => [...prev, userMsg, assistantMsg])
 
+    // Sandbox roda 1 agente isolado e o endpoint /sessions/{sid}/stream NÃO
+    // emite STEP_STARTED/FINISHED como o /chat/ag-ui/stream do workflow.
+    // Medimos client-side: do POST até o evento 'done' ou 'error'. Inclui
+    // RTT da rede + processamento server-side — não é o tempo puro do LLM
+    // mas é o sinal certo pro user ("quanto demorou pra responder").
+    const turnStartedAt = Date.now()
     const controller = new AbortController()
     abortRef.current = controller
 
@@ -233,7 +244,8 @@ export function AgentSandbox() {
         applyEvent(event, updateAssistant)
         if (event.type === 'done' || event.type === 'error') break
       }
-      updateAssistant((m) => ({ ...m, streaming: false }))
+      const durationMs = Date.now() - turnStartedAt
+      updateAssistant((m) => ({ ...m, streaming: false, durationMs }))
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         updateAssistant((m) => ({ ...m, streaming: false }))
@@ -525,9 +537,8 @@ function AssistantBubble({ msg }: { msg: AssistantMsg }) {
   const showTyping = msg.streaming && msg.content.length === 0 && msg.toolCalls.length === 0
   // Durante streaming exibimos o cru (chunks parciais não parseiam). No turno
   // final, extractConversationalDisplay reconhece o canônico do Conversational
-  // ({ output_type, output_status, message, output }) — com fallback pro
-  // legado { ui_component, message, output } — e o Custom legacy ({ response }),
-  // evitando o JSON inteiro vazar pra bolha.
+  // ({ output_type, output_status, message, output }) e o Custom com
+  // structuredOutput ({ response }), evitando o JSON inteiro vazar pra bolha.
   const display = msg.streaming
     ? {
         message: msg.content,
@@ -541,6 +552,11 @@ function AssistantBubble({ msg }: { msg: AssistantMsg }) {
   return (
     <div className="flex justify-start">
       <div className="flex max-w-[85%] flex-col items-start gap-2">
+        {msg.durationMs != null && !msg.streaming && (
+          <div className="flex items-center gap-1.5 px-1 text-[10px] text-fg-muted">
+            <SandboxDurationBadge durationMs={msg.durationMs} />
+          </div>
+        )}
         {msg.toolCalls.map((call) => (
           <ToolCallChip key={call.id} call={call} />
         ))}
@@ -573,6 +589,25 @@ function AssistantBubble({ msg }: { msg: AssistantMsg }) {
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Tag de tempo da run no Sandbox. Sandbox usa medição client-side (POST →
+ * 'done') porque o endpoint /sessions/{sid}/stream não emite STEP_FINISHED.
+ * Inclui RTT da rede — não confundir com a tag do Chat, que vem do backend
+ * via STEP_FINISHED.metadata.durationMs (sem RTT).
+ */
+function SandboxDurationBadge({ durationMs }: { durationMs: number }) {
+  const label =
+    durationMs < 1000 ? `${Math.round(durationMs)}ms` : `${(durationMs / 1000).toFixed(1)}s`
+  return (
+    <span
+      className="inline-flex shrink-0 items-center rounded-md border border-border bg-bg-soft px-1.5 py-px text-[9px] font-medium tabular-nums text-fg-muted"
+      title={`Tempo total da run (cliente → done): ${durationMs}ms`}
+    >
+      {label}
+    </span>
   )
 }
 

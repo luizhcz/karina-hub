@@ -171,20 +171,26 @@ public sealed class AdminGateMiddleware
     private static readonly Regex EvaluationsRunEventsPattern =
         new(@"^/api/aihub/evaluations/runs/[^/]+/events$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    // GET /api/aihub/analytics/projects/{id}/(overview|timeseries|agents|budget) —
+    // /api/aihub/analytics/projects/{id}/(overview|timeseries|agents|budget|refresh) —
     // dashboard de uso/custo por projeto. Liberado pra non-admin com a mesma
     // garantia do approval-history: ProjectAnalyticsController.EnsureProjectAccessAsync
     // valida ownership (current.ProjectId == path.projectId OU caller é admin)
-    // antes de tocar o repo. Regex restrita aos 4 sufixos pra evitar vazamento
-    // de sub-rotas futuras (ex.: POST /refresh) que escapem revisão deste
-    // middleware.
+    // antes de tocar o repo. `refresh` é POST e apenas invalida o cache do
+    // projeto via incremento de versão — sem efeito colateral fora do escopo.
     private static readonly Regex ProjectAnalyticsPattern =
-        new(@"^/api/aihub/analytics/projects/[^/]+/(overview|timeseries|agents|budget)$",
+        new(@"^/api/aihub/analytics/projects/[^/]+/(overview|timeseries|agents|budget|refresh)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // GET /api/aihub/users/{userId}/conversations
     private static readonly Regex UserConversationsPattern =
         new(@"^/api/aihub/users/[^/]+/conversations$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // /api/aihub/agents/{routerId}/quick-actions[/{id}] — CRUD de atalhos do Router.
+    // Liberado pra non-admin: o controller já valida via HasQueryFilter (filtro por
+    // ProjectId scope) e EnsureRouter rejeita acesso a Router de outro projeto.
+    private static readonly Regex RouterQuickActionsPattern =
+        new(@"^/api/aihub/agents/[^/]+/quick-actions(/[^/]+)?$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // GET /api/aihub/projects (lista) ou GET /api/aihub/projects/{id} (detalhe). Sub-rotas
     // como /api/aihub/projects/{id}/blocklist são admin-only — caem fora desse pattern.
@@ -396,6 +402,11 @@ public sealed class AdminGateMiddleware
 
         if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
             && ProjectAnalyticsPattern.IsMatch(path))
+            return true;
+
+        // Router Quick Actions — CRUD liberado pra non-admin do projeto. Controller
+        // valida ownership do Router (Type=Router) e usa ProjectContext pra scope.
+        if (RouterQuickActionsPattern.IsMatch(path))
             return true;
 
         // Conversations — todos os métodos (chat via REST)

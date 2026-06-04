@@ -4,6 +4,7 @@ using EfsAiHub.Core.Agents.GenericTools;
 using EfsAiHub.Core.Agents.Services;
 using EfsAiHub.Platform.Runtime.Configuration;
 using EfsAiHub.Platform.Runtime.Interfaces;
+using EfsAiHub.Platform.Runtime.Tools.Generic.Schema;
 using Microsoft.Extensions.Options;
 
 namespace EfsAiHub.Platform.Runtime.Services;
@@ -16,6 +17,7 @@ public sealed class GenericToolService : IGenericToolService
     private readonly IProjectContextAccessor _projectAccessor;
     private readonly ITenantContextAccessor _tenantAccessor;
     private readonly IOptions<GenericToolsOptions> _options;
+    private readonly ISchemaNormalizer _normalizer;
     private readonly ILogger<GenericToolService> _logger;
 
     public GenericToolService(
@@ -25,6 +27,7 @@ public sealed class GenericToolService : IGenericToolService
         IProjectContextAccessor projectAccessor,
         ITenantContextAccessor tenantAccessor,
         IOptions<GenericToolsOptions> options,
+        ISchemaNormalizer normalizer,
         ILogger<GenericToolService> logger)
     {
         _repo = repo;
@@ -33,14 +36,23 @@ public sealed class GenericToolService : IGenericToolService
         _projectAccessor = projectAccessor;
         _tenantAccessor = tenantAccessor;
         _options = options;
+        _normalizer = normalizer;
         _logger = logger;
     }
 
-    public async Task<GenericTool> CreateAsync(string? id, GenericTool draft, CancellationToken ct = default)
+    public async Task<GenericToolSaveResult> CreateAsync(string? id, GenericTool draft, CancellationToken ct = default)
     {
         var projectId = _projectAccessor.Current.ProjectId;
         var tenantId = _tenantAccessor.Current.TenantId;
         var toolId = !string.IsNullOrWhiteSpace(id) ? id!.Trim() : Guid.NewGuid().ToString("N");
+
+        var inputContentType = NormalizeInputContentType(draft.HttpMethod, draft.InputContentType);
+        var (inputCanonical, inputWarnings) = NormalizeSchema(
+            inputContentType is InputContentType.None or InputContentType.Text ? null : draft.InputSchema,
+            SchemaRole.Input);
+        var (outputCanonical, outputWarnings) = NormalizeSchema(
+            draft.OutputContentType == OutputContentType.Text ? null : draft.OutputSchema,
+            SchemaRole.Output);
 
         var tool = new GenericTool
         {
@@ -53,10 +65,10 @@ public sealed class GenericToolService : IGenericToolService
             PathParams = draft.PathParams,
             QueryParams = draft.QueryParams,
             CustomHeaders = draft.CustomHeaders,
-            InputContentType = NormalizeInputContentType(draft.HttpMethod, draft.InputContentType),
-            InputSchema = draft.HttpMethod == HttpMethodType.GET ? null : draft.InputSchema,
+            InputContentType = inputContentType,
+            InputSchema = inputCanonical,
             OutputContentType = draft.OutputContentType,
-            OutputSchema = draft.OutputContentType == OutputContentType.Text ? null : draft.OutputSchema,
+            OutputSchema = outputCanonical,
             OutputProjectionMode = ResolveProjectionMode(draft.OutputContentType),
             TimeoutSecondsOverride = draft.TimeoutSecondsOverride,
             IsExclusive = draft.IsExclusive,
@@ -70,10 +82,10 @@ public sealed class GenericToolService : IGenericToolService
         var saved = await _repo.CreateAsync(tool, ct);
 
         _logger.LogInformation(
-            "[GenericToolService] Tool '{ToolId}' criada em projeto '{ProjectId}'.",
-            saved.Id, projectId);
+            "[GenericToolService] Tool '{ToolId}' criada em projeto '{ProjectId}' (warnings={WarningCount}).",
+            saved.Id, projectId, inputWarnings.Count + outputWarnings.Count);
 
-        return saved;
+        return new GenericToolSaveResult(saved, Combine(inputWarnings, outputWarnings));
     }
 
     public Task<GenericTool?> GetAsync(string id, CancellationToken ct = default)
@@ -82,7 +94,7 @@ public sealed class GenericToolService : IGenericToolService
     public Task<IReadOnlyList<GenericTool>> ListAsync(CancellationToken ct = default)
         => _repo.ListAsync(ct);
 
-    public async Task<GenericTool> UpdateAsync(
+    public async Task<GenericToolSaveResult> UpdateAsync(
         string id,
         GenericTool patch,
         DateTime expectedUpdatedAt,
@@ -90,6 +102,14 @@ public sealed class GenericToolService : IGenericToolService
     {
         var existing = await _repo.GetByIdAsync(id, ct)
             ?? throw new KeyNotFoundException($"GenericTool '{id}' não encontrado.");
+
+        var inputContentType = NormalizeInputContentType(patch.HttpMethod, patch.InputContentType);
+        var (inputCanonical, inputWarnings) = NormalizeSchema(
+            inputContentType is InputContentType.None or InputContentType.Text ? null : patch.InputSchema,
+            SchemaRole.Input);
+        var (outputCanonical, outputWarnings) = NormalizeSchema(
+            patch.OutputContentType == OutputContentType.Text ? null : patch.OutputSchema,
+            SchemaRole.Output);
 
         var updated = new GenericTool
         {
@@ -102,10 +122,10 @@ public sealed class GenericToolService : IGenericToolService
             PathParams = patch.PathParams,
             QueryParams = patch.QueryParams,
             CustomHeaders = patch.CustomHeaders,
-            InputContentType = NormalizeInputContentType(patch.HttpMethod, patch.InputContentType),
-            InputSchema = patch.HttpMethod == HttpMethodType.GET ? null : patch.InputSchema,
+            InputContentType = inputContentType,
+            InputSchema = inputCanonical,
             OutputContentType = patch.OutputContentType,
-            OutputSchema = patch.OutputContentType == OutputContentType.Text ? null : patch.OutputSchema,
+            OutputSchema = outputCanonical,
             OutputProjectionMode = ResolveProjectionMode(patch.OutputContentType),
             TimeoutSecondsOverride = patch.TimeoutSecondsOverride,
             IsExclusive = patch.IsExclusive,
@@ -120,7 +140,7 @@ public sealed class GenericToolService : IGenericToolService
 
         var saved = await _repo.UpdateAsync(updated, expectedUpdatedAt, ct);
         await _propagator.PropagateGenericToolEditAsync(saved.Id, ct);
-        return saved;
+        return new GenericToolSaveResult(saved, Combine(inputWarnings, outputWarnings));
     }
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)
@@ -143,6 +163,34 @@ public sealed class GenericToolService : IGenericToolService
             id, existing.ProjectId);
     }
 
+    /// <summary>
+    /// Roda o normalizer pra obter o JSON canônico. Quando a entrada é
+    /// null/whitespace, retorna null sem warning — schema ausente é estado
+    /// legítimo (ex.: InputContentType=None ou OutputContentType=Text).
+    /// </summary>
+    private (string? Canonical, IReadOnlyList<NormalizationWarning> Warnings) NormalizeSchema(
+        string? raw,
+        SchemaRole role)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return (null, Array.Empty<NormalizationWarning>());
+
+        var result = _normalizer.Normalize(raw, role);
+        return (result.CanonicalJson, result.Warnings);
+    }
+
+    private static IReadOnlyList<NormalizationWarning> Combine(
+        IReadOnlyList<NormalizationWarning> a,
+        IReadOnlyList<NormalizationWarning> b)
+    {
+        if (a.Count == 0) return b;
+        if (b.Count == 0) return a;
+        var merged = new List<NormalizationWarning>(a.Count + b.Count);
+        merged.AddRange(a);
+        merged.AddRange(b);
+        return merged;
+    }
+
     private void ValidateAll(GenericTool tool)
     {
         tool.EnsureInvariants();
@@ -150,7 +198,17 @@ public sealed class GenericToolService : IGenericToolService
     }
 
     private static InputContentType NormalizeInputContentType(HttpMethodType method, InputContentType requested)
-        => method == HttpMethodType.GET ? InputContentType.None : requested;
+    {
+        // GET aceita None ou Json (input estruturado vira query string).
+        // FormUrlEncoded/Text em GET não fazem sentido — normaliza pra None
+        // pra falhar visível em EnsureInvariants se ainda mandar schema.
+        if (method == HttpMethodType.GET
+            && requested is InputContentType.FormUrlEncoded or InputContentType.Text)
+        {
+            return InputContentType.None;
+        }
+        return requested;
+    }
 
     /// <summary>
     /// Json/Csv sempre projetam (drop silencioso de extras + fail-loud em

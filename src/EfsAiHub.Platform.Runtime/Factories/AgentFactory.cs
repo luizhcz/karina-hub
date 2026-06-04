@@ -15,6 +15,7 @@ using EfsAiHub.Platform.Runtime.Resilience;
 using EfsAiHub.Platform.Runtime.Tools.Generic;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Factories;
 
@@ -24,6 +25,36 @@ namespace EfsAiHub.Platform.Runtime.Factories;
 /// </summary>
 public class AgentFactory : IAgentFactory
 {
+    /// <summary>
+    /// Middlewares declarados pelo agente que devem ser wrappados ANTES de
+    /// <see cref="OperationalMemoryChatClient"/> — ou seja, no OnAfter eles
+    /// rodam ANTES da memória ser persistida + strippada.
+    ///
+    /// <para>
+    /// Caso de uso: hard validators que mutam o output do LLM (ex.:
+    /// <c>RouterDecisionTelemetry</c> reescreve needs_clarification inválido
+    /// pra out_of_scope). Sem essa fase, OpMem persistiria o estado ruim no
+    /// banco antes do rewrite — DB ficaria divergente do JSON emitido ao
+    /// frontend, e o loop guard via <c>clarification_depth</c> seria
+    /// inoperante no próximo turno.
+    /// </para>
+    ///
+    /// <para>
+    /// Middlewares fora desta lista mantêm comportamento legado: wrappam
+    /// APÓS OpMem (mais externo no pipeline), enxergam output já strippado.
+    /// </para>
+    /// </summary>
+    private static readonly HashSet<string> PreMemoryMiddlewareTypes =
+        new(StringComparer.OrdinalIgnoreCase) { "RouterDecisionTelemetry" };
+
+    /// <summary>
+    /// Exposto <c>internal</c> pra cobertura por unit tests sem precisar
+    /// construir uma <see cref="AgentFactory"/> completa (dezenas de
+    /// dependências). Decisão de fase é pura função do nome do middleware
+    /// type — testar a lista é suficiente.
+    /// </summary>
+    internal static bool IsPreMemoryPhase(string type) => PreMemoryMiddlewareTypes.Contains(type);
+
     private readonly IReadOnlyDictionary<string, ILlmClientProvider> _providers;
     private readonly IAgentDefinitionRepository _agentRepo;
     private readonly IFunctionToolRegistry _functionRegistry;
@@ -66,6 +97,12 @@ public class AgentFactory : IAgentFactory
     private readonly EfsAiHub.Platform.Runtime.Sanitization.ILlmPayloadSanitizer? _payloadSanitizer;
     private readonly EfsAiHub.Core.Orchestration.Interfaces.ILlmInvocationLogSink? _captureSink;
 
+    // Router Quick Actions — bypass do LLM em mensagens que batem em padrões
+    // pré-cadastrados. Optional pra preservar BC com testes que não usam.
+    // Quando null, Router sempre invoca LLM (comportamento legado).
+    private readonly EfsAiHub.Core.Agents.RouterQuickActions.IRouterQuickActionMatcher? _quickActionMatcher;
+    private readonly EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor? _tenantContextAccessor;
+
     // Throttle pra cross_project_invoke audit. Capacity 1000, janela 60s,
     // emite métrica ao despejar. Static singleton: factory é registrado scoped em DI
     // mas o throttle precisa ser process-wide pra evitar duplicar logs entre scopes.
@@ -100,7 +137,9 @@ public class AgentFactory : IAgentFactory
         EfsAiHub.Core.Agents.IOperationalMemoryRepository? operationalMemoryRepo = null,
         EfsAiHub.Platform.Runtime.Services.LlmCaptureConfigService? captureConfig = null,
         EfsAiHub.Platform.Runtime.Sanitization.ILlmPayloadSanitizer? payloadSanitizer = null,
-        EfsAiHub.Core.Orchestration.Interfaces.ILlmInvocationLogSink? captureSink = null)
+        EfsAiHub.Core.Orchestration.Interfaces.ILlmInvocationLogSink? captureSink = null,
+        EfsAiHub.Core.Agents.RouterQuickActions.IRouterQuickActionMatcher? quickActionMatcher = null,
+        EfsAiHub.Core.Abstractions.Identity.ITenantContextAccessor? tenantContextAccessor = null)
     {
         _providers = providers.ToDictionary(p => p.ProviderType, StringComparer.OrdinalIgnoreCase);
         _agentRepo = agentRepo;
@@ -128,6 +167,8 @@ public class AgentFactory : IAgentFactory
         _captureConfig = captureConfig;
         _payloadSanitizer = payloadSanitizer;
         _captureSink = captureSink;
+        _quickActionMatcher = quickActionMatcher;
+        _tenantContextAccessor = tenantContextAccessor;
     }
 
     public async Task<ExecutableWorkflow> CreateAgentAsync(
@@ -344,7 +385,7 @@ public class AgentFactory : IAgentFactory
                             ownerProjectId = definition.ProjectId,
                             workflowId = workflow.Id,
                             agentId = definition.Id,
-                        }));
+                        }, JsonDefaults.Domain));
                         await _auditLogger.RecordAsync(new EfsAiHub.Core.Abstractions.Observability.AdminAuditEntry
                         {
                             ActorUserId = "system:agent-factory",
@@ -487,10 +528,16 @@ public class AgentFactory : IAgentFactory
             // hoje o factory não tem o workflowRef em escopo.
             var historyWindow = EfsAiHub.Platform.Runtime.Application.Services
                 .WorkflowAgentHistoryResolver.Resolve(definition.Type, workflowRef: null, workflowConfig: null);
+            // Router não recebe sharedState: sinal de continuação já vem dos
+            // markers [ASSISTANT-*] no histórico + operational_memory próprio.
+            // sharedState carrega detalhes operacionais de Conversational que
+            // viram noise pro classificador (e tokens a mais no TTFT).
+            var includeSharedState = definition.Type != AgentType.Router;
             var expanded = ChatTurnContextMapper.TryExpand(
                 input,
                 composedPersona.UserReinforcement,
-                historyWindow: historyWindow);
+                historyWindow: historyWindow,
+                includeSharedState: includeSharedState);
 
             // Anota provenance per-message: cada item adicionado é tracable
             // pela posição no array final de `messages`.
@@ -510,6 +557,36 @@ public class AgentFactory : IAgentFactory
                 fromIndex: expansionStart,
                 hasReinforcement: !string.IsNullOrEmpty(composedPersona.UserReinforcement),
                 historyWindow: historyWindow);
+
+            // ── Router Quick Action bypass ──────────────────────────────────────
+            // Pra agentes Router, antes de chamar LLM, tenta casar a última user
+            // message contra atalhos pré-cadastrados. Hit → output sintético
+            // idêntico ao que LLM produziria, zero llm_token_usage row, latência
+            // sub-ms. Miss → fluxo LLM normal segue abaixo.
+            if (definition.Type == EfsAiHub.Core.Agents.AgentType.Router
+                && _quickActionMatcher is not null
+                && _tenantContextAccessor is not null)
+            {
+                var lastUserText = ExtractLastUserText(messages);
+                if (!string.IsNullOrWhiteSpace(lastUserText))
+                {
+                    var tenantId = _tenantContextAccessor.Current.TenantId;
+                    var routerProjectId = definition.ProjectId;
+                    var match = await _quickActionMatcher.TryMatchAsync(
+                        definition.Id, tenantId, routerProjectId, lastUserText!, cancellationToken);
+                    if (match is not null)
+                    {
+                        EfsAiHub.Infra.Observability.MetricsRegistry.RouterQuickActionHits.Add(1,
+                            new KeyValuePair<string, object?>("agent_id", definition.Id),
+                            new KeyValuePair<string, object?>("intent", match.Intent));
+                        _logger.LogInformation(
+                            "[QuickAction] Router '{AgentId}' bypass — pattern='{Pattern}' intent='{Intent}'.",
+                            definition.Id, match.Pattern, match.Intent);
+                        return EfsAiHub.Core.Agents.RouterQuickActions
+                            .RouterSyntheticOutputBuilder.Build(match.Intent, match.Pattern);
+                    }
+                }
+            }
 
             var sw = Stopwatch.StartNew();
             var response = await chatClient.GetResponseAsync(messages, chatOptions, cancellationToken);
@@ -687,18 +764,23 @@ public class AgentFactory : IAgentFactory
             agentMaxCostUsd: definition.CostBudget?.MaxCostUsd,
             agentOwnerProjectId: definition.ProjectId);
 
-        // Memória operacional fica entre TokenTracking e os middlewares opt-in:
+        // PRE-MEMORY phase: middlewares que precisam rodar no OnAfter ANTES da
+        // memória operacional persistir + strippar o payload. Hard validators
+        // que mutam output (ex: RouterDecisionTelemetry reescrevendo
+        // needs_clarification inválido) entram aqui pra que o estado persistido
+        // em aihub.operational_memory reflita o output FINAL emitido ao usuário,
+        // não o output bruto do LLM.
+        current = WrapMiddlewares(current, definition, IsPreMemoryPhase);
+
+        // Memória operacional fica entre PRE-MEMORY e POST-MEMORY phases:
         // tokens da injeção pré-call são contabilizados; output strippado é o que
         // os demais middlewares (e o Blocklist) veem.
         current = WrapWithOperationalMemory(current, definition, isStandaloneFlow);
 
-        foreach (var mw in definition.Middlewares.Where(m => m.Enabled))
-        {
-            if (!_middlewareRegistry.TryCreate(mw.Type, current, definition.Id, mw.Settings, _logger, out var wrapped))
-                LogAndSkipMiddleware(current, mw.Type, definition.Id);
-            else
-                current = wrapped;
-        }
+        // POST-MEMORY phase: middlewares legados (AccountGuard, StructuredOutputState,
+        // SecurityGuardrails) — veem output já strippado de operationalMemory e
+        // o STATE_DELTA do StructuredOutputState carrega o payload final.
+        current = WrapMiddlewares(current, definition, t => !IsPreMemoryPhase(t));
 
         // Blocklist mais externo que TokenTracking + middlewares opt-in. Input bloqueado
         // não consome token; output bloqueado conta tokens (já consumidos pelo provider).
@@ -754,24 +836,38 @@ public class AgentFactory : IAgentFactory
     /// <summary>
     /// Aplica apenas os middlewares do agente (ex: AccountGuard, StructuredOutputState).
     /// Usado pelo CreateLlmHandlerAsync (Graph mode) que já faz token tracking manual.
+    /// Mesmas duas fases do <c>WrapWithTokenTrackingAsync</c>: pré-memória pra
+    /// hard validators que mutam output, pós-memória pros demais.
     /// </summary>
     private IChatClient WrapWithMiddlewares(
         IChatClient inner, AgentDefinition definition, bool isStandaloneFlow = false)
     {
-        // Mesma posição do caminho não-Graph: memória operacional fica mais
-        // interna que os middlewares opt-in, garantindo que estes vejam o
-        // output já strippado e o Blocklist scaneie o texto final.
-        IChatClient current = WrapWithOperationalMemory(inner, definition, isStandaloneFlow);
-        foreach (var mw in definition.Middlewares.Where(m => m.Enabled))
+        IChatClient current = WrapMiddlewares(inner, definition, IsPreMemoryPhase);
+        current = WrapWithOperationalMemory(current, definition, isStandaloneFlow);
+        current = WrapMiddlewares(current, definition, t => !IsPreMemoryPhase(t));
+        // Blocklist também no Graph mode — coberto independente do pipeline ser via
+        // WrapWithTokenTracking ou direto via CreateLlmHandlerAsync.
+        current = WrapWithBlocklist(current, definition.Id);
+        return current;
+    }
+
+    /// <summary>
+    /// Helper compartilhado: itera <see cref="AgentDefinition.Middlewares"/>
+    /// filtrando por <paramref name="typePredicate"/> e wrappa cada entry
+    /// habilitada. Preserva ordem do array — primeira entry filtrada fica mais
+    /// interna no resultado.
+    /// </summary>
+    private IChatClient WrapMiddlewares(
+        IChatClient inner, AgentDefinition definition, Func<string, bool> typePredicate)
+    {
+        var current = inner;
+        foreach (var mw in definition.Middlewares.Where(m => m.Enabled && typePredicate(m.Type)))
         {
             if (!_middlewareRegistry.TryCreate(mw.Type, current, definition.Id, mw.Settings, _logger, out var wrapped))
                 LogAndSkipMiddleware(current, mw.Type, definition.Id);
             else
                 current = wrapped;
         }
-        // Blocklist também no Graph mode — coberto independente do pipeline ser via
-        // WrapWithTokenTracking ou direto via CreateLlmHandlerAsync.
-        current = WrapWithBlocklist(current, definition.Id);
         return current;
     }
 
@@ -826,6 +922,21 @@ public class AgentFactory : IAgentFactory
     {
         _logger.LogWarning("Unknown middleware type '{Type}' on agent '{AgentId}' — ignored.", type, agentId);
         return current;
+    }
+
+    /// <summary>
+    /// Encontra o texto da última mensagem com Role=User na lista enviada ao LLM.
+    /// Usado pelo bypass de Router Quick Action — ignora system prompts e turnos
+    /// anteriores. Retorna null/empty se não há user message (caso defensivo).
+    /// </summary>
+    private static string? ExtractLastUserText(IReadOnlyList<Microsoft.Extensions.AI.ChatMessage> messages)
+    {
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            if (messages[i].Role == ChatRole.User)
+                return messages[i].Text;
+        }
+        return null;
     }
 
     private static AgentDefinition CopyWithInstructions(AgentDefinition d, string instructions) => new()

@@ -5,6 +5,7 @@ using EfsAiHub.Host.Api.Models.Requests;
 using EfsAiHub.Host.Api.Models.Responses;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Host.Api.Controllers;
 
@@ -198,7 +199,7 @@ public class AgentSessionsController : ControllerBase
                 await foreach (var token in inner.RunStreamingAsync(sessionId, request.Message, CancellationToken.None))
                 {
                     await buffer.AppendAsync(streamKey,
-                        new BufferEvent("token", JsonSerializer.Serialize(new { value = token }), DateTimeOffset.UtcNow),
+                        new BufferEvent("token", JsonSerializer.Serialize(new { value = token }, JsonDefaults.Domain), DateTimeOffset.UtcNow),
                         CancellationToken.None);
                 }
                 await buffer.AppendAsync(streamKey,
@@ -211,7 +212,7 @@ public class AgentSessionsController : ControllerBase
                 try
                 {
                     await buffer.AppendAsync(streamKey,
-                        new BufferEvent("error", JsonSerializer.Serialize(new { message = ex.Message }), DateTimeOffset.UtcNow),
+                        new BufferEvent("error", JsonSerializer.Serialize(new { message = ex.Message }, JsonDefaults.Domain), DateTimeOffset.UtcNow),
                         CancellationToken.None);
                 }
                 catch { /* buffer pode estar em estado inconsistente; ignora */ }
@@ -258,7 +259,7 @@ public class AgentSessionsController : ControllerBase
         try
         {
             await _eventBuffer.AppendAsync(streamKey,
-                new BufferEvent("token", JsonSerializer.Serialize(new { value = token }), DateTimeOffset.UtcNow));
+                new BufferEvent("token", JsonSerializer.Serialize(new { value = token }, JsonDefaults.Domain), DateTimeOffset.UtcNow));
         }
         catch (Exception ex)
         {
@@ -284,7 +285,7 @@ public class AgentSessionsController : ControllerBase
         try
         {
             await _eventBuffer.AppendAsync(streamKey,
-                new BufferEvent("error", JsonSerializer.Serialize(new { message }), DateTimeOffset.UtcNow));
+                new BufferEvent("error", JsonSerializer.Serialize(new { message }, JsonDefaults.Domain), DateTimeOffset.UtcNow));
         }
         catch (Exception ex)
         {

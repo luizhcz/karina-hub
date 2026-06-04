@@ -39,6 +39,15 @@ public sealed class AgentTemplateService : IAgentTemplateService
         _logger = logger;
     }
 
+    // Tipo canônico do middleware de telemetria do Router. Auto-injetado em
+    // ApplyRouter pra que TODO Router tenha métricas + log estruturado + hard
+    // validation de candidate_intents independente do que o admin configurou.
+    // String literal aqui em vez de const compartilhada porque o registry é
+    // criado em Host.Api/Extensions e referencia pelo mesmo nome — qualquer
+    // mudança aqui exige edit no registry (cobertura via warning na inicialização
+    // do AgentMiddlewareRegistry quando type não está registrado).
+    private const string RouterTelemetryMiddlewareType = "RouterDecisionTelemetry";
+
     // Identificadores fixos do template Conversational. Mantidos como const
     // pra que mudanças no shape canônico fiquem centralizadas neste arquivo
     // — qualquer caller que monte schema manualmente referencia daqui.
@@ -60,15 +69,6 @@ public sealed class AgentTemplateService : IAgentTemplateService
     // keys configuradas (basic mode no MVP ou agente seedado sem config).
     private const string DefaultOutputType = "text";
     private static readonly IReadOnlyList<string> DefaultOutputStatuses = new[] { "default" };
-
-    private const string ResponseFormatBlockHeader = "## Formato da resposta";
-
-    // Bloco anexado ao final das instructions do Conversational quando ainda
-    // não está presente. Texto idempotente — detectado via regex sobre o
-    // header pra evitar duplicação em re-saves.
-    private const string ResponseFormatBlockBody =
-        "Responda SEMPRE em JSON com os campos top-level definidos no schema. " +
-        "Não escreva texto fora do JSON; não invente campos top-level extras.";
 
     private const string StructuredOutputStateMiddlewareType = "StructuredOutputState";
 
@@ -92,8 +92,9 @@ public sealed class AgentTemplateService : IAgentTemplateService
 
     /// <summary>
     /// Auto-defaults canônicos do Router: <c>StructuredOutput</c> com schema
-    /// <c>{ intent, confidence, reason, operationalMemory }</c> e
-    /// <c>OperationalMemory</c> com schema <c>{ last_intent, last_reason }</c>.
+    /// <c>{ intent, confidence, reason, candidate_intents, operationalMemory }</c>
+    /// e <c>OperationalMemory</c> com schema
+    /// <c>{ last_intent, last_reason, clarification_depth }</c>.
     /// Aplicado apenas quando o admin não cadastrou schema próprio — preserva
     /// customização. Idempotente: re-aplicar com canônico já presente não muda
     /// nada (o template detecta presença de "intent" no top-level).
@@ -107,6 +108,16 @@ public sealed class AgentTemplateService : IAgentTemplateService
 
         var operationalMemory = def.OperationalMemory
             ?? EfsAiHub.Core.Agents.RouterIntents.RouterDefaults.OperationalMemoryV1();
+
+        // Auto-inject do middleware de telemetria no INÍCIO do array.
+        // AgentFactory reconhece `RouterDecisionTelemetry` como tipo de fase
+        // PRE-MEMORY (lista hardcoded em PreMemoryMiddlewareTypes) e o wrappa
+        // mais interno que o OperationalMemoryChatClient — assim o rewrite
+        // (validação dura + loop guard) acontece ANTES do estado ser persistido
+        // em aihub.operational_memory, mantendo DB e STATE_DELTA SSE em sync.
+        // Idempotente: se admin já declarou explicitamente, preserva
+        // configuração (settings, enabled).
+        var middlewares = EnsureRouterTelemetryMiddleware(def.Middlewares);
 
         return new AgentDefinition
         {
@@ -122,7 +133,7 @@ public sealed class AgentTemplateService : IAgentTemplateService
             Tools = def.Tools,
             StructuredOutput = structuredOutput,
             OperationalMemory = operationalMemory,
-            Middlewares = def.Middlewares,
+            Middlewares = middlewares,
             FallbackProvider = def.FallbackProvider,
             Resilience = def.Resilience,
             CostBudget = def.CostBudget,
@@ -138,6 +149,51 @@ public sealed class AgentTemplateService : IAgentTemplateService
             RegressionTestSetId = def.RegressionTestSetId,
             RegressionEvaluatorConfigVersionId = def.RegressionEvaluatorConfigVersionId,
         };
+    }
+
+    /// <summary>
+    /// Garante que <c>RouterDecisionTelemetry</c> está no array de middlewares
+    /// do Router como primeira entrada (mais interna no pipeline) e habilitada.
+    /// Preserva settings caso o admin tenha customizado. Idempotente.
+    /// </summary>
+    private static IReadOnlyList<AgentMiddlewareConfig> EnsureRouterTelemetryMiddleware(
+        IReadOnlyList<AgentMiddlewareConfig> middlewares)
+    {
+        AgentMiddlewareConfig? existing = null;
+        var remainder = new List<AgentMiddlewareConfig>(middlewares.Count);
+
+        foreach (var m in middlewares)
+        {
+            var isTarget = string.Equals(
+                m.Type, RouterTelemetryMiddlewareType, StringComparison.OrdinalIgnoreCase);
+            if (isTarget && existing is null)
+            {
+                existing = m.Enabled
+                    ? m
+                    : new AgentMiddlewareConfig
+                    {
+                        Type = m.Type,
+                        Enabled = true,
+                        Settings = m.Settings,
+                    };
+            }
+            else if (!isTarget)
+            {
+                remainder.Add(m);
+            }
+            // Duplicatas (segundo+ entry com mesmo Type) são descartadas.
+        }
+
+        existing ??= new AgentMiddlewareConfig
+        {
+            Type = RouterTelemetryMiddlewareType,
+            Enabled = true,
+            Settings = new Dictionary<string, string>(),
+        };
+
+        var result = new List<AgentMiddlewareConfig>(remainder.Count + 1) { existing };
+        result.AddRange(remainder);
+        return result;
     }
 
     private static bool HasRouterCanonicalSchema(AgentStructuredOutputDefinition? structured)
@@ -177,22 +233,22 @@ public sealed class AgentTemplateService : IAgentTemplateService
             Schema = JsonDocumentFromNode(canonicalSchema),
         };
 
-        var instructions = EnsureResponseFormatBlock(def.Instructions);
+        // Instructions/AuthorInstructions ficam intactos aqui — o bloco
+        // "## Formato da resposta" é injetado em compose-time pelo PromptRenderer
+        // (mesmo pattern de intents/skills/worker scope). Manter o template
+        // service como source-of-truth só do schema + middleware.
         var middlewares = EnsureStructuredOutputStateMiddleware(def.Middlewares);
 
-        return CopyWith(def, instructions, structuredOutput, middlewares);
+        return CopyWith(def, def.Instructions, structuredOutput, middlewares);
     }
 
     // Desempacota schemas que já chegaram no shape canônico
-    // (re-saves sucessivos). Reconhece tanto o shape novo
-    // `{output_type, output_status, message, output?}` quanto o legado
-    // `{ui_component, message, output?}` pra que agentes pré-migration
-    // continuem round-trippando até o backfill rodar.
+    // `{output_type, output_status, message, output?}` (re-saves sucessivos).
     //
     // CONTRATO IMPORTANTE: agentes com Type=Conversational mas schema custom
-    // sem nenhuma das chaves canônicas em properties (ex.: agentes seedados
-    // direto via SQL, importados, ou tipo mal-atribuído) terão o documento
-    // INTEIRO tratado como sub-schema do user — o template wrappa em
+    // sem as chaves canônicas em properties (ex.: agentes seedados direto via
+    // SQL, importados, ou tipo mal-atribuído) terão o documento INTEIRO tratado
+    // como sub-schema do user — o template wrappa em
     // `{output_type, output_status, message, output: <schema antigo>}` e a
     // semântica original do agente é alterada silenciosamente. Pra esses
     // casos use Type=Custom no seed/import; um warning é emitido em runtime.
@@ -209,24 +265,21 @@ public sealed class AgentTemplateService : IAgentTemplateService
             return CloneAsNode(root);
         }
 
-        var hasMessage = props.TryGetProperty("message", out _);
-        var hasNewShape = props.TryGetProperty("output_type", out _)
+        var hasCanonicalShape = props.TryGetProperty("output_type", out _)
             && props.TryGetProperty("output_status", out _)
-            && hasMessage;
-        var hasLegacyShape = props.TryGetProperty("ui_component", out _) && hasMessage;
+            && props.TryGetProperty("message", out _);
 
-        if (hasNewShape || hasLegacyShape)
+        if (hasCanonicalShape)
         {
-            // Wrap canônico reconhecido (novo ou legado). `output` ausente =
-            // texto livre; presente = sub-schema do user, desempacotamos.
+            // `output` ausente = texto livre; presente = sub-schema do user.
             return props.TryGetProperty("output", out var output)
                 ? CloneAsNode(output)
                 : null;
         }
 
-        // Schema custom não bate nenhum shape canônico — Conversational com
-        // schema arbitrário é caso conhecido de tipo mal-atribuído. Emite
-        // warning pra que o operador revise.
+        // Schema custom não bate o shape canônico — Conversational com schema
+        // arbitrário é caso conhecido de tipo mal-atribuído. Emite warning pra
+        // que o operador revise.
         _logger.LogWarning(
             "[AgentTemplate] Agente '{AgentId}' (Conversational) tem schema custom sem 'output_type'/'output_status'/'message' " +
             "em properties — documento inteiro será wrappado como sub-schema do user. " +
@@ -296,19 +349,13 @@ public sealed class AgentTemplateService : IAgentTemplateService
         return trimmed.Length == 0 ? DefaultOutputType : trimmed;
     }
 
-    // Lê a lista de output_statuses do metadata. Fallback pra chave legada
-    // (x-conversational-ui-components) enquanto a migration 011 não rodar em
-    // todos os ambientes. Lista vazia/inválida vira o default ["default"].
+    // Lê a lista de output_statuses do metadata. Lista vazia/inválida vira
+    // o default ["default"].
     private static IReadOnlyList<string> ReadOutputStatuses(IReadOnlyDictionary<string, string>? metadata)
     {
         if (metadata is null) return DefaultOutputStatuses;
-        var raw = metadata.TryGetValue(AgentDefinition.ConversationalOutputStatusesMetadataKey, out var primary)
-            ? primary
-#pragma warning disable CS0618 // Type or member is obsolete — leitura legacy intencional pra BC.
-            : metadata.TryGetValue(AgentDefinition.ConversationalUiComponentsMetadataKey, out var legacy)
-                ? legacy
-                : null;
-#pragma warning restore CS0618
+        if (!metadata.TryGetValue(AgentDefinition.ConversationalOutputStatusesMetadataKey, out var raw))
+            return DefaultOutputStatuses;
         if (string.IsNullOrWhiteSpace(raw)) return DefaultOutputStatuses;
 
         try
@@ -328,22 +375,6 @@ public sealed class AgentTemplateService : IAgentTemplateService
         {
             return DefaultOutputStatuses;
         }
-    }
-
-    private static string EnsureResponseFormatBlock(string? instructions)
-    {
-        var current = instructions ?? string.Empty;
-        // Presence check é case-sensitive — backend grava sempre o header
-        // canônico em PT-BR exato. Variações ortográficas dão match falso-negativo
-        // e o bloco é re-anexado, o que é aceitável (round-trip subsequente
-        // converge).
-        if (current.Contains(ResponseFormatBlockHeader, StringComparison.Ordinal))
-        {
-            return current;
-        }
-
-        var sep = string.IsNullOrWhiteSpace(current) ? string.Empty : "\n\n";
-        return $"{current.TrimEnd()}{sep}{ResponseFormatBlockHeader}\n{ResponseFormatBlockBody}";
     }
 
     private static IReadOnlyList<AgentMiddlewareConfig> EnsureStructuredOutputStateMiddleware(
@@ -419,6 +450,7 @@ public sealed class AgentTemplateService : IAgentTemplateService
             RouterIntentIds = source.RouterIntentIds,
             Model = source.Model,
             Provider = source.Provider,
+            AuthorInstructions = source.AuthorInstructions,
             Instructions = instructions,
             Tools = source.Tools,
             StructuredOutput = structuredOutput,

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Host.Api.CodeExecutors;
 
@@ -48,7 +49,7 @@ public static class PixTestSetup
             pix.Valor,
             pix.Descricao,
             message = $"Dados validados: PIX de R$ {pix.Valor:N2} para {pix.Destinatario} (chave: {pix.ChavePix})."
-        });
+        }, JsonDefaults.Domain);
 
         return Task.FromResult(result);
     }
@@ -66,7 +67,7 @@ public static class PixTestSetup
             {
                 status = "error",
                 message = data.TryGetProperty("message", out var msg) ? msg.GetString() : "Dados inválidos.",
-            }));
+            }, JsonDefaults.Domain));
         }
 
         var txId = $"PIX{DateTimeOffset.UtcNow:yyyyMMddHHmmss}{Random.Shared.Next(1000, 9999)}";
@@ -87,7 +88,7 @@ public static class PixTestSetup
             valor,
             executedAt = DateTimeOffset.UtcNow,
             message = $"PIX de R$ {valor:N2} para {destinatario} executado com sucesso. TX: {txId}"
-        });
+        }, JsonDefaults.Domain);
 
         return Task.FromResult(result);
     }
@@ -95,7 +96,7 @@ public static class PixTestSetup
     // ── Helpers ─────────────────────────────────────────────────────────────────
 
     private static string Error(string message)
-        => JsonSerializer.Serialize(new { status = "error", message });
+        => JsonSerializer.Serialize(new { status = "error", message }, JsonDefaults.Domain);
 
     // ── DTO ─────────────────────────────────────────────────────────────────────
 

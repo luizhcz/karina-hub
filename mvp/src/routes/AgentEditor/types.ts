@@ -57,6 +57,15 @@ export interface FormState {
    */
   routerForChat: boolean
   /**
+   * Override opcional do `authorInstructions` do Router. Vazio = codec gera
+   * o esqueleto determinístico via `encodeRouterInstructions(name)`. Não
+   * vazio = o texto vai integral pro payload e o esqueleto é ignorado.
+   * Round-trip preserva o texto exato (sem decodificação markdown), porque
+   * Router não tem perfil/output estruturado pra extrair. Vazio quando
+   * type !== 'Router'.
+   */
+  routerAuthorInstructions: string
+  /**
    * Domínio de análise do Worker — texto livre PT-BR injetado em runtime
    * ao final das instructions (bloco "# Domínio de análise"). Persistido
    * em payload.metadata['x-worker-scope']. Vazio quando type !== 'Worker'.
@@ -78,10 +87,9 @@ export interface FormState {
    */
   conversationalOutputType: string
   /**
-   * Lista canônica de variações de status (substituiu o antigo
-   * ui_components). Persistida como JSON array em
-   * payload.metadata['x-conversational-output-statuses']. O codec
-   * injeta como enum em `output_status`; frontend chat usa pra escolher
+   * Lista canônica de variações de status do output_type. Persistida como
+   * JSON array em payload.metadata['x-conversational-output-statuses']. O
+   * codec injeta como enum em `output_status`; frontend chat usa pra escolher
    * a variação dentro da família output_type.
    * Vazio quando type !== 'Conversational'.
    *
@@ -99,6 +107,12 @@ export interface FormState {
    */
   profile: string
   toolIds: string[]
+  /**
+   * Nomes das function tools nativas (C#) atribuídas ao agente. Round-trip
+   * via payload.tools[] entries com type='function'. Read-only no MVP: o
+   * catálogo vem de GET /functions e o usuário só marca/desmarca.
+   */
+  functionToolNames: string[]
   mcpIds: string[]
   security: SecuritySection
   memory: OperationalMemorySection

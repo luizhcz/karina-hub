@@ -6,6 +6,7 @@ using EfsAiHub.Core.Agents.DocumentIntelligence;
 using EfsAiHub.Platform.Runtime.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Services;
 
@@ -81,7 +82,7 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
             cancellationToken: ct);
 
         var result = operation.Value;
-        var rawJson = JsonSerializer.Serialize(result);
+        var rawJson = JsonSerializer.Serialize(result, JsonDefaults.Domain);
 
         var pageCount = result.Pages?.Count ?? 0;
         var hasTables = result.Tables is { Count: > 0 };

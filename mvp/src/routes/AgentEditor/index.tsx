@@ -11,6 +11,7 @@ import {
 } from '../../api/agentDrafts'
 import { listPredefinedModels, type PredefinedModel } from '../../api/predefinedModels'
 import { listGenericTools, type GenericTool } from '../../api/genericTools'
+import { listFunctionTools, type FunctionToolInfo } from '../../api/functions'
 import { ApiError, friendlyError } from '../../api/client'
 import {
   AssistantFailureError,
@@ -146,8 +147,8 @@ const TOOL_RUNNER_STEPS: StepDescriptor[] = [
 // Identificação + Persona). Avançado expõe Componente/Segurança/Memória/
 // Output explicitamente; básico usa defaults conservadores e fica com
 // Perfil → Ferramentas → Modelo → Revisão. Output é SEMPRE structured pro
-// Conversational (frontend chat exige `ui_component`) — o encoder usa
-// schema canônico mesmo em basic.
+// Conversational (frontend chat exige `output_type` + `output_status`) —
+// o encoder usa schema canônico mesmo em basic.
 const CONVERSATIONAL_BASIC_STEPS: StepDescriptor[] = [
   { key: 'profile', label: 'Perfil' },
   { key: 'tools', label: 'Ferramentas' },
@@ -264,6 +265,10 @@ export function AgentEditor({ mode }: Props) {
   const [toolsLoading, setToolsLoading] = useState(true)
   const [toolsError, setToolsError] = useState<string | null>(null)
 
+  const [functionTools, setFunctionTools] = useState<FunctionToolInfo[]>([])
+  const [functionToolsLoading, setFunctionToolsLoading] = useState(true)
+  const [functionToolsError, setFunctionToolsError] = useState<string | null>(null)
+
   useEffect(() => {
     let cancelled = false
     setModelsLoading(true)
@@ -294,6 +299,25 @@ export function AgentEditor({ mode }: Props) {
       })
       .finally(() => {
         if (!cancelled) setToolsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setFunctionToolsLoading(true)
+    listFunctionTools()
+      .then((list) => {
+        if (!cancelled) setFunctionTools(list)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled)
+          setFunctionToolsError(friendlyError(err, 'Não foi possível carregar as ferramentas integradas.'))
+      })
+      .finally(() => {
+        if (!cancelled) setFunctionToolsLoading(false)
       })
     return () => {
       cancelled = true
@@ -935,6 +959,9 @@ export function AgentEditor({ mode }: Props) {
             tools={tools}
             toolsLoading={toolsLoading}
             toolsError={toolsError}
+            functionTools={functionTools}
+            functionToolsLoading={functionToolsLoading}
+            functionToolsError={functionToolsError}
             readonly={readonly}
           />
         )}

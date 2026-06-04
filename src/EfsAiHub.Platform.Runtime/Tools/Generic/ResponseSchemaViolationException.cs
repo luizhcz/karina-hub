@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Tools.Generic;
 
@@ -34,7 +35,7 @@ public sealed class ResponseSchemaViolationException : Exception
             tool = ToolName,
             details = Details,
             hint = "Endpoint retornou shape inesperado. Não invente dados; tente reformular a chamada ou reporte ao usuário.",
-        });
+        }, JsonDefaults.Domain);
 
     private static string BuildMessage(string toolName, IReadOnlyList<string> details)
     {

@@ -57,7 +57,14 @@ function buildRouterIntentsPromptBlock(intents: RouterIntent[]): string | null {
   lines.push(
     'No campo `operationalMemory` do output, **sempre preencha**:\n' +
       '- `last_intent`: copie o valor de `intent` que você escolheu.\n' +
-      '- `last_reason`: copie o valor de `reason` (até 200 chars).\n\n' +
+      '- `last_reason`: copie o valor de `reason` (até 200 chars).\n' +
+      '- `clarification_depth`: 0 quando `intent != needs_clarification`. ' +
+      'Quando escolher `needs_clarification`, leia o `clarification_depth` ' +
+      'do turno anterior (se houver) e incremente em 1.\n' +
+      '- `last_candidate_intents`: array com os nomes das `candidate_intents` ' +
+      'deste turno quando `intent == needs_clarification`; vazio nos demais casos. ' +
+      'O Router lê esse campo no turno seguinte para mapear a resposta do usuário ' +
+      'a uma das candidatas.\n\n' +
       'Esta memória é persistida e injetada no próximo turno como contexto. ' +
       'Não invente outros campos.',
   )
@@ -224,17 +231,48 @@ function buildRouterCanonicalSchema(intents: RouterIntent[]): Record<string, unk
         type: 'string',
         description: 'Justificativa curta da escolha (uso interno de auditoria/debug).',
       },
+      candidate_intents: {
+        type: 'array',
+        description:
+          "Intents candidatas quando intent='needs_clarification' (mín. 2 itens). Array vazio nos demais casos.",
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            intent: { type: 'string' },
+            confidence: { type: 'number', minimum: 0, maximum: 1 },
+          },
+          required: ['intent', 'confidence'],
+        },
+      },
       operationalMemory: {
         type: 'object',
         additionalProperties: false,
         properties: {
           last_intent: { type: 'string' },
           last_reason: { type: 'string' },
+          clarification_depth: {
+            type: 'integer',
+            minimum: 0,
+            description:
+              'Turnos consecutivos com needs_clarification. 0 quando intent != needs_clarification. Em >=2 o Router cai em out_of_scope.',
+          },
+          last_candidate_intents: {
+            type: 'array',
+            description:
+              'Snapshot das candidate_intents do último turno needs_clarification (só nomes). Vazio nos demais casos.',
+            items: { type: 'string' },
+          },
         },
-        required: ['last_intent', 'last_reason'],
+        required: [
+          'last_intent',
+          'last_reason',
+          'clarification_depth',
+          'last_candidate_intents',
+        ],
       },
     },
-    required: ['intent', 'confidence', 'reason', 'operationalMemory'],
+    required: ['intent', 'confidence', 'reason', 'candidate_intents', 'operationalMemory'],
   }
 }
 

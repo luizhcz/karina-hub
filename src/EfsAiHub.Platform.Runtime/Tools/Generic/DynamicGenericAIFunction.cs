@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using EfsAiHub.Core.Agents.GenericTools;
 using Microsoft.Extensions.AI;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Tools.Generic;
 
@@ -73,7 +74,7 @@ public sealed class DynamicGenericAIFunction : AIFunction
         try
         {
             var result = await _executor.ExecuteAsync(_tool, args, cancellationToken).ConfigureAwait(false);
-            return JsonSerializer.Serialize(result);
+            return JsonSerializer.Serialize(result, JsonDefaults.Domain);
         }
         catch (ResponseSchemaViolationException ex)
         {

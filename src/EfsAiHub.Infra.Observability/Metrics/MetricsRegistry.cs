@@ -61,10 +61,6 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("tool.account.overrides",
             description: "Tool calls onde o argumento conta/account foi reescrito pelo AccountGuard (ClientLocked)");
 
-    public static readonly Counter<long> ToolAccountRejections =
-        _meter.CreateCounter<long>("tool.account.rejections",
-            description: "Tool calls rejeitados por divergência de conta (ex: SendOrder com boleta fora do cliente)");
-
     public static readonly Counter<long> ToolAccountOutputAnomaly =
         _meter.CreateCounter<long>("tool.account.output_anomaly",
             description: "Anomalias detectadas pelo AccountGuardChatClient no output final do LLM");
@@ -114,15 +110,7 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("audit.throttle_lru_evictions_total",
             description: "Entries despejadas da LRU de throttle de audit cross-project.");
 
-    /// <summary>
-    /// Contador de resoluções de secret cross-project (caller != owner do agent).
-    /// Tags: caller, owner. Mostra que a separação de credentials por owner está funcionando.
-    /// </summary>
-    public static readonly Counter<long> SecretCrossProjectResolutions =
-        _meter.CreateCounter<long>("secrets.cross_project_resolutions_total",
-            description: "Resoluções de AWS Secret no contexto do agent owner (cross-project). Tags: caller, owner.");
-
-    /// <summary>
+/// <summary>
     /// Contador de resoluções de pin de AgentVersion. Tags:
     /// strategy=exact (snapshot pinado retornado), propagated (current adotado por
     /// patch propagation), no_pin_unexpected (ref sem pin atinge runtime — divergência
@@ -230,6 +218,10 @@ public static class MetricsRegistry
     public static readonly Counter<long> RobotMessagesPersisted =
         _meter.CreateCounter<long>("chat.robot_messages.persisted",
             description: "Mensagens com actor=robot registradas via short-circuit (sem disparar workflow). Ver ADR 0014.");
+
+    public static readonly Counter<long> RouterQuickActionHits =
+        _meter.CreateCounter<long>("router.quick_action.hits",
+            description: "Mensagens classificadas via Quick Action (bypass do LLM). Dimensões: agent_id, intent.");
 
     public static readonly Counter<long> HitlRecoveries =
         _meter.CreateCounter<long>("hitl.recoveries",
@@ -521,17 +513,27 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("evaluations.runs.reaped",
             description: "Runs Running sem heartbeat há > timeout marcadas Failed pelo reaper.");
 
-    public static readonly Counter<long> SecretsResolutionsTotal =
-        _meter.CreateCounter<long>("secrets.resolutions_total",
-            description: "Resoluções de secret. Tags: scope (global|project|agent|foundry), cache_layer (L1|L2|aws), result (hit|miss|error).");
+    /// <summary>
+    /// Duração total do preload de segredos no boot (varre Bootstrap + projects +
+    /// agents do DB, resolve cada identificador AWS único). Picos sugerem AWS lento
+    /// ou crescimento do dataset.
+    /// </summary>
+    public static readonly Histogram<double> SecretsPreloadDurationMs =
+        _meter.CreateHistogram<double>("secrets.preload_duration_ms", unit: "ms",
+            description: "Duração do preload de segredos no boot.");
 
-    public static readonly Histogram<double> SecretsResolutionLatencyMs =
-        _meter.CreateHistogram<double>("secrets.resolution_latency_ms", unit: "ms",
-            description: "Latência de resolução de secret. Tags: cache_layer (L1|L2|aws).");
+    /// <summary>
+    /// Falhas individuais durante o preload (ResourceNotFound, AccessDenied etc.).
+    /// Boot não é abortado por falha individual — caller que referenciar receberá
+    /// null em runtime e usará sua mensagem própria. Alerta quando &gt; 0.
+    /// </summary>
+    public static readonly Counter<long> SecretsPreloadFailures =
+        _meter.CreateCounter<long>("secrets.preload_failures_total",
+            description: "Identificadores AWS que falharam no preload do boot. Caller recebe null em runtime.");
 
     public static readonly Counter<long> SecretsLiteralDetected =
         _meter.CreateCounter<long>("secrets.literal_detected_total",
-            description: "Valor literal (não-referência) chegou ao resolver. Indica que algum caminho ainda passa credencial em claro.");
+            description: "Valor literal (não-referência) chegou ao runtime store. Indica que algum caminho ainda passa credencial em claro.");
 
     /// <summary>
     /// Invocações de Generic Tools (HTTP genéricas) executadas por agentes. Tags:
@@ -575,4 +577,47 @@ public static class MetricsRegistry
     public static readonly Counter<long> SecurityEvents =
         _meter.CreateCounter<long>("security.events_total",
             description: "Eventos do middleware de guardrails de segurança. Tags: event, agent_id.");
+
+    // ── Router observability ────────────────────────────────────────────────
+    //
+    // Camada 1 do plano de ambiguidade: telemetria por decisão do Router pra
+    // dashboards (distribuição de classes guard-rail) e debug ad-hoc. Emitidas
+    // por RouterDecisionTelemetryChatClient após cada turno do Router.
+
+    /// <summary>
+    /// Total de decisões emitidas pelo Router (uma por turno, valor da intent
+    /// escolhida no enum canônico). Tags: <c>agent_id</c>, <c>intent</c>,
+    /// <c>project_id</c>. Dashboards quebram por intent pra ver distribuição
+    /// (ex: % out_of_scope, % needs_clarification, % por intent de negócio).
+    /// </summary>
+    public static readonly Counter<long> RouterDecisions =
+        _meter.CreateCounter<long>("router.decisions_total",
+            description: "Decisões do Router (1 por turno). Tags: agent_id, intent, project_id.");
+
+    /// <summary>
+    /// Histograma da confidence emitida pelo Router junto com a intent
+    /// escolhida (range [0, 1]). Tags: <c>agent_id</c>, <c>intent</c>.
+    /// Útil pra detectar regressões de calibração (ex: confidence média
+    /// caindo em intents de negócio indica que o catálogo precisa de mais
+    /// exemplos ou descrição melhor).
+    /// </summary>
+    public static readonly Histogram<double> RouterConfidence =
+        _meter.CreateHistogram<double>("router.confidence",
+            description: "Confidence emitida pelo Router por turno. Tags: agent_id, intent.");
+
+    /// <summary>
+    /// Eventos discretos relacionados à ambiguidade no Router. Tag
+    /// <c>signal</c> com valores:
+    /// <c>dominant</c> (intent de negócio escolhida — caso feliz, gap satisfez a regra de dominância),
+    /// <c>needs_clarification</c> (Router pediu desambiguação válida),
+    /// <c>out_of_scope</c> (Router classificou fora do domínio),
+    /// <c>invalid_clarification</c> (LLM emitiu needs_clarification sem candidate_intents válido — rewrite via schema violation),
+    /// <c>loop_guard_triggered</c> (LLM emitiu needs_clarification num turno onde o estado anterior já era needs_clarification — rewrite server-side força out_of_scope; distinto de invalid_clarification pra que dashboards separem "LLM bugou schema" vs "ambiguidade não resolvida em N tentativas"),
+    /// <c>parse_failure</c> (output não foi JSON válido — telemetry no-op).
+    /// Tag adicional <c>agent_id</c>. North-star (time-to-resolution) é medido
+    /// fora; este counter é o guard-rail de distribuição.
+    /// </summary>
+    public static readonly Counter<long> RouterAmbiguitySignals =
+        _meter.CreateCounter<long>("router.ambiguity_signals_total",
+            description: "Sinais de ambiguidade do Router. Tags: signal, agent_id.");
 }

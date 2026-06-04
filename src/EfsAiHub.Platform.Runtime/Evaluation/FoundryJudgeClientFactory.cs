@@ -12,7 +12,7 @@ public sealed class FoundryJudgeClientFactory : IFoundryJudgeClientFactory
 {
     private readonly IProjectRepository _projectRepo;
     private readonly TokenCredential _credential;
-    private readonly ISecretResolver _secretResolver;
+    private readonly IRuntimeSecretStore _secrets;
     private readonly ILogger<FoundryJudgeClientFactory> _logger;
     private readonly TimeSpan _cacheTtl = TimeSpan.FromMinutes(5);
 
@@ -23,12 +23,12 @@ public sealed class FoundryJudgeClientFactory : IFoundryJudgeClientFactory
     public FoundryJudgeClientFactory(
         IProjectRepository projectRepo,
         TokenCredential credential,
-        ISecretResolver secretResolver,
+        IRuntimeSecretStore secrets,
         ILogger<FoundryJudgeClientFactory> logger)
     {
         _projectRepo = projectRepo;
         _credential = credential;
-        _secretResolver = secretResolver;
+        _secrets = secrets;
         _logger = logger;
     }
 
@@ -60,8 +60,7 @@ public sealed class FoundryJudgeClientFactory : IFoundryJudgeClientFactory
             return null;
         }
 
-        var apiKey = await _secretResolver.ResolveAsync(
-            foundry.ApiKeyRef, SecretContext.Foundry(projectId), ct);
+        var apiKey = _secrets.Get(foundry.ApiKeyRef);
 
         var endpoint = new Uri(foundry.Endpoint!);
         var azureClient = !string.IsNullOrWhiteSpace(apiKey)

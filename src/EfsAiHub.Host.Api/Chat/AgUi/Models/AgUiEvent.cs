@@ -23,6 +23,12 @@ public sealed record AgUiEvent
     // Text messages
     public string? MessageId { get; init; }
     public string? Role { get; init; }
+    /// <summary>
+    /// AgentId do agente que produziu a mensagem. Acompanha TEXT_MESSAGE_*
+    /// (extensão não-spec mas útil — permite a UI cruzar o bubble com o agente
+    /// que respondeu sem inferir do messageId, que agora é GUID opaco).
+    /// </summary>
+    public string? AgentId { get; init; }
 
     // Output (RUN_FINISHED)
     public string? Output { get; init; }
@@ -49,6 +55,15 @@ public sealed record AgUiEvent
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public JsonElement? CustomValue { get; init; }
+
+    /// <summary>
+    /// Extension dictionary anexada a eventos canônicos (STEP_*, etc) — carrega
+    /// atributos não-spec sem precisar de um CUSTOM separado. Hoje usado em
+    /// STEP_STARTED/STEP_FINISHED pra transportar agentType/agentName/durationMs
+    /// (info que stepName puro não carrega).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, object?>? Metadata { get; init; }
 
     // Error
     public string? Error { get; init; }

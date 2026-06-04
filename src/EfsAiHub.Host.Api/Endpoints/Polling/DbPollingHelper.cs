@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Host.Api.Endpoints.Polling;
 
@@ -70,9 +71,9 @@ public static class DbPollingHelper
             try { return JsonDocument.Parse(s).RootElement; }
             catch (JsonException)
             {
-                return JsonDocument.Parse(JsonSerializer.Serialize(s)).RootElement;
+                return JsonDocument.Parse(JsonSerializer.Serialize(s, JsonDefaults.Domain)).RootElement;
             }
         }
-        return JsonDocument.Parse(JsonSerializer.Serialize(payload)).RootElement;
+        return JsonDocument.Parse(JsonSerializer.Serialize(payload, JsonDefaults.Domain)).RootElement;
     }
 }

@@ -1,4 +1,5 @@
 using EfsAiHub.Core.Abstractions.Identity;
+using EfsAiHub.Core.Agents.Services;
 
 namespace EfsAiHub.Platform.Runtime.Services;
 
@@ -8,6 +9,7 @@ public sealed class AgentDraftService : IAgentDraftService
     private readonly IAgentDefinitionRepository _agentRepo;
     private readonly IAgentVersionRepository _versionRepo;
     private readonly IAgentRouterIntentLinkRepository? _intentLinkRepo;
+    private readonly IAgentDefinitionDecomposer _decomposer;
     private readonly IProjectContextAccessor _projectAccessor;
     private readonly ITenantContextAccessor _tenantAccessor;
     private readonly ILogger<AgentDraftService> _logger;
@@ -16,6 +18,7 @@ public sealed class AgentDraftService : IAgentDraftService
         IAgentDraftRepository draftRepo,
         IAgentDefinitionRepository agentRepo,
         IAgentVersionRepository versionRepo,
+        IAgentDefinitionDecomposer decomposer,
         IProjectContextAccessor projectAccessor,
         ITenantContextAccessor tenantAccessor,
         ILogger<AgentDraftService> logger,
@@ -24,6 +27,7 @@ public sealed class AgentDraftService : IAgentDraftService
         _draftRepo = draftRepo;
         _agentRepo = agentRepo;
         _versionRepo = versionRepo;
+        _decomposer = decomposer;
         _intentLinkRepo = intentLinkRepo;
         _projectAccessor = projectAccessor;
         _tenantAccessor = tenantAccessor;
@@ -106,13 +110,22 @@ public sealed class AgentDraftService : IAgentDraftService
                 .ListIntentIdsForAgentAsync(baseAgentId, ct);
         }
 
+        // Decompõe antes de derivar o payload do draft pra que o editor receba
+        // a forma autoral pura: schema sem o wrap canônico do Conversational,
+        // sem `operationalMemory` injetada no schema, sem middlewares
+        // auto-injetados (StructuredOutputState), sem enum dinâmico do Router
+        // em `properties.intent`, e com `Instructions` composto descartado.
+        // Sem este passo, o editor abre o draft com todos os campos do snapshot
+        // expostos e o user vê shape interno do template em vez do que digitou.
+        var authoralAgent = _decomposer.Decompose(existingAgent);
+
         var draft = new AgentDraft
         {
             Id = baseAgentId,
-            Name = existingAgent.Name,
-            Payload = AgentDraftPayload.FromAgentDefinition(existingAgent),
-            ProjectId = existingAgent.ProjectId,
-            TenantId = existingAgent.TenantId,
+            Name = authoralAgent.Name,
+            Payload = AgentDraftPayload.FromAgentDefinition(authoralAgent),
+            ProjectId = authoralAgent.ProjectId,
+            TenantId = authoralAgent.TenantId,
             BaseAgentId = baseAgentId,
             BaseRevision = baseRevision,
             CreatedBy = null,

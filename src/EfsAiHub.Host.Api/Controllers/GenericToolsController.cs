@@ -5,6 +5,7 @@ using EfsAiHub.Core.Agents.GenericTools;
 using EfsAiHub.Host.Api.Models.Requests;
 using EfsAiHub.Host.Api.Models.Responses;
 using EfsAiHub.Platform.Runtime.Tools.Generic;
+using EfsAiHub.Platform.Runtime.Tools.Generic.Schema;
 
 namespace EfsAiHub.Host.Api.Controllers;
 
@@ -15,6 +16,7 @@ public class GenericToolsController : ControllerBase
 {
     private readonly IGenericToolService _service;
     private readonly IGenericToolTester _tester;
+    private readonly ISchemaNormalizer _normalizer;
     private readonly IAdminAuditLogger _audit;
     private readonly AdminAuditContext _auditContext;
     private readonly IProjectContextAccessor _projectAccessor;
@@ -23,6 +25,7 @@ public class GenericToolsController : ControllerBase
     public GenericToolsController(
         IGenericToolService service,
         IGenericToolTester tester,
+        ISchemaNormalizer normalizer,
         IAdminAuditLogger audit,
         AdminAuditContext auditContext,
         IProjectContextAccessor projectAccessor,
@@ -30,6 +33,7 @@ public class GenericToolsController : ControllerBase
     {
         _service = service;
         _tester = tester;
+        _normalizer = normalizer;
         _audit = audit;
         _auditContext = auditContext;
         _projectAccessor = projectAccessor;
@@ -46,21 +50,24 @@ public class GenericToolsController : ControllerBase
         try
         {
             var draft = request.ToDomainTemplate();
-            var saved = await _service.CreateAsync(request.Id, draft, ct);
+            var result = await _service.CreateAsync(request.Id, draft, ct);
 
             await _audit.RecordAsync(_auditContext.Build(
                 AdminAuditActions.GenericToolCreated,
                 AdminAuditResources.GenericTool,
-                saved.Id,
+                result.Tool.Id,
                 payloadAfter: AdminAuditContext.Snapshot(new
                 {
-                    toolId = saved.Id,
-                    name = saved.Name,
-                    httpMethod = saved.HttpMethod.ToString(),
-                    projectId = saved.ProjectId,
+                    toolId = result.Tool.Id,
+                    name = result.Tool.Name,
+                    httpMethod = result.Tool.HttpMethod.ToString(),
+                    projectId = result.Tool.ProjectId,
                 })), ct);
 
-            return CreatedAtAction(nameof(GetById), new { id = saved.Id }, GenericToolResponse.FromDomain(saved));
+            return CreatedAtAction(
+                nameof(GetById),
+                new { id = result.Tool.Id },
+                GenericToolResponse.FromDomain(result.Tool, result.Warnings));
         }
         catch (DomainException ex)
         {
@@ -78,7 +85,7 @@ public class GenericToolsController : ControllerBase
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
         var tools = await _service.ListAsync(ct);
-        return Ok(tools.Select(GenericToolResponse.FromDomain));
+        return Ok(tools.Select(t => GenericToolResponse.FromDomain(t)));
     }
 
     [HttpGet("{id}")]
@@ -106,15 +113,19 @@ public class GenericToolsController : ControllerBase
         try
         {
             var patch = request.ToDomainPatch();
-            var updated = await _service.UpdateAsync(id, patch, request.ExpectedUpdatedAt, ct);
+            var result = await _service.UpdateAsync(id, patch, request.ExpectedUpdatedAt, ct);
 
             await _audit.RecordAsync(_auditContext.Build(
                 AdminAuditActions.GenericToolUpdated,
                 AdminAuditResources.GenericTool,
-                updated.Id,
-                payloadAfter: AdminAuditContext.Snapshot(new { toolId = updated.Id, updatedAt = updated.UpdatedAt })), ct);
+                result.Tool.Id,
+                payloadAfter: AdminAuditContext.Snapshot(new
+                {
+                    toolId = result.Tool.Id,
+                    updatedAt = result.Tool.UpdatedAt,
+                })), ct);
 
-            return Ok(GenericToolResponse.FromDomain(updated));
+            return Ok(GenericToolResponse.FromDomain(result.Tool, result.Warnings));
         }
         catch (DomainException ex)
         {
@@ -145,6 +156,30 @@ public class GenericToolsController : ControllerBase
         try
         {
             var draft = request.Tool.ToDomainTemplate();
+
+            // Mesma normalização do GenericToolService.CreateAsync — GET só
+            // aceita None ou Json (FormUrlEncoded/Text exigem body real e não
+            // fazem sentido em GET). Sem isso, sandbox sai com Json em GET
+            // mas EnsureInvariants rejeita ou (pior, no caso atual) o request
+            // builder não monta o body.
+            var effectiveInputContentType =
+                draft.HttpMethod == HttpMethodType.GET
+                && (draft.InputContentType == InputContentType.FormUrlEncoded
+                    || draft.InputContentType == InputContentType.Text)
+                    ? InputContentType.None
+                    : draft.InputContentType;
+
+            // Canonicaliza schemas ANTES do invariants — sem isso, NormalizationGuard
+            // dentro de EnsureInvariants falha em schemas que o autor colou em
+            // dialect não-canônico. Warnings são descartadas (test-draft é
+            // ephemeral) — UI só vê warnings quando o autor salvar.
+            var inputSchema = effectiveInputContentType is InputContentType.None or InputContentType.Text
+                ? null
+                : NormalizeOrNull(draft.InputSchema, SchemaRole.Input);
+            var outputSchema = draft.OutputContentType == OutputContentType.Text
+                ? null
+                : NormalizeOrNull(draft.OutputSchema, SchemaRole.Output);
+
             // Materializa identidade efêmera pra que EnsureInvariants passe
             // (Id/ProjectId/TenantId são obrigatórios) e pra que o tester
             // tenha o projeto correto pra resolução de credenciais.
@@ -159,10 +194,10 @@ public class GenericToolsController : ControllerBase
                 PathParams = draft.PathParams,
                 QueryParams = draft.QueryParams,
                 CustomHeaders = draft.CustomHeaders,
-                InputContentType = draft.InputContentType,
-                InputSchema = draft.InputSchema,
+                InputContentType = effectiveInputContentType,
+                InputSchema = inputSchema,
                 OutputContentType = draft.OutputContentType,
-                OutputSchema = draft.OutputSchema,
+                OutputSchema = outputSchema,
                 OutputProjectionMode = draft.OutputContentType == OutputContentType.Text
                     ? OutputProjectionMode.Off
                     : OutputProjectionMode.Project,
@@ -200,6 +235,9 @@ public class GenericToolsController : ControllerBase
         var result = await _tester.TestAsync(tool, args, ct);
         return Ok(GenericToolTestResponse.FromResult(result));
     }
+
+    private string? NormalizeOrNull(string? raw, SchemaRole role)
+        => string.IsNullOrWhiteSpace(raw) ? null : _normalizer.Normalize(raw, role).CanonicalJson;
 
     [HttpDelete("{id}")]
     [SwaggerOperation(Summary = "Remove Generic Tool. Agents que referenciam o tool perdem-no graciosamente em runtime.")]

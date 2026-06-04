@@ -17,7 +17,7 @@ const SECURITY_MIDDLEWARE_TYPE = 'SecurityGuardrails'
 
 // Middleware AG-UI que dispara STATE_DELTA via SSE quando o output é JSON
 // estruturado. Conversational depende dele pra que o frontend chat
-// renderize componentes em tempo real conforme `ui_component`.
+// renderize componentes em tempo real conforme `output_type` / `output_status`.
 const AG_UI_STATE_MIDDLEWARE_TYPE = 'StructuredOutputState'
 
 // Chave em payload.metadata que carrega o domínio do Worker. Mesmo valor
@@ -54,12 +54,13 @@ export function toggleId(list: string[], id: string): string[] {
 }
 
 // Mantém entries não-managed do `tools` original e substitui as entries
-// type=generic_http/type=mcp pela seleção corrente da tela. Reusa entries
-// existentes (preserva campos como requiresApproval) pra evitar churn no
-// canonical hash do AgentVersion no publish.
+// type=generic_http/type=function/type=mcp pela seleção corrente da tela. Reusa
+// entries existentes (preserva campos como requiresApproval) pra evitar churn
+// no canonical hash do AgentVersion no publish.
 export function mergeTools(
   prev: AgentToolDefinition[] | null,
   toolIds: string[],
+  functionToolNames: string[],
   mcpIds: string[],
 ): AgentToolDefinition[] {
   const kept: AgentToolDefinition[] = []
@@ -68,6 +69,10 @@ export function mergeTools(
     for (const entry of prev) {
       if (entry.type === 'generic_http' && typeof entry.genericToolId === 'string') {
         prevById.set(`tool:${entry.genericToolId}`, entry)
+        continue
+      }
+      if (entry.type === 'function' && typeof entry.name === 'string') {
+        prevById.set(`fn:${entry.name}`, entry)
         continue
       }
       if (entry.type === 'mcp' && typeof entry.mcpServerId === 'string') {
@@ -82,6 +87,10 @@ export function mergeTools(
   for (const id of toolIds) {
     const existing = prevById.get(`tool:${id}`)
     next.push(existing ?? { type: 'generic_http', genericToolId: id, requiresApproval: false })
+  }
+  for (const name of functionToolNames) {
+    const existing = prevById.get(`fn:${name}`)
+    next.push(existing ?? { type: 'function', name, requiresApproval: false })
   }
   for (const id of mcpIds) {
     const existing = prevById.get(`mcp:${id}`)
@@ -109,6 +118,7 @@ export function emptyFormState(): FormState {
     type: 'Custom',
     routerIntentIds: [],
     routerForChat: false,
+    routerAuthorInstructions: '',
     workerScope: '',
     toolRunnerHitlRequired: false,
     conversationalOutputType: 'text',
@@ -116,6 +126,7 @@ export function emptyFormState(): FormState {
     predefinedModelId: '',
     profile: '',
     toolIds: [],
+    functionToolNames: [],
     mcpIds: [],
     security: { enabled: false },
     memory: emptyMemorySection(),
@@ -154,10 +165,13 @@ export function fromDraft(draft: AgentDraft): FormState {
 
   const tools = payload.tools ?? []
   const toolIds: string[] = []
+  const functionToolNames: string[] = []
   const mcpIds: string[] = []
   for (const t of tools) {
     if (t.type === 'generic_http' && typeof t.genericToolId === 'string' && t.genericToolId) {
       toolIds.push(t.genericToolId)
+    } else if (t.type === 'function' && typeof t.name === 'string' && t.name) {
+      functionToolNames.push(t.name)
     } else if (t.type === 'mcp' && typeof t.mcpServerId === 'string' && t.mcpServerId) {
       mcpIds.push(t.mcpServerId)
     }
@@ -223,12 +237,24 @@ export function fromDraft(draft: AgentDraft): FormState {
   const routerForChat =
     typeof rawRouterForChat === 'string' && rawRouterForChat.toLowerCase() === 'true'
 
+  // Router preserva o authorInstructions cru pra que o autor consiga
+  // iterar no prompt pelo MVP sem perder customização via PUT direto na API.
+  // Quando o texto é byte-igual ao esqueleto gerado pelo nome atual,
+  // tratamos como "sem customização" (vazio) — o codec gera o skeleton
+  // de novo no save e o round-trip não introduz divergência espúria.
+  const routerAuthorInstructions =
+    type === 'Router'
+      ? (rawAuthor ?? '') === encodeRouterInstructions(payload.name ?? draft.name ?? '')
+        ? ''
+        : rawAuthor ?? ''
+      : ''
+
   // Worker e Tool Runner gravam o schema em payload.structuredOutput (não
   // no instructions como Custom-advanced). Hidrata o FormState a partir
   // dele pra que o OutputStep mostre o schema editável ao reabrir.
-  // Conversational tem shape canônico { ui_component, message, output }; o
-  // FormState representa só o subschema do `output` (codec extrai do
-  // payload.structuredOutput.schema.properties.output ao reabrir).
+  // Conversational tem shape canônico { output_type, output_status, message,
+  // output? }; o FormState representa só o subschema do `output` (codec
+  // extrai do payload.structuredOutput.schema.properties.output ao reabrir).
   let workerOutput: StructuredSection | null = null
   if (type === 'Worker' || type === 'ToolRunner') {
     const so = payload.structuredOutput
@@ -264,13 +290,14 @@ export function fromDraft(draft: AgentDraft): FormState {
       }
     }
   } else if (type === 'Conversational') {
-    // O backend persiste sempre o shape canônico {ui_component, message,
-    // output?} no agent_definitions, mas o agent_drafts pode estar em três
-    // formas:
-    //  - Wrapped legado: schema.properties tem ui_component, message E
-    //    output → unwrap; mode='structured'.
-    //  - Wrapped texto livre: schema.properties tem ui_component, message
-    //    sem output → mode='text' (nada pra editar visualmente).
+    // O backend persiste sempre o shape canônico {output_type, output_status,
+    // message, output?} no agent_definitions, mas o agent_drafts pode estar
+    // em três formas:
+    //  - Wrapped completo: schema.properties tem output_type, output_status,
+    //    message E output → unwrap; mode='structured'.
+    //  - Wrapped texto livre: schema.properties tem output_type,
+    //    output_status, message sem output → mode='text' (nada pra editar
+    //    visualmente).
     //  - Sub-schema puro (drafts salvos via UI atual): documento inteiro é
     //    o sub-schema do user → mode='structured', schema usa direto.
     const so = payload.structuredOutput
@@ -281,7 +308,8 @@ export function fromDraft(draft: AgentDraft): FormState {
       const hasCanonicalWrap =
         properties !== undefined
         && typeof properties === 'object'
-        && 'ui_component' in properties
+        && 'output_type' in properties
+        && 'output_status' in properties
         && 'message' in properties
       if (hasCanonicalWrap) {
         const outputSubschema = properties.output
@@ -360,6 +388,7 @@ export function fromDraft(draft: AgentDraft): FormState {
     type,
     routerIntentIds,
     routerForChat,
+    routerAuthorInstructions,
     workerScope,
     toolRunnerHitlRequired,
     conversationalOutputType,
@@ -367,6 +396,7 @@ export function fromDraft(draft: AgentDraft): FormState {
     predefinedModelId: payload.model?.predefinedModelId ?? '',
     profile: decoded.profile,
     toolIds,
+    functionToolNames,
     mcpIds,
     security: { enabled: securityEnabled },
     memory: {
@@ -420,17 +450,23 @@ export function buildPayload(
   const inputForCodec = form.input.mode === 'structured' ? form.input : { description: '', schema: '' }
   const outputForCodec = form.output.mode === 'structured' ? form.output : { description: '', schema: '' }
 
-  // Router usa placeholder deterministico — runtime (ChatOptionsBuilder)
-  // resolve o conteúdo real ao montar o prompt baseado no set vivo do join
-  // agent_router_intents. Worker usa skeleton mínimo — runtime injeta o
-  // bloco "# Domínio de análise" lendo metadata['x-worker-scope']. Tool
-  // Runner usa skeleton mínimo — semântica de cada tool (o que faz / quando
-  // usar) vive no prompt do agente, não na tool em si. Conversational usa
-  // skeleton + persona injetada no prompt.
-  // Custom segue o encoder genérico do ProfileStep.
+  // Router usa esqueleto determinístico quando o autor não customizou. Se
+  // form.routerAuthorInstructions tem conteúdo, ele vai integral pro
+  // payload — autor pode iterar gatilhos lexicais do domínio sem perder
+  // tudo a cada save. O template global `router.md` (multi-turn,
+  // ambiguidade, memory) é concatenado em runtime independente do caminho.
+  // Worker usa skeleton mínimo — runtime injeta o bloco "# Domínio de
+  // análise" lendo metadata['x-worker-scope']. Tool Runner usa skeleton
+  // mínimo — semântica de cada tool (o que faz / quando usar) vive no
+  // prompt do agente, não na tool em si. Conversational usa skeleton +
+  // persona injetada no prompt. Custom segue o encoder genérico do
+  // ProfileStep.
+  const customRouterAuthor = form.routerAuthorInstructions.trim()
   const instructions =
     form.type === 'Router'
-      ? encodeRouterInstructions(form.name)
+      ? customRouterAuthor.length > 0
+        ? form.routerAuthorInstructions
+        : encodeRouterInstructions(form.name)
       : form.type === 'Worker'
         ? encodeWorkerInstructions(form.name)
         : form.type === 'ToolRunner'
@@ -457,7 +493,7 @@ export function buildPayload(
     predefinedModelId: trimmedModelId || null,
   }
 
-  const mergedTools = mergeTools(prev?.tools ?? null, form.toolIds, form.mcpIds)
+  const mergedTools = mergeTools(prev?.tools ?? null, form.toolIds, form.functionToolNames, form.mcpIds)
   const operationalMemory = encodeOperationalMemory(form.memory)
   const mergedMiddlewares = mergeMiddlewares(
     prev?.middlewares,
@@ -583,14 +619,15 @@ function encodeStructuredOutput(
   if (form.type === 'Conversational') {
     // Conversational envia apenas o sub-schema do payload `output` (igual
     // Custom envia o schema cru do output). O backend é responsável pelo
-    // wrap canônico { ui_component, message, output } via template do tipo;
-    // emitir o wrap aqui colidiria com o template (round-trip de re-saves
-    // já passa pelo desempacotador defensivo, mas mantemos o envio limpo
-    // pra que o frontend não duplique regra de domínio).
+    // wrap canônico { output_type, output_status, message, output } via
+    // template do tipo; emitir o wrap aqui colidiria com o template
+    // (round-trip de re-saves já passa pelo desempacotador defensivo, mas
+    // mantemos o envio limpo pra que o frontend não duplique regra de
+    // domínio).
     //
     // Modo texto livre (mode='text' OU schema vazio) → `null`: backend
-    // gera `{ui_component, message}` (sem `output`). Modo estruturado →
-    // o JSON do user no `form.output.schema` viaja como-é.
+    // gera `{output_type, output_status, message}` (sem `output`). Modo
+    // estruturado → o JSON do user no `form.output.schema` viaja como-é.
     if (form.output.mode !== 'structured') return null
     const trimmedSchema = form.output.schema.trim()
     if (!trimmedSchema) return null

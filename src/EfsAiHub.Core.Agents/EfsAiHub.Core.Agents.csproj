@@ -16,4 +16,13 @@
     <ProjectReference Include="..\EfsAiHub.Core.Abstractions\EfsAiHub.Core.Abstractions.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="EfsAiHub.Tests.Unit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Services\Prompts\router.md" />
+    <EmbeddedResource Include="Services\Prompts\conversational.md" />
+  </ItemGroup>
+
 </Project>

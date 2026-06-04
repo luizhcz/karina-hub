@@ -11,8 +11,10 @@ import {
   Input,
   Select,
   Spinner,
+  Textarea,
   cn,
 } from '../../ui'
+import { encodeRouterInstructions } from './formCodec'
 import type { FormState } from './types'
 
 interface RouterProfileStepProps {
@@ -107,6 +109,16 @@ export function RouterProfileStep({ form, setForm, readonly }: RouterProfileStep
 
   const selectedCount = form.routerIntentIds.length
   const tooFew = selectedCount < 2
+
+  const skeletonPreview = useMemo(
+    () => encodeRouterInstructions(form.name),
+    [form.name],
+  )
+  const customAuthorActive = form.routerAuthorInstructions.trim().length > 0
+  const [showAuthorEditor, setShowAuthorEditor] = useState(customAuthorActive)
+  useEffect(() => {
+    if (customAuthorActive) setShowAuthorEditor(true)
+  }, [customAuthorActive])
 
   return (
     <div className="space-y-5">
@@ -288,6 +300,70 @@ export function RouterProfileStep({ form, setForm, readonly }: RouterProfileStep
                     </div>
                   )
                 })}
+              </div>
+            )}
+          </>
+        )}
+      </Card>
+
+      <Card className="space-y-3">
+        <CardHeader
+          title="Prompt customizado (avançado)"
+          description="Por padrão o save gera um esqueleto determinístico a partir do nome do agente. Use esta caixa pra customizar as regras lexicais específicas do domínio (ex: gatilhos de classificação por palavra). O template global router.md (multi-turn, ambiguidade, memory) é concatenado em runtime independente do caminho — não duplique aqui."
+          actions={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowAuthorEditor((v) => !v)}
+            >
+              {showAuthorEditor ? 'Recolher' : 'Editar'}
+            </Button>
+          }
+        />
+        <div
+          className={cn(
+            'rounded-lg border px-3 py-2 text-xs',
+            customAuthorActive
+              ? 'border-accent/40 bg-accent-subtle text-fg'
+              : 'border-border bg-bg-soft text-fg-muted',
+          )}
+        >
+          {customAuthorActive
+            ? 'Prompt customizado ativo — o save preserva o texto abaixo integralmente.'
+            : 'Sem customização — o save vai gerar o esqueleto padrão derivado do nome.'}
+        </div>
+        {showAuthorEditor && (
+          <>
+            <Textarea
+              value={form.routerAuthorInstructions}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  routerAuthorInstructions: e.target.value,
+                }))
+              }
+              placeholder={skeletonPreview}
+              autoGrow
+              monospace
+              maxAutoGrowHeight={480}
+              disabled={readonly}
+              hint="Vazio = usa o esqueleto padrão (visível como placeholder). Preenchido = vai byte-a-byte pro authorInstructions no save."
+            />
+            {customAuthorActive && (
+              <div className="flex justify-end">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={readonly}
+                  onClick={() =>
+                    setForm((prev) => ({
+                      ...prev,
+                      routerAuthorInstructions: '',
+                    }))
+                  }
+                >
+                  ← Voltar ao esqueleto padrão
+                </Button>
               </div>
             )}
           </>

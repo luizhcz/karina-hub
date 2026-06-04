@@ -1,47 +1,40 @@
-using Amazon.SecretsManager;
-using Amazon.SecretsManager.Model;
 using EfsAiHub.Core.Abstractions.Secrets;
-using EfsAiHub.Infra.Secrets.Options;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Options;
 
 namespace EfsAiHub.Infra.Secrets.Health;
 
+/// <summary>
+/// Health check do runtime secret store. Reporta Healthy quando o store foi
+/// inicializado no boot (mesmo vazio — esperado em dev sem secrets).
+/// Reporta Unhealthy se o store ainda não foi populado (cenário de erro de boot).
+///
+/// Não bate mais no AWS Secrets Manager em runtime — todas as referências
+/// foram pré-carregadas no boot. Liveness não pode depender de serviço externo
+/// pós-startup; AWS é dependência de boot, não de runtime.
+/// </summary>
 public sealed class AwsSecretsHealthCheck : IHealthCheck
 {
-    private readonly IAmazonSecretsManager _client;
-    private readonly AwsSecretsOptions _options;
+    private readonly IRuntimeSecretStore _store;
 
-    public AwsSecretsHealthCheck(IAmazonSecretsManager client, IOptions<AwsSecretsOptions> options)
+    public AwsSecretsHealthCheck(IRuntimeSecretStore store)
     {
-        _client = client;
-        _options = options.Value;
+        _store = store;
     }
 
-    public async Task<HealthCheckResult> CheckHealthAsync(
+    public Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(_options.HealthCheckCanaryReference))
-            return HealthCheckResult.Healthy("AWS Secrets Manager: no canary configured.");
-
-        var reference = SecretReference.Parse(_options.HealthCheckCanaryReference);
-        if (reference is not AwsSecretReference aws)
-        {
-            return HealthCheckResult.Degraded(
-                $"Canary reference '{_options.HealthCheckCanaryReference}' is not a valid AWS reference.");
-        }
-
         try
         {
-            await _client.DescribeSecretAsync(
-                new DescribeSecretRequest { SecretId = aws.Identifier },
-                cancellationToken);
-            return HealthCheckResult.Healthy("AWS Secrets Manager reachable.");
+            var loaded = _store.LoadedCount;
+            return Task.FromResult(HealthCheckResult.Healthy(
+                $"Runtime secret store ativo com {loaded} segredo(s) AWS pré-carregado(s)."));
         }
-        catch (Exception ex)
+        catch (InvalidOperationException ex)
         {
-            return HealthCheckResult.Unhealthy("AWS Secrets Manager canary failed.", ex);
+            return Task.FromResult(HealthCheckResult.Unhealthy(
+                "Runtime secret store não foi inicializado — boot incompleto.", ex));
         }
     }
 }

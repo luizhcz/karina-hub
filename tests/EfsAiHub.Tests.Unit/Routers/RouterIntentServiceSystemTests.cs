@@ -110,4 +110,25 @@ public class RouterIntentServiceSystemTests
         var deleted = await service.DeleteAsync(biz.Id);
         deleted.Should().BeTrue();
     }
+
+    [Theory]
+    [InlineData("out_of_scope")]
+    [InlineData("OUT_OF_SCOPE")]
+    [InlineData("needs_clarification")]
+    [InlineData("Needs_Clarification")]
+    public void IsReserved_NomesCanonicos_RetornaTrue(string name)
+    {
+        // ReservedNames protege ambas as system intents de delete/edit/rename
+        // (case-insensitive). Quando uma intent canônica nova for adicionada,
+        // ela precisa entrar nesse set; o teste falha se esquecermos.
+        SystemIntents.IsReserved(name).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ReservedNames_ContemAsDuasSystemIntentsCanonicas()
+    {
+        SystemIntents.ReservedNames.Should()
+            .Contain(SystemIntents.OutOfScopeName)
+            .And.Contain(SystemIntents.NeedsClarificationName);
+    }
 }

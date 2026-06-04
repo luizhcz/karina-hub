@@ -1,6 +1,7 @@
 using System.Text.Json;
 using EfsAiHub.Core.Agents.Capture;
 using EfsAiHub.Infra.Persistence.Cache;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Services;
 
@@ -48,7 +49,7 @@ public sealed class LlmCaptureConfigService
         }
 
         var fromDb = await _repo.GetAsync(ct);
-        await _cache.SetStringAsync(CacheKey, JsonSerializer.Serialize(fromDb), CacheTtl);
+        await _cache.SetStringAsync(CacheKey, JsonSerializer.Serialize(fromDb, JsonDefaults.Domain), CacheTtl);
         return fromDb;
     }
 
