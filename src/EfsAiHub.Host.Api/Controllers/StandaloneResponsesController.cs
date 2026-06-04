@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using EfsAiHub.Core.Abstractions.Identity;
@@ -6,6 +7,7 @@ using EfsAiHub.Core.Abstractions.Users;
 using EfsAiHub.Core.Agents.Responses;
 using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Runtime.Configuration;
+using EfsAiHub.Platform.Runtime.Ingestion;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -301,7 +303,35 @@ public sealed class StandaloneResponsesController : ControllerBase
         CompletedAt = j.CompletedAt,
         UpdatedAt = j.UpdatedAt,
         PollUrl = $"/api/aihub/responses/{j.JobId}",
+        Metadata = TryExtractIngestionMetadata(j.IngestionContext),
     };
+
+    /// <summary>
+    /// Lê apenas o sub-objeto <c>metadata</c> do <c>IngestionContext</c> JSONB
+    /// pra ecoar no GET. Outros campos do contexto (url/headers/extractedContent)
+    /// ficam fora — bytes do PDF extraído podem ter megabytes e não têm valor
+    /// pro caller fazer polling. Jobs sem ingestão (POST /responses direto) caem
+    /// em null e o campo é omitido na serialização (DefaultIgnoreCondition).
+    /// </summary>
+    private static Dictionary<string, string>? TryExtractIngestionMetadata(string? ingestionContext)
+    {
+        if (string.IsNullOrWhiteSpace(ingestionContext)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(ingestionContext);
+            if (!doc.RootElement.TryGetProperty("metadata", out var metadataEl)
+                || metadataEl.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+            return metadataEl.Deserialize<Dictionary<string, string>>(IngestionJsonDefaults.Options);
+        }
+        catch (JsonException)
+        {
+            // IngestionContext corrompido — não deve quebrar o polling.
+            return null;
+        }
+    }
 }
 
 /// <summary>Body do POST /api/aihub/responses.</summary>
@@ -372,6 +402,16 @@ public sealed class StandaloneResponse
 
     [JsonPropertyName("pollUrl")]
     public string PollUrl { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Metadata enviada no POST original — preservada no JSONB do job e ecoada
+    /// aqui pra que o caller correlacione resultado ↔ contexto sem precisar
+    /// armazenar mapping próprio. Omitida do payload quando o job não foi criado
+    /// via <c>/ingestions</c> ou não recebeu metadata.
+    /// </summary>
+    [JsonPropertyName("metadata")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? Metadata { get; init; }
 }
 
 /// <summary>Item retornado pelo GET /api/aihub/responses/{jobId}/deliveries.</summary>
