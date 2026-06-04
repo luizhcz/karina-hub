@@ -538,14 +538,3 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
     }
 }
 
-/// <summary>
-/// Opções JSON compartilhadas entre o controller de ingestão e o handler —
-/// ambos precisam ler/escrever <c>IngestionState</c> com o mesmo shape.
-/// </summary>
-internal static class IngestionJsonDefaults
-{
-    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
-}

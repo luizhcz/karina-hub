@@ -17,8 +17,7 @@ public sealed class IngestionApiOptions
 
     /// <summary>
     /// Limite de redirects HTTP seguidos manualmente. Default 2 — pequeno
-    /// pra evitar redirect chains maliciosas. SsrfGuard é re-aplicado a
-    /// cada hop antes do GET.
+    /// pra evitar redirect chains maliciosas.
     /// </summary>
     public int MaxRedirects { get; init; } = 2;
 

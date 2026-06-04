@@ -49,10 +49,8 @@ public sealed class IngestionsController : ControllerBase
     private const int MaxCustomHeaders = 16;
     private const int MaxCustomHeaderBytes = 8 * 1024;
 
-    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
+    private static readonly JsonSerializerOptions JsonOpts =
+        EfsAiHub.Platform.Runtime.Ingestion.IngestionJsonDefaults.Options;
 
     private readonly IBackgroundResponseRepository _jobs;
     private readonly IngestionApiOptions _ingestionOptions;
