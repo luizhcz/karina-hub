@@ -114,35 +114,23 @@ public sealed class PgBackgroundResponseRepository : IBackgroundResponseReposito
     {
         if (batchSize <= 0) return Array.Empty<BackgroundResponseJob>();
 
-        // Cota por workflow é resolvida via subquery LATERAL contra
-        // workflow_definitions.Data (JSON serializado em PascalCase, vide
-        // JsonDefaults.Domain). COALESCE fallback é o cap default vindo
-        // do appsettings. Workflows sem row em workflow_definitions
-        // (caso teórico) também caem no default.
+        // Cota por workflow resolvida via subquery correlated em
+        // workflow_definitions (PascalCase via JsonDefaults.Domain).
+        // COALESCE fallback é o cap default das options. Workflow sem row
+        // em workflow_definitions cai no default.
         //
-        // GUARDA: workflow_definitions.Data é TEXT (não JSONB). Um row com
-        // JSON inválido faria o cast::jsonb lançar invalid_text_representation
-        // pro TryLeaseAsync inteiro — congelando a fila. O regex
-        // <c>~ '^\s*\{'</c> filtra rows que claramente não começam com objeto
-        // JSON antes do cast. JSON inválido com prefix correto ainda escapa,
-        // mas é caso raro de corrupção parcial; cobertura completa via convert
-        // do tipo de coluna pra JSONB fica como migration separada.
+        // GUARDA: Data é TEXT (não JSONB). JSON malformado faria o cast::jsonb
+        // lançar invalid_text_representation pro TryLeaseAsync inteiro —
+        // congelando a fila. O regex <c>~ '^\s*\{'</c> filtra rows que não
+        // começam com objeto JSON antes do cast.
+        //
+        // IMPORTANTE: subquery correlated (não LEFT JOIN) — Postgres rejeita
+        // <c>FOR UPDATE</c> sobre o lado nullable de OUTER JOIN
+        // (SQLSTATE 0A000). Mantemos só a tabela principal no FROM.
         const string sql = """
             WITH picked AS (
                 SELECT j."JobId"
                 FROM aihub.background_response_jobs j
-                LEFT JOIN LATERAL (
-                    SELECT COALESCE(
-                        CASE WHEN wd."Data" ~ '^\s*\{'
-                             THEN ((wd."Data"::jsonb)->'Configuration'->>'StandaloneMaxConcurrent')::int
-                             ELSE NULL
-                        END,
-                        @perWorkflowCap
-                    ) AS cap
-                    FROM aihub.workflow_definitions wd
-                    WHERE wd."Id" = j."WorkflowId"
-                    LIMIT 1
-                ) wcap ON true
                 WHERE j."Status" = 'Queued'
                   AND (j."NextAttemptAt" IS NULL OR j."NextAttemptAt" <= NOW())
                   AND (
@@ -151,7 +139,17 @@ public sealed class PgBackgroundResponseRepository : IBackgroundResponseReposito
                         SELECT COUNT(*)
                         FROM aihub.background_response_jobs r
                         WHERE r."WorkflowId" = j."WorkflowId" AND r."Status" = 'Running'
-                    ) < COALESCE(wcap.cap, @perWorkflowCap)
+                    ) < COALESCE(
+                        (SELECT
+                            CASE WHEN wd."Data" ~ '^\s*\{'
+                                 THEN ((wd."Data"::jsonb)->'Configuration'->>'StandaloneMaxConcurrent')::int
+                                 ELSE NULL
+                            END
+                         FROM aihub.workflow_definitions wd
+                         WHERE wd."Id" = j."WorkflowId"
+                         LIMIT 1),
+                        @perWorkflowCap
+                    )
                   )
                 ORDER BY j."CreatedAt"
                 LIMIT @batchSize
