@@ -1,4 +1,5 @@
 using EfsAiHub.Core.Abstractions.Execution;
+using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Agents.Responses;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Platform.Runtime.Configuration;
@@ -19,15 +20,21 @@ namespace EfsAiHub.Host.Worker.Services.Handlers;
 public sealed class WorkflowStandaloneJobHandler : IStandaloneJobHandler
 {
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IProjectContextAccessor _projectAccessor;
+    private readonly ITenantContextAccessor _tenantAccessor;
     private readonly StandalonePoolsOptions _options;
     private readonly ILogger<WorkflowStandaloneJobHandler> _logger;
 
     public WorkflowStandaloneJobHandler(
         IServiceScopeFactory scopeFactory,
+        IProjectContextAccessor projectAccessor,
+        ITenantContextAccessor tenantAccessor,
         IOptions<StandalonePoolsOptions> options,
         ILogger<WorkflowStandaloneJobHandler> logger)
     {
         _scopeFactory = scopeFactory;
+        _projectAccessor = projectAccessor;
+        _tenantAccessor = tenantAccessor;
         _options = options.Value;
         _logger = logger;
     }
@@ -57,6 +64,13 @@ public sealed class WorkflowStandaloneJobHandler : IStandaloneJobHandler
             await ctx.FailAsync("WorkflowId obrigatório no job standalone.", null, permanent: true, ct).ConfigureAwait(false);
             return;
         }
+
+        // Worker roda fora de HTTP request — IProjectContextAccessor/ITenantContextAccessor
+        // (AsyncLocal) caem em Default e WorkflowService.TriggerAsync filtra workflows
+        // Visibility=project pelo HasQueryFilter, fazendo workflows de outros projetos
+        // sumirem ("workflow não encontrado"). Hidratamos ambos a partir da row do job.
+        _projectAccessor.Current = new ProjectContext(job.ProjectId);
+        _tenantAccessor.Current = new TenantContext(job.TenantId);
 
         await using var scope = _scopeFactory.CreateAsyncScope();
         var dispatcher = scope.ServiceProvider.GetRequiredService<IWorkflowDispatcher>();

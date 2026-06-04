@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EfsAiHub.Core.Abstractions.Execution;
+using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Agents.DocumentIntelligence;
 using EfsAiHub.Core.Agents.Responses;
 using EfsAiHub.Core.Orchestration.Workflows;
@@ -60,6 +61,8 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
     private readonly IEfsRedisCache _cache;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IDocumentIntelligenceService _diService;
+    private readonly IProjectContextAccessor _projectAccessor;
+    private readonly ITenantContextAccessor _tenantAccessor;
     private readonly DocumentIntelligenceOptions _diOptions;
     private readonly StandalonePoolsOptions _poolOptions;
     private readonly IngestionApiOptions _ingestionOptions;
@@ -70,6 +73,8 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         IEfsRedisCache cache,
         IServiceScopeFactory scopeFactory,
         IDocumentIntelligenceService diService,
+        IProjectContextAccessor projectAccessor,
+        ITenantContextAccessor tenantAccessor,
         IOptions<DocumentIntelligenceOptions> diOptions,
         IOptions<StandalonePoolsOptions> poolOptions,
         IOptions<IngestionApiOptions> ingestionOptions,
@@ -79,6 +84,8 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         _cache = cache;
         _scopeFactory = scopeFactory;
         _diService = diService;
+        _projectAccessor = projectAccessor;
+        _tenantAccessor = tenantAccessor;
         _diOptions = diOptions.Value;
         _poolOptions = poolOptions.Value;
         _ingestionOptions = ingestionOptions.Value;
@@ -115,6 +122,14 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
             await ctx.FailAsync("WorkflowId obrigatório no job de ingestão.", null, permanent: true, ct).ConfigureAwait(false);
             return;
         }
+
+        // Worker roda fora de HTTP request — IProjectContextAccessor/ITenantContextAccessor
+        // (AsyncLocal) caem em Default e WorkflowService.TriggerAsync filtra workflows
+        // Visibility=project pelo HasQueryFilter, fazendo workflows de outros projetos
+        // sumirem ("workflow não encontrado"). Hidratamos a partir da row do job pra cobrir
+        // todos os steps (download, DI, dispatch, polling) com o contexto correto.
+        _projectAccessor.Current = new ProjectContext(job.ProjectId);
+        _tenantAccessor.Current = new TenantContext(job.TenantId);
 
         var step = job.Step ?? string.Empty;
 

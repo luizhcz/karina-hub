@@ -67,6 +67,10 @@ function syncIdentityFromMe(me: MeResponse): void {
     projectId: current?.projectId ?? '',
     projectName: current?.projectName ?? '',
     chatDeploymentAllowed: current?.chatDeploymentAllowed ?? false,
+    // Tenant ecoado pelo backend — pode vir null se proxy/dev não setaram o
+    // header (cai em "default" no backend). Repassa undefined nesse caso pra
+    // não enviar x-tenant-id vazio em chamadas subsequentes.
+    tenantId: me.tenantId ?? undefined,
   }
   if (!current || current.account !== me.accountId) {
     setIdentity(fromMe)

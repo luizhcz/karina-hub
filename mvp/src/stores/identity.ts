@@ -29,6 +29,14 @@ export interface Identity {
   projectId: string
   projectName: string
   chatDeploymentAllowed: boolean
+  /**
+   * Tenant ao qual o usuário pertence. Hoje o `/me` não retorna esse campo,
+   * então fica undefined e o header `x-tenant-id` não é enviado (backend cai
+   * em "default"). Quando o backend começar a expor tenant em `/me` ou via
+   * proxy, populamos via setIdentity/patchIdentity sem precisar mexer em mais
+   * nada — o getAuthHeaders já propaga.
+   */
+  tenantId?: string
 }
 
 const subscribers = new Set<() => void>()
@@ -57,6 +65,7 @@ function readFromStorage(): Identity | null {
       // Identidades antigas (sem o campo) caem em false — fail-safe: user
       // perde acesso ao card "Chat" até reabrir o ProjectSelector e atualizar.
       chatDeploymentAllowed: parsed.chatDeploymentAllowed === true,
+      tenantId: parsed.tenantId,
     }
   } catch {
     return null
