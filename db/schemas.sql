@@ -676,7 +676,7 @@ CREATE TABLE IF NOT EXISTS aihub.background_response_jobs (
     "AgentVersionId"  VARCHAR(64)  NULL,
     "SessionId"       VARCHAR(128) NULL,
     "Input"           TEXT         NOT NULL,
-    "Status"          VARCHAR(32)  NOT NULL,            -- Queued | Running | Completed | Failed
+    "Status"          VARCHAR(32)  NOT NULL,            -- Queued | Running | Completed | Failed | Cancelled
     "Output"          TEXT         NULL,
     "LastError"       TEXT         NULL,
     "Attempt"         INTEGER      NOT NULL DEFAULT 0,
@@ -685,6 +685,19 @@ CREATE TABLE IF NOT EXISTS aihub.background_response_jobs (
     "CreatedAt"       TIMESTAMPTZ  NOT NULL,
     "StartedAt"       TIMESTAMPTZ  NULL,
     "CompletedAt"     TIMESTAMPTZ  NULL,
+    -- Migration 018 — colunas pra standalone pools (filas isoladas por workflow).
+    "WorkflowId"       VARCHAR(256) NULL,                 -- hot path da cota por workflow
+    "Step"             VARCHAR(32)  NULL,                 -- sub-estado interno do handler (populado por pipelines multi-step)
+    "LeasedBy"         VARCHAR(64)  NULL,                 -- podId que segurou o lease
+    "LeaseUntil"       TIMESTAMPTZ  NULL,                 -- expiração do lease (heartbeat renova)
+    "NextAttemptAt"    TIMESTAMPTZ  NULL,                 -- backoff entre retries
+    "IngestionContext" JSONB        NULL,                 -- contexto livre do handler (extractionId, contentHash, etc.)
+    "ExecutionId"      VARCHAR(64)  NULL,                 -- workflow_executions.execution_id disparado pelo job
+    "UpdatedAt"        TIMESTAMPTZ  NOT NULL DEFAULT NOW(), -- compõe ETag do GET de polling
+    -- Multi-tenant scope (controller popula via IProjectContextAccessor/ITenantContextAccessor).
+    -- Default 'default' pras rows pré-existentes da migration.
+    "ProjectId"        VARCHAR(128) NOT NULL DEFAULT 'default',
+    "TenantId"         VARCHAR(128) NOT NULL DEFAULT 'default',
     CONSTRAINT "PK_background_response_jobs" PRIMARY KEY ("JobId")
 );
 
@@ -694,6 +707,25 @@ CREATE INDEX IF NOT EXISTS "IX_background_response_jobs_Status_CreatedAt"
 CREATE UNIQUE INDEX IF NOT EXISTS "IX_background_response_jobs_IdempotencyKey"
     ON aihub.background_response_jobs ("IdempotencyKey")
     WHERE "IdempotencyKey" IS NOT NULL;
+
+-- Cota por workflow no dispatcher.
+CREATE INDEX IF NOT EXISTS "IX_background_response_jobs_WorkflowId_Status"
+    ON aihub.background_response_jobs ("WorkflowId", "Status")
+    WHERE "WorkflowId" IS NOT NULL;
+
+-- Dispatcher pega Queued elegíveis (NextAttemptAt vencido ou null).
+CREATE INDEX IF NOT EXISTS "IX_background_response_jobs_Status_NextAttemptAt"
+    ON aihub.background_response_jobs ("Status", "NextAttemptAt")
+    WHERE "Status" = 'Queued';
+
+-- Reaper varre leases estourados.
+CREATE INDEX IF NOT EXISTS "IX_background_response_jobs_LeaseUntil"
+    ON aihub.background_response_jobs ("LeaseUntil")
+    WHERE "LeaseUntil" IS NOT NULL;
+
+-- GET multi-tenant: lookup com scope.
+CREATE INDEX IF NOT EXISTS "IX_background_response_jobs_TenantId_ProjectId"
+    ON aihub.background_response_jobs ("TenantId", "ProjectId");
 
 -- =============================================================================
 -- 14. OBSERVABILIDADE — USO DE TOKENS LLM

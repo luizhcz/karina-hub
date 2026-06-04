@@ -192,6 +192,15 @@ public sealed class AdminGateMiddleware
         new(@"^/api/aihub/agents/[^/]+/quick-actions(/[^/]+)?$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // /api/aihub/responses[/{jobId}] — pool de execução standalone (workflows
+    // assíncronos). POST enfileira pra processamento pelo StandaloneJobDispatcher;
+    // GET retorna estado do job com suporte a If-None-Match. Liberado pra non-admin
+    // do projeto: ProjectMiddleware já enforça acesso ao ProjectContext e o
+    // ResponsePollingRateLimitMiddleware aplica throttling por projeto no GET.
+    private static readonly Regex StandaloneResponsesPattern =
+        new(@"^/api/aihub/responses(/[^/]+)?$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     // GET /api/aihub/projects (lista) ou GET /api/aihub/projects/{id} (detalhe). Sub-rotas
     // como /api/aihub/projects/{id}/blocklist são admin-only — caem fora desse pattern.
     private static readonly Regex ProjectsReadPattern =
@@ -407,6 +416,13 @@ public sealed class AdminGateMiddleware
         // Router Quick Actions — CRUD liberado pra non-admin do projeto. Controller
         // valida ownership do Router (Type=Router) e usa ProjectContext pra scope.
         if (RouterQuickActionsPattern.IsMatch(path))
+            return true;
+
+        // Standalone responses (enqueue + polling) — POST/GET liberados pra non-admin
+        // com projeto vinculado. Throttling do GET via ResponsePollingRateLimitMiddleware.
+        if (StandaloneResponsesPattern.IsMatch(path)
+            && (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+                || method.Equals("POST", StringComparison.OrdinalIgnoreCase)))
             return true;
 
         // Conversations — todos os métodos (chat via REST)

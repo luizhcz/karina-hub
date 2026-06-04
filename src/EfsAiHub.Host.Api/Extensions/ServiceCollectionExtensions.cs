@@ -490,6 +490,18 @@ public static class ServiceCollectionExtensions
         if (engineOpts.MultiNode)
             services.AddHostedService<CrossNodeCoordinator>();
         services.AddHostedService<StuckExecutionRecoveryService>();
+
+        // Standalone Pools — workflows assíncronos com fila isolada (Redis slot
+        // counter scope=standalone + lease em background_response_jobs).
+        // Gateado pela feature flag StandalonePools:Enabled — quando false, o
+        // dispatcher fica idle (não consome jobs, não bloqueia recursos).
+        // O reaper sempre roda: idempotente e protege contra jobs órfãos mesmo
+        // após desligar a feature.
+        services.AddOptions<EfsAiHub.Platform.Runtime.Configuration.StandalonePoolsOptions>()
+            .BindConfiguration(EfsAiHub.Platform.Runtime.Configuration.StandalonePoolsOptions.SectionName);
+        services.AddHostedService<EfsAiHub.Host.Worker.Services.StandaloneJobDispatcherService>();
+        services.AddHostedService<EfsAiHub.Host.Worker.Services.StuckLeaseReaper>();
+
         // HitlRecoveryService DEVE ser registrado por último
         services.AddHostedService<HitlRecoveryService>();
 
@@ -545,6 +557,8 @@ public static class ServiceCollectionExtensions
             registry.Register("TokenUsagePersistence", new() { Name = "TokenUsagePersistence", Description = "Persiste consumo de tokens em lote", Lifecycle = "Continuous", ServiceType = typeof(TokenUsagePersistenceService) });
             registry.Register("ToolInvocationPersistence", new() { Name = "ToolInvocationPersistence", Description = "Persiste invocações de tools em lote", Lifecycle = "Continuous", ServiceType = typeof(ToolInvocationPersistenceService) });
             registry.Register("AgUiTokenChannelCleanup", new() { Name = "AgUiTokenChannelCleanup", Description = "Remove canais SSE inativos do streaming AG-UI", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(5), ServiceType = typeof(EfsAiHub.Host.Api.Chat.AgUi.Streaming.AgUiTokenChannelCleanupService) });
+            registry.Register("StandaloneJobDispatcher", new() { Name = "StandaloneJobDispatcher", Description = "Consome jobs da fila standalone (background_response_jobs) e dispara workflows assíncronos. Gateado por StandalonePools:Enabled.", Lifecycle = "Continuous", ServiceType = typeof(EfsAiHub.Host.Worker.Services.StandaloneJobDispatcherService) });
+            registry.Register("StuckLeaseReaper", new() { Name = "StuckLeaseReaper", Description = "Devolve pra Queued jobs standalone com lease expirado (pod morreu, heartbeat falhou).", Lifecycle = "Continuous", ServiceType = typeof(EfsAiHub.Host.Worker.Services.StuckLeaseReaper) });
 
             return registry;
         });

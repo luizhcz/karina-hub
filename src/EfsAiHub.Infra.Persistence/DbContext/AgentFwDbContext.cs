@@ -287,6 +287,18 @@ internal class BackgroundResponseJobRow
     public DateTime CreatedAt { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+
+    // Colunas standalone pools (migration 018).
+    public string? WorkflowId { get; set; }
+    public string? Step { get; set; }
+    public string? LeasedBy { get; set; }
+    public DateTime? LeaseUntil { get; set; }
+    public DateTime? NextAttemptAt { get; set; }
+    public string? IngestionContext { get; set; } // JSONB serializado
+    public string? ExecutionId { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public string ProjectId { get; set; } = "default";
+    public string TenantId { get; set; } = "default";
 }
 
 internal class WorkflowExecutionRow
@@ -1416,8 +1428,23 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.CallbackTarget).HasColumnType("jsonb");
             b.Property(e => e.IdempotencyKey).HasMaxLength(128);
             b.Property(e => e.CreatedAt).IsRequired();
+            // Migration 018 — standalone pools.
+            b.Property(e => e.WorkflowId).HasMaxLength(256);
+            b.Property(e => e.Step).HasMaxLength(32);
+            b.Property(e => e.LeasedBy).HasMaxLength(64);
+            b.Property(e => e.LeaseUntil);
+            b.Property(e => e.NextAttemptAt);
+            b.Property(e => e.IngestionContext).HasColumnType("jsonb");
+            b.Property(e => e.ExecutionId).HasMaxLength(64);
+            b.Property(e => e.UpdatedAt).IsRequired().HasDefaultValueSql("now()");
+            b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired().HasDefaultValue("default");
+            b.Property(e => e.TenantId).HasMaxLength(128).IsRequired().HasDefaultValue("default");
             b.HasIndex(e => new { e.Status, e.CreatedAt });
             b.HasIndex(e => e.IdempotencyKey).IsUnique().HasFilter("\"IdempotencyKey\" IS NOT NULL");
+            b.HasIndex(e => new { e.TenantId, e.ProjectId });
+            // Os índices partial pra (WorkflowId, Status), (Status, NextAttemptAt)
+            // e (LeaseUntil) ficam no DDL (schemas.sql + migration 018) —
+            // EF Fluent API não suporta filtered indexes condicionais.
         });
 
         modelBuilder.Entity<WorkflowEventAuditRow>(b =>
