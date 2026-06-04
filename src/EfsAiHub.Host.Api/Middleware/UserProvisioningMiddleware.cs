@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Abstractions.Users;
@@ -53,6 +55,12 @@ public sealed class UserProvisioningMiddleware
 
     private readonly RequestDelegate _next;
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
+
+    // Cache de regex compilados por pattern. UserProvisioningOptions é
+    // IOptionsMonitor-friendly mas o middleware é singleton — guardamos por
+    // string-key pra que mudança em runtime (reload de config) reflita sem
+    // reciclar o cache inteiro.
+    private static readonly ConcurrentDictionary<string, Regex> _compiledPatterns = new();
 
     public UserProvisioningMiddleware(RequestDelegate next)
     {
@@ -216,18 +224,33 @@ public sealed class UserProvisioningMiddleware
     private static bool ShouldSkipProvisioning(PathString requestPath, UserProvisioningOptions options)
     {
         if (!options.SkipAnonymousRoutes) return false;
-        if (options.SkipPathPrefixes is not { Count: > 0 } prefixes) return false;
         var path = requestPath.Value;
         if (string.IsNullOrEmpty(path)) return false;
-        foreach (var prefix in prefixes)
+
+        if (options.SkipPathPrefixes is { Count: > 0 } prefixes)
         {
-            if (string.IsNullOrEmpty(prefix)) continue;
-            if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
-            // Exige boundary de segmento: evita que prefixo "/api/aihub/chat/ag-ui"
-            // case acidentalmente um path tipo "/api/aihub/chat/ag-uianything".
-            if (path.Length == prefix.Length) return true;
-            if (path[prefix.Length] == '/') return true;
+            foreach (var prefix in prefixes)
+            {
+                if (string.IsNullOrEmpty(prefix)) continue;
+                if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                // Exige boundary de segmento: evita que prefixo "/api/aihub/chat/ag-ui"
+                // case acidentalmente um path tipo "/api/aihub/chat/ag-uianything".
+                if (path.Length == prefix.Length) return true;
+                if (path[prefix.Length] == '/') return true;
+            }
         }
+
+        if (options.SkipPathPatterns is { Count: > 0 } patterns)
+        {
+            foreach (var raw in patterns)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                var regex = _compiledPatterns.GetOrAdd(raw, static src =>
+                    new Regex(src, RegexOptions.Compiled | RegexOptions.IgnoreCase));
+                if (regex.IsMatch(path)) return true;
+            }
+        }
+
         return false;
     }
 

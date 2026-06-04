@@ -6,6 +6,7 @@ using System.Text.Json;
 using EfsAiHub.Core.Agents.Responses;
 using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Runtime.Configuration;
+using EfsAiHub.Platform.Runtime.Ingestion;
 using Microsoft.Extensions.Options;
 
 namespace EfsAiHub.Host.Worker.Services;
@@ -247,7 +248,40 @@ public sealed class WebhookCallbackDeliveryService : BackgroundService
         lastError = job.Status == BackgroundResponseStatus.Failed ? job.LastError : null,
         completedAt = job.CompletedAt,
         attempt = job.Attempt,
+        // Metadata enviada no POST original — preservada no JSONB do job e
+        // ecoada aqui pra que o receiver correlacione resultado ↔ contexto
+        // sem precisar bater de volta no GET /responses/{jobId}. Null pra jobs
+        // sem ingestão; o JsonSerializer default do worker mantém a chave
+        // (`metadata: null`), o que é OK — receiver decide tratar como "sem
+        // contexto". Mirror direto de StandaloneResponsesController.ToResponse.
+        metadata = TryExtractIngestionMetadata(job.IngestionContext),
     };
+
+    /// <summary>
+    /// Lê apenas o sub-objeto <c>metadata</c> do <c>IngestionContext</c> JSONB.
+    /// Outros campos (url/headers/extractedContent) ficam fora — extractedContent
+    /// de PDF pode ter megabytes e não tem valor pro webhook. Jobs sem ingestão
+    /// (POST /responses direto) caem em null. JsonException → null silencioso pra
+    /// não derrubar a delivery por contexto corrompido.
+    /// </summary>
+    private static Dictionary<string, string>? TryExtractIngestionMetadata(string? ingestionContext)
+    {
+        if (string.IsNullOrWhiteSpace(ingestionContext)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(ingestionContext);
+            if (!doc.RootElement.TryGetProperty("metadata", out var metadataEl)
+                || metadataEl.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+            return metadataEl.Deserialize<Dictionary<string, string>>(IngestionJsonDefaults.Options);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     private static string ComputeHmac(string secret, byte[] body)
     {
