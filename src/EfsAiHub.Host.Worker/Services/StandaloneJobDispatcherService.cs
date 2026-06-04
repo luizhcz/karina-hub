@@ -1,6 +1,7 @@
 using EfsAiHub.Core.Abstractions.Execution;
 using EfsAiHub.Core.Agents.Responses;
 using EfsAiHub.Host.Worker.Services.Handlers;
+using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Runtime.Configuration;
 using Microsoft.Extensions.Options;
 
@@ -142,6 +143,8 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
                 _logger.LogDebug(
                     "[StandaloneDispatcher] Global cap atingido cross-pod ao alocar slot pro job {JobId} — devolvendo pra Queued.",
                     job.JobId);
+                MetricsRegistry.StandaloneAdmissionRejected.Add(1,
+                    new KeyValuePair<string, object?>("reason", "global_safety"));
                 await _jobs.FailAsync(
                     job.JobId,
                     _podId,
@@ -149,6 +152,14 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
                     DateTime.UtcNow.AddSeconds(_options.PollIdleSeconds * 2),
                     permanent: false, ct).ConfigureAwait(false);
                 continue;
+            }
+
+            // Lease bem-sucedido: emite queue_seconds (CreatedAt → StartedAt).
+            if (job.StartedAt is not null)
+            {
+                var queueSeconds = (job.StartedAt.Value - job.CreatedAt).TotalSeconds;
+                MetricsRegistry.StandaloneJobQueueSeconds.Record(queueSeconds,
+                    new KeyValuePair<string, object?>("workflow_id", job.WorkflowId ?? "<none>"));
             }
 
             Interlocked.Increment(ref _localActive);
@@ -160,7 +171,11 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
 
     private async Task ProcessJobWithCleanupAsync(BackgroundResponseJob job, CancellationToken ct)
     {
-        try { await ProcessJobAsync(job, ct).ConfigureAwait(false); }
+        StandaloneJobContext? ctx = null;
+        try
+        {
+            ctx = await ProcessJobAsync(job, ct).ConfigureAwait(false);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[StandaloneDispatcher] Erro não-tratado no job {JobId}.", job.JobId);
@@ -177,6 +192,18 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
         {
             try { await _slots.ReleaseAsync(SlotScope).ConfigureAwait(false); } catch { /* ignore */ }
             Interlocked.Decrement(ref _localActive);
+
+            // Métricas de latência ponta-a-ponta lidas do contexto (sem
+            // re-leitura do DB). LastTerminalStatus é setado pelo handler
+            // quando chama Complete/Fail ownership-aware bem-sucedido.
+            if (ctx?.LastTerminalStatus is { } terminal && ctx.LastTerminalAt is { } terminalAt)
+            {
+                var totalSeconds = (terminalAt - job.CreatedAt).TotalSeconds;
+                var workflowTag = new KeyValuePair<string, object?>("workflow_id", job.WorkflowId ?? "<none>");
+                var statusTag = new KeyValuePair<string, object?>("status", terminal.ToString());
+                MetricsRegistry.StandaloneJobTotalSeconds.Record(totalSeconds, workflowTag, statusTag);
+                MetricsRegistry.StandaloneJobsCompleted.Add(1, workflowTag, statusTag);
+            }
         }
     }
 
@@ -184,9 +211,10 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
     /// Setup do lifecycle por job (heartbeat + cancellation cooperativo) e
     /// delegação ao handler que aceita o job. Heartbeat detecta lease perdido
     /// → <c>jobCts.Cancel()</c> → handler aborta antes de reescrever estado
-    /// que outro pod já assumiu.
+    /// que outro pod já assumiu. Retorna o <see cref="StandaloneJobContext"/>
+    /// criado pra que o caller leia <c>LastTerminalStatus</c> pras métricas.
     /// </summary>
-    private async Task ProcessJobAsync(BackgroundResponseJob job, CancellationToken outerCt)
+    private async Task<StandaloneJobContext?> ProcessJobAsync(BackgroundResponseJob job, CancellationToken outerCt)
     {
         var handler = ResolveHandler(job);
         if (handler is null)
@@ -195,7 +223,7 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
                 job.JobId, _podId,
                 "Nenhum IStandaloneJobHandler aceitou o job.",
                 null, permanent: true, outerCt).ConfigureAwait(false);
-            return;
+            return null;
         }
 
         using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
@@ -206,6 +234,7 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
         try
         {
             await handler.ProcessAsync(job, ctx, jobCts.Token).ConfigureAwait(false);
+            return ctx;
         }
         catch (OperationCanceledException) when (jobCts.IsCancellationRequested && !outerCt.IsCancellationRequested)
         {
@@ -214,6 +243,7 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
             _logger.LogWarning(
                 "[StandaloneDispatcher] Job {JobId} abandonado por lease perdido (outro pod assumiu).",
                 job.JobId);
+            return ctx;
         }
         finally
         {

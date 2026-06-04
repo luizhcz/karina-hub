@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Agents.Responses;
+using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Runtime.Configuration;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,7 +17,7 @@ namespace EfsAiHub.Host.Api.Controllers;
 /// magic bytes, MaxSize), encadeia Document Intelligence quando é PDF (TXT/MD
 /// vão direto) e dispara workflow standalone. Cliente faz polling do estado
 /// via <c>GET /api/aihub/responses/{jobId}</c> — o caminho de polling é o
-/// mesmo da fila standalone (PR-1).
+/// mesmo da fila standalone (GET /api/aihub/responses/{jobId}).
 ///
 /// Feature flag <c>IngestionApi:Enabled</c> guarda o endpoint — 503 quando
 /// desligado. <c>StandalonePools:Enabled</c> também precisa estar on pro
@@ -193,6 +194,10 @@ public sealed class IngestionsController : ControllerBase
         _logger.LogInformation(
             "[Ingestions] Job {JobId} enfileirado workflow={Wf} url={Url} tenant={Tenant} project={Project}.",
             job.JobId, job.WorkflowId, url, job.TenantId, job.ProjectId);
+
+        MetricsRegistry.StandaloneJobsEnqueued.Add(1,
+            new KeyValuePair<string, object?>("project_id", job.ProjectId),
+            new KeyValuePair<string, object?>("source", "ingestions"));
 
         return Accepted(BuildLocation(job.JobId), ToResponse(job));
     }

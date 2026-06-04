@@ -37,6 +37,19 @@ public interface IStandaloneJobContext
     string PodId { get; }
 
     /// <summary>
+    /// Estado terminal final do job, registrado quando o handler chama
+    /// <see cref="CompleteAsync"/> (=Completed) ou <see cref="FailAsync"/>
+    /// com <c>permanent=true</c> / <c>nextAttemptAt=null</c> (=Failed).
+    /// <c>null</c> quando o job ainda não atingiu terminal (retry agendado
+    /// ou ainda processando). Usado pelo dispatcher pra emitir métricas
+    /// sem re-ler o job do DB.
+    /// </summary>
+    BackgroundResponseStatus? LastTerminalStatus { get; }
+
+    /// <summary>Quando o terminal foi escrito. <c>null</c> se ainda não terminal.</summary>
+    DateTime? LastTerminalAt { get; }
+
+    /// <summary>
     /// Marca o job como Completed. Retorna false quando o lease já foi
     /// roubado (caller deve abortar sem reescrever estado).
     /// </summary>

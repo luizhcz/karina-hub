@@ -2,6 +2,7 @@ using System.Text.Json;
 using EfsAiHub.Core.Agents.Responses;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace EfsAiHub.Infra.Persistence.Postgres;
@@ -20,13 +21,16 @@ public sealed class PgBackgroundResponseRepository : IBackgroundResponseReposito
 {
     private readonly IDbContextFactory<AgentFwDbContext> _factory;
     private readonly NpgsqlDataSource _dataSource;
+    private readonly ILogger<PgBackgroundResponseRepository> _logger;
 
     public PgBackgroundResponseRepository(
         IDbContextFactory<AgentFwDbContext> factory,
-        [FromKeyedServices("general")] NpgsqlDataSource dataSource)
+        [FromKeyedServices("general")] NpgsqlDataSource dataSource,
+        ILogger<PgBackgroundResponseRepository> logger)
     {
         _factory = factory;
         _dataSource = dataSource;
+        _logger = logger;
     }
 
     public async Task<BackgroundResponseJob> InsertAsync(BackgroundResponseJob job, CancellationToken ct = default)
@@ -110,10 +114,35 @@ public sealed class PgBackgroundResponseRepository : IBackgroundResponseReposito
     {
         if (batchSize <= 0) return Array.Empty<BackgroundResponseJob>();
 
+        // Cota por workflow é resolvida via subquery LATERAL contra
+        // workflow_definitions.Data (JSON serializado em PascalCase, vide
+        // JsonDefaults.Domain). COALESCE fallback é o cap default vindo
+        // do appsettings. Workflows sem row em workflow_definitions
+        // (caso teórico) também caem no default.
+        //
+        // GUARDA: workflow_definitions.Data é TEXT (não JSONB). Um row com
+        // JSON inválido faria o cast::jsonb lançar invalid_text_representation
+        // pro TryLeaseAsync inteiro — congelando a fila. O regex
+        // <c>~ '^\s*\{'</c> filtra rows que claramente não começam com objeto
+        // JSON antes do cast. JSON inválido com prefix correto ainda escapa,
+        // mas é caso raro de corrupção parcial; cobertura completa via convert
+        // do tipo de coluna pra JSONB fica como migration separada.
         const string sql = """
             WITH picked AS (
                 SELECT j."JobId"
                 FROM aihub.background_response_jobs j
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(
+                        CASE WHEN wd."Data" ~ '^\s*\{'
+                             THEN ((wd."Data"::jsonb)->'Configuration'->>'StandaloneMaxConcurrent')::int
+                             ELSE NULL
+                        END,
+                        @perWorkflowCap
+                    ) AS cap
+                    FROM aihub.workflow_definitions wd
+                    WHERE wd."Id" = j."WorkflowId"
+                    LIMIT 1
+                ) wcap ON true
                 WHERE j."Status" = 'Queued'
                   AND (j."NextAttemptAt" IS NULL OR j."NextAttemptAt" <= NOW())
                   AND (
@@ -122,7 +151,7 @@ public sealed class PgBackgroundResponseRepository : IBackgroundResponseReposito
                         SELECT COUNT(*)
                         FROM aihub.background_response_jobs r
                         WHERE r."WorkflowId" = j."WorkflowId" AND r."Status" = 'Running'
-                    ) < @perWorkflowCap
+                    ) < COALESCE(wcap.cap, @perWorkflowCap)
                   )
                 ORDER BY j."CreatedAt"
                 LIMIT @batchSize
@@ -188,33 +217,52 @@ public sealed class PgBackgroundResponseRepository : IBackgroundResponseReposito
     /// devolver pra Queued — evita loop infinito em job determinísticamente
     /// travado.
     /// </summary>
-    public async Task<int> ReclaimExpiredLeasesAsync(TimeSpan reclaimBackoff, int maxAttempts, CancellationToken ct = default)
+    public async Task<ReclaimResult> ReclaimExpiredLeasesAsync(TimeSpan reclaimBackoff, int maxAttempts, CancellationToken ct = default)
     {
+        // RETURNING dentro de CTE permite contar separadamente quantos foram
+        // requeued (Queued) vs failed_max_attempts (Failed). Dashboards usam
+        // a métrica downstream pra alertar em "muitos jobs morrendo por
+        // MaxAttempts" — sintoma de workflow doente ou rate limit upstream.
         const string sql = """
-            UPDATE aihub.background_response_jobs
-            SET "Status"        = CASE WHEN "Attempt" >= @maxAttempts THEN 'Failed' ELSE 'Queued' END,
-                "LastError"     = CASE WHEN "Attempt" >= @maxAttempts
-                                       THEN COALESCE("LastError", '') || ' [reaped after MaxAttempts]'
-                                       ELSE "LastError"
-                                  END,
-                "CompletedAt"   = CASE WHEN "Attempt" >= @maxAttempts THEN NOW() ELSE "CompletedAt" END,
-                "NextAttemptAt" = CASE WHEN "Attempt" >= @maxAttempts
-                                       THEN NULL
-                                       ELSE NOW() + (@backoffSeconds || ' seconds')::INTERVAL
-                                  END,
-                "LeasedBy"      = NULL,
-                "LeaseUntil"    = NULL,
-                "UpdatedAt"     = NOW()
-            WHERE "Status"     = 'Running'
-              AND "LeaseUntil" IS NOT NULL
-              AND "LeaseUntil" < NOW();
+            WITH updated AS (
+                UPDATE aihub.background_response_jobs
+                SET "Status"        = CASE WHEN "Attempt" >= @maxAttempts THEN 'Failed' ELSE 'Queued' END,
+                    "LastError"     = CASE WHEN "Attempt" >= @maxAttempts
+                                           THEN COALESCE("LastError", '') || ' [reaped after MaxAttempts]'
+                                           ELSE "LastError"
+                                      END,
+                    "CompletedAt"   = CASE WHEN "Attempt" >= @maxAttempts THEN NOW() ELSE "CompletedAt" END,
+                    "NextAttemptAt" = CASE WHEN "Attempt" >= @maxAttempts
+                                           THEN NULL
+                                           ELSE NOW() + (@backoffSeconds || ' seconds')::INTERVAL
+                                      END,
+                    "LeasedBy"      = NULL,
+                    "LeaseUntil"    = NULL,
+                    "UpdatedAt"     = NOW()
+                WHERE "Status"     = 'Running'
+                  AND "LeaseUntil" IS NOT NULL
+                  AND "LeaseUntil" < NOW()
+                RETURNING "Status" AS new_status
+            )
+            SELECT
+                COUNT(*) FILTER (WHERE new_status = 'Queued')::int AS requeued,
+                COUNT(*) FILTER (WHERE new_status = 'Failed')::int AS failed_max
+            FROM updated;
             """;
 
         await using var conn = await _dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("backoffSeconds", (int)reclaimBackoff.TotalSeconds);
         cmd.Parameters.AddWithValue("maxAttempts", maxAttempts);
-        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        if (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            return new ReclaimResult(
+                Requeued: reader["requeued"] as int? ?? 0,
+                FailedMaxAttempts: reader["failed_max"] as int? ?? 0);
+        }
+        return new ReclaimResult(0, 0);
     }
 
     public async Task<bool> UpdateStepAsync(string jobId, string podId, string? step, CancellationToken ct = default)
@@ -271,21 +319,21 @@ public sealed class PgBackgroundResponseRepository : IBackgroundResponseReposito
                 "UpdatedAt"   = NOW()
             WHERE "JobId"    = @jobId
               AND "LeasedBy" = @podId
-              AND "Status"   = 'Running';
+              AND "Status"   = 'Running'
+            RETURNING "CallbackTarget", "ProjectId", "TenantId";
             """;
 
         await using var conn = await _dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
-        await using var cmd = new NpgsqlCommand(sql, conn);
-        cmd.Parameters.AddWithValue("jobId", jobId);
-        cmd.Parameters.AddWithValue("podId", podId);
-        cmd.Parameters.AddWithValue("output", (object?)output ?? DBNull.Value);
-        var affected = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-        return affected == 1;
+        await using var trans = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
+        var affected = await CompleteWithDeliveryAsync(conn, trans, sql, jobId, podId, output, ct).ConfigureAwait(false);
+        await trans.CommitAsync(ct).ConfigureAwait(false);
+        return affected;
     }
 
     public async Task<bool> FailAsync(string jobId, string podId, string lastError, DateTime? nextAttemptAt, bool permanent, CancellationToken ct = default)
     {
         var newStatus = permanent || nextAttemptAt is null ? "Failed" : "Queued";
+        var isTerminal = newStatus == "Failed";
 
         const string sql = """
             UPDATE aihub.background_response_jobs
@@ -298,18 +346,126 @@ public sealed class PgBackgroundResponseRepository : IBackgroundResponseReposito
                 "UpdatedAt"     = NOW()
             WHERE "JobId"    = @jobId
               AND "LeasedBy" = @podId
-              AND "Status"   = 'Running';
+              AND "Status"   = 'Running'
+            RETURNING "CallbackTarget", "ProjectId", "TenantId";
             """;
 
         await using var conn = await _dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
-        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var trans = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
+
+        await using var cmd = new NpgsqlCommand(sql, conn, trans);
         cmd.Parameters.AddWithValue("jobId", jobId);
         cmd.Parameters.AddWithValue("podId", podId);
         cmd.Parameters.AddWithValue("status", newStatus);
         cmd.Parameters.AddWithValue("error", (object?)lastError ?? DBNull.Value);
         cmd.Parameters.AddWithValue("nextAttempt", (object?)nextAttemptAt ?? DBNull.Value);
-        var affected = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-        return affected == 1;
+
+        string? callbackJson = null;
+        string? projectId = null;
+        string? tenantId = null;
+        bool affected = false;
+        await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
+        {
+            if (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                callbackJson = reader["CallbackTarget"] as string;
+                projectId = reader["ProjectId"] as string;
+                tenantId = reader["TenantId"] as string;
+                affected = true;
+            }
+        }
+
+        // Webhook só dispara em terminal Failed. Status=Queued (retry agendado)
+        // não emite webhook. Mesma transação garante atomicidade — ou ambos
+        // vão pra DB ou nada.
+        if (affected && callbackJson is not null && isTerminal)
+        {
+            await InsertWebhookDeliveryAsync(conn, trans, jobId, callbackJson, projectId, tenantId, ct).ConfigureAwait(false);
+        }
+
+        await trans.CommitAsync(ct).ConfigureAwait(false);
+        return affected;
+    }
+
+    /// <summary>
+    /// Executa o UPDATE de Complete numa transação aberta e, se houver
+    /// CallbackTarget, INSERT em webhook_deliveries no mesmo escopo.
+    /// </summary>
+    private async Task<bool> CompleteWithDeliveryAsync(
+        NpgsqlConnection conn, NpgsqlTransaction trans, string sql,
+        string jobId, string podId, string? output, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(sql, conn, trans);
+        cmd.Parameters.AddWithValue("jobId", jobId);
+        cmd.Parameters.AddWithValue("podId", podId);
+        cmd.Parameters.AddWithValue("output", (object?)output ?? DBNull.Value);
+
+        string? callbackJson = null;
+        string? projectId = null;
+        string? tenantId = null;
+        bool affected = false;
+        await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
+        {
+            if (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                callbackJson = reader["CallbackTarget"] as string;
+                projectId = reader["ProjectId"] as string;
+                tenantId = reader["TenantId"] as string;
+                affected = true;
+            }
+        }
+
+        if (affected && callbackJson is not null)
+        {
+            await InsertWebhookDeliveryAsync(conn, trans, jobId, callbackJson, projectId, tenantId, ct).ConfigureAwait(false);
+        }
+
+        return affected;
+    }
+
+    private async Task InsertWebhookDeliveryAsync(
+        NpgsqlConnection conn, NpgsqlTransaction trans,
+        string jobId, string callbackJson, string? projectId, string? tenantId,
+        CancellationToken ct)
+    {
+        // Extrai Url/HmacSecret/Headers do CallbackTarget JSONB via expressões SQL —
+        // evita deserializar em memória só pra remontar como INSERT. Casing
+        // segue PascalCase (JsonDefaults.Domain). Cláusula WHERE no SELECT
+        // skipa o INSERT silenciosamente se Url for null/ausente — sinal de
+        // CallbackTarget malformado. Logamos warn pra que esse silêncio fique
+        // visível em prod.
+        const string insertSql = """
+            INSERT INTO aihub.webhook_deliveries
+                ("DeliveryId", "JobId", "Url", "HmacSecret", "Headers",
+                 "Status", "ProjectId", "TenantId", "CreatedAt", "UpdatedAt")
+            SELECT
+                @deliveryId,
+                @jobId,
+                callback->>'Url',
+                callback->>'HmacSecret',
+                CASE WHEN callback ? 'Headers' THEN callback->'Headers' ELSE NULL END,
+                'Pending',
+                @projectId,
+                @tenantId,
+                NOW(),
+                NOW()
+            FROM (SELECT @callback::jsonb AS callback) j
+            WHERE callback->>'Url' IS NOT NULL;
+            """;
+
+        await using var cmd = new NpgsqlCommand(insertSql, conn, trans);
+        cmd.Parameters.AddWithValue("deliveryId", Guid.NewGuid().ToString("N"));
+        cmd.Parameters.AddWithValue("jobId", jobId);
+        cmd.Parameters.AddWithValue("callback", callbackJson);
+        cmd.Parameters.AddWithValue("projectId", (object?)projectId ?? "default");
+        cmd.Parameters.AddWithValue("tenantId", (object?)tenantId ?? "default");
+        var inserted = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        if (inserted == 0)
+        {
+            _logger.LogWarning(
+                "[BackgroundResponse] CallbackTarget gravado no job {JobId} mas Url está ausente — webhook NÃO será entregue.",
+                jobId);
+        }
     }
 
     public async Task SetExecutionIdAsync(string jobId, string executionId, CancellationToken ct = default)

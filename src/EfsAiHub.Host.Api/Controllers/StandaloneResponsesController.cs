@@ -2,7 +2,9 @@ using System.Globalization;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using EfsAiHub.Core.Abstractions.Identity;
+using EfsAiHub.Core.Abstractions.Users;
 using EfsAiHub.Core.Agents.Responses;
+using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Runtime.Configuration;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -36,22 +38,28 @@ public sealed class StandaloneResponsesController : ControllerBase
         new("^[A-Za-z0-9_:.-]{1,128}$", RegexOptions.Compiled);
 
     private readonly IBackgroundResponseRepository _jobs;
+    private readonly IWebhookDeliveryRepository _deliveries;
     private readonly StandalonePoolsOptions _options;
     private readonly IProjectContextAccessor _projectAccessor;
     private readonly ITenantContextAccessor _tenantAccessor;
+    private readonly IUserContextAccessor _userAccessor;
     private readonly ILogger<StandaloneResponsesController> _logger;
 
     public StandaloneResponsesController(
         IBackgroundResponseRepository jobs,
+        IWebhookDeliveryRepository deliveries,
         IOptions<StandalonePoolsOptions> options,
         IProjectContextAccessor projectAccessor,
         ITenantContextAccessor tenantAccessor,
+        IUserContextAccessor userAccessor,
         ILogger<StandaloneResponsesController> logger)
     {
         _jobs = jobs;
+        _deliveries = deliveries;
         _options = options.Value;
         _projectAccessor = projectAccessor;
         _tenantAccessor = tenantAccessor;
+        _userAccessor = userAccessor;
         _logger = logger;
     }
 
@@ -131,6 +139,10 @@ public sealed class StandaloneResponsesController : ControllerBase
             "[StandaloneResponses] Job {JobId} enfileirado workflow={Wf} tenant={Tenant} project={Project} idem={Idem}.",
             job.JobId, job.WorkflowId, job.TenantId, job.ProjectId, idempotencyKey ?? "<none>");
 
+        MetricsRegistry.StandaloneJobsEnqueued.Add(1,
+            new KeyValuePair<string, object?>("project_id", job.ProjectId),
+            new KeyValuePair<string, object?>("source", "responses"));
+
         return Accepted(BuildLocation(job.JobId), ToResponse(job));
     }
 
@@ -164,6 +176,38 @@ public sealed class StandaloneResponsesController : ControllerBase
         Response.Headers.ETag = etag;
         Response.Headers.CacheControl = "no-cache, private";
         return Ok(ToResponse(job));
+    }
+
+    [HttpGet("{jobId}/deliveries")]
+    [SwaggerOperation(Summary = "Histórico de tentativas de webhook do job. Admin-only — debug de delivery falhada.")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ListDeliveries(string jobId, CancellationToken ct)
+    {
+        // Defense-in-depth: o AdminGate global já filtra non-admin (rota fora
+        // da whitelist), mas re-checamos aqui pra que qualquer ampliação
+        // futura do regex do gate (ex.: liberar mais sub-rotas de /responses)
+        // não vaze histórico de webhook com Url + LastError.
+        if (_userAccessor.Current?.IsAdmin != true)
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { error = "Acesso negado. Histórico de webhook é admin-only." });
+
+        var job = await _jobs.GetAsync(jobId, ct);
+        if (job is null || !BelongsToCurrentScope(job)) return NotFound();
+
+        var list = await _deliveries.ListByJobAsync(jobId, ct);
+        return Ok(list.Select(d => new DeliveryItemResponse
+        {
+            DeliveryId = d.DeliveryId,
+            Url = d.Url,
+            Status = d.Status.ToString(),
+            LastResponseCode = d.LastResponseCode,
+            LastError = d.LastError,
+            DeliveredAt = d.DeliveredAt,
+            CreatedAt = d.CreatedAt,
+            UpdatedAt = d.UpdatedAt,
+        }).ToList());
     }
 
     // ETag opaco: aspas + Status + ":" + UpdatedAt em ticks (invariant). Cliente
@@ -328,4 +372,17 @@ public sealed class StandaloneResponse
 
     [JsonPropertyName("pollUrl")]
     public string PollUrl { get; init; } = string.Empty;
+}
+
+/// <summary>Item retornado pelo GET /api/aihub/responses/{jobId}/deliveries.</summary>
+public sealed class DeliveryItemResponse
+{
+    [JsonPropertyName("deliveryId")] public string DeliveryId { get; init; } = string.Empty;
+    [JsonPropertyName("url")] public string Url { get; init; } = string.Empty;
+    [JsonPropertyName("status")] public string Status { get; init; } = string.Empty;
+    [JsonPropertyName("lastResponseCode")] public int? LastResponseCode { get; init; }
+    [JsonPropertyName("lastError")] public string? LastError { get; init; }
+    [JsonPropertyName("deliveredAt")] public DateTime? DeliveredAt { get; init; }
+    [JsonPropertyName("createdAt")] public DateTime CreatedAt { get; init; }
+    [JsonPropertyName("updatedAt")] public DateTime UpdatedAt { get; init; }
 }

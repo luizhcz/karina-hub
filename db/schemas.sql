@@ -727,6 +727,32 @@ CREATE INDEX IF NOT EXISTS "IX_background_response_jobs_LeaseUntil"
 CREATE INDEX IF NOT EXISTS "IX_background_response_jobs_TenantId_ProjectId"
     ON aihub.background_response_jobs ("TenantId", "ProjectId");
 
+-- Webhook deliveries. Sem retry no design atual: uma única tentativa POST.
+-- Falha ou sucesso é terminal no primeiro response.
+CREATE TABLE IF NOT EXISTS aihub.webhook_deliveries (
+    "DeliveryId"       VARCHAR(64)  NOT NULL,
+    "JobId"            VARCHAR(64)  NOT NULL,
+    "Url"              TEXT         NOT NULL,
+    "HmacSecret"       TEXT         NULL,                       -- texto claro; tech debt: encriptar
+    "Headers"          JSONB        NULL,
+    "Status"           VARCHAR(32)  NOT NULL DEFAULT 'Pending', -- Pending | Delivered | Failed
+    "LastResponseCode" INTEGER      NULL,
+    "LastError"        TEXT         NULL,
+    "DeliveredAt"      TIMESTAMPTZ  NULL,
+    "ProjectId"        VARCHAR(128) NOT NULL DEFAULT 'default',
+    "TenantId"         VARCHAR(128) NOT NULL DEFAULT 'default',
+    "CreatedAt"        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    "UpdatedAt"        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT "PK_webhook_deliveries" PRIMARY KEY ("DeliveryId")
+);
+
+CREATE INDEX IF NOT EXISTS "IX_webhook_deliveries_Status_CreatedAt"
+    ON aihub.webhook_deliveries ("Status", "CreatedAt")
+    WHERE "Status" = 'Pending';
+
+CREATE INDEX IF NOT EXISTS "IX_webhook_deliveries_JobId"
+    ON aihub.webhook_deliveries ("JobId");
+
 -- =============================================================================
 -- 14. OBSERVABILIDADE — USO DE TOKENS LLM
 -- =============================================================================

@@ -620,4 +620,54 @@ public static class MetricsRegistry
     public static readonly Counter<long> RouterAmbiguitySignals =
         _meter.CreateCounter<long>("router.ambiguity_signals_total",
             description: "Sinais de ambiguidade do Router. Tags: signal, agent_id.");
+
+    // ── Standalone pools ────────────────────────────────────────────────────
+
+    /// <summary>Total de jobs standalone enfileirados via POST /responses ou /ingestions. Tags: project_id, source.</summary>
+    public static readonly Counter<long> StandaloneJobsEnqueued =
+        _meter.CreateCounter<long>("standalone.jobs_enqueued_total",
+            description: "Jobs standalone enfileirados. Tags: project_id, source (responses|ingestions).");
+
+    /// <summary>Total de jobs standalone que atingiram estado terminal. Tags: workflow_id, status (Completed|Failed|Cancelled).</summary>
+    public static readonly Counter<long> StandaloneJobsCompleted =
+        _meter.CreateCounter<long>("standalone.jobs_completed_total",
+            description: "Jobs standalone terminais. Tags: workflow_id, status.");
+
+    /// <summary>Tempo decorrido entre <c>CreatedAt</c> e <c>StartedAt</c> (Queued → Running). Saturação aparece aqui antes de virar latência total. Tags: workflow_id.</summary>
+    public static readonly Histogram<double> StandaloneJobQueueSeconds =
+        _meter.CreateHistogram<double>("standalone.job_queue_seconds", unit: "s",
+            description: "Tempo de espera na fila standalone (Queued → Running). Tags: workflow_id.");
+
+    /// <summary>Tempo total <c>CreatedAt → CompletedAt</c> em terminal. Tags: workflow_id, status.</summary>
+    public static readonly Histogram<double> StandaloneJobTotalSeconds =
+        _meter.CreateHistogram<double>("standalone.job_total_seconds", unit: "s",
+            description: "Latência ponta-a-ponta de jobs standalone. Tags: workflow_id, status.");
+
+    /// <summary>
+    /// Rejeições no momento da admissão ou no dispatcher. Tags: reason
+    /// (per_workflow_cap | global_safety | feature_disabled | duplicate_idempotency).
+    /// </summary>
+    public static readonly Counter<long> StandaloneAdmissionRejected =
+        _meter.CreateCounter<long>("standalone.admission_rejected_total",
+            description: "Jobs standalone rejeitados antes de rodar. Tags: reason.");
+
+    /// <summary>Contador incrementado pelo StuckLeaseReaper quando devolve jobs pra Queued ou promove pra Failed por MaxAttempts.</summary>
+    public static readonly Counter<long> StandaloneStuckLeasesRecovered =
+        _meter.CreateCounter<long>("standalone.stuck_leases_recovered_total",
+            description: "Jobs com lease expirado resgatados pelo reaper. Tags: outcome (requeued|failed_max_attempts).");
+
+    // ── Webhook deliveries ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Tentativas de entrega de webhook. Tags: outcome (delivered|failed),
+    /// project_id. Sem retry: cada delivery emite UM evento.
+    /// </summary>
+    public static readonly Counter<long> WebhookDeliveryAttempts =
+        _meter.CreateCounter<long>("webhook.delivery_attempts_total",
+            description: "Tentativas de entrega de webhook (1 por delivery em v1). Tags: outcome, project_id.");
+
+    /// <summary>Duração do POST de delivery (incluindo timeout). Tags: outcome.</summary>
+    public static readonly Histogram<double> WebhookDeliveryDurationSeconds =
+        _meter.CreateHistogram<double>("webhook.delivery_duration_seconds", unit: "s",
+            description: "Duração do POST de entrega de webhook. Tags: outcome.");
 }

@@ -501,6 +501,13 @@ public static class ServiceCollectionExtensions
             .BindConfiguration(EfsAiHub.Platform.Runtime.Configuration.StandalonePoolsOptions.SectionName);
         services.AddOptions<EfsAiHub.Platform.Runtime.Configuration.IngestionApiOptions>()
             .BindConfiguration(EfsAiHub.Platform.Runtime.Configuration.IngestionApiOptions.SectionName);
+        services.AddOptions<EfsAiHub.Platform.Runtime.Configuration.WebhookDeliveryOptions>()
+            .BindConfiguration(EfsAiHub.Platform.Runtime.Configuration.WebhookDeliveryOptions.SectionName);
+
+        // Webhook deliveries — repository pra entregas + worker que processa
+        // pending (1 tentativa, sem retry).
+        services.AddSingleton<EfsAiHub.Core.Agents.Responses.IWebhookDeliveryRepository,
+            PgWebhookDeliveryRepository>();
 
         // Ingestion pipeline (URL → PDF/TXT/MD → DI → workflow).
         services.AddSingleton<EfsAiHub.Platform.Runtime.Ingestion.IngestionDownloader>();
@@ -515,6 +522,7 @@ public static class ServiceCollectionExtensions
 
         services.AddHostedService<EfsAiHub.Host.Worker.Services.StandaloneJobDispatcherService>();
         services.AddHostedService<EfsAiHub.Host.Worker.Services.StuckLeaseReaper>();
+        services.AddHostedService<EfsAiHub.Host.Worker.Services.WebhookCallbackDeliveryService>();
 
         // HitlRecoveryService DEVE ser registrado por último
         services.AddHostedService<HitlRecoveryService>();
@@ -573,6 +581,7 @@ public static class ServiceCollectionExtensions
             registry.Register("AgUiTokenChannelCleanup", new() { Name = "AgUiTokenChannelCleanup", Description = "Remove canais SSE inativos do streaming AG-UI", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(5), ServiceType = typeof(EfsAiHub.Host.Api.Chat.AgUi.Streaming.AgUiTokenChannelCleanupService) });
             registry.Register("StandaloneJobDispatcher", new() { Name = "StandaloneJobDispatcher", Description = "Consome jobs da fila standalone (background_response_jobs) e dispara workflows assíncronos. Gateado por StandalonePools:Enabled.", Lifecycle = "Continuous", ServiceType = typeof(EfsAiHub.Host.Worker.Services.StandaloneJobDispatcherService) });
             registry.Register("StuckLeaseReaper", new() { Name = "StuckLeaseReaper", Description = "Devolve pra Queued jobs standalone com lease expirado (pod morreu, heartbeat falhou).", Lifecycle = "Continuous", ServiceType = typeof(EfsAiHub.Host.Worker.Services.StuckLeaseReaper) });
+            registry.Register("WebhookCallbackDelivery", new() { Name = "WebhookCallbackDelivery", Description = "Entrega webhooks de jobs standalone terminais (CallbackTarget). Uma tentativa por delivery — sem retry.", Lifecycle = "Continuous", ServiceType = typeof(EfsAiHub.Host.Worker.Services.WebhookCallbackDeliveryService) });
 
             return registry;
         });

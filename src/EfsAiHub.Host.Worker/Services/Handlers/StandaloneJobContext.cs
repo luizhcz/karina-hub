@@ -21,11 +21,33 @@ internal sealed class StandaloneJobContext : IStandaloneJobContext
 
     public string PodId { get; }
 
-    public Task<bool> CompleteAsync(string? output, CancellationToken ct)
-        => _jobs.CompleteAsync(_jobId, PodId, output, ct);
+    public BackgroundResponseStatus? LastTerminalStatus { get; private set; }
+    public DateTime? LastTerminalAt { get; private set; }
 
-    public Task<bool> FailAsync(string lastError, DateTime? nextAttemptAt, bool permanent, CancellationToken ct)
-        => _jobs.FailAsync(_jobId, PodId, lastError, nextAttemptAt, permanent, ct);
+    public async Task<bool> CompleteAsync(string? output, CancellationToken ct)
+    {
+        var ok = await _jobs.CompleteAsync(_jobId, PodId, output, ct).ConfigureAwait(false);
+        if (ok)
+        {
+            LastTerminalStatus = BackgroundResponseStatus.Completed;
+            LastTerminalAt = DateTime.UtcNow;
+        }
+        return ok;
+    }
+
+    public async Task<bool> FailAsync(string lastError, DateTime? nextAttemptAt, bool permanent, CancellationToken ct)
+    {
+        var ok = await _jobs.FailAsync(_jobId, PodId, lastError, nextAttemptAt, permanent, ct).ConfigureAwait(false);
+        if (ok && (permanent || nextAttemptAt is null))
+        {
+            // Permanent = job vai pra Status='Failed' no SQL. Retry agendado
+            // (Status='Queued') NÃO é terminal — não conta como completed na
+            // métrica.
+            LastTerminalStatus = BackgroundResponseStatus.Failed;
+            LastTerminalAt = DateTime.UtcNow;
+        }
+        return ok;
+    }
 
     public async Task UpdateStepAsync(string? step, CancellationToken ct)
         => await _jobs.UpdateStepAsync(_jobId, PodId, step, ct).ConfigureAwait(false);

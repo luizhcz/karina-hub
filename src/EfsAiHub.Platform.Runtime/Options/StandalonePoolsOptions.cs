@@ -7,7 +7,7 @@ namespace EfsAiHub.Platform.Runtime.Configuration;
 ///
 /// Quando <see cref="Enabled"/>=<c>false</c> (default), o dispatcher fica
 /// dormente — o endpoint POST de enqueue, o consumer e o reaper não rodam.
-/// Permite mergear PR-1 em prod sem ativar a feature, e ligar via
+/// Permite mergear a infra em prod sem ativar a feature, e ligar via
 /// <c>StandalonePools__Enabled=true</c> quando confiança suficiente.
 /// </summary>
 public sealed class StandalonePoolsOptions

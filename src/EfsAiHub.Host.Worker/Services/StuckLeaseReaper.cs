@@ -1,4 +1,5 @@
 using EfsAiHub.Core.Agents.Responses;
+using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Runtime.Configuration;
 using Microsoft.Extensions.Options;
 
@@ -43,15 +44,27 @@ public sealed class StuckLeaseReaper : BackgroundService
         {
             try
             {
-                var reclaimed = await _jobs.ReclaimExpiredLeasesAsync(
+                var result = await _jobs.ReclaimExpiredLeasesAsync(
                     TimeSpan.FromSeconds(_options.ReaperReclaimBackoffSeconds),
                     _options.MaxAttempts,
                     stoppingToken).ConfigureAwait(false);
 
-                if (reclaimed > 0)
+                if (result.Requeued > 0)
+                {
                     _logger.LogWarning(
-                        "[StuckLeaseReaper] {Count} job(s) com lease expirado devolvido(s) pra Queued (ou Failed se MaxAttempts atingido).",
-                        reclaimed);
+                        "[StuckLeaseReaper] {Count} job(s) com lease expirado devolvido(s) pra Queued.",
+                        result.Requeued);
+                    MetricsRegistry.StandaloneStuckLeasesRecovered.Add(result.Requeued,
+                        new KeyValuePair<string, object?>("outcome", "requeued"));
+                }
+                if (result.FailedMaxAttempts > 0)
+                {
+                    _logger.LogError(
+                        "[StuckLeaseReaper] {Count} job(s) promovidos a Failed por atingir MaxAttempts={Max}.",
+                        result.FailedMaxAttempts, _options.MaxAttempts);
+                    MetricsRegistry.StandaloneStuckLeasesRecovered.Add(result.FailedMaxAttempts,
+                        new KeyValuePair<string, object?>("outcome", "failed_max_attempts"));
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

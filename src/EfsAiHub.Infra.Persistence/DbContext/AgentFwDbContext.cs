@@ -301,6 +301,24 @@ internal class BackgroundResponseJobRow
     public string TenantId { get; set; } = "default";
 }
 
+// Webhook deliveries (migration 019). Sem retry: status terminal já no primeiro response.
+internal class WebhookDeliveryRow
+{
+    public string DeliveryId { get; set; } = "";
+    public string JobId { get; set; } = "";
+    public string Url { get; set; } = "";
+    public string? HmacSecret { get; set; }
+    public string? Headers { get; set; } // JSONB serializado
+    public string Status { get; set; } = "Pending";
+    public int? LastResponseCode { get; set; }
+    public string? LastError { get; set; }
+    public DateTime? DeliveredAt { get; set; }
+    public string ProjectId { get; set; } = "default";
+    public string TenantId { get; set; } = "default";
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
 internal class WorkflowExecutionRow
 {
     public string ExecutionId { get; set; } = "";
@@ -721,6 +739,7 @@ public class AgentFwDbContext : DbContext
     internal DbSet<AdminAuditLogRow> AdminAuditLogs => Set<AdminAuditLogRow>();
     internal DbSet<McpServerRow> McpServers => Set<McpServerRow>();
     internal DbSet<BackgroundResponseJobRow> BackgroundResponseJobs => Set<BackgroundResponseJobRow>();
+    internal DbSet<WebhookDeliveryRow> WebhookDeliveries => Set<WebhookDeliveryRow>();
     internal DbSet<EvaluationTestSetRow> EvaluationTestSets => Set<EvaluationTestSetRow>();
     internal DbSet<EvaluationTestSetVersionRow> EvaluationTestSetVersions => Set<EvaluationTestSetVersionRow>();
     internal DbSet<EvaluationTestCaseRow> EvaluationTestCases => Set<EvaluationTestCaseRow>();
@@ -1445,6 +1464,28 @@ public class AgentFwDbContext : DbContext
             // Os índices partial pra (WorkflowId, Status), (Status, NextAttemptAt)
             // e (LeaseUntil) ficam no DDL (schemas.sql + migration 018) —
             // EF Fluent API não suporta filtered indexes condicionais.
+        });
+
+        modelBuilder.Entity<WebhookDeliveryRow>(b =>
+        {
+            b.ToTable("webhook_deliveries");
+            b.HasKey(e => e.DeliveryId);
+            b.Property(e => e.DeliveryId).HasMaxLength(64);
+            b.Property(e => e.JobId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Url).HasColumnType("text").IsRequired();
+            b.Property(e => e.HmacSecret).HasColumnType("text");
+            b.Property(e => e.Headers).HasColumnType("jsonb");
+            b.Property(e => e.Status).HasMaxLength(32).IsRequired().HasDefaultValue("Pending");
+            b.Property(e => e.LastResponseCode);
+            b.Property(e => e.LastError).HasColumnType("text");
+            b.Property(e => e.DeliveredAt);
+            b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired().HasDefaultValue("default");
+            b.Property(e => e.TenantId).HasMaxLength(128).IsRequired().HasDefaultValue("default");
+            b.Property(e => e.CreatedAt).IsRequired().HasDefaultValueSql("now()");
+            b.Property(e => e.UpdatedAt).IsRequired().HasDefaultValueSql("now()");
+            b.HasIndex(e => e.JobId);
+            // Índice partial pra (Status, CreatedAt) WHERE Status='Pending'
+            // fica no DDL — EF não suporta filtered index condicional.
         });
 
         modelBuilder.Entity<WorkflowEventAuditRow>(b =>

@@ -98,6 +98,15 @@ public sealed record ResponseCallbackTarget(
     string? HmacSecret = null,
     IReadOnlyDictionary<string, string>? Headers = null);
 
+/// <summary>
+/// Resultado do varredor de leases expirados. <see cref="Requeued"/> = jobs
+/// devolvidos pra <c>Status='Queued'</c> com backoff aplicado.
+/// <see cref="FailedMaxAttempts"/> = jobs promovidos a <c>Failed</c> permanente
+/// porque já atingiram o teto de tentativas — sintoma de workflow doente,
+/// merece alerta em dashboards.
+/// </summary>
+public readonly record struct ReclaimResult(int Requeued, int FailedMaxAttempts);
+
 public interface IBackgroundResponseRepository
 {
     Task<BackgroundResponseJob> InsertAsync(BackgroundResponseJob job, CancellationToken ct = default);
@@ -131,8 +140,11 @@ public interface IBackgroundResponseRepository
     /// Reseta jobs com <c>LeaseUntil &lt; now()</c> de volta pra Queued, ou
     /// promove a Failed quando <c>Attempt &gt;= maxAttempts</c>. Evita loop
     /// infinito de retry em job determinísticamente travado.
+    /// Retorna a contagem separada por outcome — observabilidade chave pra
+    /// dashboards (muitos jobs morrendo por MaxAttempts é sintoma claro de
+    /// workflow doente ou rate limit upstream).
     /// </summary>
-    Task<int> ReclaimExpiredLeasesAsync(TimeSpan reclaimBackoff, int maxAttempts, CancellationToken ct = default);
+    Task<ReclaimResult> ReclaimExpiredLeasesAsync(TimeSpan reclaimBackoff, int maxAttempts, CancellationToken ct = default);
 
     /// <summary>
     /// Atualiza <c>Step</c> + <c>UpdatedAt</c> mantendo Status='Running' e o

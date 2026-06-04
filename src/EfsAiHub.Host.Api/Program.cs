@@ -155,6 +155,18 @@ builder.Services.AddHttpClient(EfsAiHub.Platform.Runtime.Ingestion.IngestionDown
         AutomaticDecompression = System.Net.DecompressionMethods.All,
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
     });
+// WebhookCallbackDeliveryService — pool dedicado pra POST de webhooks. Timeout
+// controlado via CTS no worker (DeliveryTimeoutSeconds). AllowAutoRedirect=true
+// é OK aqui: callback URLs são alvo do cliente, redirect explícito do servidor
+// dele é comportamento esperado (diferente do download externo).
+builder.Services.AddHttpClient(EfsAiHub.Host.Worker.Services.WebhookCallbackDeliveryService.HttpClientName)
+    .ConfigureHttpClient(c => c.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = true,
+        MaxAutomaticRedirections = 3,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+    });
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IGenericToolRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgGenericToolRepository>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IOperationalMemoryRepository,
