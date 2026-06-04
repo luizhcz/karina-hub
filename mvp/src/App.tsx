@@ -64,6 +64,8 @@ const LlmCallsList = lazy(() =>
   import('./routes/admin/LlmCallsList').then(m => ({ default: m.LlmCallsList })))
 const LlmCallDetailPage = lazy(() =>
   import('./routes/admin/LlmCallDetail').then(m => ({ default: m.LlmCallDetailPage })))
+const Ingestoes = lazy(() =>
+  import('./routes/admin/Ingestoes').then(m => ({ default: m.Ingestoes })))
 
 export function App() {
   const [identity, setLocalIdentity] = useState(() => getIdentity())
@@ -99,6 +101,7 @@ export function App() {
           <Route path="/admin/llm-capture" element={<LlmCaptureControl />} />
           <Route path="/admin/llm-calls" element={<LlmCallsList />} />
           <Route path="/admin/llm-calls/:id" element={<LlmCallDetailPage />} />
+          <Route path="/admin/ingestoes" element={<Ingestoes />} />
 
           {/* Rotas que exigem projeto vinculado: redirecionam pra /bem-vindo
               quando non-admin tem projects=[]. Admin passa sempre. */}
