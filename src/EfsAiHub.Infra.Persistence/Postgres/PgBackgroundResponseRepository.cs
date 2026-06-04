@@ -217,20 +217,44 @@ public sealed class PgBackgroundResponseRepository : IBackgroundResponseReposito
         return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
-    public async Task UpdateStepAsync(string jobId, string? step, CancellationToken ct = default)
+    public async Task<bool> UpdateStepAsync(string jobId, string podId, string? step, CancellationToken ct = default)
     {
         const string sql = """
             UPDATE aihub.background_response_jobs
             SET "Step"      = @step,
                 "UpdatedAt" = NOW()
-            WHERE "JobId" = @jobId;
+            WHERE "JobId"    = @jobId
+              AND "LeasedBy" = @podId
+              AND "Status"   = 'Running';
             """;
 
         await using var conn = await _dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("jobId", jobId);
+        cmd.Parameters.AddWithValue("podId", podId);
         cmd.Parameters.AddWithValue("step", (object?)step ?? DBNull.Value);
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        var affected = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        return affected == 1;
+    }
+
+    public async Task<bool> UpdateIngestionContextAsync(string jobId, string podId, string? ingestionContextJson, CancellationToken ct = default)
+    {
+        const string sql = """
+            UPDATE aihub.background_response_jobs
+            SET "IngestionContext" = @ctx::jsonb,
+                "UpdatedAt"        = NOW()
+            WHERE "JobId"    = @jobId
+              AND "LeasedBy" = @podId
+              AND "Status"   = 'Running';
+            """;
+
+        await using var conn = await _dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("jobId", jobId);
+        cmd.Parameters.AddWithValue("podId", podId);
+        cmd.Parameters.AddWithValue("ctx", (object?)ingestionContextJson ?? DBNull.Value);
+        var affected = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        return affected == 1;
     }
 
     public async Task<bool> CompleteAsync(string jobId, string podId, string? output, CancellationToken ct = default)

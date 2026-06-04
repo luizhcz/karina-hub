@@ -1,9 +1,7 @@
 using EfsAiHub.Core.Abstractions.Execution;
 using EfsAiHub.Core.Agents.Responses;
-using EfsAiHub.Core.Orchestration.Workflows;
+using EfsAiHub.Host.Worker.Services.Handlers;
 using EfsAiHub.Platform.Runtime.Configuration;
-using EfsAiHub.Platform.Runtime.Interfaces;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace EfsAiHub.Host.Worker.Services;
@@ -15,9 +13,10 @@ namespace EfsAiHub.Host.Worker.Services;
 ///   <item>Calcula folga de slots cross-pod via <see cref="IDistributedSlotCounter"/>.</item>
 ///   <item>Lease atômico (FOR UPDATE SKIP LOCKED) de até N jobs Queued, com cota
 ///         por workflow aplicada na própria query.</item>
-///   <item>Pra cada job: dispara workflow via <see cref="IWorkflowDispatcher"/>,
-///         polla <c>workflow_executions</c> até terminal e atualiza o job com
-///         ownership-aware UPDATE.</item>
+///   <item>Pra cada job: encontra o <see cref="IStandaloneJobHandler"/> que
+///         aceita e delega o processamento. Heartbeat + cancellation
+///         cooperativo continuam aqui no dispatcher pra cobrir todos os
+///         handlers uniformemente.</item>
 /// </list>
 ///
 /// Gateado por <see cref="StandalonePoolsOptions.Enabled"/> — quando false,
@@ -39,9 +38,9 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
 {
     private const string SlotScope = "standalone";
 
-    private readonly IServiceScopeFactory _scopeFactory;
     private readonly IBackgroundResponseRepository _jobs;
     private readonly IDistributedSlotCounter _slots;
+    private readonly IEnumerable<IStandaloneJobHandler> _handlers;
     private readonly StandalonePoolsOptions _options;
     private readonly ILogger<StandaloneJobDispatcherService> _logger;
     private readonly string _podId;
@@ -50,15 +49,15 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
     private int _localActive;
 
     public StandaloneJobDispatcherService(
-        IServiceScopeFactory scopeFactory,
         IBackgroundResponseRepository jobs,
         IDistributedSlotCounter slots,
+        IEnumerable<IStandaloneJobHandler> handlers,
         IOptions<StandalonePoolsOptions> options,
         ILogger<StandaloneJobDispatcherService> logger)
     {
-        _scopeFactory = scopeFactory;
         _jobs = jobs;
         _slots = slots;
+        _handlers = handlers;
         _options = options.Value;
         _logger = logger;
         // PodId estável por processo — diferencia leases entre réplicas e fica
@@ -81,9 +80,10 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
         }
 
         _logger.LogInformation(
-            "[StandaloneDispatcher] Ativo pod={Pod} globalCap={Global} perWorkflow={PerWf} leaseTtl={Lease}s heartbeat={Hb}s slotTtl={SlotTtl}m",
+            "[StandaloneDispatcher] Ativo pod={Pod} globalCap={Global} perWorkflow={PerWf} leaseTtl={Lease}s heartbeat={Hb}s slotTtl={SlotTtl}m handlers={Handlers}",
             _podId, _options.GlobalConcurrency, _options.DefaultMaxConcurrentPerWorkflow,
-            _options.LeaseTtlSeconds, _options.HeartbeatSeconds, (int)_slotTtl.TotalMinutes);
+            _options.LeaseTtlSeconds, _options.HeartbeatSeconds, (int)_slotTtl.TotalMinutes,
+            string.Join(",", _handlers.Select(h => h.GetType().Name)));
 
         var idle = TimeSpan.FromSeconds(Math.Max(1, _options.PollIdleSeconds));
         while (!stoppingToken.IsCancellationRequested)
@@ -181,46 +181,31 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
     }
 
     /// <summary>
-    /// Dispara o workflow alvo e bloqueia até terminal (polling). Heartbeat
-    /// roda em paralelo renovando o lease — se for "roubado" pelo reaper
-    /// (cenário de pod stale), cancela o próprio processamento via
-    /// <see cref="CancellationTokenSource"/> linkado, abortando antes de
-    /// reescrever estado do job (que pertence a outro pod agora).
+    /// Setup do lifecycle por job (heartbeat + cancellation cooperativo) e
+    /// delegação ao handler que aceita o job. Heartbeat detecta lease perdido
+    /// → <c>jobCts.Cancel()</c> → handler aborta antes de reescrever estado
+    /// que outro pod já assumiu.
     /// </summary>
     private async Task ProcessJobAsync(BackgroundResponseJob job, CancellationToken outerCt)
     {
-        if (string.IsNullOrWhiteSpace(job.WorkflowId))
+        var handler = ResolveHandler(job);
+        if (handler is null)
         {
-            await _jobs.FailAsync(job.JobId, _podId, "WorkflowId obrigatório no job standalone.", null, permanent: true, outerCt)
-                .ConfigureAwait(false);
+            await _jobs.FailAsync(
+                job.JobId, _podId,
+                "Nenhum IStandaloneJobHandler aceitou o job.",
+                null, permanent: true, outerCt).ConfigureAwait(false);
             return;
         }
 
         using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
         var heartbeatTask = HeartbeatLoopAsync(job.JobId, jobCts);
 
+        var ctx = new StandaloneJobContext(_jobs, job.JobId, _podId);
+
         try
         {
-            await using var scope = _scopeFactory.CreateAsyncScope();
-            var dispatcher = scope.ServiceProvider.GetRequiredService<IWorkflowDispatcher>();
-            var executionRepo = scope.ServiceProvider.GetRequiredService<IWorkflowExecutionRepository>();
-
-            var metadata = new Dictionary<string, string>
-            {
-                ["standaloneJobId"] = job.JobId
-            };
-
-            var executionId = await dispatcher.TriggerAsync(
-                job.WorkflowId,
-                job.Input,
-                metadata,
-                source: ExecutionSource.Api,
-                mode: ExecutionMode.Production,
-                workflowVersionId: job.AgentVersionId,
-                ct: jobCts.Token).ConfigureAwait(false);
-
-            await _jobs.SetExecutionIdAsync(job.JobId, executionId, jobCts.Token).ConfigureAwait(false);
-            await PollUntilTerminalAsync(job, executionId, executionRepo, jobCts.Token).ConfigureAwait(false);
+            await handler.ProcessAsync(job, ctx, jobCts.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (jobCts.IsCancellationRequested && !outerCt.IsCancellationRequested)
         {
@@ -239,52 +224,13 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
         }
     }
 
-    /// <summary>Loop de polling do workflow_executions até terminal ou deadline.</summary>
-    private async Task PollUntilTerminalAsync(
-        BackgroundResponseJob job,
-        string executionId,
-        IWorkflowExecutionRepository executionRepo,
-        CancellationToken ct)
+    private IStandaloneJobHandler? ResolveHandler(BackgroundResponseJob job)
     {
-        var deadline = DateTime.UtcNow.AddMinutes(_options.JobMaxLifetimeMinutes);
-        var pollDelay = TimeSpan.FromSeconds(2);
-
-        while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
+        foreach (var handler in _handlers)
         {
-            await Task.Delay(pollDelay, ct).ConfigureAwait(false);
-            var execution = await executionRepo.GetByIdAsync(executionId, ct).ConfigureAwait(false);
-            if (execution is null) continue;
-
-            switch (execution.Status)
-            {
-                case WorkflowStatus.Completed:
-                    await _jobs.CompleteAsync(job.JobId, _podId, execution.Output, ct).ConfigureAwait(false);
-                    return;
-
-                case WorkflowStatus.Failed:
-                case WorkflowStatus.Cancelled:
-                    var cancelled = execution.Status == WorkflowStatus.Cancelled;
-                    var permanent = cancelled || job.Attempt >= _options.MaxAttempts;
-                    DateTime? next = permanent ? null : DateTime.UtcNow.AddSeconds(CalcBackoffSeconds(job.Attempt));
-                    var errMsg = execution.ErrorMessage ?? (cancelled ? "Execution cancelled" : "Execution failed");
-                    await _jobs.FailAsync(job.JobId, _podId, errMsg, next, permanent, ct).ConfigureAwait(false);
-                    return;
-
-                // Paused (HITL), Pending, Running — segue pollando.
-            }
+            if (handler.CanHandle(job)) return handler;
         }
-
-        // Deadline atingido — encerra como Failed permanente.
-        if (!ct.IsCancellationRequested)
-        {
-            await _jobs.FailAsync(
-                job.JobId,
-                _podId,
-                $"Job excedeu JobMaxLifetimeMinutes={_options.JobMaxLifetimeMinutes}m",
-                null,
-                permanent: true,
-                ct).ConfigureAwait(false);
-        }
+        return null;
     }
 
     private async Task HeartbeatLoopAsync(string jobId, CancellationTokenSource jobCts)
@@ -303,8 +249,7 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
                     _logger.LogWarning(
                         "[StandaloneDispatcher] Lease perdido pro job {JobId} (roubado pelo reaper?). Sinalizando cancelamento.",
                         jobId);
-                    // Cancela TODO o processamento — PollUntilTerminal aborta, ProcessJobAsync
-                    // captura OperationCanceledException sem reescrever estado do job.
+                    // Cancela TODO o processamento — handler aborta sem reescrever estado.
                     jobCts.Cancel();
                     return;
                 }
@@ -315,13 +260,5 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
         {
             _logger.LogWarning(ex, "[StandaloneDispatcher] Heartbeat falhou pro job {JobId}.", jobId);
         }
-    }
-
-    private int CalcBackoffSeconds(int attempt)
-    {
-        var baseSecs = Math.Max(1, _options.RetryBackoffBaseSeconds);
-        // Cap exponencial em 2^10 ≈ 1024 multiplier — evita overflow e mantém retry razoável.
-        var multiplier = Math.Pow(2, Math.Min(attempt, 10));
-        return (int)(baseSecs * multiplier);
     }
 }

@@ -134,8 +134,22 @@ public interface IBackgroundResponseRepository
     /// </summary>
     Task<int> ReclaimExpiredLeasesAsync(TimeSpan reclaimBackoff, int maxAttempts, CancellationToken ct = default);
 
-    /// <summary>Atualiza <c>Step</c> + <c>UpdatedAt</c> mantendo Status='Running' e o lease ativo.</summary>
-    Task UpdateStepAsync(string jobId, string? step, CancellationToken ct = default);
+    /// <summary>
+    /// Atualiza <c>Step</c> + <c>UpdatedAt</c> mantendo Status='Running' e o
+    /// lease ativo. Ownership-aware: filtra <c>LeasedBy = podId</c> no WHERE
+    /// pra que pod stale (lease já roubado pelo reaper) vire no-op silencioso
+    /// em vez de sobrescrever estado do dono atual.
+    /// </summary>
+    Task<bool> UpdateStepAsync(string jobId, string podId, string? step, CancellationToken ct = default);
+
+    /// <summary>
+    /// Atualiza <c>IngestionContext</c> (JSONB) + <c>UpdatedAt</c> sem mudar
+    /// Status. Ownership-aware (mesma justificativa de <see cref="UpdateStepAsync"/>).
+    /// Usado pelo IngestionJobHandler entre etapas pra persistir estado
+    /// intermediário (contentLength, extractionId, extractedContent…) que
+    /// sobrevive crash do pod e permite retomada do step.
+    /// </summary>
+    Task<bool> UpdateIngestionContextAsync(string jobId, string podId, string? ingestionContextJson, CancellationToken ct = default);
 
     /// <summary>
     /// Marca job como Completed e grava output. WHERE inclui ownership check

@@ -23,7 +23,13 @@ namespace EfsAiHub.Platform.Runtime.Executors;
 /// </summary>
 public class DocumentIntelligenceFunctions
 {
-    private static readonly SemaphoreSlim _gate = new(1, 1);
+    // Gate de concorrência por pod: inicializado no construtor a partir de
+    // DocumentIntelligenceOptions.MaxConcurrentExtractions (default 4).
+    // Singleton no DI ⇒ uma única gate por processo, mesmo comportamento do
+    // antigo static field. _queueDepth permanece static só como métrica de
+    // observability (intencional: visível mesmo entre construtores caso DI
+    // recrie o singleton, raro mas possível em testes).
+    private readonly SemaphoreSlim _gate;
     private static int _queueDepth;
 
     // Fallback hardcoded caso o DB de pricing esteja vazio (novo ambiente,
@@ -64,6 +70,8 @@ public class DocumentIntelligenceFunctions
         _options = options.Value;
         _logger = logger;
         _httpClient = httpClientFactory.CreateClient();
+        var max = Math.Max(1, _options.MaxConcurrentExtractions);
+        _gate = new SemaphoreSlim(max, max);
     }
 
     public async Task<string> ExecuteAsync(string input, CancellationToken ct)

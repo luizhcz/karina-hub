@@ -17,4 +17,12 @@ public class DocumentIntelligenceOptions
     public int PollingTimeoutSeconds { get; init; } = 180;
     public int GateWaitTimeoutSeconds { get; init; } = 600;
     public int CacheTtlDays { get; init; } = 7;
+
+    /// <summary>
+    /// Concorrência máxima de extrações simultâneas por pod. Default 4 — Azure DI
+    /// tem rate limit por endpoint (15 RPS em S0), N pods × 4 extrações cobre
+    /// volume típico. Valores muito altos saturam o endpoint e geram 429 do Azure;
+    /// muito baixos serializam demais ingestão de PDF em massa.
+    /// </summary>
+    public int MaxConcurrentExtractions { get; init; } = 4;
 }

@@ -499,6 +499,20 @@ public static class ServiceCollectionExtensions
         // após desligar a feature.
         services.AddOptions<EfsAiHub.Platform.Runtime.Configuration.StandalonePoolsOptions>()
             .BindConfiguration(EfsAiHub.Platform.Runtime.Configuration.StandalonePoolsOptions.SectionName);
+        services.AddOptions<EfsAiHub.Platform.Runtime.Configuration.IngestionApiOptions>()
+            .BindConfiguration(EfsAiHub.Platform.Runtime.Configuration.IngestionApiOptions.SectionName);
+
+        // Ingestion pipeline (URL → PDF/TXT/MD → DI → workflow).
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Ingestion.IngestionDownloader>();
+
+        // Handlers de jobs standalone. Ordem importa: IngestionJobHandler antes
+        // do default — primeiro que CanHandle ganha. WorkflowStandaloneJobHandler
+        // aceita qualquer job, então é o fallback.
+        services.AddSingleton<EfsAiHub.Host.Worker.Services.Handlers.IStandaloneJobHandler,
+            EfsAiHub.Host.Worker.Services.Handlers.IngestionJobHandler>();
+        services.AddSingleton<EfsAiHub.Host.Worker.Services.Handlers.IStandaloneJobHandler,
+            EfsAiHub.Host.Worker.Services.Handlers.WorkflowStandaloneJobHandler>();
+
         services.AddHostedService<EfsAiHub.Host.Worker.Services.StandaloneJobDispatcherService>();
         services.AddHostedService<EfsAiHub.Host.Worker.Services.StuckLeaseReaper>();
 

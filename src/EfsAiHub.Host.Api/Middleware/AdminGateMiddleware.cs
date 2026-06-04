@@ -201,6 +201,13 @@ public sealed class AdminGateMiddleware
         new(@"^/api/aihub/responses(/[^/]+)?$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // /api/aihub/ingestions — POST de ingestão URL → arquivo → workflow.
+    // Liberado pra non-admin do projeto: ProjectMiddleware enforça acesso ao
+    // ProjectContext; o controller persiste TenantId/ProjectId resolvidos.
+    private static readonly Regex IngestionsPattern =
+        new(@"^/api/aihub/ingestions(/[^/]+)?$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     // GET /api/aihub/projects (lista) ou GET /api/aihub/projects/{id} (detalhe). Sub-rotas
     // como /api/aihub/projects/{id}/blocklist são admin-only — caem fora desse pattern.
     private static readonly Regex ProjectsReadPattern =
@@ -423,6 +430,12 @@ public sealed class AdminGateMiddleware
         if (StandaloneResponsesPattern.IsMatch(path)
             && (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
                 || method.Equals("POST", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        // Ingestões (URL → arquivo → workflow) — POST liberado pra non-admin.
+        // Polling do estado é via /api/aihub/responses/{jobId}.
+        if (IngestionsPattern.IsMatch(path)
+            && method.Equals("POST", StringComparison.OrdinalIgnoreCase))
             return true;
 
         // Conversations — todos os métodos (chat via REST)

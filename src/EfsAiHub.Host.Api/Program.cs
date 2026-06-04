@@ -143,6 +143,18 @@ builder.Services.AddHttpClient(EfsAiHub.Platform.Runtime.Tools.PortfolioAnalysis
         c.BaseAddress = new Uri(opts.BaseUrl);
     c.Timeout = Timeout.InfiniteTimeSpan;
 });
+// IngestionDownloader — pool dedicado pro download externo de PDF/TXT/MD na
+// feature de ingestão. AllowAutoRedirect=false porque o downloader segue
+// redirect manual pra log/controle explícito do MaxRedirects. Timeout via CTS
+// no caller; HttpClient com timeout infinito segue o padrão do generic-tool.
+builder.Services.AddHttpClient(EfsAiHub.Platform.Runtime.Ingestion.IngestionDownloader.HttpClientName)
+    .ConfigureHttpClient(c => c.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        AutomaticDecompression = System.Net.DecompressionMethods.All,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+    });
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IGenericToolRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgGenericToolRepository>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IOperationalMemoryRepository,
