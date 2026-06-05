@@ -87,6 +87,14 @@ public sealed class UserProvisioningMiddleware
         authContext.AppOrigin = ReadFirstNonEmptyHeader(context.Request, AppOriginHeader);
         authContext.AccessToken = ReadFirstNonEmptyHeader(context.Request, AccessTokenHeader);
 
+        // Rotas em PermissionsOptionalPathPatterns dispensam x-efs-permissions
+        // quando vem identidade. Sintetizamos o header vazio in-place pra que
+        // o resolver enxergue "permissions enviadas mas vazias" (= autenticado,
+        // sem privilégio) em vez de bater no missingPermissionsMessage e
+        // devolver 400. Outros checks do resolver (ambiguidade account+profile)
+        // continuam ativos.
+        EnsurePermissionsHeaderForLenientPath(context.Request, options.Value);
+
         var identity = identityProvider.Resolve(context, out var identityError);
         if (identity is null)
         {
@@ -224,34 +232,56 @@ public sealed class UserProvisioningMiddleware
     private static bool ShouldSkipProvisioning(PathString requestPath, UserProvisioningOptions options)
     {
         if (!options.SkipAnonymousRoutes) return false;
+        if (options.SkipPathPrefixes is not { Count: > 0 } prefixes) return false;
         var path = requestPath.Value;
         if (string.IsNullOrEmpty(path)) return false;
-
-        if (options.SkipPathPrefixes is { Count: > 0 } prefixes)
+        foreach (var prefix in prefixes)
         {
-            foreach (var prefix in prefixes)
-            {
-                if (string.IsNullOrEmpty(prefix)) continue;
-                if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
-                // Exige boundary de segmento: evita que prefixo "/api/aihub/chat/ag-ui"
-                // case acidentalmente um path tipo "/api/aihub/chat/ag-uianything".
-                if (path.Length == prefix.Length) return true;
-                if (path[prefix.Length] == '/') return true;
-            }
+            if (string.IsNullOrEmpty(prefix)) continue;
+            if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            // Exige boundary de segmento: evita que prefixo "/api/aihub/chat/ag-ui"
+            // case acidentalmente um path tipo "/api/aihub/chat/ag-uianything".
+            if (path.Length == prefix.Length) return true;
+            if (path[prefix.Length] == '/') return true;
         }
-
-        if (options.SkipPathPatterns is { Count: > 0 } patterns)
-        {
-            foreach (var raw in patterns)
-            {
-                if (string.IsNullOrWhiteSpace(raw)) continue;
-                var regex = _compiledPatterns.GetOrAdd(raw, static src =>
-                    new Regex(src, RegexOptions.Compiled | RegexOptions.IgnoreCase));
-                if (regex.IsMatch(path)) return true;
-            }
-        }
-
         return false;
+    }
+
+    /// <summary>
+    /// Pra rotas marcadas em <see cref="UserProvisioningOptions.PermissionsOptionalPathPatterns"/>:
+    /// se o caller mandou <c>x-efs-account</c> ou <c>x-efs-user-profile-id</c>
+    /// SEM <c>x-efs-permissions</c>, injeta o header de permissions vazio.
+    /// Isso converte o que seria 400 (missingPermissionsMessage no resolver) em
+    /// "identificado com permissions=[]" — caller fica conhecido pra auditoria
+    /// e fica fora de qualquer rota admin (AdminGate exige permission match).
+    /// No-op quando: rota não casa, permissions já presente, ou nem account
+    /// nem profile foram enviados.
+    /// </summary>
+    private static void EnsurePermissionsHeaderForLenientPath(HttpRequest request, UserProvisioningOptions options)
+    {
+        if (options.PermissionsOptionalPathPatterns is not { Count: > 0 } patterns) return;
+        var path = request.Path.Value;
+        if (string.IsNullOrEmpty(path)) return;
+
+        var matched = false;
+        foreach (var raw in patterns)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            var regex = _compiledPatterns.GetOrAdd(raw, static src =>
+                new Regex(src, RegexOptions.Compiled | RegexOptions.IgnoreCase));
+            if (regex.IsMatch(path)) { matched = true; break; }
+        }
+        if (!matched) return;
+
+        if (request.Headers.ContainsKey(UserIdentityResolver.Headers.Permissions)) return;
+
+        var hasAccount = !string.IsNullOrWhiteSpace(
+            request.Headers[UserIdentityResolver.Headers.Account].FirstOrDefault());
+        var hasProfileId = !string.IsNullOrWhiteSpace(
+            request.Headers[UserIdentityResolver.Headers.UserProfileId].FirstOrDefault());
+        if (!hasAccount && !hasProfileId) return;
+
+        request.Headers[UserIdentityResolver.Headers.Permissions] = string.Empty;
     }
 
     private static string? ReadFirstNonEmptyHeader(HttpRequest request, string headerName)

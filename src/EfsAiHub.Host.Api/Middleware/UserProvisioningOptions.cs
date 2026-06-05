@@ -27,26 +27,31 @@ public class UserProvisioningOptions
     public List<string> SkipPathPrefixes { get; set; } = ["/api/aihub/chat/ag-ui"];
 
     /// <summary>
-    /// Regex patterns (case-insensitive) cujos requests pulam o middleware
-    /// inteiro. Usar quando o prefix-match seria amplo demais — ex.: liberar
-    /// <c>POST /api/aihub/workflows/{id}/trigger</c> sem afetar
-    /// <c>POST /api/aihub/workflows</c> (criação admin-only), ou liberar
-    /// <c>GET /api/aihub/responses/{jobId}</c> sem afetar
-    /// <c>/responses/{jobId}/deliveries</c> (admin-only de webhook history).
-    /// Patterns são compilados na primeira chamada do middleware e cacheados.
+    /// Regex patterns (case-insensitive) cujos requests dispensam o header
+    /// <c>x-efs-permissions</c>. Comportamento: se vier <c>x-efs-account</c> OU
+    /// <c>x-efs-user-profile-id</c> SEM <c>x-efs-permissions</c>, o middleware
+    /// trata como permissions vazia (<c>[]</c>) — caller fica identificado sem
+    /// nenhum privilégio admin. Demais validações continuam:
+    /// <list type="bullet">
+    ///   <item>account + user-profile-id juntos → 400 (ambiguidade).</item>
+    ///   <item>nenhum dos dois → anônimo (como hoje).</item>
+    ///   <item>permissions sozinho sem account/profile → anônimo (ignorado).</item>
+    /// </list>
+    /// Usado pra integrações backend (webhooks, scripts) que sabem quem são
+    /// (account) mas não conhecem o catálogo de permissions. Rotas admin
+    /// continuam exigindo permission válida via AdminGate — sem account
+    /// identificado, AdminGate rejeita.
+    /// Patterns são compilados na primeira chamada e cacheados em memória.
     /// </summary>
-    public List<string> SkipPathPatterns { get; set; } =
+    public List<string> PermissionsOptionalPathPatterns { get; set; } =
     [
-        // Ingestões: tudo embaixo de /api/aihub/ingestions (POST inicial,
-        // futuros sub-paths).
+        // Ingestões: tudo embaixo de /api/aihub/ingestions.
         @"^/api/aihub/ingestions(/.*)?$",
-        // Standalone responses: /responses (POST enqueue) e /responses/{jobId}
-        // (GET polling). NÃO casa /responses/{jobId}/deliveries — esse mantém
-        // a obrigação de identidade pra o defense-in-depth admin do controller.
+        // Standalone responses: /responses (POST) e /responses/{jobId} (GET).
+        // NÃO casa /responses/{jobId}/deliveries (admin-only de webhook history).
         @"^/api/aihub/responses(/[^/]+)?$",
-        // Workflow on-demand trigger: /workflows/{id}/trigger. Não casa POST
-        // /workflows (criação) nem PUT /workflows/{id} (edição) — ambos
-        // mantêm gate admin.
+        // Workflow on-demand trigger. NÃO casa POST /workflows (criação) nem
+        // PUT /workflows/{id} (edição) — ambos mantêm exigência de permissions.
         @"^/api/aihub/workflows/[^/]+/trigger$",
     ];
 }
