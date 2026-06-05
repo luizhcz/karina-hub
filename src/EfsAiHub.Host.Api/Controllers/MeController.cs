@@ -41,6 +41,8 @@ public class MeController : ControllerBase
     [ProducesResponseType(typeof(MeResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> Get(CancellationToken ct)
     {
+        var tenantId = _tenantAccessor.Current.TenantId;
+
         var user = _userAccessor.Current;
         if (user is null)
         {
@@ -51,10 +53,10 @@ public class MeController : ControllerBase
                 IsAdmin = false,
                 Permissions = [],
                 Projects = [],
+                TenantId = tenantId,
             });
         }
 
-        var tenantId = _tenantAccessor.Current.TenantId;
         var allProjects = await _projectRepo.GetByTenantAsync(tenantId, ct);
 
         IEnumerable<Project> visibleProjects;
@@ -81,6 +83,7 @@ public class MeController : ControllerBase
             Permissions = user.Permissions,
             UserId = user.Id,
             DisplayName = user.DisplayName ?? user.ExternalUserId,
+            TenantId = tenantId,
             Projects = visibleProjects
                 .Select(p => new ProjectRef { Id = p.Id, Name = p.Name })
                 .ToList(),

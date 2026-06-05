@@ -227,7 +227,7 @@ public sealed class EvaluationAutoDeployService
                 .Select(t => new { name = t.Name, type = t.Type })
                 .ToList(),
             targetCaseCount = targetCaseCount
-        });
+        }, JsonDefaults.Domain);
 
         string executionId;
         try
@@ -294,7 +294,7 @@ public sealed class EvaluationAutoDeployService
         if (c.expectedToolCalls is { Count: > 0 })
         {
             var serialized = JsonSerializer.Serialize(
-                c.expectedToolCalls.Select(name => new { name }).ToList());
+                c.expectedToolCalls.Select(name => new { name }).ToList(), JsonDefaults.Domain);
             expectedToolCalls = JsonDocument.Parse(serialized);
         }
 

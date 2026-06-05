@@ -10,6 +10,7 @@ using EfsAiHub.Host.Api.Services;
 using EfsAiHub.Platform.Runtime.Evaluation;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Host.Api.Controllers;
 
@@ -419,7 +420,7 @@ public sealed class AgentEvaluationsController : ControllerBase
             lastError = run.LastError,
             startedAt = run.StartedAt,
             completedAt = run.CompletedAt
-        });
+        }, JsonDefaults.Domain);
     }
 
     private async Task WriteSseEventAsync(string eventName, string dataJson, CancellationToken ct)

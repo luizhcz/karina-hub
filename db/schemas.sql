@@ -588,6 +588,32 @@ CREATE INDEX IF NOT EXISTS "IX_chat_messages_ConversationId"
 CREATE INDEX IF NOT EXISTS "IX_chat_messages_ConversationId_CreatedAt"
     ON aihub.chat_messages ("ConversationId", "CreatedAt");
 
+CREATE TABLE IF NOT EXISTS aihub.message_feedbacks (
+    "FeedbackId"     VARCHAR(64)  NOT NULL,
+    "MessageId"      VARCHAR(64)  NOT NULL,
+    "ConversationId" VARCHAR(64)  NOT NULL,
+    "UserId"         VARCHAR(256) NOT NULL,
+    "Sentiment"      INTEGER      NOT NULL,           -- +1 like | -1 dislike (CHECK enforce)
+    "Comment"        VARCHAR(2000) NULL,
+    "ProjectId"      VARCHAR(128) NOT NULL DEFAULT 'default',
+    "CreatedAt"      TIMESTAMPTZ  NOT NULL,
+    "UpdatedAt"      TIMESTAMPTZ  NULL,
+    CONSTRAINT "PK_message_feedbacks" PRIMARY KEY ("FeedbackId"),
+    CONSTRAINT "CK_message_feedbacks_Sentiment" CHECK ("Sentiment" IN (-1, 1))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "UX_message_feedbacks_UserId_MessageId"
+    ON aihub.message_feedbacks ("UserId", "MessageId");
+
+CREATE INDEX IF NOT EXISTS "IX_message_feedbacks_MessageId"
+    ON aihub.message_feedbacks ("MessageId");
+
+CREATE INDEX IF NOT EXISTS "IX_message_feedbacks_ConversationId"
+    ON aihub.message_feedbacks ("ConversationId");
+
+CREATE INDEX IF NOT EXISTS "IX_message_feedbacks_CreatedAt"
+    ON aihub.message_feedbacks ("CreatedAt");
+
 -- =============================================================================
 -- 11. INTERAÇÕES HUMANAS (HITL — Human-in-the-Loop)
 -- =============================================================================
@@ -650,7 +676,7 @@ CREATE TABLE IF NOT EXISTS aihub.background_response_jobs (
     "AgentVersionId"  VARCHAR(64)  NULL,
     "SessionId"       VARCHAR(128) NULL,
     "Input"           TEXT         NOT NULL,
-    "Status"          VARCHAR(32)  NOT NULL,            -- Queued | Running | Completed | Failed
+    "Status"          VARCHAR(32)  NOT NULL,            -- Queued | Running | Completed | Failed | Cancelled
     "Output"          TEXT         NULL,
     "LastError"       TEXT         NULL,
     "Attempt"         INTEGER      NOT NULL DEFAULT 0,
@@ -659,6 +685,19 @@ CREATE TABLE IF NOT EXISTS aihub.background_response_jobs (
     "CreatedAt"       TIMESTAMPTZ  NOT NULL,
     "StartedAt"       TIMESTAMPTZ  NULL,
     "CompletedAt"     TIMESTAMPTZ  NULL,
+    -- Migration 018 — colunas pra standalone pools (filas isoladas por workflow).
+    "WorkflowId"       VARCHAR(256) NULL,                 -- hot path da cota por workflow
+    "Step"             VARCHAR(32)  NULL,                 -- sub-estado interno do handler (populado por pipelines multi-step)
+    "LeasedBy"         VARCHAR(64)  NULL,                 -- podId que segurou o lease
+    "LeaseUntil"       TIMESTAMPTZ  NULL,                 -- expiração do lease (heartbeat renova)
+    "NextAttemptAt"    TIMESTAMPTZ  NULL,                 -- backoff entre retries
+    "IngestionContext" JSONB        NULL,                 -- contexto livre do handler (extractionId, contentHash, etc.)
+    "ExecutionId"      VARCHAR(64)  NULL,                 -- workflow_executions.execution_id disparado pelo job
+    "UpdatedAt"        TIMESTAMPTZ  NOT NULL DEFAULT NOW(), -- compõe ETag do GET de polling
+    -- Multi-tenant scope (controller popula via IProjectContextAccessor/ITenantContextAccessor).
+    -- Default 'default' pras rows pré-existentes da migration.
+    "ProjectId"        VARCHAR(128) NOT NULL DEFAULT 'default',
+    "TenantId"         VARCHAR(128) NOT NULL DEFAULT 'default',
     CONSTRAINT "PK_background_response_jobs" PRIMARY KEY ("JobId")
 );
 
@@ -668,6 +707,51 @@ CREATE INDEX IF NOT EXISTS "IX_background_response_jobs_Status_CreatedAt"
 CREATE UNIQUE INDEX IF NOT EXISTS "IX_background_response_jobs_IdempotencyKey"
     ON aihub.background_response_jobs ("IdempotencyKey")
     WHERE "IdempotencyKey" IS NOT NULL;
+
+-- Cota por workflow no dispatcher.
+CREATE INDEX IF NOT EXISTS "IX_background_response_jobs_WorkflowId_Status"
+    ON aihub.background_response_jobs ("WorkflowId", "Status")
+    WHERE "WorkflowId" IS NOT NULL;
+
+-- Dispatcher pega Queued elegíveis (NextAttemptAt vencido ou null).
+CREATE INDEX IF NOT EXISTS "IX_background_response_jobs_Status_NextAttemptAt"
+    ON aihub.background_response_jobs ("Status", "NextAttemptAt")
+    WHERE "Status" = 'Queued';
+
+-- Reaper varre leases estourados.
+CREATE INDEX IF NOT EXISTS "IX_background_response_jobs_LeaseUntil"
+    ON aihub.background_response_jobs ("LeaseUntil")
+    WHERE "LeaseUntil" IS NOT NULL;
+
+-- GET multi-tenant: lookup com scope.
+CREATE INDEX IF NOT EXISTS "IX_background_response_jobs_TenantId_ProjectId"
+    ON aihub.background_response_jobs ("TenantId", "ProjectId");
+
+-- Webhook deliveries. Sem retry no design atual: uma única tentativa POST.
+-- Falha ou sucesso é terminal no primeiro response.
+CREATE TABLE IF NOT EXISTS aihub.webhook_deliveries (
+    "DeliveryId"       VARCHAR(64)  NOT NULL,
+    "JobId"            VARCHAR(64)  NOT NULL,
+    "Url"              TEXT         NOT NULL,
+    "HmacSecret"       TEXT         NULL,                       -- texto claro; tech debt: encriptar
+    "Headers"          JSONB        NULL,
+    "Status"           VARCHAR(32)  NOT NULL DEFAULT 'Pending', -- Pending | Delivered | Failed
+    "LastResponseCode" INTEGER      NULL,
+    "LastError"        TEXT         NULL,
+    "DeliveredAt"      TIMESTAMPTZ  NULL,
+    "ProjectId"        VARCHAR(128) NOT NULL DEFAULT 'default',
+    "TenantId"         VARCHAR(128) NOT NULL DEFAULT 'default',
+    "CreatedAt"        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    "UpdatedAt"        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT "PK_webhook_deliveries" PRIMARY KEY ("DeliveryId")
+);
+
+CREATE INDEX IF NOT EXISTS "IX_webhook_deliveries_Status_CreatedAt"
+    ON aihub.webhook_deliveries ("Status", "CreatedAt")
+    WHERE "Status" = 'Pending';
+
+CREATE INDEX IF NOT EXISTS "IX_webhook_deliveries_JobId"
+    ON aihub.webhook_deliveries ("JobId");
 
 -- =============================================================================
 -- 14. OBSERVABILIDADE — USO DE TOKENS LLM
@@ -1621,6 +1705,34 @@ CREATE INDEX IF NOT EXISTS "IX_agent_router_intents_IntentId"
 
 CREATE INDEX IF NOT EXISTS "IX_agent_router_intents_ProjectId_AgentId"
     ON aihub.agent_router_intents ("ProjectId", "AgentId");
+
+-- =============================================================================
+-- ROUTER QUICK ACTIONS — atalhos determinísticos pra bypass do LLM do Router
+-- Quando Pattern (normalizado) bate na mensagem do usuário, Router retorna
+-- a Intent diretamente sem invocar LLM (zero token usage).
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS aihub.router_quick_actions (
+    "Id"           VARCHAR(64)  NOT NULL,
+    "RouterId"     VARCHAR(256) NOT NULL,
+    "Pattern"      VARCHAR(512) NOT NULL,
+    "DisplayText"  VARCHAR(512) NOT NULL,
+    "Intent"       VARCHAR(128) NOT NULL,
+    "Description"  VARCHAR(1024) NULL,
+    "ProjectId"    VARCHAR(128) NOT NULL,
+    "TenantId"     VARCHAR(128) NOT NULL DEFAULT 'default',
+    "CreatedAt"    TIMESTAMPTZ  NOT NULL,
+    "UpdatedAt"    TIMESTAMPTZ  NOT NULL,
+    CONSTRAINT "PK_router_quick_actions" PRIMARY KEY ("Id"),
+    CONSTRAINT "UX_router_quick_actions_Scope_Router_Pattern"
+        UNIQUE ("TenantId", "ProjectId", "RouterId", "Pattern")
+);
+
+CREATE INDEX IF NOT EXISTS "IX_router_quick_actions_RouterId_TenantId"
+    ON aihub.router_quick_actions ("RouterId", "TenantId");
+
+CREATE INDEX IF NOT EXISTS "IX_router_quick_actions_TenantId_ProjectId"
+    ON aihub.router_quick_actions ("TenantId", "ProjectId");
 
 -- =============================================================================
 -- 29. PREDEFINED MODELS — catálogo global de presets para agents

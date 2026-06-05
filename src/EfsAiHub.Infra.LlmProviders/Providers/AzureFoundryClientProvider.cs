@@ -20,20 +20,20 @@ public class AzureFoundryClientProvider : ILlmClientProvider
     private readonly AzureAIOptions _options;
     private readonly TokenCredential _credential;
     private readonly IMcpServerRepository _mcpRepo;
-    private readonly ISecretResolver _secretResolver;
+    private readonly IRuntimeSecretStore _secrets;
     private readonly ILogger<AzureFoundryClientProvider> _logger;
 
     public AzureFoundryClientProvider(
         IOptions<AzureAIOptions> options,
         TokenCredential credential,
         IMcpServerRepository mcpRepo,
-        ISecretResolver secretResolver,
+        IRuntimeSecretStore secrets,
         ILogger<AzureFoundryClientProvider> logger)
     {
         _options = options.Value;
         _credential = credential;
         _mcpRepo = mcpRepo;
-        _secretResolver = secretResolver;
+        _secrets = secrets;
         _logger = logger;
     }
 
@@ -46,7 +46,7 @@ public class AzureFoundryClientProvider : ILlmClientProvider
         // sem PersistentAgentsClient (nem state managed nem tools server-side).
         if (IsResponsesClientType(definition))
         {
-            var responsesChat = await CreateResponsesChatClientAsync(definition, ct);
+            var responsesChat = await CreateResponsesChatClientAsync(definition);
             return responsesChat.AsAIAgent(options);
         }
 
@@ -70,25 +70,22 @@ public class AzureFoundryClientProvider : ILlmClientProvider
         return chatClient.AsAIAgent(options);
     }
 
-    public async Task<IChatClient> CreateChatClientAsync(AgentDefinition definition, CancellationToken ct = default)
+    public Task<IChatClient> CreateChatClientAsync(AgentDefinition definition, CancellationToken ct = default)
     {
         if (IsResponsesClientType(definition))
-            return await CreateResponsesChatClientAsync(definition, ct);
+            return CreateResponsesChatClientAsync(definition);
 
         // Foundry no modo Graph usa a mesma API compatível com OpenAI
-        var scope = string.IsNullOrWhiteSpace(definition.ProjectId)
-            ? SecretContext.Global($"azurefoundry:agent:{definition.Id}")
-            : SecretContext.Project(definition.ProjectId, "azurefoundry", definition.Id);
-        var apiKey = await _secretResolver.ResolveAsync(definition.Provider.ApiKey, scope, ct);
+        var apiKey = _secrets.Get(definition.Provider.ApiKey);
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
             var client = new OpenAI.OpenAIClient(apiKey);
-            return client.GetChatClient(ResolveDeployment(definition)).AsIChatClient();
+            return Task.FromResult(client.GetChatClient(ResolveDeployment(definition)).AsIChatClient());
         }
         // Fallback: cliente Azure OpenAI com credencial
         var endpoint = new Uri(definition.Provider.Endpoint ?? _options.Endpoint);
         var azureClient = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, _credential);
-        return azureClient.GetChatClient(ResolveDeployment(definition)).AsIChatClient();
+        return Task.FromResult(azureClient.GetChatClient(ResolveDeployment(definition)).AsIChatClient());
     }
 
     private static bool IsResponsesClientType(AgentDefinition definition) =>
@@ -101,16 +98,12 @@ public class AzureFoundryClientProvider : ILlmClientProvider
     /// {project}/openai/v1</c>. Usamos o SDK OpenAI da Microsoft com endpoint
     /// customizado; auth via Bearer header (Foundry aceita).
     /// </summary>
-    private async Task<IChatClient> CreateResponsesChatClientAsync(AgentDefinition definition, CancellationToken ct)
+    private Task<IChatClient> CreateResponsesChatClientAsync(AgentDefinition definition)
     {
-        var scope = string.IsNullOrWhiteSpace(definition.ProjectId)
-            ? SecretContext.Global($"azurefoundry:agent:{definition.Id}")
-            : SecretContext.Project(definition.ProjectId, "azurefoundry", definition.Id);
-
         var rawKey = string.IsNullOrWhiteSpace(definition.Provider.ApiKey)
             ? _options.ApiKey
             : definition.Provider.ApiKey;
-        var apiKey = await _secretResolver.ResolveAsync(rawKey, scope, ct);
+        var apiKey = _secrets.Get(rawKey);
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException(
                 $"Agent '{definition.Id}': Foundry Responses requer ApiKey (defina Provider.ApiKey ou AzureAI.ApiKey).");
@@ -128,7 +121,7 @@ public class AzureFoundryClientProvider : ILlmClientProvider
         // Responses API trata o modelo no body (não na URL), então o
         // ResponsesClient é parameterless e o defaultModelId vai pra
         // Microsoft.Extensions.AI via overload do AsIChatClient.
-        return client.GetResponsesClient().AsIChatClient(ResolveDeployment(definition));
+        return Task.FromResult(client.GetResponsesClient().AsIChatClient(ResolveDeployment(definition)));
     }
 
     private string ResolveDeployment(AgentDefinition definition) =>

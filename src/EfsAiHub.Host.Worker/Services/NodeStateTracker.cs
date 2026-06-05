@@ -44,6 +44,18 @@ public sealed class NodeStateTracker : IAsyncDisposable
     }
 
     /// <summary>
+    /// True quando o node recebeu pelo menos 1 chunk de token via
+    /// <see cref="AppendOutput"/> — i.e. o LLM streamou e os tokens já foram
+    /// entregues ao cliente via TEXT_MESSAGE_CONTENT. Usado pelo
+    /// node_completed pra evitar que o mapper reconstroia o trio sintético
+    /// TEXT_MESSAGE_* (duplicaria o conteúdo já streamado).
+    /// </summary>
+    public bool HasStreamedOutput(string nodeId)
+        => _outputBuffers.TryGetValue(nodeId, out var sb)
+           && (sb is not null)
+           && sb.Length > 0;
+
+    /// <summary>
     /// Materializa o buffer do nó em <see cref="NodeExecutionRecord.Output"/>.
     /// Deve ser chamado imediatamente antes de persistir o record (end-of-agent / handoff).
     /// </summary>

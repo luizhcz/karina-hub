@@ -9,6 +9,7 @@ using EfsAiHub.Platform.Runtime.Interfaces;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Host.Api.Controllers;
 
@@ -582,7 +583,7 @@ public class WorkflowsController : ControllerBase
             newVersionId = newVersion.AgentVersionId,
             wasBreaking = newVersion.BreakingChange,
             reason = request.Reason,
-        }));
+        }, JsonDefaults.Domain));
         await _audit.RecordAsync(_auditContext.Build(
             AdminAuditActions.WorkflowAgentVersionPinned,
             AdminAuditResources.Workflow,

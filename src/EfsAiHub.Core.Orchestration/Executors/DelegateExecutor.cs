@@ -40,13 +40,18 @@ public sealed class DelegateExecutor : Executor<string, string>
     {
         // LogDebug: conteúdo de input/output pode conter PII (dados financeiros, CPF, mensagens).
         // Desabilitado em produção via LogLevel; visível apenas em desenvolvimento.
+        // Truncamento em 200 chars aplica APENAS ao log — não viaja pro callback.
         Log.LogDebug("[DelegateExecutor:{Id}] HandleAsync chamado. Input: {Input}", Id, input[..Math.Min(200, input.Length)]);
 
-        Current.Value?.NodeCallback?.Invoke(Id, false, input[..Math.Min(500, input.Length)]);
+        // Callback recebe o input/result INTEIROS — quem decide truncar pra
+        // persistência/log é o caller do callback (CreateNodeCallback emite
+        // `node_completed.output` que alimenta o TEXT_MESSAGE_CONTENT sintético
+        // no chat; truncar aqui cortava a mensagem renderizada).
+        Current.Value?.NodeCallback?.Invoke(Id, false, input);
 
         var result = await _handler(input, cancellationToken);
 
-        Current.Value?.NodeCallback?.Invoke(Id, true, result[..Math.Min(500, result.Length)]);
+        Current.Value?.NodeCallback?.Invoke(Id, true, result);
 
         Log.LogDebug("[DelegateExecutor:{Id}] Resultado: {Result}", Id, result[..Math.Min(200, result.Length)]);
         return result;

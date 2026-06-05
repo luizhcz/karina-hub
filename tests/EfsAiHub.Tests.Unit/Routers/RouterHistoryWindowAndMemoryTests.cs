@@ -136,12 +136,17 @@ public class RouterHistoryWindowAndMemoryTests
     }
 
     [Fact]
-    public void RouterDefaults_OperationalMemorySchema_ContemLastIntentELastReason()
+    public void RouterDefaults_OperationalMemorySchema_ContemTodosOsCamposCanonicos()
     {
         // O OperationalMemoryChatClient extrai o sub-objeto operationalMemory
         // do JSON top-level emitido pelo LLM e valida contra esse schema
-        // antes de persistir. Os dois campos precisam estar declarados como
+        // antes de persistir. Os 4 campos precisam estar declarados como
         // required — senão LLM omite e a memória nunca grava.
+        //   - last_intent / last_reason: nome + razão da última classificação
+        //   - clarification_depth: loop guard counter (server-enforced também)
+        //   - last_candidate_intents: nomes das candidatas no último turno
+        //     needs_clarification — sem isso, follow-up de desambiguação não
+        //     consegue mapear resposta do usuário
         var memory = RouterDefaults.OperationalMemoryV1();
         memory.Schema.Should().NotBeNull();
         memory.MaxBytes.Should().Be(2048);
@@ -150,10 +155,52 @@ public class RouterHistoryWindowAndMemoryTests
         var props = root.GetProperty("properties");
         props.TryGetProperty("last_intent", out _).Should().BeTrue();
         props.TryGetProperty("last_reason", out _).Should().BeTrue();
+        props.TryGetProperty("clarification_depth", out var depth).Should().BeTrue();
+        depth.GetProperty("type").GetString().Should().Be("integer");
+        props.TryGetProperty("last_candidate_intents", out var lci).Should().BeTrue();
+        lci.GetProperty("type").GetString().Should().Be("array");
+        lci.GetProperty("items").GetProperty("type").GetString().Should().Be("string");
 
         var required = root.GetProperty("required").EnumerateArray()
             .Select(e => e.GetString())
             .ToList();
-        required.Should().BeEquivalentTo(new[] { "last_intent", "last_reason" });
+        required.Should().BeEquivalentTo(new[]
+        {
+            "last_intent", "last_reason", "clarification_depth", "last_candidate_intents",
+        });
+    }
+
+    [Fact]
+    public void RouterDefaults_OutputSchema_ContemCandidateIntentsEClarificationDepthNoMemory()
+    {
+        // Schema do StructuredOutput é o contrato que o LLM precisa cumprir.
+        // candidate_intents é required (default [] quando intent !=
+        // needs_clarification); clarification_depth vive dentro do
+        // operationalMemory sub-objeto. Sem esses campos no canônico, o
+        // ChatOptionsBuilder não passa o shape correto pro provider e o LLM
+        // não sabe emitir os campos de ambiguidade.
+        var output = RouterDefaults.OutputSchema();
+        output.Schema.Should().NotBeNull();
+
+        var root = output.Schema!.RootElement;
+        var props = root.GetProperty("properties");
+
+        props.TryGetProperty("candidate_intents", out var candidates).Should().BeTrue();
+        candidates.GetProperty("type").GetString().Should().Be("array");
+        var itemProps = candidates.GetProperty("items").GetProperty("properties");
+        itemProps.TryGetProperty("intent", out _).Should().BeTrue();
+        itemProps.TryGetProperty("confidence", out _).Should().BeTrue();
+
+        var memProps = props.GetProperty("operationalMemory").GetProperty("properties");
+        memProps.TryGetProperty("clarification_depth", out _).Should().BeTrue();
+        // last_candidate_intents espelha o que o canônico do operationalMemory
+        // schema externo declara — ambos precisam estar em sync porque o
+        // OperationalMemoryChatClient extrai do output pra persistir no banco.
+        memProps.TryGetProperty("last_candidate_intents", out _).Should().BeTrue();
+
+        var required = root.GetProperty("required").EnumerateArray()
+            .Select(e => e.GetString())
+            .ToList();
+        required.Should().Contain("candidate_intents");
     }
 }

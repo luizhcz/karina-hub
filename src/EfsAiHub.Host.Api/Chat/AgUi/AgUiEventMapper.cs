@@ -2,6 +2,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Host.Api.Chat.AgUi.Models;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Host.Api.Chat.AgUi;
 
@@ -89,7 +90,7 @@ public sealed class AgUiEventMapper
                     Type = "TOOL_CALL_ARGS",
                     ToolCallId = GetString(payload, "toolCallId"),
                     ToolCallName = GetString(payload, "toolName"),
-                    Delta = JsonSerializer.SerializeToElement(GetString(payload, "argsChunk") ?? "")
+                    Delta = JsonSerializer.SerializeToElement(GetString(payload, "argsChunk") ?? "", JsonDefaults.Domain)
                 }
             ],
 
@@ -99,8 +100,9 @@ public sealed class AgUiEventMapper
                 {
                     Type = "TEXT_MESSAGE_CONTENT",
                     MessageId = GetString(payload, "messageId"),
+                    AgentId = GetString(payload, "agentId"),
                     Delta = JsonSerializer.SerializeToElement(
-                        GetString(payload, "content") ?? GetString(payload, "token") ?? "")
+                        GetString(payload, "content") ?? GetString(payload, "token") ?? "", JsonDefaults.Domain)
                 }
             ],
 
@@ -205,21 +207,19 @@ public sealed class AgUiEventMapper
 
         if (IsExecutor(nodeType))
         {
+            // Executors de código não têm STEP_* canônico (não são "fala");
+            // CUSTOM[executor.lifecycle] é o único veículo dessa info na timeline.
             return [BuildExecutorLifecycle(payload, "started")];
         }
 
-        // Para agentes: emitimos o STEP_STARTED canônico (clientes legados) E um
-        // CUSTOM[agent.lifecycle] espelhando o pattern do executor.lifecycle. O
-        // custom event carrega agentType — info que o STEP_STARTED não tem por
-        // design (o stepName é só string display).
         return [
             new AgUiEvent
             {
                 Type = "STEP_STARTED",
                 StepId = nodeId,
-                StepName = GetString(payload, "agentName") ?? GetString(payload, "name") ?? nodeId
-            },
-            BuildAgentLifecycle(payload, "started")
+                StepName = GetString(payload, "agentName") ?? GetString(payload, "name") ?? nodeId,
+                Metadata = BuildAgentMetadata(payload)
+            }
         ];
     }
 
@@ -240,30 +240,36 @@ public sealed class AgUiEventMapper
             {
                 Type = "STEP_FINISHED",
                 StepId = nodeId,
-                StepName = GetString(payload, "agentName") ?? GetString(payload, "name") ?? nodeId
-            },
-            BuildAgentLifecycle(payload, "finished")
+                StepName = GetString(payload, "agentName") ?? GetString(payload, "name") ?? nodeId,
+                Metadata = BuildAgentMetadata(payload)
+            }
         };
 
         var output = GetString(payload, "output");
         var wasStreamed = GetBool(payload, "wasStreamed");
+        // messageId é o ID canônico do step (mesmo que vai pra chat_messages no save).
+        // Worker já o gerou em StartNewAgentAsync e propaga em todos os eventos relacionados.
+        var messageId = GetString(payload, "messageId");
+        var agentId = GetString(payload, "agentId") ?? nodeId;
 
         // Agente que produziu output não-streamed → reconstroi os 3 eventos de mensagem
-        // pra UI renderizar bubble.
-        if (output is not null && !wasStreamed)
+        // pra UI renderizar bubble. Sem messageId não há como o cliente referenciar a
+        // mensagem depois (feedback, etc) — então não emitimos o trio sintético.
+        if (output is not null && !wasStreamed && messageId is not null)
         {
-            var messageId = $"msg_{nodeId}";
             events.Add(new AgUiEvent
             {
                 Type = "TEXT_MESSAGE_START",
                 MessageId = messageId,
+                AgentId = agentId,
                 Role = "assistant"
             });
             events.Add(new AgUiEvent
             {
                 Type = "TEXT_MESSAGE_CONTENT",
                 MessageId = messageId,
-                Delta = JsonSerializer.SerializeToElement(output)
+                AgentId = agentId,
+                Delta = JsonSerializer.SerializeToElement(output, JsonDefaults.Domain)
             });
             events.Add(new AgUiEvent
             {
@@ -294,36 +300,26 @@ public sealed class AgUiEventMapper
         {
             Type = "CUSTOM",
             CustomName = "executor.lifecycle",
-            CustomValue = JsonSerializer.SerializeToElement(meta)
+            CustomValue = JsonSerializer.SerializeToElement(meta, JsonDefaults.Domain)
         };
     }
 
     /// <summary>
-    /// Empacota fase do ciclo de vida de um <b>agente</b> (Router, Conversational,
-    /// Worker, ToolRunner, Custom) num CUSTOM event AG-UI. Paralelo ao
-    /// <see cref="BuildExecutorLifecycle"/> — mantém STEP_STARTED/FINISHED
-    /// canônicos intactos pra clientes legados e expõe <c>agentType</c> +
-    /// <c>agentName</c> via mecanismo CUSTOM (extensibilidade fora do core spec).
-    /// Shape: { nodeId, phase, agentType?, agentName?, durationMs? }.
+    /// Metadata anexada ao STEP_STARTED/STEP_FINISHED de agentes. Carrega
+    /// <c>agentType</c>/<c>agentName</c>/<c>durationMs</c> — info que o
+    /// <c>StepName</c> puro não comporta. Substitui o CUSTOM[agent.lifecycle]
+    /// (anterior espelhava STEP_* e gerava 2× INSERTs no audit por node).
     /// </summary>
-    private static AgUiEvent BuildAgentLifecycle(JsonElement? payload, string phase)
+    private static IReadOnlyDictionary<string, object?> BuildAgentMetadata(JsonElement? payload)
     {
         var meta = new Dictionary<string, object?>
         {
-            ["nodeId"] = GetString(payload, "nodeId"),
-            ["phase"] = phase,
             ["agentType"] = GetString(payload, "agentType"),
             ["agentName"] = GetString(payload, "agentName")
         };
         var duration = GetInt(payload, "durationMs");
         if (duration is not null) meta["durationMs"] = duration;
-
-        return new AgUiEvent
-        {
-            Type = "CUSTOM",
-            CustomName = "agent.lifecycle",
-            CustomValue = JsonSerializer.SerializeToElement(meta)
-        };
+        return meta;
     }
 
     private static bool IsExecutor(string? nodeType)
@@ -341,11 +337,11 @@ public sealed class AgUiEventMapper
             options = GetStringArray(payload, "options"),
             timeoutSeconds = GetInt(payload, "timeoutSeconds"),
             interactionType = GetString(payload, "interactionType") ?? "Approval"
-        });
+        }, JsonDefaults.Domain);
 
         return [
             new AgUiEvent { Type = "TOOL_CALL_START", ToolCallId = interactionId, ToolCallName = "request_approval" },
-            new AgUiEvent { Type = "TOOL_CALL_ARGS",  ToolCallId = interactionId, Delta = JsonSerializer.SerializeToElement(args) },
+            new AgUiEvent { Type = "TOOL_CALL_ARGS",  ToolCallId = interactionId, Delta = JsonSerializer.SerializeToElement(args, JsonDefaults.Domain) },
             new AgUiEvent { Type = "TOOL_CALL_END",   ToolCallId = interactionId }
         ];
     }

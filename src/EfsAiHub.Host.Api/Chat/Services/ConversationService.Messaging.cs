@@ -15,7 +15,8 @@ public partial class ConversationService
         ConversationSession conversation,
         IReadOnlyList<ChatMessageInput> inputs,
         CancellationToken ct = default,
-        string? workflowVersionId = null)
+        string? workflowVersionId = null,
+        IReadOnlyList<ChatMessageInput>? echoHistory = null)
     {
         if (inputs.Count == 0)
             return new SendMessageResult(null, false, null);
@@ -88,7 +89,61 @@ public partial class ConversationService
             conversation.ActiveExecutionId = null;
         }
 
-        return await TriggerWorkflowAsync(conversation, lastInput, persisted, ct, workflowVersionId);
+        // Cliente pode mandar várias mensagens 'user' num único batch (ex.:
+        // ["Quero comprar um ativo", "petr4"]). Sem combinar, o Router só vê
+        // "petr4" e perde a intenção do verbo de operação. Persiste cada uma
+        // separadamente no DB (preserva granularidade pra audit/timeline) e
+        // combina o trailing run num único trigger pro workflow.
+        var trigger = CombineTrailingUserInputs(inputs);
+
+        return await TriggerWorkflowAsync(conversation, trigger, persisted, ct, workflowVersionId, echoHistory);
+    }
+
+    /// <summary>
+    /// Decide o histórico do turno: usa <paramref name="echoHistory"/> só
+    /// quando <paramref name="dbHistory"/> está vazio (conv nova/synthetic).
+    /// Conv estabelecida → DB é authoritative (preserva StructuredOutput dos
+    /// assistants, MessageId real, TokenCount, e impede divergência multi-tab).
+    /// </summary>
+    internal static IReadOnlyList<ChatMessage> ResolveHistoryWithEcho(
+        string conversationId,
+        IReadOnlyList<ChatMessage> dbHistory,
+        IReadOnlyList<ChatMessageInput>? echoHistory,
+        out bool echoApplied)
+    {
+        echoApplied = false;
+        if (echoHistory is not { Count: > 0 } || dbHistory.Count > 0)
+            return dbHistory;
+
+        echoApplied = true;
+        return echoHistory
+            .Select(e => new ChatMessage
+            {
+                MessageId = Guid.NewGuid().ToString("N"),
+                ConversationId = conversationId,
+                Role = e.Role,
+                Content = e.Message,
+                TokenCount = 0,
+                CreatedAt = DateTime.UtcNow,
+            })
+            .ToList();
+    }
+
+    internal static ChatMessageInput CombineTrailingUserInputs(IReadOnlyList<ChatMessageInput> inputs)
+    {
+        var trailing = new List<ChatMessageInput>();
+        for (var i = inputs.Count - 1; i >= 0; i--)
+        {
+            if (!string.Equals(inputs[i].Role, "user", StringComparison.OrdinalIgnoreCase)) break;
+            trailing.Insert(0, inputs[i]);
+        }
+
+        if (trailing.Count <= 1) return inputs[^1];
+
+        var combined = string.Join("\n\n", trailing.Select(t => t.Message));
+        // Actor preservado do último — quem manda batch típico é o mesmo
+        // ator nas N mensagens, então usar o primeiro/último não muda.
+        return new ChatMessageInput(trailing[^1].Role, combined, trailing[^1].Actor);
     }
 
     private async Task<SendMessageResult> TriggerWorkflowAsync(
@@ -96,7 +151,8 @@ public partial class ConversationService
         ChatMessageInput lastInput,
         List<ChatMessage> persisted,
         CancellationToken ct,
-        string? workflowVersionId = null)
+        string? workflowVersionId = null,
+        IReadOnlyList<ChatMessageInput>? echoHistory = null)
     {
         var workflowDef = await _workflowDefRepo.GetByIdAsync(conversation.WorkflowId, ct);
         var config = workflowDef?.Configuration;
@@ -118,6 +174,17 @@ public partial class ConversationService
         var historyWithoutCurrent = history
             .Where(m => !persisted.Any(p => p.MessageId == m.MessageId))
             .ToList();
+
+        var echoApplied = false;
+        var resolvedHistory = ResolveHistoryWithEcho(
+            conversation.ConversationId, historyWithoutCurrent, echoHistory, out echoApplied);
+        if (echoApplied)
+        {
+            _logger.LogInformation(
+                "[ConvService] Conv '{ConvId}' sem histórico em DB — usando echo do client ({Count} mensagens) como contexto do turno.",
+                conversation.ConversationId, echoHistory!.Count);
+        }
+        historyWithoutCurrent = resolvedHistory.ToList();
 
         // Token-aware trimming: remove as mensagens mais antigas até caber no budget
         if (maxHistoryTokens is > 0)
@@ -160,6 +227,41 @@ public partial class ConversationService
         return new SendMessageResult(executionId, false, persisted);
     }
 
+    public async Task OnStepCompletedAsync(
+        string conversationId, string executionId, string agentId,
+        string messageId, string output, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(output))
+        {
+            _logger.LogDebug(
+                "[ConvService] Step '{AgentId}' em exec='{ExecId}' não produziu output — sem ChatMessage.",
+                agentId, executionId);
+            return;
+        }
+
+        // Não valida ActiveExecutionId aqui (como OnExecutionCompletedAsync faz):
+        // steps chegam via NodePersistenceService (async), e pode haver race onde
+        // o completion final já zerou ActiveExecutionId antes do step ser processado.
+        // O ExecutionId é preservado na ChatMessage — quem quiser filtrar execuções
+        // canceladas/staled faz no consumer (admin queries, etc).
+        var parsed = ExecutionOutputParser.Parse(output);
+        var assistantMsg = new ChatMessage
+        {
+            MessageId = messageId,
+            ConversationId = conversationId,
+            Role = "assistant",
+            Content = parsed.TextContent,
+            StructuredOutput = parsed.StructuredOutput,
+            TokenCount = 0,
+            ExecutionId = executionId
+        };
+
+        await _msgRepo.SaveAsync(assistantMsg, ct);
+        // TokenCount real é populado fora do hot path por llm_token_usage; o updater
+        // resolve por messageId+executionId, então funciona com IDs vindos do worker.
+        _tokenCountUpdater.EnqueueUpdate(assistantMsg.MessageId, executionId);
+    }
+
     public async Task OnExecutionCompletedAsync(
         string conversationId, string finalOutput, string executionId,
         string? lastActiveAgentId = null, CancellationToken ct = default)
@@ -171,9 +273,6 @@ public partial class ConversationService
         var conversation = await _convRepo.GetByIdAsync(conversationId, ct);
         if (conversation is null) return;
 
-        // Validação idempotente: só persiste a resposta se a execução ainda é a ativa.
-        // Paridade com OnExecutionFailedAsync — evita que um completion atrasado de uma
-        // execução cancelada sobrescreva a resposta de uma nova execução já em curso.
         if (conversation.ActiveExecutionId != executionId)
         {
             MetricsRegistry.StaleExecutionCompletionSkipped.Add(1);
@@ -184,33 +283,17 @@ public partial class ConversationService
             return;
         }
 
-        var parsed = ExecutionOutputParser.Parse(finalOutput);
-
-        var assistantMsg = new ChatMessage
-        {
-            MessageId = Guid.NewGuid().ToString("N"),
-            ConversationId = conversationId,
-            Role = "assistant",
-            Content = parsed.TextContent,
-            StructuredOutput = parsed.StructuredOutput,
-            TokenCount = 0,
-            ExecutionId = executionId
-        };
-
-        await _msgRepo.SaveAsync(assistantMsg, ct);
-
-        // Atualiza TokenCount com valor real de llm_token_usage (fire-and-forget)
-        _tokenCountUpdater.EnqueueUpdate(assistantMsg.MessageId, executionId);
-
+        // Cleanup de estado da conversa. As ChatMessages já foram persistidas
+        // por OnStepCompletedAsync uma a uma — este callback não persiste mais nada.
         conversation.ActiveExecutionId = null;
         conversation.LastActiveAgentId = lastActiveAgentId ?? conversation.LastActiveAgentId;
-        conversation.LastMessageAt = assistantMsg.CreatedAt;
+        conversation.LastMessageAt = DateTime.UtcNow;
 
         await _convRepo.UpdateAsync(conversation, ct);
 
         _logger.LogInformation(
-            "[ConvService] Resposta do assistente persistida para conversa '{ConvId}'. LastActiveAgent='{AgentId}'.",
-            conversationId, conversation.LastActiveAgentId);
+            "[ConvService] Execução '{ExecId}' fechada na conversa '{ConvId}'. LastActiveAgent='{AgentId}'.",
+            executionId, conversationId, conversation.LastActiveAgentId);
     }
 
     private async Task WaitForTerminalStatusAsync(string executionId, TimeSpan timeout, CancellationToken ct)

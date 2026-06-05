@@ -38,6 +38,7 @@ export function getAuthHeaders(): Record<string, string> {
     headers['x-efs-permissions'] = resolvePermissionsCsv(id.permissions)
   }
   if (id?.projectId) headers['x-project-id'] = id.projectId
+  if (id?.tenantId) headers['x-tenant-id'] = id.tenantId
 
   const token = readAccessToken()
   if (token) headers['access_token'] = token

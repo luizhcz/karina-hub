@@ -323,6 +323,15 @@ public class WorkflowConfiguration
     public IReadOnlyList<string>? OutputNodes { get; init; }
 
     /// <summary>
+    /// Cota individual de jobs <c>Status='Running'</c> simultâneos pra este
+    /// workflow no pool standalone. <c>null</c> = usa
+    /// <c>StandalonePoolsOptions.DefaultMaxConcurrentPerWorkflow</c> (default
+    /// global). Dispatcher lê via SQL no momento do lease — workflow doente
+    /// não consegue saturar slots compartilhados.
+    /// </summary>
+    public int? StandaloneMaxConcurrent { get; init; }
+
+    /// <summary>
     /// Limite de execuções simultâneas para este workflow.
     /// null → sem semáforo — executa imediatamente ao receber input (ilimitado).
     /// > 0  → semáforo dedicado: máximo N execuções simultâneas deste workflow.

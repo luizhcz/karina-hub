@@ -58,6 +58,13 @@ public static class ServiceCollectionExtensions
                 description: "Injeta uma safety policy fixa (anti prompt injection, scope adherence, anti hallucination, anti leakage) como system message a cada chamada.",
                 settings: []);
 
+            registry.Register("RouterDecisionTelemetry", MiddlewarePhase.Post,
+                (inner, agentId, settings, _) =>
+                    new EfsAiHub.Platform.Runtime.Middlewares.RouterDecisionTelemetryChatClient(inner, agentId, settings, logger),
+                label: "Telemetria de decisão do Router",
+                description: "Emite métricas OTel por decisão do Router (router.decisions_total, router.confidence, router.ambiguity_signals_total) + log estruturado por turno. Aplica validação dura: needs_clarification sem candidate_intents válido é reescrito como out_of_scope antes de ir pro downstream.",
+                settings: []);
+
             return registry;
         });
 
@@ -67,22 +74,27 @@ public static class ServiceCollectionExtensions
     // ── Function Tool Registry ──────────────────────────────────────────────────
     public static IServiceCollection AddFunctionToolRegistry(this IServiceCollection services)
     {
+        // Tools com dependências (auth context, HttpClient etc.) registradas
+        // como Singleton — o estado per-request flui via AsyncLocal nos accessors.
+        services.AddOptions<EfsAiHub.Platform.Runtime.Tools.PortfolioApiOptions>()
+            .BindConfiguration(EfsAiHub.Platform.Runtime.Tools.PortfolioApiOptions.SectionName);
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.PortfolioAnalysisTool>();
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.ClientPositionsTool>();
+
         services.AddSingleton<IFunctionToolRegistry>(sp =>
         {
             var registry = new FunctionToolRegistry(
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<FunctionToolRegistry>());
 
-            registry.Register("search_web", AIFunctionFactory.Create(WebSearchFunctions.SearchWeb));
+            registry.Register("get_datetime", AIFunctionFactory.Create(DateTimeFunctions.GetDateTime));
+            registry.Register("get_asset", AIFunctionFactory.Create(AssetFunctions.GetAsset));
 
-            var boleta = sp.GetRequiredService<BoletaToolFunctions>();
-            registry.Register("search_asset", AIFunctionFactory.Create(boleta.SearchAsset));
-            registry.Register("get_asset_position", AIFunctionFactory.Create(boleta.GetAssetPosition));
-            registry.Register("SendOrder", AIFunctionFactory.Create(boleta.SendOrder));
+            var portfolio = sp.GetRequiredService<EfsAiHub.Platform.Runtime.Tools.PortfolioAnalysisTool>();
+            registry.Register("analyze_portfolio", AIFunctionFactory.Create(portfolio.AnalyzePortfolioAsync));
 
-            registry.Register("get_portfolio", AIFunctionFactory.Create(ApexHandoffFunctions.GetPortfolio));
-            registry.Register("redeem_asset", AIFunctionFactory.Create(ApexHandoffFunctions.RedeemAsset));
-            registry.Register("invest_asset", AIFunctionFactory.Create(ApexHandoffFunctions.InvestAsset));
-            registry.Register("calculate_asset_redemption_tax", AIFunctionFactory.Create(ApexHandoffFunctions.CalculateAssetRedemptionTax));
+            var positions = sp.GetRequiredService<EfsAiHub.Platform.Runtime.Tools.ClientPositionsTool>();
+            registry.Register("get_portfolio", AIFunctionFactory.Create(positions.GetPortfolioAsync));
+            registry.Register("get_position",  AIFunctionFactory.Create(positions.GetPositionAsync));
 
             return registry;
         });
@@ -274,6 +286,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<INodeExecutionRepository, PgNodeExecutionRepository>();
         services.AddSingleton<IConversationRepository, PgConversationRepository>();
         services.AddSingleton<IChatMessageRepository, PgChatMessageRepository>();
+        services.AddSingleton<IMessageFeedbackRepository, PgMessageFeedbackRepository>();
         services.AddSingleton<IAtivoRepository, PgAtivoRepository>();
         services.AddSingleton<ILlmTokenUsageRepository, PgLlmTokenUsageRepository>();
         services.AddSingleton<IToolInvocationRepository, PgToolInvocationRepository>();
@@ -465,14 +478,52 @@ public static class ServiceCollectionExtensions
             ?? new WorkflowEngineOptions();
 
         services.AddHostedService<DatabaseBootstrapService>();
-        services.AddHostedService<AgentVersionBackfillService>();
+        // AgentVersionBackfillService removido (decisão 2026-05-29): rodar
+        // recompose/upsert a cada startup era opaco (criava revision nova em
+        // silêncio quando o composer divergia do snapshot) e custoso. Agentes
+        // seedados via db/seeds.sql ficam sem agent_versions row até a primeira
+        // edição via API/UI — fluxo aceitável porque seed acontece raramente
+        // e via PR explícito.
         services.AddHostedService<AgentSessionCleanupService>();
         services.AddHostedService<AgentSandboxCleanupService>();
-        services.AddHostedService<LlmCostRefreshService>();
         services.AddHostedService<AuditRetentionService>();
         if (engineOpts.MultiNode)
             services.AddHostedService<CrossNodeCoordinator>();
         services.AddHostedService<StuckExecutionRecoveryService>();
+
+        // Standalone Pools — workflows assíncronos com fila isolada (Redis slot
+        // counter scope=standalone + lease em background_response_jobs).
+        // Gateado pela feature flag StandalonePools:Enabled — quando false, o
+        // dispatcher fica idle (não consome jobs, não bloqueia recursos).
+        // O reaper sempre roda: idempotente e protege contra jobs órfãos mesmo
+        // após desligar a feature.
+        services.AddOptions<EfsAiHub.Platform.Runtime.Configuration.StandalonePoolsOptions>()
+            .BindConfiguration(EfsAiHub.Platform.Runtime.Configuration.StandalonePoolsOptions.SectionName);
+        services.AddOptions<EfsAiHub.Platform.Runtime.Configuration.IngestionApiOptions>()
+            .BindConfiguration(EfsAiHub.Platform.Runtime.Configuration.IngestionApiOptions.SectionName);
+        services.AddOptions<EfsAiHub.Platform.Runtime.Configuration.WebhookDeliveryOptions>()
+            .BindConfiguration(EfsAiHub.Platform.Runtime.Configuration.WebhookDeliveryOptions.SectionName);
+
+        // Webhook deliveries — repository pra entregas + worker que processa
+        // pending (1 tentativa, sem retry).
+        services.AddSingleton<EfsAiHub.Core.Agents.Responses.IWebhookDeliveryRepository,
+            PgWebhookDeliveryRepository>();
+
+        // Ingestion pipeline (URL → PDF/TXT/MD → DI → workflow).
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Ingestion.IngestionDownloader>();
+
+        // Handlers de jobs standalone. Ordem importa: IngestionJobHandler antes
+        // do default — primeiro que CanHandle ganha. WorkflowStandaloneJobHandler
+        // aceita qualquer job, então é o fallback.
+        services.AddSingleton<EfsAiHub.Host.Worker.Services.Handlers.IStandaloneJobHandler,
+            EfsAiHub.Host.Worker.Services.Handlers.IngestionJobHandler>();
+        services.AddSingleton<EfsAiHub.Host.Worker.Services.Handlers.IStandaloneJobHandler,
+            EfsAiHub.Host.Worker.Services.Handlers.WorkflowStandaloneJobHandler>();
+
+        services.AddHostedService<EfsAiHub.Host.Worker.Services.StandaloneJobDispatcherService>();
+        services.AddHostedService<EfsAiHub.Host.Worker.Services.StuckLeaseReaper>();
+        services.AddHostedService<EfsAiHub.Host.Worker.Services.WebhookCallbackDeliveryService>();
+
         // HitlRecoveryService DEVE ser registrado por último
         services.AddHostedService<HitlRecoveryService>();
 
@@ -527,8 +578,10 @@ public static class ServiceCollectionExtensions
             registry.Register("NodePersistence", new() { Name = "NodePersistence", Description = "Persiste sequencialmente o estado dos nós de workflow", Lifecycle = "Continuous", ServiceType = typeof(NodePersistenceService) });
             registry.Register("TokenUsagePersistence", new() { Name = "TokenUsagePersistence", Description = "Persiste consumo de tokens em lote", Lifecycle = "Continuous", ServiceType = typeof(TokenUsagePersistenceService) });
             registry.Register("ToolInvocationPersistence", new() { Name = "ToolInvocationPersistence", Description = "Persiste invocações de tools em lote", Lifecycle = "Continuous", ServiceType = typeof(ToolInvocationPersistenceService) });
-            registry.Register("LlmCostRefresh", new() { Name = "LlmCostRefresh", Description = "Atualiza as views materializadas de custo de LLM", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(Math.Max(1, opts.LlmCostRefreshIntervalMinutes)), ServiceType = typeof(LlmCostRefreshService) });
             registry.Register("AgUiTokenChannelCleanup", new() { Name = "AgUiTokenChannelCleanup", Description = "Remove canais SSE inativos do streaming AG-UI", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(5), ServiceType = typeof(EfsAiHub.Host.Api.Chat.AgUi.Streaming.AgUiTokenChannelCleanupService) });
+            registry.Register("StandaloneJobDispatcher", new() { Name = "StandaloneJobDispatcher", Description = "Consome jobs da fila standalone (background_response_jobs) e dispara workflows assíncronos. Gateado por StandalonePools:Enabled.", Lifecycle = "Continuous", ServiceType = typeof(EfsAiHub.Host.Worker.Services.StandaloneJobDispatcherService) });
+            registry.Register("StuckLeaseReaper", new() { Name = "StuckLeaseReaper", Description = "Devolve pra Queued jobs standalone com lease expirado (pod morreu, heartbeat falhou).", Lifecycle = "Continuous", ServiceType = typeof(EfsAiHub.Host.Worker.Services.StuckLeaseReaper) });
+            registry.Register("WebhookCallbackDelivery", new() { Name = "WebhookCallbackDelivery", Description = "Entrega webhooks de jobs standalone terminais (CallbackTarget). Uma tentativa por delivery — sem retry.", Lifecycle = "Continuous", ServiceType = typeof(EfsAiHub.Host.Worker.Services.WebhookCallbackDeliveryService) });
 
             return registry;
         });

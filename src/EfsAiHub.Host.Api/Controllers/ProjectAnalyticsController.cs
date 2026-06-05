@@ -146,6 +146,21 @@ public sealed class ProjectAnalyticsController : ControllerBase
         return Ok(status);
     }
 
+    [HttpPost("{projectId}/refresh")]
+    [SwaggerOperation(Summary = "Invalida o cache Redis de analytics do projeto. " +
+                                "Próxima leitura de overview/timeseries/agents recomputa direto do banco. Use quando quiser ver dado atualizado antes do TTL (30min) expirar.")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Refresh(string projectId, CancellationToken ct)
+    {
+        var gate = await EnsureProjectAccessAsync(projectId, ct);
+        if (gate is not null) return gate;
+
+        await _repo.InvalidateProjectCacheAsync(projectId, ct);
+        return NoContent();
+    }
+
     /// <summary>
     /// Bate 403 quando non-admin tenta ler projeto diferente do current. 404
     /// quando o projeto não existe (HasQueryFilter já isola por tenant).

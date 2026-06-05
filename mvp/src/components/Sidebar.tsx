@@ -7,6 +7,7 @@ import {
   CheckIcon,
   LogoIcon,
   PlugIcon,
+  ServerIcon,
   SettingsIcon,
   SparklesIcon,
   ToolIcon,
@@ -39,6 +40,7 @@ const navItems: NavItem[] = [
 const adminItems: NavItem[] = [
   { label: 'Usuários', to: '/admin/usuarios', icon: <SettingsIcon className="h-5 w-5" /> },
   { label: 'Middlewares', to: '/admin/middlewares', icon: <PlugIcon className="h-5 w-5" /> },
+  { label: 'Ingestões', to: '/admin/ingestoes', icon: <ServerIcon className="h-5 w-5" /> },
   { label: 'Auditoria', to: '/admin/auditoria', icon: <CheckIcon className="h-5 w-5" /> },
   { label: 'Captura LLM', to: '/admin/llm-capture', icon: <SparklesIcon className="h-5 w-5" /> },
   { label: 'Chamadas LLM', to: '/admin/llm-calls', icon: <ChartIcon className="h-5 w-5" /> },

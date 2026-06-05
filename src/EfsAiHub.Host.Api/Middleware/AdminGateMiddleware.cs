@@ -171,20 +171,42 @@ public sealed class AdminGateMiddleware
     private static readonly Regex EvaluationsRunEventsPattern =
         new(@"^/api/aihub/evaluations/runs/[^/]+/events$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    // GET /api/aihub/analytics/projects/{id}/(overview|timeseries|agents|budget) —
+    // /api/aihub/analytics/projects/{id}/(overview|timeseries|agents|budget|refresh) —
     // dashboard de uso/custo por projeto. Liberado pra non-admin com a mesma
     // garantia do approval-history: ProjectAnalyticsController.EnsureProjectAccessAsync
     // valida ownership (current.ProjectId == path.projectId OU caller é admin)
-    // antes de tocar o repo. Regex restrita aos 4 sufixos pra evitar vazamento
-    // de sub-rotas futuras (ex.: POST /refresh) que escapem revisão deste
-    // middleware.
+    // antes de tocar o repo. `refresh` é POST e apenas invalida o cache do
+    // projeto via incremento de versão — sem efeito colateral fora do escopo.
     private static readonly Regex ProjectAnalyticsPattern =
-        new(@"^/api/aihub/analytics/projects/[^/]+/(overview|timeseries|agents|budget)$",
+        new(@"^/api/aihub/analytics/projects/[^/]+/(overview|timeseries|agents|budget|refresh)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // GET /api/aihub/users/{userId}/conversations
     private static readonly Regex UserConversationsPattern =
         new(@"^/api/aihub/users/[^/]+/conversations$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // /api/aihub/agents/{routerId}/quick-actions[/{id}] — CRUD de atalhos do Router.
+    // Liberado pra non-admin: o controller já valida via HasQueryFilter (filtro por
+    // ProjectId scope) e EnsureRouter rejeita acesso a Router de outro projeto.
+    private static readonly Regex RouterQuickActionsPattern =
+        new(@"^/api/aihub/agents/[^/]+/quick-actions(/[^/]+)?$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // /api/aihub/responses[/{jobId}] — pool de execução standalone (workflows
+    // assíncronos). POST enfileira pra processamento pelo StandaloneJobDispatcher;
+    // GET retorna estado do job com suporte a If-None-Match. Liberado pra non-admin
+    // do projeto: ProjectMiddleware já enforça acesso ao ProjectContext e o
+    // ResponsePollingRateLimitMiddleware aplica throttling por projeto no GET.
+    private static readonly Regex StandaloneResponsesPattern =
+        new(@"^/api/aihub/responses(/[^/]+)?$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // /api/aihub/ingestions — POST de ingestão URL → arquivo → workflow.
+    // Liberado pra non-admin do projeto: ProjectMiddleware enforça acesso ao
+    // ProjectContext; o controller persiste TenantId/ProjectId resolvidos.
+    private static readonly Regex IngestionsPattern =
+        new(@"^/api/aihub/ingestions(/[^/]+)?$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // GET /api/aihub/projects (lista) ou GET /api/aihub/projects/{id} (detalhe). Sub-rotas
     // como /api/aihub/projects/{id}/blocklist são admin-only — caem fora desse pattern.
@@ -396,6 +418,24 @@ public sealed class AdminGateMiddleware
 
         if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
             && ProjectAnalyticsPattern.IsMatch(path))
+            return true;
+
+        // Router Quick Actions — CRUD liberado pra non-admin do projeto. Controller
+        // valida ownership do Router (Type=Router) e usa ProjectContext pra scope.
+        if (RouterQuickActionsPattern.IsMatch(path))
+            return true;
+
+        // Standalone responses (enqueue + polling) — POST/GET liberados pra non-admin
+        // com projeto vinculado. Throttling do GET via ResponsePollingRateLimitMiddleware.
+        if (StandaloneResponsesPattern.IsMatch(path)
+            && (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+                || method.Equals("POST", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        // Ingestões (URL → arquivo → workflow) — POST liberado pra non-admin.
+        // Polling do estado é via /api/aihub/responses/{jobId}.
+        if (IngestionsPattern.IsMatch(path)
+            && method.Equals("POST", StringComparison.OrdinalIgnoreCase))
             return true;
 
         // Conversations — todos os métodos (chat via REST)

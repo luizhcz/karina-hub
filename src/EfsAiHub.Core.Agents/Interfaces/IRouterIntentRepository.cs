@@ -12,6 +12,15 @@ public interface IRouterIntentRepository
     /// <summary>Busca intent pelo Id no scope do tenant atual; null se não existir.</summary>
     Task<RouterIntent?> GetByIdAsync(string id, CancellationToken ct = default);
 
+    /// <summary>
+    /// Hidrata um set de intents pelos seus Ids no scope do tenant atual.
+    /// Resultado preserva a ordem do <paramref name="ids"/>; Ids não encontrados
+    /// são silenciosamente omitidos. Usado pelo composer pra resolver
+    /// <c>AgentDefinition.RouterIntentIds</c> no save sem depender da tabela
+    /// de link (que é populada depois do save).
+    /// </summary>
+    Task<IReadOnlyList<RouterIntent>> GetByIdsAsync(IReadOnlyList<string> ids, CancellationToken ct = default);
+
     /// <summary>Lista intents do tenant atual ordenadas por UpdatedAt desc.</summary>
     Task<IReadOnlyList<RouterIntent>> ListAsync(CancellationToken ct = default);
 

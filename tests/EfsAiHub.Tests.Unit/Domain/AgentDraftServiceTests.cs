@@ -1,4 +1,5 @@
 using EfsAiHub.Core.Abstractions.Identity;
+using EfsAiHub.Core.Agents.Services;
 using Microsoft.Extensions.Logging;
 
 namespace EfsAiHub.Tests.Unit.Domain;
@@ -22,6 +23,7 @@ public class AgentDraftServiceTests
 
         var svc = new AgentDraftService(
             draftRepo, agentRepo, versionRepo,
+            new AgentDefinitionDecomposer(),
             projectAccessor, tenantAccessor,
             Substitute.For<ILogger<AgentDraftService>>());
 

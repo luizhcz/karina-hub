@@ -86,62 +86,6 @@ public class AgentTemplateServiceTests
     }
 
     [Fact]
-    public void Apply_Conversational_WrappedLegado_DesempacotaSubschemaERewrappa()
-    {
-        var wrapped = JsonDoc("""
-            {
-              "type":"object",
-              "properties":{
-                "ui_component":{"type":"string","enum":["text","card"]},
-                "message":{"type":"string"},
-                "output":{"type":"object","properties":{"ticker":{"type":"string"}}}
-              },
-              "required":["ui_component","message","output"],
-              "additionalProperties":false
-            }
-        """);
-        var def = NewConversational(structuredOutput: new AgentStructuredOutputDefinition
-        {
-            ResponseFormat = "json_schema",
-            SchemaName = "ConversationalTurn",
-            Schema = wrapped,
-        });
-
-        var result = Service.Apply(def);
-
-        var root = result.StructuredOutput!.Schema!.RootElement;
-        var output = root.GetProperty("properties").GetProperty("output");
-        // O sub-schema original foi preservado intacto — properties.output
-        // não acumula nesting (sem `output.properties.output`).
-        output.GetProperty("properties").GetProperty("ticker").GetProperty("type").GetString()
-            .Should().Be("string");
-        output.TryGetProperty("output", out _).Should().BeFalse();
-    }
-
-    [Fact]
-    public void Apply_Conversational_AnexaBlocoFormatoDaResposta()
-    {
-        var def = NewConversational(instructions: "Você é um agente de teste.");
-
-        var result = Service.Apply(def);
-
-        result.Instructions.Should().Contain("## Formato da resposta");
-        result.Instructions.Should().StartWith("Você é um agente de teste.");
-    }
-
-    [Fact]
-    public void Apply_Conversational_BlocoJaPresente_NaoDuplica()
-    {
-        var def = NewConversational(instructions:
-            "Você é um agente.\n\n## Formato da resposta\nResponda em JSON.");
-
-        var result = Service.Apply(def);
-
-        var occurrences = Occurrences(result.Instructions!, "## Formato da resposta");
-        occurrences.Should().Be(1);
-    }
-
-    [Fact]
     public void Apply_Conversational_InjetaStructuredOutputStateMiddleware()
     {
         var def = NewConversational();
@@ -252,26 +196,6 @@ public class AgentTemplateServiceTests
     }
 
     [Fact]
-    public void Apply_Conversational_LegadoUiComponents_FallbackPraOutputStatus()
-    {
-        // Migration 011 deve mover x-conversational-ui-components → output-statuses,
-        // mas até rodar em todos ambientes o template precisa ler como fallback.
-#pragma warning disable CS0618 // legacy key intencional pra cobrir BC
-        var def = NewConversational(metadata: new Dictionary<string, string>
-        {
-            [AgentDefinition.ConversationalUiComponentsMetadataKey] = "[\"text\",\"card\"]",
-        });
-#pragma warning restore CS0618
-
-        var result = Service.Apply(def);
-
-        var properties = result.StructuredOutput!.Schema!.RootElement.GetProperty("properties");
-        properties.GetProperty("output_status").GetProperty("enum").EnumerateArray()
-            .Select(e => e.GetString()).ToArray()
-            .Should().BeEquivalentTo(new[] { "text", "card" });
-    }
-
-    [Fact]
     public void Apply_NonConversational_NaoAltera()
     {
         var custom = new AgentDefinition
@@ -314,15 +238,106 @@ public class AgentTemplateServiceTests
         first.Middlewares.Count.Should().Be(second.Middlewares.Count);
     }
 
-    private static int Occurrences(string source, string needle)
+    // ── Router: auto-inject de RouterDecisionTelemetry ─────────────────────
+
+    private static AgentDefinition NewRouter(
+        IReadOnlyList<AgentMiddlewareConfig>? middlewares = null) => new()
     {
-        var count = 0;
-        var index = 0;
-        while ((index = source.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+        Id = "router-x",
+        Name = "Router Teste",
+        Type = AgentType.Router,
+        Model = new AgentModelConfig { DeploymentName = "gpt-4o-mini" },
+        Instructions = "x",
+        ProjectId = "default",
+        TenantId = "default",
+        RouterIntentIds = new[] { "i1", "i2" },
+        Middlewares = middlewares ?? Array.Empty<AgentMiddlewareConfig>(),
+    };
+
+    [Fact]
+    public void Apply_Router_InjetaRouterDecisionTelemetryComoPrimeiroMiddleware()
+    {
+        // O middleware precisa ficar como PRIMEIRA entry do array porque o
+        // pipeline wrap-from-inside-out faz com que a primeira entry vire o
+        // middleware mais interno — telemetria + rewrite rodam ANTES do
+        // StructuredOutputState (que emite STATE_DELTA) e do Blocklist.
+        var def = NewRouter();
+
+        var result = Service.Apply(def);
+
+        result.Middlewares.Should().NotBeEmpty();
+        result.Middlewares[0].Type.Should().Be("RouterDecisionTelemetry");
+        result.Middlewares[0].Enabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Apply_Router_PreservaOutrosMiddlewares()
+    {
+        var def = NewRouter(new[]
         {
-            count++;
-            index += needle.Length;
-        }
-        return count;
+            new AgentMiddlewareConfig { Type = "StructuredOutputState", Enabled = true },
+            new AgentMiddlewareConfig { Type = "SecurityGuardrails", Enabled = true },
+        });
+
+        var result = Service.Apply(def);
+
+        result.Middlewares.Should().HaveCount(3);
+        result.Middlewares[0].Type.Should().Be("RouterDecisionTelemetry");
+        result.Middlewares.Should().Contain(m => m.Type == "StructuredOutputState");
+        result.Middlewares.Should().Contain(m => m.Type == "SecurityGuardrails");
+    }
+
+    [Fact]
+    public void Apply_Router_NaoDuplicaTelemetryQuandoJaPresente()
+    {
+        // Idempotência: re-aplicar template sobre payload já normalizado mantém
+        // 1 entry. Caso comum: AgentService.Apply roda em create E update.
+        var def = NewRouter(new[]
+        {
+            new AgentMiddlewareConfig { Type = "RouterDecisionTelemetry", Enabled = true },
+        });
+
+        var result = Service.Apply(def);
+
+        result.Middlewares.Count(m =>
+            string.Equals(m.Type, "RouterDecisionTelemetry", StringComparison.OrdinalIgnoreCase))
+            .Should().Be(1);
+    }
+
+    [Fact]
+    public void Apply_Router_PromoveTelemetryDesabilitadaParaEnabled()
+    {
+        // Entry inert quebra o pipeline silenciosamente — middleware é
+        // promovido pra Enabled=true. Caller que precise desativar tem que
+        // remover o entry inteiro (mas template re-injeta — telemetria não é
+        // opt-out por design pra Router).
+        var def = NewRouter(new[]
+        {
+            new AgentMiddlewareConfig { Type = "RouterDecisionTelemetry", Enabled = false },
+        });
+
+        var result = Service.Apply(def);
+
+        result.Middlewares
+            .First(m => string.Equals(m.Type, "RouterDecisionTelemetry", StringComparison.OrdinalIgnoreCase))
+            .Enabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Apply_Router_DescartaEntriesDuplicadasDeTelemetry()
+    {
+        var def = NewRouter(new[]
+        {
+            new AgentMiddlewareConfig { Type = "RouterDecisionTelemetry", Enabled = false },
+            new AgentMiddlewareConfig { Type = "RouterDecisionTelemetry", Enabled = true },
+            new AgentMiddlewareConfig { Type = "SecurityGuardrails", Enabled = true },
+        });
+
+        var result = Service.Apply(def);
+
+        result.Middlewares.Count(m =>
+            string.Equals(m.Type, "RouterDecisionTelemetry", StringComparison.OrdinalIgnoreCase))
+            .Should().Be(1);
+        result.Middlewares.Should().Contain(m => m.Type == "SecurityGuardrails");
     }
 }

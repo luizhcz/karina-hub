@@ -65,7 +65,7 @@ public class GenericToolInvariantsTests
     {
         var tool = ValidGetTool();
         tool.OutputContentType = OutputContentType.Json;
-        tool.OutputSchema = "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}";
+        tool.OutputSchema = "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"additionalProperties\":false}";
         tool.OutputProjectionMode = OutputProjectionMode.Off;
 
         Action act = tool.EnsureInvariants;
@@ -145,16 +145,31 @@ public class GenericToolInvariantsTests
     }
 
     [Fact]
-    public void EnsureInvariants_GetComInputContentTypeNonNone_LancaDomainException()
+    public void EnsureInvariants_GetComInputContentTypeFormUrlEncoded_LancaDomainException()
     {
+        // FormUrlEncoded em GET não tem semântica (não há body); rejeitado.
         var tool = ValidGetTool();
-        tool.InputContentType = InputContentType.Json;
-        tool.InputSchema = "{\"type\":\"object\",\"properties\":{}}";
+        tool.InputContentType = InputContentType.FormUrlEncoded;
+        tool.InputSchema = """{"type":"object","properties":{"x":{"type":"string"}},"required":["x"],"additionalProperties":false}""";
 
         Action act = tool.EnsureInvariants;
 
         act.Should().Throw<DomainException>()
-            .WithMessage("*GET*InputContentType=None*");
+            .WithMessage("*GET*None*Json*");
+    }
+
+    [Fact]
+    public void EnsureInvariants_GetComInputContentTypeJson_NaoLanca()
+    {
+        // GET+Json é o caminho novo: schema declarado serve pro LLM saber quais
+        // query params adicionais emitir (flattened no executor).
+        var tool = ValidGetTool();
+        tool.InputContentType = InputContentType.Json;
+        tool.InputSchema = """{"type":"object","properties":{"ticker":{"type":"string"}},"required":["ticker"],"additionalProperties":false}""";
+
+        var act = tool.EnsureInvariants;
+
+        act.Should().NotThrow();
     }
 
     [Fact]
@@ -206,11 +221,13 @@ public class GenericToolInvariantsTests
                     "properties": {
                         "name": { "type": "string" },
                         "age": { "type": "integer" }
-                    }
+                    },
+                    "required": ["name", "age"],
+                    "additionalProperties": false
                 }
                 """,
             OutputContentType = OutputContentType.Json,
-            OutputSchema = "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}}}",
+            OutputSchema = "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}},\"required\":[\"ok\"],\"additionalProperties\":false}",
             OutputProjectionMode = OutputProjectionMode.Project,
         };
 
@@ -392,7 +409,7 @@ public class GenericToolInvariantsTests
             ["id"] = new("string", "user id", true),
         },
         OutputContentType = OutputContentType.Json,
-        OutputSchema = "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}",
+        OutputSchema = "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"additionalProperties\":false}",
         OutputProjectionMode = OutputProjectionMode.Project,
     };
 }

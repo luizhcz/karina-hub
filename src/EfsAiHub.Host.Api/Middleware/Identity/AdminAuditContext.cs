@@ -2,6 +2,7 @@ using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
 using Microsoft.AspNetCore.Http;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Host.Api.Services;
 
@@ -81,7 +82,7 @@ public sealed class AdminAuditContext
         if (value is null) return null;
         try
         {
-            var json = JsonSerializer.Serialize(value);
+            var json = JsonSerializer.Serialize(value, JsonDefaults.Domain);
             return JsonDocument.Parse(json);
         }
         catch

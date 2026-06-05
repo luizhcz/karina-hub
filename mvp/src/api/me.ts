@@ -16,6 +16,13 @@ export interface MeResponse {
   permissions: string[]
   userId?: string | null
   displayName?: string | null
+  /**
+   * Tenant resolvido pelo backend a partir do header `x-tenant-id` (ou
+   * `default` quando ausente). Pass-through puro — backend não valida contra
+   * catálogo. Frontend persiste em `identity.tenantId` pra re-enviar o header
+   * em chamadas subsequentes (ver getAuthHeaders).
+   */
+  tenantId?: string | null
   projects: ProjectRef[]
 }
 

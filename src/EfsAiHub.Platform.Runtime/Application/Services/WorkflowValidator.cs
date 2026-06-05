@@ -64,6 +64,16 @@ public class WorkflowValidator
     /// case com predicate <c>$.intent Eq "out_of_scope"</c>. Sem isso, o
     /// runtime pode receber um <c>intent</c> que não bate com nenhum case e
     /// travar/responder vazio.
+    ///
+    /// <para>
+    /// Router moderno (PR 1+) emite também <c>needs_clarification</c> como
+    /// intent canônica. O case explícito pra <c>needs_clarification</c> não é
+    /// obrigatório aqui (o default cobre o branch); é decisão de produto
+    /// roteá-lo pro agente Clarifier OU deixar cair no fallback. A migration
+    /// dos workflows existentes (futuro PR de Clarifier) introduz o case
+    /// canônico — este validator não força enforcement enquanto o nó
+    /// downstream não estiver disponível em todos os tenants.
+    /// </para>
     /// </summary>
     private async Task ValidateRouterSwitchFallbackAsync(
         WorkflowDefinition definition,
@@ -85,14 +95,17 @@ public class WorkflowValidator
                 c.Predicate is { } p
                 && p.Operator == EdgeOperator.Eq
                 && IsIntentPath(p.Path)
-                && IsOutOfScopeValue(p.Value));
+                && IsSystemIntentValue(p.Value, SystemIntents.OutOfScopeName));
 
             if (!hasDefault && !hasOutOfScopeCase)
             {
                 errors.Add(
                     $"Switch a partir do Router '{edge.From}' não tem caminho de fallback. " +
                     $"Adicione um caso com IsDefault=true OU um caso com predicate " +
-                    $"`$.intent Eq \"{SystemIntents.OutOfScopeName}\"` apontando pro agente de fallback.");
+                    $"`$.intent Eq \"{SystemIntents.OutOfScopeName}\"` apontando pro agente de fallback. " +
+                    $"Recomendado também: case `$.intent Eq \"{SystemIntents.NeedsClarificationName}\"` " +
+                    $"apontando pro agente Clarifier — sem ele mensagens ambíguas caem no default e " +
+                    $"perdem a oportunidade de desambiguação.");
             }
         }
     }
@@ -103,12 +116,32 @@ public class WorkflowValidator
         return string.Equals(path, "$.intent", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsOutOfScopeValue(System.Text.Json.JsonElement? value)
+    /// <summary>
+    /// True quando o JsonElement é uma string que casa com um system intent
+    /// (case-insensitive). Helper compartilhado pelas duas regras —
+    /// <c>out_of_scope</c> hoje e <c>needs_clarification</c> quando a
+    /// migration de workflows do PR do Clarifier introduzir o case.
+    /// </summary>
+    private static bool IsSystemIntentValue(System.Text.Json.JsonElement? value, string expected)
     {
         if (value is not { } v || v.ValueKind != System.Text.Json.JsonValueKind.String)
             return false;
-        return string.Equals(v.GetString(), SystemIntents.OutOfScopeName, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(v.GetString(), expected, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Detecta se o edge contém um case explícito pra
+    /// <see cref="SystemIntents.NeedsClarificationName"/>. Usado pela migration
+    /// de workflows do PR do Clarifier pra evitar dupla inserção do case (e
+    /// futuramente por uma versão "strict" deste validator que pode promover a
+    /// regra de warning pra error).
+    /// </summary>
+    internal static bool HasNeedsClarificationCase(WorkflowEdge edge) =>
+        edge.Cases.Any(c =>
+            c.Predicate is { } p
+            && p.Operator == EdgeOperator.Eq
+            && IsIntentPath(p.Path)
+            && IsSystemIntentValue(p.Value, SystemIntents.NeedsClarificationName));
 
     private static void ValidateVisibility(WorkflowDefinition definition, List<string> errors)
     {

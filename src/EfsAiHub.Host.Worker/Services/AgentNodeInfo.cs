@@ -4,7 +4,8 @@ namespace EfsAiHub.Host.Worker.Services;
 /// Metadata leve de um agente referenciado pelo workflow, indexado por
 /// AgentId no <c>WorkflowRunnerService</c>. Encapsula <c>Name</c> + <c>Type</c>
 /// pra discriminação no callback de nodes (agent vs executor) e pra
-/// propagação do tipo no wire format AG-UI (<c>CUSTOM[agent.lifecycle]</c>).
+/// propagação do tipo no wire format AG-UI
+/// (<c>STEP_STARTED.metadata.agentType</c>).
 /// </summary>
 /// <param name="Name">Display name do agente — usado em telemetria/UI.</param>
 /// <param name="Type">

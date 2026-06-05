@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Abstractions.Users;
@@ -54,6 +56,12 @@ public sealed class UserProvisioningMiddleware
     private readonly RequestDelegate _next;
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
 
+    // Cache de regex compilados por pattern. UserProvisioningOptions é
+    // IOptionsMonitor-friendly mas o middleware é singleton — guardamos por
+    // string-key pra que mudança em runtime (reload de config) reflita sem
+    // reciclar o cache inteiro.
+    private static readonly ConcurrentDictionary<string, Regex> _compiledPatterns = new();
+
     public UserProvisioningMiddleware(RequestDelegate next)
     {
         _next = next;
@@ -78,6 +86,14 @@ public sealed class UserProvisioningMiddleware
         // ainda quer o canal/token original.
         authContext.AppOrigin = ReadFirstNonEmptyHeader(context.Request, AppOriginHeader);
         authContext.AccessToken = ReadFirstNonEmptyHeader(context.Request, AccessTokenHeader);
+
+        // Rotas em PermissionsOptionalPathPatterns dispensam x-efs-permissions
+        // quando vem identidade. Sintetizamos o header vazio in-place pra que
+        // o resolver enxergue "permissions enviadas mas vazias" (= autenticado,
+        // sem privilégio) em vez de bater no missingPermissionsMessage e
+        // devolver 400. Outros checks do resolver (ambiguidade account+profile)
+        // continuam ativos.
+        EnsurePermissionsHeaderForLenientPath(context.Request, options.Value);
 
         var identity = identityProvider.Resolve(context, out var identityError);
         if (identity is null)
@@ -229,6 +245,43 @@ public sealed class UserProvisioningMiddleware
             if (path[prefix.Length] == '/') return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Pra rotas marcadas em <see cref="UserProvisioningOptions.PermissionsOptionalPathPatterns"/>:
+    /// se o caller mandou <c>x-efs-account</c> ou <c>x-efs-user-profile-id</c>
+    /// SEM <c>x-efs-permissions</c>, injeta o header de permissions vazio.
+    /// Isso converte o que seria 400 (missingPermissionsMessage no resolver) em
+    /// "identificado com permissions=[]" — caller fica conhecido pra auditoria
+    /// e fica fora de qualquer rota admin (AdminGate exige permission match).
+    /// No-op quando: rota não casa, permissions já presente, ou nem account
+    /// nem profile foram enviados.
+    /// </summary>
+    private static void EnsurePermissionsHeaderForLenientPath(HttpRequest request, UserProvisioningOptions options)
+    {
+        if (options.PermissionsOptionalPathPatterns is not { Count: > 0 } patterns) return;
+        var path = request.Path.Value;
+        if (string.IsNullOrEmpty(path)) return;
+
+        var matched = false;
+        foreach (var raw in patterns)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            var regex = _compiledPatterns.GetOrAdd(raw, static src =>
+                new Regex(src, RegexOptions.Compiled | RegexOptions.IgnoreCase));
+            if (regex.IsMatch(path)) { matched = true; break; }
+        }
+        if (!matched) return;
+
+        if (request.Headers.ContainsKey(UserIdentityResolver.Headers.Permissions)) return;
+
+        var hasAccount = !string.IsNullOrWhiteSpace(
+            request.Headers[UserIdentityResolver.Headers.Account].FirstOrDefault());
+        var hasProfileId = !string.IsNullOrWhiteSpace(
+            request.Headers[UserIdentityResolver.Headers.UserProfileId].FirstOrDefault());
+        if (!hasAccount && !hasProfileId) return;
+
+        request.Headers[UserIdentityResolver.Headers.Permissions] = string.Empty;
     }
 
     private static string? ReadFirstNonEmptyHeader(HttpRequest request, string headerName)

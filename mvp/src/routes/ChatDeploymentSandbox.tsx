@@ -30,6 +30,9 @@ import {
 } from '../ui'
 import { extractConversationalDisplay } from '../utils/conversationalDisplay'
 import { ConversationalOutputChip, OutputDetails, TypingDots } from '../components/ConversationalExtras'
+import { MessageFeedbackButtons } from './MessageFeedbackButtons'
+import { QuickActionsBar } from './QuickActionsBar'
+import { extractRouterId, type RouterQuickAction } from '../api/routerQuickActions'
 
 const HITL_TOOL_NAME = 'request_approval'
 const VERSION_CURRENT = ''
@@ -74,10 +77,15 @@ export function ChatDeploymentSandbox() {
     workflowVersionId: selectedVersionId || null,
   })
 
-  // Mapa agentId → estado da memória operacional. Populado on-demand quando
-  // um STEP_STARTED emite stepId novo. ThreadId vem do RUN_STARTED.
+  // Mapa agentId → estado da memória operacional. Populado on-demand ao final
+  // de cada turn (quando stream.status sai de 'streaming'). ThreadId vem do
+  // RUN_STARTED.
   const [memories, setMemories] = useState<Map<string, AgentMemoryState>>(new Map())
   const fetchedKeysRef = useRef(new Set<string>())
+  // Detecta transição streaming → terminal pra refetchar memória a cada turn
+  // (middleware persiste no fim do OnAfterResponseAsync). Sem este sinal,
+  // fetchedKeysRef bloqueia o re-fetch e a UI mostra estado do turn anterior.
+  const lastStreamStatusRef = useRef<typeof stream.status | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -120,15 +128,35 @@ export function ChatDeploymentSandbox() {
     }
   }, [id])
 
-  // Quando um step novo aparece + threadId está populado, busca a memória
-  // operacional desse agente pra esse escopo. Idempotente via fetchedKeysRef
-  // (chave = agentId+threadId) — recarrega só se o user clicar em "atualizar".
+  // Busca a memória operacional dos agents que rodaram no turn — só DEPOIS
+  // que o stream encerra. O middleware persiste a memória ao final do
+  // `OnAfterResponseAsync`; ler durante o streaming retornaria estado velho
+  // (turn anterior) ou empty pra primeiro turn. Quando o stream completa,
+  // varre `stream.steps` e dispara um fetch por agentId+threadId ainda não
+  // fetchado. Idempotente via fetchedKeysRef.
+  //
   // Agents sem memória configurada (Router classifier, Conversational sem
   // schema declarado) são puláveis — o endpoint retorna 404 e o browser
   // loga ruído no DevTools sem nenhum ganho funcional.
   useEffect(() => {
     const tid = stream.threadId
     if (!tid) return
+    // Só busca quando o turn terminou. 'streaming' = ainda rodando;
+    // 'idle' = nada disparado ainda. Demais ('completed', 'error',
+    // 'cancelled') significam que o middleware já teve chance de persistir.
+    if (stream.status === 'streaming' || stream.status === 'idle') {
+      lastStreamStatusRef.current = stream.status
+      return
+    }
+
+    // Transição streaming → terminal: invalida cache pra refetchar a memória
+    // atualizada deste turn. Sem isso, fetchedKeysRef bloquearia turns
+    // subsequentes e o usuário veria estado congelado do primeiro turn.
+    if (lastStreamStatusRef.current === 'streaming') {
+      fetchedKeysRef.current.clear()
+    }
+    lastStreamStatusRef.current = stream.status
+
     for (const step of stream.steps) {
       const agentId = step.id
       const key = `${agentId}::${tid}`
@@ -171,7 +199,7 @@ export function ChatDeploymentSandbox() {
           })
         })
     }
-  }, [stream.steps, stream.threadId, agentsWithMemoryRef])
+  }, [stream.status, stream.steps, stream.threadId, agentsWithMemoryRef])
 
   // Reset limpa também o cache de memórias pra próxima conversa começar limpa.
   function handleReset() {
@@ -182,6 +210,8 @@ export function ChatDeploymentSandbox() {
 
   const isStreaming = stream.status === 'streaming'
   const canSend = !isStreaming && draft.trim().length > 0
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const routerId = useMemo(() => extractRouterId(workflow), [workflow])
 
   function handleSend() {
     if (!canSend) return
@@ -194,6 +224,29 @@ export function ChatDeploymentSandbox() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
+    }
+  }
+
+  /**
+   * Quick action click handler:
+   * - Pattern com wildcard (ex: "comprar *") pré-popula o input pra user completar.
+   * - Pattern exato (sem wildcard) envia imediato.
+   */
+  function handleQuickAction(action: RouterQuickAction) {
+    if (isStreaming) return
+    if (action.hasWildcard) {
+      const prefilled = `${action.displayText} `
+      setDraft(prefilled)
+      // foco + cursor no fim, sem stack overflow se ref está vazia
+      queueMicrotask(() => {
+        const el = textareaRef.current
+        if (!el) return
+        el.focus()
+        el.setSelectionRange(prefilled.length, prefilled.length)
+      })
+    } else {
+      setDraft('')
+      void stream.send(action.displayText)
     }
   }
 
@@ -317,7 +370,9 @@ export function ChatDeploymentSandbox() {
             bubbles={stream.bubbles}
             toolCalls={stream.toolCalls}
             isStreaming={isStreaming}
+            conversationId={stream.threadId}
             agentTypeById={mergedAgentTypes}
+            durationMsByStepId={stream.durationMsByStepId}
             onResolveHitl={(toolCallId, response) => void stream.resolveHitl(toolCallId, response)}
           />
           {stream.errorMessage && (
@@ -326,8 +381,14 @@ export function ChatDeploymentSandbox() {
             </div>
           )}
           <div className="border-t border-border bg-bg-soft/50 px-4 py-3">
+            <QuickActionsBar
+              routerId={routerId}
+              disabled={isStreaming || !!loadError}
+              onSelect={handleQuickAction}
+            />
             <div className="flex items-end gap-2">
               <textarea
+                ref={textareaRef}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -377,7 +438,10 @@ interface BubbleStackProps {
   bubbles: ChatBubble[]
   toolCalls: ChatToolCall[]
   isStreaming: boolean
+  /** Necessário pra postar feedback na mensagem persistida. Null antes do RUN_STARTED. */
+  conversationId: string | null
   agentTypeById: Map<string, AgentType>
+  durationMsByStepId: Map<string, number>
   onResolveHitl: (toolCallId: string, response: string) => void
 }
 
@@ -385,7 +449,9 @@ function BubbleStack({
   bubbles,
   toolCalls,
   isStreaming,
+  conversationId,
   agentTypeById,
+  durationMsByStepId,
   onResolveHitl,
 }: BubbleStackProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -423,6 +489,11 @@ function BubbleStack({
       <div className="flex flex-col gap-3">
         {bubbles.map((b) => {
           const agentType = b.agentId ? agentTypeById.get(b.agentId) : undefined
+          // Correlação simples: stepId emitido pelo backend (= nodeId do
+          // workflow) coincide com agentId no caso comum onde nodeName ==
+          // agentId. Quando divergir (workflows com aliases), badge não
+          // aparece — degrada graciosamente.
+          const durationMs = b.agentId ? durationMsByStepId.get(b.agentId) : undefined
           // Router: bubble vira card de decisão (intent + confidence + reasoning)
           // em vez de markdown cru — o content é JSON estruturado do schema
           // router_intent, então renderizar como texto é ilegível pro user.
@@ -437,12 +508,15 @@ function BubbleStack({
                   agentId={b.agentId!}
                   decision={RouterContent}
                   streaming={isStreaming && !b.complete}
+                  durationMs={durationMs}
                 />
               ) : (
                 <BubbleRow
                   bubble={b}
                   agentType={agentType}
+                  durationMs={durationMs}
                   streaming={isStreaming && !b.complete}
+                  conversationId={conversationId}
                 />
               )}
               {(toolCallsByParent.get(b.id) ?? []).map((tc) => (
@@ -470,17 +544,21 @@ function BubbleStack({
 function BubbleRow({
   bubble,
   agentType,
+  durationMs,
   streaming,
+  conversationId,
 }: {
   bubble: ChatBubble
   agentType?: AgentType
+  durationMs?: number
   streaming: boolean
+  conversationId: string | null
 }) {
   const isUser = bubble.role === 'user'
   // Durante streaming os chunks chegam parciais e o parse JSON falha — exibimos
   // o cru. Quando o turno fecha, extractConversationalDisplay separa
-  // message/ui_component/output e mostra cada parte no seu lugar (em vez do
-  // JSON inteiro vazar na bolha).
+  // message/output_type/output_status/output e mostra cada parte no seu lugar
+  // (em vez do JSON inteiro vazar na bolha).
   const display = !isUser && !streaming
     ? extractConversationalDisplay(bubble.content)
     : {
@@ -493,12 +571,13 @@ function BubbleRow({
   const showTyping = !isUser && streaming && bubble.content.length === 0
   return (
     <div className={cn('flex flex-col', isUser ? 'items-end' : 'items-start')}>
-      {/* Header pequeno: tipo + agentId pra dar contexto de quem respondeu.
-          Só pra bubbles assistant — user não precisa de header. */}
+      {/* Header pequeno: tipo + agentId + duração pra dar contexto de quem
+          respondeu e quanto demorou. Só pra bubbles assistant — user não precisa. */}
       {!isUser && bubble.agentId && agentType && (
         <div className="mb-1 flex items-center gap-1.5 px-1 text-[10px] text-fg-muted">
           <AgentTypeBadge type={agentType} />
           <span className="font-mono">{bubble.agentId}</span>
+          {durationMs != null && <DurationBadge durationMs={durationMs} />}
         </div>
       )}
       <div
@@ -528,6 +607,14 @@ function BubbleRow({
           </>
         )}
       </div>
+      {/* Feedback em qualquer bubble assistant — agora cada step terminal de agente
+          tem ChatMessage própria em chat_messages, e bubble.id é o messageId real. */}
+      {!isUser && !streaming && conversationId && (
+        <MessageFeedbackButtons
+          conversationId={conversationId}
+          messageId={bubble.id}
+        />
+      )}
     </div>
   )
 }
@@ -564,10 +651,12 @@ function RouterDecisionCard({
   agentId,
   decision,
   streaming,
+  durationMs,
 }: {
   agentId: string
   decision: RouterDecision
   streaming: boolean
+  durationMs?: number
 }) {
   const pct = Math.round(decision.confidence * 100)
   // Tons de confidence: alta (≥0.8) verde, média (0.5–0.79) âmbar, baixa rosa.
@@ -583,6 +672,7 @@ function RouterDecisionCard({
       <div className="mb-1 flex items-center gap-1.5 px-1 text-[10px] text-fg-muted">
         <AgentTypeBadge type="Router" />
         <span className="font-mono">{agentId}</span>
+        {durationMs != null && <DurationBadge durationMs={durationMs} />}
       </div>
       <div className="w-full max-w-[80%] rounded-2xl border border-violet-500/30 bg-violet-500/[0.04] p-3 text-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -870,8 +960,8 @@ function MemoryStatusBadge({ status }: { status: AgentMemoryState['status'] }) {
 
 // Mapeia AgentType pra cor coerente com a paleta usada em outros lugares
 // (AgentsList, badges de tipo). Cores soft pra não competir com o status badge.
-// Merge: dado vindo do servidor (CUSTOM[agent.lifecycle]) tem precedência sobre
-// o cache do listAgents() — backend conhece a Type autoritativa do snapshot
+// Merge: dado vindo do servidor (STEP_STARTED.metadata.agentType) tem precedência
+// sobre o cache do listAgents() — backend conhece a Type autoritativa do snapshot
 // versionado executado, enquanto listAgents só retorna o tipo atual da
 // AgentDefinition (pode estar em flight pra outra rev).
 function mergeAgentTypes(
@@ -912,6 +1002,25 @@ function AgentTypeBadge({ type }: { type: AgentType }) {
       )}
     >
       {type}
+    </span>
+  )
+}
+
+/**
+ * Tag de tempo de execução do agente. Aparece ao lado do AgentTypeBadge no
+ * header da bubble assistant. Formato: <1s = "Xms", caso contrário "Y.Ys"
+ * (1 casa decimal) — compacto e legível. Sinal visual neutro (border-only,
+ * sem fill colorido) pra não competir com o AgentTypeBadge.
+ */
+function DurationBadge({ durationMs }: { durationMs: number }) {
+  const label =
+    durationMs < 1000 ? `${Math.round(durationMs)}ms` : `${(durationMs / 1000).toFixed(1)}s`
+  return (
+    <span
+      className="inline-flex shrink-0 items-center rounded-md border border-border bg-bg-soft px-1.5 py-px text-[9px] font-medium tabular-nums text-fg-muted"
+      title={`Tempo de execução do agente: ${durationMs}ms`}
+    >
+      {label}
     </span>
   )
 }

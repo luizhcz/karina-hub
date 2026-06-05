@@ -14,13 +14,13 @@ namespace EfsAiHub.Infra.LlmProviders.Providers;
 public class OpenAiClientProvider : ILlmClientProvider
 {
     private readonly OpenAIOptions _options;
-    private readonly ISecretResolver _secretResolver;
+    private readonly IRuntimeSecretStore _secrets;
     private readonly ConcurrentDictionary<string, OpenAIClient> _clientCache = new();
 
-    public OpenAiClientProvider(IOptions<OpenAIOptions> options, ISecretResolver secretResolver)
+    public OpenAiClientProvider(IOptions<OpenAIOptions> options, IRuntimeSecretStore secrets)
     {
         _options = options.Value;
-        _secretResolver = secretResolver;
+        _secrets = secrets;
     }
 
     private OpenAIClient GetOrCreateClient(string apiKey)
@@ -32,36 +32,35 @@ public class OpenAiClientProvider : ILlmClientProvider
 
     public string ProviderType => "OPENAI";
 
-    public async Task<object> CreateAgentAsync(
+    public Task<object> CreateAgentAsync(
         AgentDefinition definition, ChatClientAgentOptions options, CancellationToken ct = default)
     {
-        var apiKey = await ResolveApiKeyAsync(definition, ct);
+        var apiKey = ResolveApiKey(definition);
         var client = GetOrCreateClient(apiKey);
         var deploymentName = ResolveDeployment(definition);
 
-        return definition.Provider.ClientType.ToUpperInvariant() switch
+        var agent = definition.Provider.ClientType.ToUpperInvariant() switch
         {
             "RESPONSES" => client.GetResponsesClient().AsIChatClient().AsAIAgent(options),
             _           => (object)client.GetChatClient(deploymentName).AsIChatClient().AsAIAgent(options)
         };
+        return Task.FromResult(agent);
     }
 
-    public async Task<IChatClient> CreateChatClientAsync(AgentDefinition definition, CancellationToken ct = default)
+    public Task<IChatClient> CreateChatClientAsync(AgentDefinition definition, CancellationToken ct = default)
     {
-        var apiKey = await ResolveApiKeyAsync(definition, ct);
+        var apiKey = ResolveApiKey(definition);
         var client = GetOrCreateClient(apiKey);
-        return client.GetChatClient(ResolveDeployment(definition)).AsIChatClient();
+        return Task.FromResult(client.GetChatClient(ResolveDeployment(definition)).AsIChatClient());
     }
 
-    private async Task<string> ResolveApiKeyAsync(AgentDefinition definition, CancellationToken ct)
+    private string ResolveApiKey(AgentDefinition definition)
     {
         var rawKey = string.IsNullOrWhiteSpace(definition.Provider.ApiKey)
             ? _options.ApiKey
             : definition.Provider.ApiKey;
 
-        var scope = ResolveScope(definition, "openai", "OpenAI:ApiKey");
-
-        var apiKey = await _secretResolver.ResolveAsync(rawKey, scope, ct);
+        var apiKey = _secrets.Get(rawKey);
 
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException(
@@ -74,13 +73,4 @@ public class OpenAiClientProvider : ILlmClientProvider
         !string.IsNullOrWhiteSpace(definition.Model.DeploymentName)
             ? definition.Model.DeploymentName
             : _options.DefaultModel;
-
-    private static SecretContext ResolveScope(AgentDefinition definition, string provider, string globalLabel)
-    {
-        if (string.IsNullOrWhiteSpace(definition.Provider.ApiKey))
-            return SecretContext.Global(globalLabel);
-        if (string.IsNullOrWhiteSpace(definition.ProjectId))
-            return SecretContext.Global($"{provider}:agent:{definition.Id}");
-        return SecretContext.Project(definition.ProjectId, provider, definition.Id);
-    }
 }

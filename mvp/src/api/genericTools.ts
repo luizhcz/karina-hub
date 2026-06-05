@@ -37,11 +37,23 @@ export interface GenericTool {
    * required/type), `'Off'` apenas para Text (sem shape pra projetar).
    */
   outputProjectionMode: OutputProjectionMode
+  /**
+   * Avisos emitidos quando os schemas foram canonicalizados no save. Backend
+   * popula em Create/Update — null no GET/List. UI mostra banner pro autor
+   * saber o que foi transformado (ex.: oneOf colapsado em superset).
+   */
+  schemaWarnings?: SchemaWarning[] | null
   createdAt: string
   updatedAt: string
 }
 
 export type OutputProjectionMode = 'Off' | 'Project'
+
+export interface SchemaWarning {
+  code: string
+  path: string
+  message: string
+}
 
 export interface CreateGenericToolBody {
   id?: string

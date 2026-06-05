@@ -530,7 +530,14 @@ export function ChatWindowPage() {
             if (msg.actor === 'robot') return <RobotBubble key={msg.messageId} text={text} time={time} />
             if (msg.role === 'user') return <UserBubble key={msg.messageId} text={text} time={time} />
             if (msg.role === 'system') return <SystemBubble key={msg.messageId} text={text} />
-            return <AssistantBubble key={msg.messageId} text={text} time={time} />
+            return (
+              <AssistantBubble
+                key={msg.messageId}
+                text={text}
+                time={time}
+                feedback={id ? { conversationId: id, messageId: msg.messageId } : undefined}
+              />
+            )
           })}
 
           {activeAgent && isSending && <AgentIndicator agentName={activeAgent} />}

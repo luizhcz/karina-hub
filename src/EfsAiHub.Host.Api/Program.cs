@@ -5,6 +5,8 @@ using EfsAiHub.Host.Api.Extensions;
 using EfsAiHub.Host.Api.Identity;
 using EfsAiHub.Infra.Messaging.Extensions;
 using EfsAiHub.Infra.Persistence.CheckpointStore;
+using EfsAiHub.Core.Abstractions.Secrets;
+using EfsAiHub.Infra.Secrets;
 using EfsAiHub.Infra.Secrets.Configuration;
 using EfsAiHub.Infra.Secrets.Health;
 using EfsAiHub.Platform.Runtime.Interfaces;
@@ -16,8 +18,10 @@ using OpenTelemetry.Trace;
 var builder = WebApplication.CreateBuilder(args);
 
 // Resolve refs em Secrets:Bootstrap contra AWS antes que qualquer outra config
-// seja lida. No-op quando a seção está vazia (ex: dev sem AWS configurado).
-builder.Configuration.AddAwsSecretsBootstrap();
+// seja lida. Retorna o mapa original (config-key → secret://aws/...) que vai
+// alimentar o preload runtime junto com refs de projects/agents do DB.
+// No-op quando a seção está vazia (ex: dev sem AWS configurado).
+var bootstrapMap = builder.Configuration.AddAwsSecretsBootstrap();
 
 var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
     ?? ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"];
@@ -73,8 +77,21 @@ builder.Services.Configure<EfsAiHub.Platform.Runtime.Configuration.GenericToolsO
 // contextual aponta o que precisa ser cadastrado no AWS.
 builder.Services.AddSingleton<TokenCredential, LazyAzureServicePrincipalCredential>();
 
-// ── AWS Secrets Manager (resolver + cache 2-tier) ─────────────────────────────
-builder.Services.AddAwsSecretsManager(builder.Configuration);
+// ── AWS Secrets Manager (boot only) ──────────────────────────────────────────
+// Cliente AWS é Singleton mas só usado durante o preload no boot. Runtime
+// consome do IRuntimeSecretStore (in-memory, sub-microssegundo). Restart é
+// obrigatório pra picking up rotação ou novo project/agent com secret novo.
+builder.Services.AddAwsSecretsManager(builder.Configuration, bootstrapMap);
+builder.Services.AddSingleton<MutableRuntimeSecretStoreHost>();
+builder.Services.AddSingleton<IRuntimeSecretStore>(
+    sp => sp.GetRequiredService<MutableRuntimeSecretStoreHost>());
+
+// Sources varridos no preload (projects + agents). Adicionar source novo aqui
+// quando algum outro lugar do domínio armazenar 'secret://aws/...'.
+builder.Services.AddScoped<ISecretReferenceSource,
+    EfsAiHub.Host.Api.Identity.Secrets.ProjectSecretReferenceSource>();
+builder.Services.AddScoped<ISecretReferenceSource,
+    EfsAiHub.Host.Api.Identity.Secrets.AgentSecretReferenceSource>();
 
 // ── CheckpointStore: InMemory (dev) ou Postgres (produção) ───────────────────
 var engineOptions = builder.Configuration
@@ -97,12 +114,6 @@ builder.Services.AddFunctionToolRegistry();
 builder.Services.AddCodeExecutorRegistry();
 
 // ── HttpClients ──────────────────────────────────────────────────────────────
-var efsBackendUrl = builder.Configuration["EfsBackend:BaseUrl"] ?? "http://localhost:5001";
-builder.Services.AddHttpClient("efs-backend", c =>
-{
-    c.BaseAddress = new Uri(efsBackendUrl);
-    c.Timeout = TimeSpan.FromSeconds(30);
-});
 builder.Services.AddHttpClient("mermaid-ink", c =>
 {
     c.BaseAddress = new Uri("https://mermaid.ink");
@@ -120,7 +131,42 @@ builder.Services.AddHttpClient("generic-tool-tester", c =>
 {
     c.Timeout = Timeout.InfiniteTimeSpan;
 });
-builder.Services.AddSingleton<BoletaToolFunctions>();
+// PortfolioAnalysisTool — named client com BaseAddress lida de PortfolioApi.BaseUrl
+// no boot. Timeout por chamada é controlado via CTS na tool; o HttpClient fica em
+// Infinite pra não cortar antes. Quando BaseUrl está vazio, a tool throw em
+// EnsureConfigured antes de tocar no client (BaseAddress ausente nunca é exercitada).
+builder.Services.AddHttpClient(EfsAiHub.Platform.Runtime.Tools.PortfolioAnalysisTool.HttpClientName, (sp, c) =>
+{
+    var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<
+        EfsAiHub.Platform.Runtime.Tools.PortfolioApiOptions>>().Value;
+    if (!string.IsNullOrWhiteSpace(opts.BaseUrl))
+        c.BaseAddress = new Uri(opts.BaseUrl);
+    c.Timeout = Timeout.InfiniteTimeSpan;
+});
+// IngestionDownloader — pool dedicado pro download externo de PDF/TXT/MD na
+// feature de ingestão. AllowAutoRedirect=false porque o downloader segue
+// redirect manual pra log/controle explícito do MaxRedirects. Timeout via CTS
+// no caller; HttpClient com timeout infinito segue o padrão do generic-tool.
+builder.Services.AddHttpClient(EfsAiHub.Platform.Runtime.Ingestion.IngestionDownloader.HttpClientName)
+    .ConfigureHttpClient(c => c.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        AutomaticDecompression = System.Net.DecompressionMethods.All,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+    });
+// WebhookCallbackDeliveryService — pool dedicado pra POST de webhooks. Timeout
+// controlado via CTS no worker (DeliveryTimeoutSeconds). AllowAutoRedirect=true
+// é OK aqui: callback URLs são alvo do cliente, redirect explícito do servidor
+// dele é comportamento esperado (diferente do download externo).
+builder.Services.AddHttpClient(EfsAiHub.Host.Worker.Services.WebhookCallbackDeliveryService.HttpClientName)
+    .ConfigureHttpClient(c => c.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = true,
+        MaxAutomaticRedirections = 3,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+    });
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IGenericToolRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgGenericToolRepository>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IOperationalMemoryRepository,
@@ -129,6 +175,11 @@ builder.Services.AddScoped<EfsAiHub.Core.Agents.IOperationalMemoryRepository,
 // parseados ficam cacheados in-process por hash do JSON. Singleton porque o
 // cache é stateful por instância e cross-request é desejado.
 builder.Services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.Generic.SchemaCache>();
+// SchemaNormalizer é stateless/determinístico — singleton. Consumido só no
+// save-time pelo GenericToolService (PR 2 wira o invoke).
+builder.Services.AddSingleton<
+    EfsAiHub.Platform.Runtime.Tools.Generic.Schema.ISchemaNormalizer,
+    EfsAiHub.Platform.Runtime.Tools.Generic.Schema.SchemaNormalizer>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.GenericResponseProjector>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Tools.Generic.IGenericToolExecutor,
     EfsAiHub.Platform.Runtime.Tools.Generic.GenericToolExecutor>();
@@ -140,6 +191,12 @@ builder.Services.AddScoped<EfsAiHub.Core.Agents.IRouterIntentRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgRouterIntentRepository>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IAgentRouterIntentLinkRepository,
     EfsAiHub.Infra.Persistence.Postgres.PgAgentRouterIntentLinkRepository>();
+builder.Services.AddScoped<EfsAiHub.Core.Abstractions.RouterQuickActions.IRouterQuickActionRepository,
+    EfsAiHub.Infra.Persistence.Postgres.PgRouterQuickActionRepository>();
+// Matcher é Scoped — pega o repo Scoped na construção. IMemoryCache (Singleton via
+// AddMemoryCache) mantém o cache entre scopes, então a cobertura de hit não se perde.
+builder.Services.AddScoped<EfsAiHub.Core.Agents.RouterQuickActions.IRouterQuickActionMatcher,
+    EfsAiHub.Platform.Runtime.RouterQuickActions.RouterQuickActionMatcher>();
 builder.Services.AddScoped<EfsAiHub.Platform.Runtime.Interfaces.IRouterIntentService,
     EfsAiHub.Platform.Runtime.Services.RouterIntentService>();
 builder.Services.AddScoped<EfsAiHub.Core.Agents.IPredefinedModelRepository,
@@ -238,8 +295,20 @@ builder.Logging.AddOpenTelemetry(o =>
 // ─────────────────────────────────────────────────────────────────────────────
 var app = builder.Build();
 
+// Preload eager dos secrets ANTES de qualquer caminho que possa precisar deles.
+// Bloqueante por design — AWS offline ou IAM sem GetSecretValue derrubam o boot
+// (fail-fast operacional). Identificadores individuais que falham viram warning
+// e o caller recebe null em runtime (mensagem própria contextual).
+await RuntimeSecretStoreActivator.PreloadAndRegisterAsync(app.Services);
+{
+    var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+    var store = app.Services.GetRequiredService<IRuntimeSecretStore>();
+    startupLogger.LogInformation(
+        "[SecretsStore] {Count} segredo(s) AWS pré-carregado(s) em memória. Runtime não bate mais no Secrets Manager.",
+        store.LoadedCount);
+}
+
 app.RegisterAtivoExecutors();
-app.RegisterRedemptionTools();
 app.RegisterPixExecutors();
 app.RegisterDocumentIntelligenceExecutor();
 
@@ -277,13 +346,7 @@ app.RegisterDocumentIntelligenceExecutor();
             typedNames.Count);
 }
 
-// ── ConfirmBoleta — HITL simples (request_approval) via function tool ────────
-EfsAiHub.Platform.Runtime.Tools.ConfirmBoletaFunction.Configure(
-    app.Services.GetRequiredService<EfsAiHub.Platform.Runtime.Services.IHumanInteractionService>(),
-    app.Services.GetRequiredService<EfsAiHub.Core.Orchestration.Workflows.IWorkflowEventBus>(),
-    app.Services.GetRequiredService<IFunctionToolRegistry>());
-
-// Fase 6 — loga os fingerprints das function tools registradas no startup (auditoria).
+// Loga os fingerprints das function tools registradas no startup (auditoria).
 {
     var registry = app.Services.GetRequiredService<IFunctionToolRegistry>();
     var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();

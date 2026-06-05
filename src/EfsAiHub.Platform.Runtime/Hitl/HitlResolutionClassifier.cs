@@ -4,8 +4,8 @@ namespace EfsAiHub.Platform.Runtime.Services;
 
 /// <summary>
 /// Classifica respostas de HITL como aprovação ou rejeição.
-/// Ponto único de parsing — usado pelo AgUiApprovalMiddleware, ConfirmBoletaFunction
-/// e qualquer outra function tool que solicite aprovação humana.
+/// Ponto único de parsing — usado pelo AgUiApprovalMiddleware e por qualquer
+/// function tool que solicite aprovação humana.
 ///
 /// Suporta dois formatos de payload:
 ///   1. JSON estruturado: {"approved": bool, "reason"?: string}

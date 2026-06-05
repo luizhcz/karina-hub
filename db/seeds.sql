@@ -17,11 +17,13 @@
 -- Re-executar é no-op (ON CONFLICT DO NOTHING / WHERE NOT EXISTS).
 --
 -- NOTA: Este seed NÃO popula aihub.agent_versions. A revision inicial
--- (Revision=1) é criada automaticamente no startup pelo
--- AgentVersionBackfillService — IHostedService idempotente que detecta
--- agents sem version e chama AgentVersion.FromDefinition + AppendAsync.
--- Sem isso, qualquer caller que pina versão (sandbox, predict-intent,
--- exactAgentPin) falharia com "agente não tem AgentVersion publicada".
+-- (Revision=1) é criada na primeira edição do agente via API/UI (PUT
+-- /api/aihub/agents/{id} ou approve flow de draft). O backfill automático
+-- de startup foi removido em 2026-05-29 (gerava versões em silêncio e
+-- escondia divergências entre seed/composer). Se um caller que pina
+-- versão (sandbox, predict-intent, exactAgentPin) for usado antes da
+-- primeira edição, ele falha com "agente não tem AgentVersion publicada"
+-- — sinal claro pra fazer um re-save trivial via UI.
 -- =============================================================================
 
 SET search_path TO aihub, public;

@@ -9,9 +9,9 @@ interface ConversationalProfileStepProps {
 
 // Step de identificação do Conversational. Reusa o ProfileStep do Custom
 // (mesma UX BlockNote com Papel/Objetivo/Contexto + Regras/Restrições).
-// O componente único de UI (`ui_component`) é configurado no step Output
-// junto com o sub-schema do payload — ambos são partes do shape canônico
-// `{ ui_component, message, output }`.
+// O `output_type` e a lista de `output_status` são configurados no step
+// Output junto com o sub-schema do payload — partes do shape canônico
+// `{ output_type, output_status, message, output }`.
 export function ConversationalProfileStep({
   form,
   setForm,

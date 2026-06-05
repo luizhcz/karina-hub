@@ -35,6 +35,16 @@ public sealed class MeResponse
     public string? DisplayName { get; init; }
 
     /// <summary>
+    /// Tenant resolvido pelo <c>TenantMiddleware</c> a partir do header
+    /// <c>x-tenant-id</c>. Quando o header está ausente, ecoa
+    /// <c>TenantContext.Default.TenantId</c> ("default"). Pass-through puro
+    /// — não há catálogo de tenants pra validar contra. Frontend usa esse
+    /// valor pra popular <c>identity.tenantId</c> e re-enviar o header em
+    /// requests subsequentes (fecha o loop sem depender do proxy injetar).
+    /// </summary>
+    public string? TenantId { get; init; }
+
+    /// <summary>
     /// Projetos visíveis ao usuário. Admin recebe todos os projetos do tenant
     /// (exceto "default" que é admin-only e fica omitido aqui). Non-admin
     /// recebe apenas projetos com vínculo em user_projects. Lista vazia

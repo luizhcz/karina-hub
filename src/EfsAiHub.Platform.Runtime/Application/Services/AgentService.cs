@@ -2,6 +2,7 @@ using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Abstractions.Observability;
 using EfsAiHub.Core.Agents.RouterIntents;
+using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Services;
 
@@ -23,7 +24,13 @@ public class AgentService : IAgentService
         new(StringComparer.OrdinalIgnoreCase) { "never", "always" };
 
     private static readonly HashSet<string> ValidMiddlewareTypes =
-        new(StringComparer.OrdinalIgnoreCase) { "AccountGuard", "StructuredOutputState", "SecurityGuardrails" };
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "AccountGuard",
+            "StructuredOutputState",
+            "SecurityGuardrails",
+            "RouterDecisionTelemetry",
+        };
 
     private readonly IAgentDefinitionRepository _repository;
     private readonly IAgentPromptRepository _promptRepo;
@@ -358,7 +365,7 @@ public class AgentService : IAgentService
                     breakingChange,
                     changeReason,
                     contentHash = persisted.ContentHash,
-                }));
+                }, JsonDefaults.Domain));
                 await _auditLogger.RecordAsync(new AdminAuditEntry
                 {
                     ActorUserId = createdBy ?? "system:agent-service",
@@ -558,12 +565,14 @@ public class AgentService : IAgentService
         List<string> warnings,
         CancellationToken ct)
     {
-        // Auto-link da intent reservada "out_of_scope" — garantia P1 de que
-        // todo Router sabe classificar mensagens fora do escopo declarado,
-        // independente de o admin lembrar de incluir no set. Resolve via
-        // lookup por Name+Tenant na pool (intent é seedada por
-        // migration 004). Idempotente: se já estiver no set, no-op.
-        await EnsureOutOfScopeLinkedAsync(definition, ct);
+        // Auto-link das intents reservadas — garantia de que todo Router sabe
+        // classificar mensagens fora do escopo (`out_of_scope`) e sinalizar
+        // ambiguidade (`needs_clarification`), independente de o admin lembrar
+        // de incluir no set. Resolve via lookup por Name+Tenant na pool
+        // (seedadas pelas migrations 004 e 012). Idempotente: se já estiver no
+        // set, no-op. Falha de seed por tenant não bloqueia save — só warning.
+        await EnsureSystemIntentLinkedAsync(definition, SystemIntents.OutOfScopeName, ct);
+        await EnsureSystemIntentLinkedAsync(definition, SystemIntents.NeedsClarificationName, ct);
 
         // Count vem do request (transient `RouterIntentIds`) quando o caller
         // está propondo um set novo, ou do link repo quando é validação após
@@ -597,8 +606,9 @@ public class AgentService : IAgentService
 
         // OperationalMemory agora é canônica em todo Router (preenchida via
         // AgentTemplateService.ApplyRouter quando ausente). Persiste
-        // last_intent + last_reason a cada turno via OperationalMemoryChatClient.
-        // Não emite warning — é parte da forma esperada.
+        // last_intent + last_reason + clarification_depth a cada turno via
+        // OperationalMemoryChatClient. Não emite warning — é parte da forma
+        // esperada.
 
         // Consistência declarativa do "Router pra chat": quando a flag
         // metadata['x-router-for-chat']='true' está ativa, o middleware
@@ -632,29 +642,31 @@ public class AgentService : IAgentService
     }
 
     /// <summary>
-    /// Garante que <c>out_of_scope</c> (intent reservada do sistema) está no
-    /// set de intents do Router. Mutação direta em <c>RouterIntentIds</c> —
-    /// caller persiste depois via <c>IAgentRouterIntentLinkRepository</c>.
-    /// No-op quando o repo de intents não está injetado (testes) ou quando a
-    /// intent reservada não foi seedada no tenant.
+    /// Garante que uma intent reservada do sistema (<c>out_of_scope</c>,
+    /// <c>needs_clarification</c>, etc.) está no set de intents do Router.
+    /// Mutação direta em <c>RouterIntentIds</c> — caller persiste depois via
+    /// <c>IAgentRouterIntentLinkRepository</c>. No-op quando o repo de intents
+    /// não está injetado (testes) ou quando a intent reservada não foi
+    /// seedada no tenant (deveria vir das migrations 004/012).
     /// </summary>
-    private async Task EnsureOutOfScopeLinkedAsync(AgentDefinition definition, CancellationToken ct)
+    private async Task EnsureSystemIntentLinkedAsync(
+        AgentDefinition definition, string systemIntentName, CancellationToken ct)
     {
         if (_intentRepo is null) return;
 
         // Lookup por Name+Tenant. O repo já filtra por tenant via query filter.
         var pool = await _intentRepo.ListAsync(ct);
-        var outOfScope = pool.FirstOrDefault(i =>
-            string.Equals(i.Name, SystemIntents.OutOfScopeName, StringComparison.OrdinalIgnoreCase));
+        var systemIntent = pool.FirstOrDefault(i =>
+            string.Equals(i.Name, systemIntentName, StringComparison.OrdinalIgnoreCase));
 
-        if (outOfScope is null)
+        if (systemIntent is null)
         {
-            // Tenant não tem out_of_scope seedada — migration 004 deveria ter
-            // criado. Log e segue (não bloqueia save).
+            // Tenant não tem a intent reservada seedada — alguma migration
+            // (004/012) deveria ter criado. Log e segue (não bloqueia save).
             _logger.LogWarning(
                 "[AgentService] Tenant não tem intent reservada '{Name}' seedada. " +
-                "Router '{AgentId}' não terá auto-fallback. Aplicar migration 004.",
-                SystemIntents.OutOfScopeName, definition.Id);
+                "Router '{AgentId}' não terá auto-fallback dessa intent. Verifique as migrations.",
+                systemIntentName, definition.Id);
             return;
         }
 
@@ -662,13 +674,13 @@ public class AgentService : IAgentService
             ? new List<string>()
             : new List<string>(definition.RouterIntentIds);
 
-        if (!currentIds.Contains(outOfScope.Id, StringComparer.Ordinal))
+        if (!currentIds.Contains(systemIntent.Id, StringComparer.Ordinal))
         {
-            currentIds.Add(outOfScope.Id);
+            currentIds.Add(systemIntent.Id);
             definition.RouterIntentIds = currentIds;
             _logger.LogInformation(
                 "[AgentService] Auto-link '{Name}' (Id={IntentId}) ao Router '{AgentId}'.",
-                SystemIntents.OutOfScopeName, outOfScope.Id, definition.Id);
+                systemIntentName, systemIntent.Id, definition.Id);
         }
     }
 
@@ -815,12 +827,12 @@ public class AgentService : IAgentService
     }
 
     /// <summary>
-    /// Conversational tem invariante hard: <c>StructuredOutput</c> é
-    /// obrigatório com shape canônico <c>{ ui_component, message, output }</c>.
-    /// O codec de save sempre injeta esse shape; aqui validamos que o
+    /// Conversational tem invariante hard: <c>StructuredOutput</c> é obrigatório
+    /// com shape canônico <c>{ output_type, output_status, message, output? }</c>.
+    /// O template service injeta esse shape no save; aqui validamos que o
     /// payload chegou consistente. Demais expectativas (modelo balanced,
     /// MaxTokens razoável, SecurityGuardrails on, lista de
-    /// <c>ui_component</c> declarada) são warnings soft.
+    /// <c>output_status</c> declarada) são warnings soft.
     /// </summary>
     private static void ValidateConversational(
         AgentDefinition definition,
@@ -834,24 +846,24 @@ public class AgentService : IAgentService
         {
             errors.Add(
                 "Conversational precisa de 'structuredOutput' com responseFormat='json_schema' e schema " +
-                "preenchido — o agente responde sempre em JSON com 'ui_component' e 'message' top-level.");
+                "preenchido — o agente responde sempre em JSON com 'output_type', 'output_status' e 'message' top-level.");
         }
         else
         {
-            // O template do tipo Conversational é a fonte da verdade do shape
-            // canônico — `ui_component` e `message` são sempre exigidos;
-            // `output` é opcional e só aparece quando o caller declara o
-            // sub-schema (modo estruturado). Sem o sub-schema o turn é texto
-            // livre acompanhado do identificador do componente UI.
+            // Shape canônico: top-level exige output_type (família única do
+            // renderer), output_status (variação dentro da família) e message
+            // (texto humano). output é opcional e só aparece quando o caller
+            // declara o sub-schema (modo estruturado).
             var root = so.Schema.RootElement;
             if (root.ValueKind != JsonValueKind.Object
                 || !root.TryGetProperty("properties", out var props)
                 || props.ValueKind != JsonValueKind.Object
-                || !props.TryGetProperty("ui_component", out _)
+                || !props.TryGetProperty("output_type", out _)
+                || !props.TryGetProperty("output_status", out _)
                 || !props.TryGetProperty("message", out _))
             {
                 errors.Add(
-                    "Schema de Conversational precisa declarar 'ui_component' e 'message' como " +
+                    "Schema de Conversational precisa declarar 'output_type', 'output_status' e 'message' como " +
                     "propriedades top-level. Reabra o agente no wizard pra regenerar o shape canônico.");
             }
         }
@@ -889,24 +901,25 @@ public class AgentService : IAgentService
                 "mitigar prompt injection ('esqueça regras', 'finja ser outro agente', etc.).");
         }
 
-        // Lista de ui_component declarados vive em
-        // metadata['x-conversational-ui-components'] como JSON array. Vazio ou
-        // ausente = enum sem restrição no schema, com warning soft.
-        var uiComponentsRaw = definition.Metadata is { } md
-            && md.TryGetValue(AgentDefinition.ConversationalUiComponentsMetadataKey, out var raw)
+        // Lista de output_status declarados vive em
+        // metadata['x-conversational-output-statuses'] como JSON array. Vazio ou
+        // ausente = enum sem restrição no schema (cai pro default ["default"]),
+        // com warning soft.
+        var statusesRaw = definition.Metadata is { } md
+            && md.TryGetValue(AgentDefinition.ConversationalOutputStatusesMetadataKey, out var raw)
                 ? raw
                 : null;
-        var hasUiComponents = false;
-        if (!string.IsNullOrWhiteSpace(uiComponentsRaw))
+        var hasStatuses = false;
+        if (!string.IsNullOrWhiteSpace(statusesRaw))
         {
             try
             {
-                using var doc = JsonDocument.Parse(uiComponentsRaw);
+                using var doc = JsonDocument.Parse(statusesRaw);
                 if (doc.RootElement.ValueKind != JsonValueKind.Array)
                 {
                     warnings.Add(
-                        "Lista 'x-conversational-ui-components' em metadata precisa ser um array JSON " +
-                        "(ex: [\"text\",\"card\"]). Frontend renderer cai pro fallback genérico.");
+                        "Lista 'x-conversational-output-statuses' em metadata precisa ser um array JSON " +
+                        "(ex: [\"default\",\"success\"]). Frontend renderer cai pro fallback genérico.");
                 }
                 else if (doc.RootElement.GetArrayLength() == 0)
                 {
@@ -917,27 +930,27 @@ public class AgentService : IAgentService
                         || string.IsNullOrWhiteSpace(item.GetString())))
                 {
                     warnings.Add(
-                        "Lista 'x-conversational-ui-components' contém items inválidos — todos precisam " +
-                        "ser strings não-vazias (ex: \"card\"). Itens inválidos são ignorados pelo codec.");
+                        "Lista 'x-conversational-output-statuses' contém items inválidos — todos precisam " +
+                        "ser strings não-vazias (ex: \"default\"). Itens inválidos são ignorados pelo codec.");
                 }
                 else
                 {
-                    hasUiComponents = true;
+                    hasStatuses = true;
                 }
             }
             catch
             {
                 warnings.Add(
-                    "Lista 'x-conversational-ui-components' em metadata não é JSON válido — " +
+                    "Lista 'x-conversational-output-statuses' em metadata não é JSON válido — " +
                     "o frontend renderer cai pro fallback genérico.");
             }
         }
-        if (!hasUiComponents)
+        if (!hasStatuses)
         {
             warnings.Add(
-                "Conversational sem lista de 'ui_component' declarada. Marque ao menos um valor no step " +
-                "Persona pra dirigir o renderer (ex: 'text', 'card', 'list'). Sem isso, o frontend usa " +
-                "fallback genérico (mostra message + output JSON cru).");
+                "Conversational sem lista de 'output_status' declarada. Marque ao menos um valor no step " +
+                "Output pra dirigir o renderer (ex: 'default', 'success', 'error'). Sem isso, o agente cai " +
+                "no default singleton [\"default\"].");
         }
 
         // Modelo: warning quando deployment indica modelo grande/expensive.

@@ -81,6 +81,29 @@ export const getUserConversations = (userId: string) =>
 export const getConversationFull = (id: string) =>
   get<ConversationFull>(`/conversations/${id}/full`)
 
+// ── Message feedback ────────────────────────────────────────────────────────
+export interface MessageFeedback {
+  feedbackId: string
+  messageId: string
+  conversationId: string
+  sentiment: 1 | -1
+  comment?: string | null
+  createdAt: string
+  updatedAt?: string | null
+}
+
+export const submitMessageFeedback = (
+  conversationId: string,
+  messageId: string,
+  body: { sentiment: 1 | -1; comment?: string | null },
+) => post<MessageFeedback>(`/conversations/${conversationId}/messages/${messageId}/feedback`, body)
+
+export const getMessageFeedback = (conversationId: string, messageId: string) =>
+  get<MessageFeedback | null>(`/conversations/${conversationId}/messages/${messageId}/feedback`)
+
+export const deleteMessageFeedback = (conversationId: string, messageId: string) =>
+  del(`/conversations/${conversationId}/messages/${messageId}/feedback`)
+
 
 export function useConversation(id: string, enabled = true) {
   return useQuery({
@@ -145,5 +168,28 @@ export function useDeleteConversation() {
   return useMutation({
     mutationFn: deleteConversation,
     onSuccess: () => { qc.invalidateQueries({ queryKey: KEYS.all }) },
+  })
+}
+
+export function useSubmitMessageFeedback() {
+  return useMutation({
+    mutationFn: ({
+      conversationId,
+      messageId,
+      sentiment,
+      comment,
+    }: {
+      conversationId: string
+      messageId: string
+      sentiment: 1 | -1
+      comment?: string | null
+    }) => submitMessageFeedback(conversationId, messageId, { sentiment, comment }),
+  })
+}
+
+export function useDeleteMessageFeedback() {
+  return useMutation({
+    mutationFn: ({ conversationId, messageId }: { conversationId: string; messageId: string }) =>
+      deleteMessageFeedback(conversationId, messageId),
   })
 }

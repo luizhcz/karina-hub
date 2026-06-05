@@ -287,6 +287,36 @@ internal class BackgroundResponseJobRow
     public DateTime CreatedAt { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+
+    // Colunas standalone pools (migration 018).
+    public string? WorkflowId { get; set; }
+    public string? Step { get; set; }
+    public string? LeasedBy { get; set; }
+    public DateTime? LeaseUntil { get; set; }
+    public DateTime? NextAttemptAt { get; set; }
+    public string? IngestionContext { get; set; } // JSONB serializado
+    public string? ExecutionId { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public string ProjectId { get; set; } = "default";
+    public string TenantId { get; set; } = "default";
+}
+
+// Webhook deliveries (migration 019). Sem retry: status terminal já no primeiro response.
+internal class WebhookDeliveryRow
+{
+    public string DeliveryId { get; set; } = "";
+    public string JobId { get; set; } = "";
+    public string Url { get; set; } = "";
+    public string? HmacSecret { get; set; }
+    public string? Headers { get; set; } // JSONB serializado
+    public string Status { get; set; } = "Pending";
+    public int? LastResponseCode { get; set; }
+    public string? LastError { get; set; }
+    public DateTime? DeliveredAt { get; set; }
+    public string ProjectId { get; set; } = "default";
+    public string TenantId { get; set; } = "default";
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }
 
 internal class WorkflowExecutionRow
@@ -672,6 +702,9 @@ public class AgentFwDbContext : DbContext
 
     public DbSet<ConversationSession> Conversations => Set<ConversationSession>();
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+    public DbSet<MessageFeedback> MessageFeedbacks => Set<MessageFeedback>();
+    public DbSet<EfsAiHub.Core.Abstractions.RouterQuickActions.RouterQuickAction> RouterQuickActions =>
+        Set<EfsAiHub.Core.Abstractions.RouterQuickActions.RouterQuickAction>();
 
     internal DbSet<ProjectRow> Projects => Set<ProjectRow>();
     internal DbSet<WorkflowDefinitionRow> WorkflowDefinitions => Set<WorkflowDefinitionRow>();
@@ -706,6 +739,7 @@ public class AgentFwDbContext : DbContext
     internal DbSet<AdminAuditLogRow> AdminAuditLogs => Set<AdminAuditLogRow>();
     internal DbSet<McpServerRow> McpServers => Set<McpServerRow>();
     internal DbSet<BackgroundResponseJobRow> BackgroundResponseJobs => Set<BackgroundResponseJobRow>();
+    internal DbSet<WebhookDeliveryRow> WebhookDeliveries => Set<WebhookDeliveryRow>();
     internal DbSet<EvaluationTestSetRow> EvaluationTestSets => Set<EvaluationTestSetRow>();
     internal DbSet<EvaluationTestSetVersionRow> EvaluationTestSetVersions => Set<EvaluationTestSetVersionRow>();
     internal DbSet<EvaluationTestCaseRow> EvaluationTestCases => Set<EvaluationTestCaseRow>();
@@ -784,6 +818,53 @@ public class AgentFwDbContext : DbContext
 
             b.HasIndex(e => e.ConversationId);
             b.HasIndex(e => new { e.ConversationId, e.CreatedAt });
+        });
+
+        modelBuilder.Entity<MessageFeedback>(b =>
+        {
+            b.ToTable("message_feedbacks");
+            b.HasKey(e => e.FeedbackId);
+            b.Property(e => e.FeedbackId).HasMaxLength(64);
+            b.Property(e => e.MessageId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.ConversationId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.UserId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Sentiment).IsRequired();
+            b.Property(e => e.Comment).HasMaxLength(2000);
+            b.Property(e => e.ProjectId).HasMaxLength(128).HasDefaultValue("default");
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt);
+
+            // Upsert lógico: um feedback por (UserId, MessageId).
+            b.HasIndex(e => new { e.UserId, e.MessageId }).IsUnique();
+            b.HasIndex(e => e.MessageId);
+            b.HasIndex(e => e.ConversationId);
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
+        });
+
+        modelBuilder.Entity<EfsAiHub.Core.Abstractions.RouterQuickActions.RouterQuickAction>(b =>
+        {
+            b.ToTable("router_quick_actions");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasMaxLength(64);
+            b.Property(e => e.RouterId).HasMaxLength(256).IsRequired();
+            b.Property(e => e.Pattern).HasMaxLength(512).IsRequired();
+            b.Property(e => e.DisplayText).HasMaxLength(512).IsRequired();
+            b.Property(e => e.Intent).HasMaxLength(128).IsRequired();
+            b.Property(e => e.Description).HasMaxLength(1024);
+            b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.TenantId).HasMaxLength(128).IsRequired().HasDefaultValue("default");
+            b.Property(e => e.CreatedAt).IsRequired();
+            b.Property(e => e.UpdatedAt).IsRequired();
+
+            b.HasIndex(e => new { e.RouterId, e.TenantId })
+                .HasDatabaseName("IX_router_quick_actions_RouterId_TenantId");
+            b.HasIndex(e => new { e.TenantId, e.ProjectId, e.RouterId, e.Pattern })
+                .IsUnique()
+                .HasDatabaseName("UX_router_quick_actions_Scope_Router_Pattern");
+
+            // Scope por projeto — cada projeto define seus próprios atalhos pro Router
+            // (mesmo quando o Router é Visibility=global e compartilhado entre projetos).
+            b.HasQueryFilter(e => e.ProjectId == CurrentProjectId);
         });
 
         // Colunas em lowercase para compatibilidade com PgProjectRepository (raw SQL).
@@ -1366,8 +1447,45 @@ public class AgentFwDbContext : DbContext
             b.Property(e => e.CallbackTarget).HasColumnType("jsonb");
             b.Property(e => e.IdempotencyKey).HasMaxLength(128);
             b.Property(e => e.CreatedAt).IsRequired();
+            // Migration 018 — standalone pools.
+            b.Property(e => e.WorkflowId).HasMaxLength(256);
+            b.Property(e => e.Step).HasMaxLength(32);
+            b.Property(e => e.LeasedBy).HasMaxLength(64);
+            b.Property(e => e.LeaseUntil);
+            b.Property(e => e.NextAttemptAt);
+            b.Property(e => e.IngestionContext).HasColumnType("jsonb");
+            b.Property(e => e.ExecutionId).HasMaxLength(64);
+            b.Property(e => e.UpdatedAt).IsRequired().HasDefaultValueSql("now()");
+            b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired().HasDefaultValue("default");
+            b.Property(e => e.TenantId).HasMaxLength(128).IsRequired().HasDefaultValue("default");
             b.HasIndex(e => new { e.Status, e.CreatedAt });
             b.HasIndex(e => e.IdempotencyKey).IsUnique().HasFilter("\"IdempotencyKey\" IS NOT NULL");
+            b.HasIndex(e => new { e.TenantId, e.ProjectId });
+            // Os índices partial pra (WorkflowId, Status), (Status, NextAttemptAt)
+            // e (LeaseUntil) ficam no DDL (schemas.sql + migration 018) —
+            // EF Fluent API não suporta filtered indexes condicionais.
+        });
+
+        modelBuilder.Entity<WebhookDeliveryRow>(b =>
+        {
+            b.ToTable("webhook_deliveries");
+            b.HasKey(e => e.DeliveryId);
+            b.Property(e => e.DeliveryId).HasMaxLength(64);
+            b.Property(e => e.JobId).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Url).HasColumnType("text").IsRequired();
+            b.Property(e => e.HmacSecret).HasColumnType("text");
+            b.Property(e => e.Headers).HasColumnType("jsonb");
+            b.Property(e => e.Status).HasMaxLength(32).IsRequired().HasDefaultValue("Pending");
+            b.Property(e => e.LastResponseCode);
+            b.Property(e => e.LastError).HasColumnType("text");
+            b.Property(e => e.DeliveredAt);
+            b.Property(e => e.ProjectId).HasMaxLength(128).IsRequired().HasDefaultValue("default");
+            b.Property(e => e.TenantId).HasMaxLength(128).IsRequired().HasDefaultValue("default");
+            b.Property(e => e.CreatedAt).IsRequired().HasDefaultValueSql("now()");
+            b.Property(e => e.UpdatedAt).IsRequired().HasDefaultValueSql("now()");
+            b.HasIndex(e => e.JobId);
+            // Índice partial pra (Status, CreatedAt) WHERE Status='Pending'
+            // fica no DDL — EF não suporta filtered index condicional.
         });
 
         modelBuilder.Entity<WorkflowEventAuditRow>(b =>

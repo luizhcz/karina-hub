@@ -101,11 +101,17 @@ export function Dashboard() {
       setBudget((s) => ({ ...s, loading: budgetVisible, error: null }))
       setForbidden(false)
 
+      // ownedOnly=false: dashboard mostra TODOS os custos atribuídos ao projeto
+      // (execuções que rodaram aqui), incluindo agentes Visibility=global de
+      // outros projetos do mesmo tenant que foram chamados via implantações
+      // do projeto. Antes (ownedOnly=true) escondíamos esses custos, perdendo
+      // o sinal financeiro de quem está pagando — bug pra implantações Chat
+      // que referenciam agentes compartilhados.
       void (async () => {
         const results = await Promise.allSettled([
-          getProjectOverview(projectId, from, to, true),
-          getProjectTimeseries(projectId, effectiveGranularity, from, to, undefined, true),
-          getProjectAgents(projectId, 20, from, to, true),
+          getProjectOverview(projectId, from, to, false),
+          getProjectTimeseries(projectId, effectiveGranularity, from, to, undefined, false),
+          getProjectAgents(projectId, 20, from, to, false),
           budgetVisible ? getProjectBudget(projectId) : Promise.resolve(null),
         ])
         if (cancelled) return

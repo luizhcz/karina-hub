@@ -2,10 +2,11 @@ namespace EfsAiHub.Core.Abstractions.Observability;
 
 /// <summary>
 /// Agregações de uso/custo escopadas por projeto. Fonte primária:
-/// <c>aihub.v_llm_cost</c> (matview com EstimatedCostUsd row-level via
-/// LATERAL JOIN com model_pricing) + <c>workflow_executions</c> pra
-/// status/contagem. Refresh da matview a cada 30min via LlmCostRefreshService
-/// — dashboard mostra dado defasado em até esse intervalo.
+/// <c>aihub.llm_token_usage</c> + LATERAL JOIN com <c>model_pricing</c> em
+/// runtime (calcula EstimatedCostUsd por chamada) + <c>workflow_executions</c>
+/// pra status/contagem. Sem matviews — todas as queries executam direto e o
+/// resultado é cacheado no Redis com TTL de 30min. Refresh manual via
+/// <see cref="InvalidateProjectCacheAsync"/> força recompute na próxima leitura.
 ///
 /// Authorization é responsabilidade do controller — o repo recebe ProjectId
 /// validado e parametriza em SQL (defesa em profundidade).
@@ -50,4 +51,12 @@ public interface IProjectAnalyticsRepository
 
     Task<ProjectBudgetStatus> GetProjectBudgetStatusAsync(
         string projectId, int? maxTokensPerDay, decimal? maxCostUsdPerDay, CancellationToken ct = default);
+
+    /// <summary>
+    /// Invalida o cache Redis das queries analytics do projeto. Implementação
+    /// usa versionamento (incrementa contador por projeto) — keys antigas ficam
+    /// órfãs até o TTL expirar, próxima leitura recomputa. Sem necessidade de
+    /// varredura (SCAN/KEYS) ou permissão especial.
+    /// </summary>
+    Task InvalidateProjectCacheAsync(string projectId, CancellationToken ct = default);
 }

@@ -12,4 +12,13 @@ public class NodeExecutionRecord
     public bool OutputTruncated { get; set; }
     public int Iteration { get; set; } = 1;
     public int TokensUsed { get; set; }
+
+    /// <summary>
+    /// Identificador da ChatMessage assistant produzida por este nó. Gerado no
+    /// momento que o agente é registrado e propagado via AG-UI (token,
+    /// node_completed, text_message_*) — cliente recebe o mesmo ID que será
+    /// persistido em chat_messages. Apenas para nós com NodeType="agent" que
+    /// emitiram output assistant.
+    /// </summary>
+    public string? MessageId { get; set; }
 }

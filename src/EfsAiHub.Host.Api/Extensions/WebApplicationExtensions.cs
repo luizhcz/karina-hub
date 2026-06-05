@@ -45,6 +45,10 @@ public static class WebApplicationExtensions
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.ProjectRateLimitMiddleware>();
         app.UseAuthorization();
         app.UseMiddleware<EfsAiHub.Host.Api.Middleware.AdminGateMiddleware>();
+        // Rate limit pro polling de /api/aihub/responses/* — depende de ProjectContext
+        // resolvido (já feito pelo ProjectMiddleware). Aplica APENAS em GET nessa rota;
+        // outras requests passam direto.
+        app.UseMiddleware<EfsAiHub.Host.Api.Middleware.ResponsePollingRateLimitMiddleware>();
         app.MapControllers();
         app.MapAgUiEndpoints();
 

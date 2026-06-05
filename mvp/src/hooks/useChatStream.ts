@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { applyPatch, type Operation } from 'fast-json-patch'
 import { getAuthHeaders } from '../auth/headers'
 import { API_BASE_URL } from '../api/baseUrl'
@@ -21,12 +21,14 @@ export interface ChatInputMessage {
 }
 
 export interface ChatBubble {
+  /** ID = messageId do servidor (mesmo que vai pra chat_messages no save).
+   *  Único globalmente — o worker gera GUID por step terminal. */
   id: string
   role: ChatRole
   content: string
   complete: boolean
-  /** AgentId que produziu a bubble — derivado do messageId `msg_<agentId>`
-   *  emitido pelo backend. Permite cruzar com `agentTypeByNodeId` pra trocar
+  /** AgentId que produziu a bubble. Vem no metadata dos eventos STEP_* e do
+   *  parent dos TOOL_CALL. Permite cruzar com `agentTypeByNodeId` pra trocar
    *  o renderer (ex: card de decisão pro Router em vez de markdown cru). */
   agentId?: string
 }
@@ -44,6 +46,15 @@ export interface ChatStep {
   id: string
   name: string
   status: 'started' | 'finished'
+  /** Timestamp local (ms) em que STEP_STARTED chegou — base pro fallback de
+   *  duração quando o backend não envia metadata.durationMs. */
+  startedAt: number
+  /** Duração em ms do step. Preferência: `metadata.durationMs` do backend
+   *  (mais preciso, exclui RTT do SSE); fallback: subtração local entre
+   *  STEP_FINISHED e STEP_STARTED. Null enquanto status='started'. */
+  durationMs: number | null
+  /** Tipo do agente extraído de metadata.agentType (Conversational/Router/...). */
+  agentType?: string
 }
 
 export type ChatStreamStatus =
@@ -88,12 +99,14 @@ interface TextMessageStart extends AgUiEventBase {
   type: 'TEXT_MESSAGE_START'
   messageId: string
   role: ChatRole
+  agentId?: string
 }
 
 interface TextMessageContent extends AgUiEventBase {
   type: 'TEXT_MESSAGE_CONTENT'
   messageId: string
   delta: unknown
+  agentId?: string
 }
 
 interface TextMessageEnd extends AgUiEventBase {
@@ -127,16 +140,24 @@ interface ToolCallResult extends AgUiEventBase {
   messageId?: string
 }
 
+interface StepMetadata {
+  agentType?: string
+  agentName?: string
+  durationMs?: number
+}
+
 interface StepStarted extends AgUiEventBase {
   type: 'STEP_STARTED'
   stepId: string
   stepName: string
+  metadata?: StepMetadata
 }
 
 interface StepFinished extends AgUiEventBase {
   type: 'STEP_FINISHED'
   stepId: string
   stepName: string
+  metadata?: StepMetadata
 }
 
 interface RunStarted extends AgUiEventBase {
@@ -215,10 +236,14 @@ export interface UseChatStreamResult {
   sharedState: unknown
   errorMessage: string | null
   rawEvents: ChatRawEvent[]
-  /** Tipo de cada agente extraído do CUSTOM[agent.lifecycle] do servidor.
-   *  Fonte autoritativa (backend conhece AgentDefinition.Type). Quando vazio,
+  /** Tipo de cada agente extraído do metadata dos STEP_STARTED/STEP_FINISHED.
+   *  Fonte autoritativa (backend conhece AgentDefinition.Type). Quando ausente,
    *  o consumidor pode usar listAgents() como fallback. */
   agentTypeByNodeId: Map<string, string>
+  /** Duração em ms de cada step finalizado, indexada por stepId (= nodeId do
+   *  workflow). Acumula no turno atual + turnos anteriores — a UI lê o último
+   *  para mostrar tag "took 1.2s" perto da bubble do agente. */
+  durationMsByStepId: Map<string, number>
   send: (userText: string) => Promise<void>
   cancel: () => Promise<void>
   resolveHitl: (toolCallId: string, response: string) => Promise<void>
@@ -239,21 +264,20 @@ export function useChatStream({
   const [rawEvents, setRawEvents] = useState<ChatRawEvent[]>([])
   const [agentTypeByNodeId, setAgentTypeByNodeId] = useState<Map<string, string>>(new Map())
 
-  // Histórico completo enviado a cada turn — backend AG-UI espera receber o
-  // contexto inteiro de mensagens. Mantemos em ref pra não disparar re-render
-  // só pra trocar o array.
-  const historyRef = useRef<ChatInputMessage[]>([])
+  // Backend AG-UI é authoritative do histórico via DB (ResolveHistoryWithEcho:
+  // se DB tem mensagens, ignora qualquer echo enviado pelo cliente). Por isso
+  // mandamos APENAS a última mensagem do user a cada turn — o backend
+  // reconstrói o contexto sozinho. Mandar o histórico inteiro acumulado seria
+  // O(n) bandwidth por turno e ignorado downstream.
   const abortRef = useRef<AbortController | null>(null)
   const executionIdRef = useRef<string | null>(null)
   const threadIdRef = useRef<string | null>(null)
   const seqRef = useRef(0)
 
-  // Backend reusa o mesmo `messageId` por agente entre turns (ex:
-  // "msg_router-sales-trader" aparece em todo turn). Pra UI manter as bubbles
-  // antigas, geramos um UID local por bubble/toolCall a cada turn e mapeamos
-  // do messageId/toolCallId do servidor pra UID interno. Reset em send().
+  // Backend gera messageId único por step terminal (GUID) — bubble.id usa direto
+  // o messageId do servidor, sem reconciliação local. Tool calls ainda têm UID
+  // local por turn pra evitar colisão se algum backend antigo reusar toolCallId.
   const turnRef = useRef(0)
-  const bubbleUidByMessageIdRef = useRef(new Map<string, string>())
   const toolCallUidByIdRef = useRef(new Map<string, string>())
 
   // Cleanup em unmount: aborta o fetch em andamento (não tenta cancelar via
@@ -266,10 +290,8 @@ export function useChatStream({
     abortRef.current = null
     executionIdRef.current = null
     threadIdRef.current = null
-    historyRef.current = []
     seqRef.current = 0
     turnRef.current = 0
-    bubbleUidByMessageIdRef.current.clear()
     toolCallUidByIdRef.current.clear()
     setStatus('idle')
     setThreadId(null)
@@ -280,6 +302,16 @@ export function useChatStream({
     setErrorMessage(null)
     setRawEvents([])
     setAgentTypeByNodeId(new Map())
+  }
+
+  function indexAgentTypeFromStep(nodeId: string | undefined, agentType: string | undefined) {
+    if (!nodeId || !agentType) return
+    setAgentTypeByNodeId((prev) => {
+      if (prev.get(nodeId) === agentType) return prev
+      const next = new Map(prev)
+      next.set(nodeId, agentType)
+      return next
+    })
   }
 
   function applyEvent(evt: AgUiEvent) {
@@ -296,70 +328,57 @@ export function useChatStream({
       }
       case 'TEXT_MESSAGE_START': {
         const e = evt as TextMessageStart
-        const uid = `${e.messageId}::t${turnRef.current}`
-        bubbleUidByMessageIdRef.current.set(e.messageId, uid)
-        const agentId = extractAgentIdFromMessageId(e.messageId)
-        setBubbles((prev) => [
-          ...prev,
-          { id: uid, role: e.role ?? 'assistant', content: '', complete: false, agentId },
-        ])
+        setBubbles((prev) =>
+          prev.some((b) => b.id === e.messageId)
+            ? prev
+            : [...prev, { id: e.messageId, role: e.role ?? 'assistant', content: '', complete: false, agentId: e.agentId }],
+        )
         break
       }
       case 'TEXT_MESSAGE_CONTENT': {
         const e = evt as TextMessageContent
         const chunk = deltaToString(e.delta)
         if (!chunk) break
-        let uid = bubbleUidByMessageIdRef.current.get(e.messageId)
-        if (!uid) {
-          // Backend pode pular o START em alguns casos — registra UID on-demand.
-          uid = `${e.messageId}::t${turnRef.current}`
-          bubbleUidByMessageIdRef.current.set(e.messageId, uid)
-          const agentId = extractAgentIdFromMessageId(e.messageId)
-          setBubbles((prev) => [
-            ...prev,
-            {
-              id: uid as string,
-              role: 'assistant',
-              content: chunk,
-              complete: false,
-              agentId,
-            },
-          ])
-          break
-        }
-        const targetUid = uid
         setBubbles((prev) => {
-          const idx = prev.findIndex((b) => b.id === targetUid)
-          if (idx === -1) return prev
+          const idx = prev.findIndex((b) => b.id === e.messageId)
+          if (idx === -1) {
+            // Backend pode pular o START — cria bubble on-demand (caso streamed normal
+            // onde só vem TEXT_MESSAGE_CONTENT do token batcher).
+            return [
+              ...prev,
+              { id: e.messageId, role: 'assistant', content: chunk, complete: false, agentId: e.agentId },
+            ]
+          }
+          // Bubble já existe — só atualiza content. agentId pode chegar atrasado em
+          // chunks subsequentes; preenche se ainda não tem.
           const next = prev.slice()
-          next[idx] = { ...next[idx], content: next[idx].content + chunk }
+          next[idx] = {
+            ...next[idx],
+            content: next[idx].content + chunk,
+            agentId: next[idx].agentId ?? e.agentId,
+          }
           return next
         })
         break
       }
       case 'TEXT_MESSAGE_END': {
         const e = evt as TextMessageEnd
-        const uid = bubbleUidByMessageIdRef.current.get(e.messageId)
-        if (!uid) break
-        setBubbles((prev) => prev.map((b) => (b.id === uid ? { ...b, complete: true } : b)))
+        setBubbles((prev) => prev.map((b) => (b.id === e.messageId ? { ...b, complete: true } : b)))
         break
       }
       case 'TOOL_CALL_START': {
         const e = evt as ToolCallStart
         const uid = `${e.toolCallId}::t${turnRef.current}`
         toolCallUidByIdRef.current.set(e.toolCallId, uid)
-        // parentMessageId → mapeia pro UID da bubble corrente do turn (mesmo
-        // messageId em turns diferentes vira UIDs distintos).
-        const parentUid = e.parentMessageId
-          ? bubbleUidByMessageIdRef.current.get(e.parentMessageId)
-          : undefined
+        // parentMessageId vem do backend como o messageId real do bubble pai —
+        // bate direto com bubble.id (que agora também é o messageId real). Sem mapeamento.
         setToolCalls((prev) => [
           ...prev,
           {
             id: uid,
             name: e.toolCallName,
             args: '',
-            parentMessageId: parentUid,
+            parentMessageId: e.parentMessageId,
             complete: false,
           },
         ])
@@ -397,41 +416,41 @@ export function useChatStream({
       }
       case 'STEP_STARTED': {
         const e = evt as StepStarted
-        setSteps((prev) => [...prev, { id: e.stepId, name: e.stepName, status: 'started' }])
+        setSteps((prev) => [
+          ...prev,
+          {
+            id: e.stepId,
+            name: e.stepName,
+            status: 'started',
+            startedAt: Date.now(),
+            durationMs: null,
+            agentType: e.metadata?.agentType,
+          },
+        ])
+        indexAgentTypeFromStep(e.stepId, e.metadata?.agentType)
         break
       }
       case 'STEP_FINISHED': {
         const e = evt as StepFinished
+        const backendDuration = e.metadata?.durationMs
         setSteps((prev) =>
-          prev.map((s) => (s.id === e.stepId ? { ...s, status: 'finished' as const } : s)),
+          prev.map((s) => {
+            if (s.id !== e.stepId) return s
+            // Preferência: durationMs autoritativo do backend (mede o real
+            // tempo de execução do agente, sem RTT do SSE). Fallback: subtração
+            // local — pode estar inflado por latência de rede mas é melhor
+            // que esconder o sinal.
+            const durationMs =
+              typeof backendDuration === 'number' ? backendDuration : Date.now() - s.startedAt
+            return { ...s, status: 'finished' as const, durationMs }
+          }),
         )
+        indexAgentTypeFromStep(e.stepId, e.metadata?.agentType)
         break
       }
       case 'STATE_SNAPSHOT': {
         const e = evt as StateSnapshot
         setSharedState(e.snapshot ?? null)
-        break
-      }
-      case 'CUSTOM': {
-        // agent.lifecycle traz nodeId + agentType + agentName direto do servidor.
-        // Indexamos por nodeId pra UI consumir sem precisar de listAgents()
-        // (fallback ainda existe pro caso de stream que não emite o custom).
-        const c = evt as AgUiEventBase & {
-          customName?: string
-          customValue?: { nodeId?: string; agentType?: string } | null
-        }
-        if (c.customName === 'agent.lifecycle' && c.customValue) {
-          const nodeId = c.customValue.nodeId
-          const agentType = c.customValue.agentType
-          if (nodeId && agentType) {
-            setAgentTypeByNodeId((prev) => {
-              if (prev.get(nodeId) === agentType) return prev
-              const next = new Map(prev)
-              next.set(nodeId, agentType)
-              return next
-            })
-          }
-        }
         break
       }
       case 'STATE_DELTA': {
@@ -471,7 +490,8 @@ export function useChatStream({
         break
       }
       default:
-        // Eventos ignorados em V1: CUSTOM, MESSAGES_SNAPSHOT. Não derrubam o stream.
+        // Eventos ignorados em V1: CUSTOM (actor.persisted, executor.lifecycle,
+        // ESCALATION), MESSAGES_SNAPSHOT. Não derrubam o stream.
         break
     }
   }
@@ -543,11 +563,9 @@ export function useChatStream({
       if (!trimmed) return
       if (status === 'streaming') return
 
-      // Novo turn: bump do counter + reset dos mapas messageId/toolCallId →
-      // UID. Cada turn gera UIDs distintos mesmo quando o backend reusa o
-      // messageId do agente entre turns.
+      // Bumpa turn pra mapeamento de tool calls (que ainda usa UID local).
+      // Bubbles assistant não precisam reset — backend gera messageId único por step.
       turnRef.current += 1
-      bubbleUidByMessageIdRef.current.clear()
       toolCallUidByIdRef.current.clear()
 
       const userMsgId = `user-t${turnRef.current}-${Date.now()}`
@@ -558,7 +576,6 @@ export function useChatStream({
         complete: true,
       }
       setBubbles((prev) => [...prev, userBubble])
-      historyRef.current = [...historyRef.current, { role: 'user', content: trimmed }]
 
       setStatus('streaming')
       setErrorMessage(null)
@@ -578,10 +595,15 @@ export function useChatStream({
         headers['x-version'] = workflowVersionId
       }
 
+      // Payload mínimo: só a última mensagem do user. Backend reconstrói
+      // histórico via DB usando o threadId. Mandar histórico acumulado é
+      // anti-pattern — ResolveHistoryWithEcho ignora echo quando o DB tem
+      // mensagens (conv existente), e em conv nova o primeiro turn tem só
+      // essa única mensagem mesmo.
       const body = {
         threadId: threadIdRef.current,
         workflowId,
-        messages: historyRef.current,
+        messages: [{ role: 'user', content: trimmed }] satisfies ChatInputMessage[],
       }
 
       try {
@@ -644,6 +666,18 @@ export function useChatStream({
     })
   }, [])
 
+  // Derivado: map de stepId → durationMs do último STEP_FINISHED (mesmo step
+   // pode aparecer múltiplas vezes em turnos sucessivos; mantemos sempre o
+   // valor mais recente). Consumidor usa pra renderizar a tag de tempo perto
+   // da bubble do agente (bubble.agentId === stepId no caso comum).
+  const durationMsByStepId = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const s of steps) {
+      if (s.durationMs != null) map.set(s.id, s.durationMs)
+    }
+    return map
+  }, [steps])
+
   return {
     status,
     threadId,
@@ -654,20 +688,12 @@ export function useChatStream({
     errorMessage,
     rawEvents,
     agentTypeByNodeId,
+    durationMsByStepId,
     send,
     cancel,
     resolveHitl,
     reset,
   }
-}
-
-// Backend emite messageId no formato `msg_<agentId>` (ver AgUiEventMapper:
-// linha 249, `var messageId = $"msg_{nodeId}"`). Extrai o agentId pra cruzar
-// com agentTypeByNodeId no renderer. Em formatos diferentes, retorna undefined.
-function extractAgentIdFromMessageId(messageId: string): string | undefined {
-  if (!messageId.startsWith('msg_')) return undefined
-  const tail = messageId.slice(4)
-  return tail.length > 0 ? tail : undefined
 }
 
 // Encontra o próximo limite de evento SSE (\n\n ou \r\n\r\n). Retorna offset

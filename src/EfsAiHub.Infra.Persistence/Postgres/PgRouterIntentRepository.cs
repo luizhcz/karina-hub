@@ -26,6 +26,27 @@ public sealed class PgRouterIntentRepository : IRouterIntentRepository
         return row is null ? null : Hydrate(row);
     }
 
+    public async Task<IReadOnlyList<RouterIntent>> GetByIdsAsync(IReadOnlyList<string> ids, CancellationToken ct = default)
+    {
+        if (ids.Count == 0) return Array.Empty<RouterIntent>();
+
+        await using var ctx = await _factory.CreateDbContextAsync(ct);
+        var rows = await ctx.RouterIntents
+            .Where(r => ids.Contains(r.Id))
+            .ToListAsync(ct);
+
+        // Preserva a ordem declarada pelo caller — o renderer respeita essa ordem
+        // ao listar intents no system prompt.
+        var byId = rows.ToDictionary(r => r.Id, StringComparer.Ordinal);
+        var ordered = new List<RouterIntent>(ids.Count);
+        foreach (var id in ids)
+        {
+            if (byId.TryGetValue(id, out var row))
+                ordered.Add(Hydrate(row));
+        }
+        return ordered;
+    }
+
     public async Task<IReadOnlyList<RouterIntent>> ListAsync(CancellationToken ct = default)
     {
         await using var ctx = await _factory.CreateDbContextAsync(ct);
