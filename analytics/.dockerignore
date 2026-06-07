@@ -1,0 +1,9 @@
+node_modules
+dist
+.vite
+# `.env` é committed e vai pro container (defaults baked no bundle Vite).
+# `.env.local` (gitignored) NÃO entra — é só pra override local com `npm run dev`.
+.env.local
+.git
+*.log
+.DS_Store

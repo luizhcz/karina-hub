@@ -18,11 +18,15 @@ public class PgExecutionAnalyticsRepository : IExecutionAnalyticsRepository
         => _reporting = reporting;
 
     public async Task<ExecutionSummary> GetSummaryAsync(
+        string projectId,
         DateTime from,
         DateTime to,
         string? workflowId = null,
         CancellationToken ct = default)
     {
+        // Fonte: aihub.v_production_executions (filtra workflows sandbox de chat
+        // e standalone). ProjectId obrigatório — sem ele a query rodaria
+        // cross-project e vazaria métricas entre tenants.
         const string sql = @"
 SELECT
     COUNT(*)                                                                      AS total,
@@ -39,12 +43,14 @@ SELECT
     COALESCE(percentile_cont(0.95) WITHIN GROUP (
         ORDER BY EXTRACT(EPOCH FROM (""CompletedAt"" - ""StartedAt"")) * 1000.0)
         FILTER (WHERE ""Status"" = 'Completed' AND ""CompletedAt"" IS NOT NULL), 0) AS p95_ms
-FROM workflow_executions
-WHERE ""StartedAt"" >= @from AND ""StartedAt"" <= @to
+FROM aihub.v_production_executions
+WHERE ""ProjectId"" = @projectId
+  AND ""StartedAt"" >= @from AND ""StartedAt"" <= @to
   AND (@workflowId IS NULL OR ""WorkflowId"" = @workflowId);";
 
         await using var conn = await _reporting.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("projectId", projectId);
         cmd.Parameters.AddWithValue("from", from);
         cmd.Parameters.AddWithValue("to", to);
         cmd.Parameters.Add(new NpgsqlParameter("workflowId", NpgsqlDbType.Varchar) { Value = (object?)workflowId ?? DBNull.Value });
@@ -75,12 +81,16 @@ WHERE ""StartedAt"" >= @from AND ""StartedAt"" <= @to
     }
 
     public async Task<IReadOnlyList<ExecutionTimeseriesBucket>> GetTimeseriesAsync(
+        string projectId,
         DateTime from,
         DateTime to,
         string? workflowId = null,
         string groupBy = "hour",
         CancellationToken ct = default)
     {
+        // Whitelist defensiva — date_trunc não aceita parâmetro, então
+        // qualquer valor desconhecido cai em "hour" pra blindar contra SQL
+        // injection por concatenação.
         var trunc = groupBy == "day" ? "day" : "hour";
 
         var sql = $@"
@@ -91,14 +101,16 @@ SELECT
     COUNT(*) FILTER (WHERE ""Status"" = 'Failed')                AS failed,
     COALESCE(AVG(EXTRACT(EPOCH FROM (""CompletedAt"" - ""StartedAt"")) * 1000.0)
         FILTER (WHERE ""Status"" = 'Completed' AND ""CompletedAt"" IS NOT NULL), 0) AS avg_ms
-FROM workflow_executions
-WHERE ""StartedAt"" >= @from AND ""StartedAt"" <= @to
+FROM aihub.v_production_executions
+WHERE ""ProjectId"" = @projectId
+  AND ""StartedAt"" >= @from AND ""StartedAt"" <= @to
   AND (@workflowId IS NULL OR ""WorkflowId"" = @workflowId)
 GROUP BY bucket
 ORDER BY bucket;";
 
         await using var conn = await _reporting.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("projectId", projectId);
         cmd.Parameters.AddWithValue("from", from);
         cmd.Parameters.AddWithValue("to", to);
         cmd.Parameters.Add(new NpgsqlParameter("workflowId", NpgsqlDbType.Varchar) { Value = (object?)workflowId ?? DBNull.Value });
@@ -125,6 +137,7 @@ ORDER BY bucket;";
     }
 
     public async Task<IReadOnlyList<ExecutionFailureBreakdown>> GetFailureBreakdownAsync(
+        string projectId,
         DateTime from,
         DateTime to,
         string? workflowId = null,
@@ -135,12 +148,14 @@ ORDER BY bucket;";
         // COALESCE+NULLIF garante 'Unknown' para execuções Failed sem ErrorCategory (edge case).
         // Filtra apenas Status=Failed (workflows.cancelled é counter separado).
         // Ordena por count DESC (top categorias primeiro).
+        // ProjectId obrigatório — sem ele, breakdown leakeia falhas cross-project.
         const string sql = @"
 SELECT
     COALESCE(NULLIF(""Data""::jsonb ->> 'ErrorCategory', ''), 'Unknown') AS category,
     COUNT(*)                                                             AS count
-FROM workflow_executions
+FROM aihub.v_production_executions
 WHERE ""Status"" = 'Failed'
+  AND ""ProjectId"" = @projectId
   AND ""StartedAt"" >= @from AND ""StartedAt"" <= @to
   AND (@workflowId IS NULL OR ""WorkflowId"" = @workflowId)
 GROUP BY COALESCE(NULLIF(""Data""::jsonb ->> 'ErrorCategory', ''), 'Unknown')
@@ -148,6 +163,7 @@ ORDER BY count DESC;";
 
         await using var conn = await _reporting.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("projectId", projectId);
         cmd.Parameters.AddWithValue("from", from);
         cmd.Parameters.AddWithValue("to", to);
         cmd.Parameters.Add(new NpgsqlParameter("workflowId", NpgsqlDbType.Varchar) { Value = (object?)workflowId ?? DBNull.Value });

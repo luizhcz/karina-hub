@@ -32,13 +32,21 @@ public record ExecutionFailureBreakdown(
 
 public interface IExecutionAnalyticsRepository
 {
+    /// <summary>
+    /// Métricas agregadas de execuções no período, escopadas por
+    /// <paramref name="projectId"/> e filtradas pra excluir sandbox (usa
+    /// <c>aihub.v_production_executions</c>). <paramref name="workflowId"/>
+    /// permite drill-down opcional pra um workflow específico.
+    /// </summary>
     Task<ExecutionSummary> GetSummaryAsync(
+        string projectId,
         DateTime from,
         DateTime to,
         string? workflowId = null,
         CancellationToken ct = default);
 
     Task<IReadOnlyList<ExecutionTimeseriesBucket>> GetTimeseriesAsync(
+        string projectId,
         DateTime from,
         DateTime to,
         string? workflowId = null,
@@ -51,6 +59,7 @@ public interface IExecutionAnalyticsRepository
     /// NULL ErrorCategory colapsa em "Unknown".
     /// </summary>
     Task<IReadOnlyList<ExecutionFailureBreakdown>> GetFailureBreakdownAsync(
+        string projectId,
         DateTime from,
         DateTime to,
         string? workflowId = null,

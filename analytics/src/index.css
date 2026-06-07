@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Paleta BTG — navy #05132A + branco #FFFFFF. Mirror direto do mvp/index.css
+ * pra que as duas apps soem como irmãs. Componentes consomem só os tokens
+ * (`bg`, `fg`, `accent`, ...) — trocar paleta é uma única edição aqui.
+ *
+ * Light mode: superfície branca, texto/accent em navy BTG.
+ * Dark mode: superfície navy BTG, texto/accent em branco (inversão).
+ */
+:root {
+  --btg-theme-version: 1;
+
+  /* superfícies (light) */
+  --color-bg: 255 255 255;
+  --color-bg-soft: 245 247 250;
+  --color-surface: 255 255 255;
+  --color-surface-hover: 240 243 248;
+  --color-border: 222 227 235;
+  --color-border-strong: 184 196 214;
+
+  /* texto */
+  --color-fg: 5 19 42;
+  --color-fg-muted: 74 88 116;
+  --color-fg-dim: 148 163 184;
+
+  /* accent navy BTG */
+  --color-accent: 5 19 42;
+  --color-accent-soft: 26 43 74;
+  --color-accent-contrast: 255 255 255;
+  --color-accent-subtle: 232 236 243;
+
+  /* feedback */
+  --color-success: 22 163 74;
+  --color-warning: 217 119 6;
+  --color-danger: 220 38 38;
+}
+
+:root.dark {
+  --color-bg: 31 31 31;
+  --color-bg-soft: 22 22 22;
+  --color-surface: 31 31 31;
+  --color-surface-hover: 42 42 42;
+  --color-border: 22 22 22;
+  --color-border-strong: 54 54 54;
+
+  --color-fg: 207 207 207;
+  --color-fg-muted: 144 144 144;
+  --color-fg-dim: 102 102 102;
+
+  --color-accent: 255 255 255;
+  --color-accent-soft: 226 232 240;
+  --color-accent-contrast: 31 31 31;
+  --color-accent-subtle: 42 42 42;
+
+  --color-success: 74 222 128;
+  --color-warning: 250 204 21;
+  --color-danger: 248 113 113;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg text-fg antialiased;
+    background-image:
+      radial-gradient(800px 600px at 15% -10%, rgb(var(--color-accent) / 0.04), transparent 60%),
+      radial-gradient(700px 500px at 110% 110%, rgb(var(--color-accent) / 0.03), transparent 60%);
+    background-attachment: fixed;
+  }
+}

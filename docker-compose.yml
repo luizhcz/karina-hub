@@ -163,6 +163,35 @@ services:
       - backend
     restart: unless-stopped
 
+  # ── Analytics frontend ───────────────────────────────────────────────────────
+  # Dashboard separado do MVP, foco em métricas de custo/token/execuções.
+  # Stack idêntica ao mvp/ (Vite 6 + React 19 + Tailwind 3 + nginx alpine).
+  # Sem SSE — todas as rotas batem nos endpoints agregados REST do backend.
+  analytics:
+    build:
+      context: ./analytics
+      dockerfile: Dockerfile
+      args:
+        # Build-args opcionais — sobrescrevem o .env committed do analytics/.
+        # Não-vazio: Dockerfile gera .env.production e Vite usa esse valor.
+        # Vazio: Dockerfile pula a geração e Vite cai no .env default.
+        #
+        # ANALYTICS_DEV_PERMISSIONS — injeta no header x-efs-permissions
+        #   pra que o backend reconheça o user como admin em dev local sem
+        #   proxy/SSO (evita 403 do AdminGate em rotas analytics).
+        # ANALYTICS_API_HOST — quando o backend não está na mesma rede do
+        #   compose (ex.: backend remoto, dev em máquina separada), seta a
+        #   URL absoluta aqui. Vazio mantém path relativo via nginx proxy.
+        VITE_DEV_PERMISSIONS: "${ANALYTICS_DEV_PERMISSIONS:-efs.admin}"
+        VITE_API_HOST: "${ANALYTICS_API_HOST:-}"
+    ports:
+      - "3011:80"
+    environment:
+      BACKEND_URL: http://backend:5189
+    depends_on:
+      - backend
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:

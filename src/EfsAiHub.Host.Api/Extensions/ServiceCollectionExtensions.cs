@@ -296,6 +296,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWorkflowEventRepository, PgWorkflowEventRepository>();
         services.AddSingleton<IExecutionAnalyticsRepository, PgExecutionAnalyticsRepository>();
         services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IProjectAnalyticsRepository, PgProjectAnalyticsRepository>();
+        services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IToolAnalyticsRepository, PgToolAnalyticsRepository>();
+        services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IStandaloneJobAnalyticsRepository, PgStandaloneJobAnalyticsRepository>();
+        services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IWebhookDeliveryAnalyticsRepository, PgWebhookDeliveryAnalyticsRepository>();
+        services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IRouterDecisionAnalyticsRepository, PgRouterDecisionAnalyticsRepository>();
+        services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IFeedbackAnalyticsRepository, PgFeedbackAnalyticsRepository>();
         services.AddSingleton<EfsAiHub.Core.Abstractions.Observability.IAdminAuditLogger, PgAdminAuditLogRepository>();
         services.AddSingleton<EfsAiHub.Core.Agents.McpServers.IMcpServerRepository, PgMcpServerRepository>();
         services.AddSingleton<EfsAiHub.Core.Abstractions.Users.IUserDirectory, PgUserDirectory>();
