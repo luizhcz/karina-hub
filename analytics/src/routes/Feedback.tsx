@@ -34,6 +34,10 @@ import {
   type Sentiment,
 } from '../api/feedbackAnalytics'
 import {
+  getConversationMessages,
+  type ConversationMessage,
+} from '../api/conversations'
+import {
   formatInt,
   formatPercent,
   formatBucketLabel,
@@ -377,6 +381,22 @@ function FeedbackDrawer({
   row: FeedbackRecentRow
   onClose: () => void
 }) {
+  // Histórico só faz sentido com conversationId — quando o feedback foi salvo
+  // sem ele (caminho legado pré-PR de chat-history), pulamos o fetch e
+  // mostramos só o preview tradicional.
+  const conversationId = row.conversationId ?? null
+  const messagesState = useApi(
+    useCallback(
+      (signal) =>
+        conversationId
+          ? getConversationMessages(conversationId, { limit: 200 }, { signal })
+          : Promise.resolve<ConversationMessage[]>([]),
+      [conversationId],
+    ),
+    [conversationId],
+    { skip: !conversationId },
+  )
+
   return (
     <div
       className="fixed inset-0 z-40 flex justify-end bg-black/40 backdrop-blur-sm"
@@ -417,20 +437,14 @@ function FeedbackDrawer({
 
           <section>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
-              Mensagem avaliada
+              Histórico da conversa
             </h3>
-            {row.messagePreview ? (
-              <JsonViewer
-                value={row.messagePreview}
-                ariaLabel="conteúdo da mensagem avaliada"
-                maxHeightClass="max-h-72"
-                showMeta
-              />
-            ) : (
-              <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-fg-dim">
-                Mensagem indisponível (provavelmente foi expirada/deletada do chat).
-              </div>
-            )}
+            <ConversationThread
+              ratedMessageId={row.messageId}
+              fallbackPreview={row.messagePreview}
+              hasConversation={!!conversationId}
+              state={messagesState}
+            />
           </section>
 
           <section>
@@ -458,6 +472,104 @@ function FeedbackDrawer({
           </section>
         </div>
       </div>
+    </div>
+  )
+}
+
+function ConversationThread({
+  ratedMessageId,
+  fallbackPreview,
+  hasConversation,
+  state,
+}: {
+  ratedMessageId: string
+  fallbackPreview: string | null | undefined
+  hasConversation: boolean
+  state: ReturnType<typeof useApi<ConversationMessage[]>>
+}) {
+  if (!hasConversation) {
+    // Feedback antigo sem conversationId — caímos no preview que veio no row.
+    return fallbackPreview ? (
+      <JsonViewer
+        value={fallbackPreview}
+        ariaLabel="conteúdo da mensagem avaliada"
+        maxHeightClass="max-h-72"
+        showMeta
+      />
+    ) : (
+      <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-fg-dim">
+        Sem histórico disponível (feedback sem conversationId).
+      </div>
+    )
+  }
+
+  if (state.error) {
+    return <ErrorState error={state.error} onRetry={state.refetch} />
+  }
+  if (state.loading) {
+    return (
+      <div className="space-y-2">
+        <div className="h-16 animate-pulse rounded-md bg-surface-hover" />
+        <div className="h-12 animate-pulse rounded-md bg-surface-hover" />
+        <div className="h-16 animate-pulse rounded-md bg-surface-hover" />
+      </div>
+    )
+  }
+
+  const messages = state.data ?? []
+  if (messages.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-fg-dim">
+        Histórico vazio — mensagens podem ter sido expiradas pelo cleanup de chat.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {messages.map((m) => (
+        <MessageBubble
+          key={m.messageId}
+          message={m}
+          highlighted={m.messageId === ratedMessageId}
+        />
+      ))}
+    </div>
+  )
+}
+
+function MessageBubble({
+  message,
+  highlighted,
+}: {
+  message: ConversationMessage
+  highlighted: boolean
+}) {
+  const isUser = message.role === 'user'
+  const isAssistant = message.role === 'assistant'
+  const roleLabel = isUser ? 'Usuário' : isAssistant ? 'Assistente' : message.role
+  const bubbleClasses = cn(
+    'rounded-lg border p-3 text-xs',
+    isUser
+      ? 'border-border bg-surface-hover'
+      : 'border-border bg-surface',
+    highlighted && 'border-accent ring-1 ring-accent/40',
+  )
+
+  return (
+    <div className={bubbleClasses}>
+      <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-fg-dim">
+        <span className={highlighted ? 'font-semibold text-accent' : ''}>
+          {roleLabel}
+          {highlighted && ' · avaliada'}
+        </span>
+        <span>{formatBucketLabel(message.createdAt, 'hour')}</span>
+      </div>
+      <JsonViewer
+        value={message.message ?? ''}
+        ariaLabel={`mensagem ${roleLabel}`}
+        maxHeightClass="max-h-60"
+      />
     </div>
   )
 }
