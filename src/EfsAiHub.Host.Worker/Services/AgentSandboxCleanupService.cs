@@ -1,4 +1,5 @@
 using EfsAiHub.Core.Abstractions.AgentSandbox;
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Infra.Persistence.Postgres;
 using EfsAiHub.Platform.Runtime.Options;
 using Microsoft.EntityFrameworkCore;
@@ -19,10 +20,14 @@ namespace EfsAiHub.Host.Worker.Services;
 public sealed class AgentSandboxCleanupService(
     IServiceScopeFactory scopeFactory,
     IOptions<AgentSandboxOptions> options,
+    IBackgroundServiceHeartbeatSink heartbeat,
     ILogger<AgentSandboxCleanupService> logger) : BackgroundService
 {
+    private const string HeartbeatName = "AgentSandboxCleanup";
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         var intervalSeconds = options.Value.CleanupIntervalSeconds;
         if (intervalSeconds <= 0)
         {
@@ -33,7 +38,16 @@ public sealed class AgentSandboxCleanupService(
         }
 
         // Primeiro ciclo: imediato (pega lixo acumulado em deploys anteriores)
-        await CleanupAsync(stoppingToken);
+        try
+        {
+            await CleanupAsync(stoppingToken);
+            heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
+            logger.LogError(ex, "[AgentSandboxCleanup] Erro no cleanup inicial.");
+        }
 
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(intervalSeconds));
         logger.LogInformation(
@@ -45,6 +59,7 @@ public sealed class AgentSandboxCleanupService(
             try
             {
                 await CleanupAsync(stoppingToken);
+                heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -52,6 +67,7 @@ public sealed class AgentSandboxCleanupService(
             }
             catch (Exception ex)
             {
+                heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 logger.LogError(ex, "[AgentSandboxCleanup] Erro no ciclo periódico de cleanup.");
             }
         }

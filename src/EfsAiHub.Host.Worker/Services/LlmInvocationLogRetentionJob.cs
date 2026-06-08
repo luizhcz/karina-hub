@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Core.Agents.Capture;
 
 namespace EfsAiHub.Host.Worker.Services;
@@ -15,24 +16,29 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class LlmInvocationLogRetentionJob : BackgroundService
 {
+    private const string HeartbeatName = "LlmInvocationLogRetention";
     private const int RetentionDays = 30;
 
     /// <summary>Hora UTC pra rodar o sweep (3h da manhã — baixo tráfego).</summary>
     private static readonly TimeSpan RunAt = TimeSpan.FromHours(3);
 
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<LlmInvocationLogRetentionJob> _logger;
 
     public LlmInvocationLogRetentionJob(
         IServiceScopeFactory scopeFactory,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<LlmInvocationLogRetentionJob> logger)
     {
         _scopeFactory = scopeFactory;
+        _heartbeat = heartbeat;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         _logger.LogInformation(
             "[LlmInvocationLogRetention] Started — retention={Days}d, runs daily at {Time:hh\\:mm} UTC.",
             RetentionDays, RunAt);
@@ -76,10 +82,13 @@ public sealed class LlmInvocationLogRetentionJob : BackgroundService
             // o sweep roda no dia 31 (jobs noturnos passam virando dia).
             await repo.EnsureFuturePartitionAsync(1, ct);
             await repo.EnsureFuturePartitionAsync(2, ct);
+
+            _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
+            _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
             _logger.LogWarning(ex, "[LlmInvocationLogRetention] Falha no sweep — tentará novamente amanhã.");
         }
     }

@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Infra.Persistence.Postgres;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,13 +10,16 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public class AgentSessionCleanupService(
     IServiceScopeFactory scopeFactory,
+    IBackgroundServiceHeartbeatSink heartbeat,
     ILogger<AgentSessionCleanupService> logger) : BackgroundService
 {
+    private const string HeartbeatName = "AgentSessionCleanup";
     private static readonly TimeSpan Interval = TimeSpan.FromHours(6);
     private static readonly TimeSpan EventAuditRetention = TimeSpan.FromDays(7);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         logger.LogInformation("[SessionCleanup] Serviço iniciado. Intervalo: {Interval}.", Interval);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -93,10 +97,12 @@ public class AgentSessionCleanupService(
                 logger.LogInformation(
                     "[SessionCleanup] Limpeza concluída: {Sessions} sessões expiradas, {Events} eventos antigos, {Cache} cache docs expirados removidos.",
                     totalSessions, totalEvents, totalCache);
+                heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
+                heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 logger.LogWarning(ex, "[SessionCleanup] Erro durante limpeza. Próxima tentativa em {Interval}.", Interval);
             }
 

@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Core.Agents.Capture;
 using EfsAiHub.Core.Orchestration.Interfaces;
 using EfsAiHub.Infra.Observability;
@@ -17,20 +18,24 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class LlmInvocationLogPersistenceService : BackgroundService, ILlmInvocationLogSink
 {
+    private const string HeartbeatName = "LlmInvocationLogPersistence";
     private const int ChannelCapacity = 5_000;
     private const int MaxBatchSize = 50;
 
     private readonly Channel<LlmInvocationLogEntry> _channel;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<LlmInvocationLogPersistenceService> _logger;
 
     public ChannelWriter<LlmInvocationLogEntry> Writer => _channel.Writer;
 
     public LlmInvocationLogPersistenceService(
         IServiceScopeFactory scopeFactory,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<LlmInvocationLogPersistenceService> logger)
     {
         _scopeFactory = scopeFactory;
+        _heartbeat = heartbeat;
         _logger = logger;
         _channel = Channel.CreateBounded<LlmInvocationLogEntry>(new BoundedChannelOptions(ChannelCapacity)
         {
@@ -41,6 +46,7 @@ public sealed class LlmInvocationLogPersistenceService : BackgroundService, ILlm
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         _logger.LogInformation("[LlmInvocationLogPersistence] Background service started.");
 
         await foreach (var item in _channel.Reader.ReadAllAsync(stoppingToken))
@@ -54,9 +60,11 @@ public sealed class LlmInvocationLogPersistenceService : BackgroundService, ILlm
                 using var scope = _scopeFactory.CreateScope();
                 var repo = scope.ServiceProvider.GetRequiredService<ILlmInvocationLogRepository>();
                 await repo.InsertBatchAsync(batch, stoppingToken);
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 _logger.LogWarning(ex,
                     "[LlmInvocationLogPersistence] Falha ao persistir batch de {Count} entries.",
                     batch.Count);

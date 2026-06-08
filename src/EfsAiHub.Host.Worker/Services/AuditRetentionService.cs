@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Infra.Persistence.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -14,24 +15,29 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class AuditRetentionService : BackgroundService
 {
+    private const string HeartbeatName = "AuditRetention";
     private static readonly TimeSpan RunInterval = TimeSpan.FromHours(24);
 
     private readonly IDbContextFactory<AgentFwDbContext> _factory;
     private readonly WorkflowEngineOptions _options;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<AuditRetentionService> _logger;
 
     public AuditRetentionService(
         IDbContextFactory<AgentFwDbContext> factory,
         IOptions<WorkflowEngineOptions> options,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<AuditRetentionService> logger)
     {
         _factory = factory;
         _options = options.Value;
+        _heartbeat = heartbeat;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         // Jitter de 60s para não rodar junto com o startup de outros serviços
         try { await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken); }
         catch (OperationCanceledException) { return; }
@@ -39,10 +45,15 @@ public sealed class AuditRetentionService : BackgroundService
         using var timer = new PeriodicTimer(RunInterval);
         do
         {
-            try { await RunOnceAsync(stoppingToken); }
+            try
+            {
+                await RunOnceAsync(stoppingToken);
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
+            }
             catch (OperationCanceledException) { return; }
             catch (Exception ex)
             {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 _logger.LogError(ex, "[AuditRetention] Falha na execução periódica.");
             }
         } while (await timer.WaitForNextTickAsync(stoppingToken));

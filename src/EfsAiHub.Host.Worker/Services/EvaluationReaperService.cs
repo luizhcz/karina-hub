@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Core.Agents.Evaluation;
 using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Runtime.Evaluation;
@@ -15,22 +16,28 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class EvaluationReaperService : BackgroundService
 {
+    private const string HeartbeatName = "EvaluationReaper";
+
     private readonly IServiceProvider _serviceProvider;
     private readonly IOptions<EvaluationOptions> _options;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<EvaluationReaperService> _logger;
 
     public EvaluationReaperService(
         IServiceProvider serviceProvider,
         IOptions<EvaluationOptions> options,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<EvaluationReaperService> logger)
     {
         _serviceProvider = serviceProvider;
         _options = options;
+        _heartbeat = heartbeat;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         var opts = _options.Value;
         if (!opts.Enabled)
         {
@@ -46,8 +53,16 @@ public sealed class EvaluationReaperService : BackgroundService
             (int)staleAfter.TotalSeconds, (int)interval.TotalSeconds);
 
         // Bootstrap: varre imediatamente para cobrir crash do pod entre Running e Completed.
-        try { await ReapStaleAsync(staleAfter, stoppingToken); }
-        catch (Exception ex) { _logger.LogError(ex, "[EvaluationReaper] Falha no bootstrap reap."); }
+        try
+        {
+            await ReapStaleAsync(staleAfter, stoppingToken);
+            _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
+            _logger.LogError(ex, "[EvaluationReaper] Falha no bootstrap reap.");
+        }
 
         using var timer = new PeriodicTimer(interval);
         while (await timer.WaitForNextTickAsync(stoppingToken))
@@ -55,6 +70,7 @@ public sealed class EvaluationReaperService : BackgroundService
             try
             {
                 await ReapStaleAsync(staleAfter, stoppingToken);
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -62,6 +78,7 @@ public sealed class EvaluationReaperService : BackgroundService
             }
             catch (Exception ex)
             {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 _logger.LogError(ex, "[EvaluationReaper] Falha no ciclo periódico.");
             }
         }

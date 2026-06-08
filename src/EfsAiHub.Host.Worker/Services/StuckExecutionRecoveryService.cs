@@ -1,25 +1,32 @@
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using Npgsql;
 
 namespace EfsAiHub.Host.Worker.Services;
 
 public sealed class StuckExecutionRecoveryService : BackgroundService
 {
+    private const string HeartbeatName = "StuckExecutionRecovery";
+
     private readonly NpgsqlDataSource _dataSource;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<StuckExecutionRecoveryService> _logger;
     private readonly WorkflowEngineOptions _options;
 
     public StuckExecutionRecoveryService(
         [FromKeyedServices("general")] NpgsqlDataSource dataSource,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<StuckExecutionRecoveryService> logger,
         IOptions<WorkflowEngineOptions> options)
     {
         _dataSource = dataSource;
+        _heartbeat = heartbeat;
         _logger = logger;
         _options = options.Value;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         var intervalSeconds = _options.StuckExecutionRecoveryIntervalSeconds;
         if (intervalSeconds <= 0)
         {
@@ -38,6 +45,7 @@ public sealed class StuckExecutionRecoveryService : BackgroundService
             try
             {
                 await RecoverStuckAsync(stoppingToken);
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -45,6 +53,7 @@ public sealed class StuckExecutionRecoveryService : BackgroundService
             }
             catch (Exception ex)
             {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 _logger.LogError(ex, "[StuckExecutionRecovery] Falha no ciclo periódico.");
             }
         }

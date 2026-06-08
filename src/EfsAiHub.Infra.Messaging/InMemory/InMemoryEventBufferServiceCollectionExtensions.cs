@@ -31,7 +31,6 @@ public static class InMemoryEventBufferServiceCollectionExtensions
         });
         services.AddSingleton<InMemoryEventBuffer>();
         services.AddSingleton<IEventBuffer>(sp => sp.GetRequiredService<InMemoryEventBuffer>());
-        services.AddHostedService<InMemoryEventBufferCleaner>();
         return services;
     }
 }

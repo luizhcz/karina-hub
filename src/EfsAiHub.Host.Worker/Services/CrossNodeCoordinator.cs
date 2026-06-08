@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Platform.Runtime.Interfaces;
 using EfsAiHub.Core.Orchestration.Coordination;
 using EfsAiHub.Infra.Observability;
@@ -21,22 +22,28 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class CrossNodeCoordinator : BackgroundService
 {
+    private const string HeartbeatName = "CrossNodeCoordinator";
+
     private readonly NpgsqlDataSource _sseDataSource;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<CrossNodeCoordinator> _logger;
 
     public CrossNodeCoordinator(
         [FromKeyedServices("sse")] NpgsqlDataSource sseDataSource,
         IServiceScopeFactory scopeFactory,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<CrossNodeCoordinator> logger)
     {
         _sseDataSource = sseDataSource;
         _scopeFactory = scopeFactory;
+        _heartbeat = heartbeat;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         _logger.LogInformation("[CrossNodeCoordinator] Iniciando LISTEN em {Cancel} / {Hitl}.",
             PgCrossNodeBus.CancelChannel, PgCrossNodeBus.HitlResolvedChannel);
 
@@ -132,9 +139,11 @@ public sealed class CrossNodeCoordinator : BackgroundService
                         msg.interactionId, msg.resolvedBy ?? "unknown");
                 }
             }
+            _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
         }
         catch (Exception ex)
         {
+            _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
             _logger.LogWarning(ex, "[CrossNodeCoordinator] Falha ao processar notification {Channel}.", channel);
         }
     }

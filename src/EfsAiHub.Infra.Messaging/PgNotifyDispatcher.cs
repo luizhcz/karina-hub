@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Infra.Observability;
 using Microsoft.Extensions.DependencyInjection;
@@ -50,7 +51,10 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
     /// </summary>
     public const string EvalRunCancelledChannel = "eval_run_cancelled";
 
+    private const string HeartbeatName = "PgNotifyDispatcher";
+
     private readonly NpgsqlDataSource _dataSource;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<PgNotifyDispatcher> _logger;
 
     // executionId → lista de writers que devem receber eventos dessa execution.
@@ -80,9 +84,11 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
 
     public PgNotifyDispatcher(
         [FromKeyedServices("sse")] NpgsqlDataSource dataSource,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<PgNotifyDispatcher> logger)
     {
         _dataSource = dataSource;
+        _heartbeat = heartbeat;
         _logger = logger;
     }
 
@@ -162,6 +168,7 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         await OpenAndListenAsync(_cts.Token);
         _listenLoop = Task.Run(() => ListenLoopAsync(_cts.Token));
@@ -342,16 +349,22 @@ public sealed class PgNotifyDispatcher : IHostedService, IAsyncDisposable
             var env = JsonSerializer.Deserialize<WorkflowEventEnvelope>(args.Payload);
             if (env is null) return;
 
-            if (!_subscribers.TryGetValue(env.ExecutionId, out var list)) return;
+            if (!_subscribers.TryGetValue(env.ExecutionId, out var list))
+            {
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
+                return;
+            }
 
             lock (list)
             {
                 foreach (var writer in list)
                     writer.TryWrite(env);
             }
+            _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
         }
         catch (Exception ex)
         {
+            _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
             _logger.LogDebug(ex, "[PgNotifyDispatcher] Mensagem NOTIFY malformada ignorada.");
         }
     }

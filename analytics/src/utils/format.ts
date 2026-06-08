@@ -142,3 +142,56 @@ export function toIsoUtc(d: Date): string {
     d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(),
   )).toISOString()
 }
+
+/**
+ * Diferença "humana" entre dois timestamps: "agora", "5s atrás", "3min", "2h", "4d".
+ * Aceita ISO strings ou Date. Negativo (futuro) cai em "agora". null → "—".
+ * Usado no Workers pra last-tick relativo.
+ */
+export function formatRelative(value: string | Date | null | undefined, baseUtc: string | Date = new Date()): string {
+  if (value == null) return '—'
+  const t = typeof value === 'string' ? new Date(value).getTime() : value.getTime()
+  const base = typeof baseUtc === 'string' ? new Date(baseUtc).getTime() : baseUtc.getTime()
+  if (!Number.isFinite(t) || !Number.isFinite(base)) return '—'
+  const diffSec = Math.round((base - t) / 1000)
+  if (diffSec < 2) return 'agora'
+  if (diffSec < 60) return `${diffSec}s atrás`
+  if (diffSec < 3600) return `${Math.round(diffSec / 60)}min atrás`
+  if (diffSec < 86_400) return `${Math.round(diffSec / 3600)}h atrás`
+  return `${Math.round(diffSec / 86_400)}d atrás`
+}
+
+/**
+ * Duração positiva em formato "Xd Yh", "Xh Ymin", "Ymin Zs", "Zs". Usado pra
+ * mostrar uptime do processo na tela Workers.
+ */
+export function formatUptime(sinceUtc: string | Date | null | undefined, nowUtc: string | Date = new Date()): string {
+  if (sinceUtc == null) return '—'
+  const since = typeof sinceUtc === 'string' ? new Date(sinceUtc).getTime() : sinceUtc.getTime()
+  const now = typeof nowUtc === 'string' ? new Date(nowUtc).getTime() : nowUtc.getTime()
+  if (!Number.isFinite(since) || !Number.isFinite(now)) return '—'
+  const diffSec = Math.max(0, Math.round((now - since) / 1000))
+  const days = Math.floor(diffSec / 86_400)
+  const hours = Math.floor((diffSec % 86_400) / 3600)
+  const mins = Math.floor((diffSec % 3600) / 60)
+  const secs = diffSec % 60
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${mins}min`
+  if (mins > 0) return `${mins}min ${secs}s`
+  return `${secs}s`
+}
+
+/** Timestamp absoluto detalhado pra tooltip / drawer (dd/mm hh:mm:ss). */
+export function formatTimestampSecond(value: string | Date | null | undefined): string {
+  if (value == null) return '—'
+  const d = typeof value === 'string' ? new Date(value) : value
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString(PT_BR, {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}

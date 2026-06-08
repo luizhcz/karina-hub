@@ -1,3 +1,5 @@
+using EfsAiHub.Core.Abstractions.BackgroundServices;
+
 namespace EfsAiHub.Host.Api.Chat.AgUi.Streaming;
 
 /// <summary>
@@ -6,22 +8,27 @@ namespace EfsAiHub.Host.Api.Chat.AgUi.Streaming;
 /// </summary>
 public sealed class AgUiTokenChannelCleanupService : BackgroundService
 {
+    private const string HeartbeatName = "AgUiTokenChannelCleanup";
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan MaxAge = TimeSpan.FromMinutes(30);
 
     private readonly AgUiTokenChannel _tokenChannel;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<AgUiTokenChannelCleanupService> _logger;
 
     public AgUiTokenChannelCleanupService(
         AgUiTokenChannel tokenChannel,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<AgUiTokenChannelCleanupService> logger)
     {
         _tokenChannel = tokenChannel;
+        _heartbeat = heartbeat;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -33,10 +40,19 @@ public sealed class AgUiTokenChannelCleanupService : BackgroundService
                 break;
             }
 
-            var removed = _tokenChannel.RemoveStale(MaxAge);
-            if (removed > 0)
-                _logger.LogInformation("[AgUiCleanup] Removidos {Count} channels órfãos (>{MaxAge} min). Ativos: {Active}.",
-                    removed, (int)MaxAge.TotalMinutes, _tokenChannel.Count);
+            try
+            {
+                var removed = _tokenChannel.RemoveStale(MaxAge);
+                if (removed > 0)
+                    _logger.LogInformation("[AgUiCleanup] Removidos {Count} channels órfãos (>{MaxAge} min). Ativos: {Active}.",
+                        removed, (int)MaxAge.TotalMinutes, _tokenChannel.Count);
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
+            }
+            catch (Exception ex)
+            {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
+                _logger.LogWarning(ex, "[AgUiCleanup] Falha ao limpar channels stale.");
+            }
         }
     }
 }

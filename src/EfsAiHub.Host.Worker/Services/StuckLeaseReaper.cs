@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Core.Agents.Responses;
 using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Runtime.Configuration;
@@ -18,22 +19,28 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class StuckLeaseReaper : BackgroundService
 {
+    private const string HeartbeatName = "StuckLeaseReaper";
+
     private readonly IBackgroundResponseRepository _jobs;
     private readonly StandalonePoolsOptions _options;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<StuckLeaseReaper> _logger;
 
     public StuckLeaseReaper(
         IBackgroundResponseRepository jobs,
         IOptions<StandalonePoolsOptions> options,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<StuckLeaseReaper> logger)
     {
         _jobs = jobs;
         _options = options.Value;
+        _heartbeat = heartbeat;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         var interval = TimeSpan.FromSeconds(Math.Max(1, _options.ReaperIntervalSeconds));
         _logger.LogInformation(
             "[StuckLeaseReaper] Ativo — varredura a cada {Interval}s, reclaim backoff {Backoff}s, maxAttempts {Max}.",
@@ -65,6 +72,7 @@ public sealed class StuckLeaseReaper : BackgroundService
                     MetricsRegistry.StandaloneStuckLeasesRecovered.Add(result.FailedMaxAttempts,
                         new KeyValuePair<string, object?>("outcome", "failed_max_attempts"));
                 }
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -72,6 +80,7 @@ public sealed class StuckLeaseReaper : BackgroundService
             }
             catch (Exception ex)
             {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 _logger.LogError(ex, "[StuckLeaseReaper] Falha no ciclo periódico.");
             }
         }

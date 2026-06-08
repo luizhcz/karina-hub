@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Core.Abstractions.Execution;
 using EfsAiHub.Core.Agents.Responses;
 using EfsAiHub.Host.Worker.Services.Handlers;
@@ -37,12 +38,14 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class StandaloneJobDispatcherService : BackgroundService
 {
+    private const string HeartbeatName = "StandaloneJobDispatcher";
     private const string SlotScope = "standalone";
 
     private readonly IBackgroundResponseRepository _jobs;
     private readonly IDistributedSlotCounter _slots;
     private readonly IEnumerable<IStandaloneJobHandler> _handlers;
     private readonly StandalonePoolsOptions _options;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<StandaloneJobDispatcherService> _logger;
     private readonly string _podId;
     private readonly TimeSpan _slotTtl;
@@ -54,12 +57,14 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
         IDistributedSlotCounter slots,
         IEnumerable<IStandaloneJobHandler> handlers,
         IOptions<StandalonePoolsOptions> options,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<StandaloneJobDispatcherService> logger)
     {
         _jobs = jobs;
         _slots = slots;
         _handlers = handlers;
         _options = options.Value;
+        _heartbeat = heartbeat;
         _logger = logger;
         // PodId estável por processo — diferencia leases entre réplicas e fica
         // visível na coluna LeasedBy pra debug/reaper.
@@ -73,6 +78,7 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         if (!_options.Enabled)
         {
             _logger.LogInformation(
@@ -92,6 +98,7 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
             try
             {
                 var leased = await PollOnceAsync(stoppingToken).ConfigureAwait(false);
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
                 if (leased == 0)
                     await Task.Delay(idle, stoppingToken).ConfigureAwait(false);
             }
@@ -101,6 +108,7 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
             }
             catch (Exception ex)
             {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 _logger.LogError(ex, "[StandaloneDispatcher] Falha no loop. Aplicando backoff.");
                 try { await Task.Delay(idle, stoppingToken).ConfigureAwait(false); } catch { /* shutdown */ }
             }

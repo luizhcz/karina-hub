@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Core.Agents.Responses;
 using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Runtime.Configuration;
@@ -30,6 +31,7 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class WebhookCallbackDeliveryService : BackgroundService
 {
+    private const string HeartbeatName = "WebhookCallbackDelivery";
     public const string HttpClientName = "webhook-callback-delivery";
     private const string SignatureHeader = "X-EfsAiHub-Signature";
 
@@ -39,6 +41,7 @@ public sealed class WebhookCallbackDeliveryService : BackgroundService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IBackgroundResponseRepository _jobs;
     private readonly WebhookDeliveryOptions _options;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<WebhookCallbackDeliveryService> _logger;
     private readonly SemaphoreSlim _concurrencyGate;
 
@@ -47,12 +50,14 @@ public sealed class WebhookCallbackDeliveryService : BackgroundService
         IHttpClientFactory httpClientFactory,
         IBackgroundResponseRepository jobs,
         IOptions<WebhookDeliveryOptions> options,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<WebhookCallbackDeliveryService> logger)
     {
         _scopeFactory = scopeFactory;
         _httpClientFactory = httpClientFactory;
         _jobs = jobs;
         _options = options.Value;
+        _heartbeat = heartbeat;
         _logger = logger;
         var maxConcurrent = Math.Max(1, _options.MaxConcurrentDeliveries);
         _concurrencyGate = new SemaphoreSlim(maxConcurrent, maxConcurrent);
@@ -60,6 +65,7 @@ public sealed class WebhookCallbackDeliveryService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         if (!_options.Enabled)
         {
             _logger.LogInformation("[WebhookDelivery] Desligado (WebhookDelivery:Enabled=false).");
@@ -81,6 +87,7 @@ public sealed class WebhookCallbackDeliveryService : BackgroundService
             try
             {
                 var processed = await PollOnceAsync(stoppingToken).ConfigureAwait(false);
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
                 if (processed == 0)
                     await Task.Delay(idle, stoppingToken).ConfigureAwait(false);
             }
@@ -90,6 +97,7 @@ public sealed class WebhookCallbackDeliveryService : BackgroundService
             }
             catch (Exception ex)
             {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 _logger.LogError(ex, "[WebhookDelivery] Falha no loop. Aplicando backoff.");
                 try { await Task.Delay(idle, stoppingToken).ConfigureAwait(false); } catch { /* shutdown */ }
             }

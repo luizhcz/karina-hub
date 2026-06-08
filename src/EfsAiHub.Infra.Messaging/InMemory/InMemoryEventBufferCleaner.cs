@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,22 +12,28 @@ namespace EfsAiHub.Infra.Messaging.InMemory;
 /// </summary>
 public sealed class InMemoryEventBufferCleaner : BackgroundService
 {
+    private const string HeartbeatName = "InMemoryEventBufferCleaner";
+
     private readonly InMemoryEventBuffer _buffer;
     private readonly InMemoryEventBufferOptions _options;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<InMemoryEventBufferCleaner> _logger;
 
     public InMemoryEventBufferCleaner(
         InMemoryEventBuffer buffer,
         IOptions<InMemoryEventBufferOptions> options,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<InMemoryEventBufferCleaner> logger)
     {
         _buffer = buffer;
         _options = options.Value;
+        _heartbeat = heartbeat;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         var interval = TimeSpan.FromSeconds(Math.Max(5, _options.CleanupIntervalSeconds));
 
         while (!stoppingToken.IsCancellationRequested)
@@ -34,9 +41,11 @@ public sealed class InMemoryEventBufferCleaner : BackgroundService
             try
             {
                 Sweep();
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
             }
             catch (Exception ex)
             {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 _logger.LogWarning(ex, "InMemoryEventBuffer sweep failed");
             }
 

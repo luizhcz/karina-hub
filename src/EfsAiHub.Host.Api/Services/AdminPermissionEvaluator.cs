@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Host.Api.Configuration;
 using Microsoft.Extensions.Options;
 
@@ -63,28 +64,43 @@ public sealed class AdminPermissionEvaluator : IAdminPermissionEvaluator, IDispo
 /// </summary>
 public sealed class AdminPermissionsStartupValidator : IHostedService
 {
+    private const string HeartbeatName = "AdminPermissionsStartupValidator";
+
     private readonly IOptionsMonitor<AdminOptions> _options;
     private readonly IHostEnvironment _env;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<AdminPermissionsStartupValidator> _logger;
 
     public AdminPermissionsStartupValidator(
         IOptionsMonitor<AdminOptions> options,
         IHostEnvironment env,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<AdminPermissionsStartupValidator> logger)
     {
         _options = options;
         _env = env;
+        _heartbeat = heartbeat;
         _logger = logger;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        var perms = _options.CurrentValue.AdminPermissions;
-        if ((perms is null || perms.Count == 0) && !_env.IsDevelopment())
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
+        try
         {
-            _logger.LogWarning(
-                "Admin:AdminPermissions está vazia em ambiente {Environment} — nenhum usuário será reconhecido como admin.",
-                _env.EnvironmentName);
+            var perms = _options.CurrentValue.AdminPermissions;
+            if ((perms is null || perms.Count == 0) && !_env.IsDevelopment())
+            {
+                _logger.LogWarning(
+                    "Admin:AdminPermissions está vazia em ambiente {Environment} — nenhum usuário será reconhecido como admin.",
+                    _env.EnvironmentName);
+            }
+            _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
+            throw;
         }
         return Task.CompletedTask;
     }

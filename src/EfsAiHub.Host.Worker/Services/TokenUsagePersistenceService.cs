@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 
 namespace EfsAiHub.Host.Worker.Services;
 
@@ -8,11 +9,13 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class TokenUsagePersistenceService : BackgroundService, ITokenUsageSink
 {
+    private const string HeartbeatName = "TokenUsagePersistence";
     private const int ChannelCapacity = 1_000;
     private const int MaxBatchSize = 10;
 
     private readonly Channel<LlmTokenUsage> _channel;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<TokenUsagePersistenceService> _logger;
 
     public ChannelWriter<LlmTokenUsage> Writer => _channel.Writer;
@@ -33,9 +36,11 @@ public sealed class TokenUsagePersistenceService : BackgroundService, ITokenUsag
 
     public TokenUsagePersistenceService(
         IServiceScopeFactory scopeFactory,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<TokenUsagePersistenceService> logger)
     {
         _scopeFactory = scopeFactory;
+        _heartbeat = heartbeat;
         _logger = logger;
         _channel = Channel.CreateBounded<LlmTokenUsage>(new BoundedChannelOptions(ChannelCapacity)
         {
@@ -46,6 +51,7 @@ public sealed class TokenUsagePersistenceService : BackgroundService, ITokenUsag
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         _logger.LogInformation("[TokenUsagePersistence] Background service started.");
 
         await foreach (var item in _channel.Reader.ReadAllAsync(stoppingToken))
@@ -62,9 +68,11 @@ public sealed class TokenUsagePersistenceService : BackgroundService, ITokenUsag
 
                 foreach (var usage in batch)
                     await repo.AppendAsync(usage, stoppingToken);
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 _logger.LogWarning(ex, "[TokenUsagePersistence] Falha ao persistir batch de {Count} item(ns).", batch.Count);
             }
         }

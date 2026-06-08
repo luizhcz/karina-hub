@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Core.Agents.Capture;
 using EfsAiHub.Platform.Runtime.Services;
 
@@ -13,21 +14,26 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class LlmCaptureConfigExpiryJob : BackgroundService
 {
+    private const string HeartbeatName = "LlmCaptureConfigExpiry";
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(5);
 
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<LlmCaptureConfigExpiryJob> _logger;
 
     public LlmCaptureConfigExpiryJob(
         IServiceScopeFactory scopeFactory,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<LlmCaptureConfigExpiryJob> logger)
     {
         _scopeFactory = scopeFactory;
+        _heartbeat = heartbeat;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         _logger.LogInformation("[LlmCaptureConfigExpiry] Started — poll {Interval}.", PollInterval);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -52,9 +58,21 @@ public sealed class LlmCaptureConfigExpiryJob : BackgroundService
             var service = scope.ServiceProvider.GetRequiredService<LlmCaptureConfigService>();
 
             var current = await repo.GetAsync(ct);
-            if (!current.Enabled) return;
-            if (current.ExpiresAt is null) return;
-            if (current.ExpiresAt.Value > DateTime.UtcNow) return;
+            if (!current.Enabled)
+            {
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
+                return;
+            }
+            if (current.ExpiresAt is null)
+            {
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
+                return;
+            }
+            if (current.ExpiresAt.Value > DateTime.UtcNow)
+            {
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
+                return;
+            }
 
             var expired = current with
             {
@@ -69,10 +87,12 @@ public sealed class LlmCaptureConfigExpiryJob : BackgroundService
             _logger.LogInformation(
                 "[LlmCaptureConfigExpiry] Captura LLM expirou (era ON desde {EnabledAt}). Auto-off aplicado.",
                 current.EnabledAt);
+            _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
+            _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
             _logger.LogWarning(ex, "[LlmCaptureConfigExpiry] Falha no sweep — tentará novamente em {Interval}.", PollInterval);
         }
     }

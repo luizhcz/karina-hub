@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Core.Orchestration.Workflows;
 using EfsAiHub.Infra.Persistence.Postgres;
 using EfsAiHub.Core.Abstractions.Persistence;
@@ -15,10 +16,13 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class DatabaseBootstrapService : IHostedService
 {
+    private const string HeartbeatName = "DatabaseBootstrap";
+
     private readonly IWorkflowExecutionRepository _executionRepo;
     private readonly IWorkflowEventRepository _eventRepo;
     private readonly IHumanInteractionService _hitlService;
     private readonly IHumanInteractionRepository _hitlRepo;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<DatabaseBootstrapService> _logger;
 
     public DatabaseBootstrapService(
@@ -26,20 +30,32 @@ public sealed class DatabaseBootstrapService : IHostedService
         IWorkflowEventRepository eventRepo,
         IHumanInteractionService hitlService,
         IHumanInteractionRepository hitlRepo,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<DatabaseBootstrapService> logger)
     {
         _executionRepo = executionRepo;
         _eventRepo = eventRepo;
         _hitlService = hitlService;
         _hitlRepo = hitlRepo;
+        _heartbeat = heartbeat;
         _logger = logger;
     }
 
     public async Task StartAsync(CancellationToken ct)
     {
-        await CleanupOrphansAsync(ct);
-        await ExpireOrphanedHitlsAsync(ct);
-        await _hitlService.LoadPendingFromDbAsync();
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
+        try
+        {
+            await CleanupOrphansAsync(ct);
+            await ExpireOrphanedHitlsAsync(ct);
+            await _hitlService.LoadPendingFromDbAsync();
+            _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
+            throw;
+        }
     }
 
     public Task StopAsync(CancellationToken ct) => Task.CompletedTask;

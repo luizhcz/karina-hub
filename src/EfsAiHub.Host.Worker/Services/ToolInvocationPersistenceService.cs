@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 
 namespace EfsAiHub.Host.Worker.Services;
 
@@ -8,11 +9,13 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class ToolInvocationPersistenceService : BackgroundService, IToolInvocationSink
 {
+    private const string HeartbeatName = "ToolInvocationPersistence";
     private const int ChannelCapacity = 1_000;
     private const int MaxBatchSize = 10;
 
     private readonly Channel<ToolInvocation> _channel;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<ToolInvocationPersistenceService> _logger;
 
     public ChannelWriter<ToolInvocation> Writer => _channel.Writer;
@@ -33,9 +36,11 @@ public sealed class ToolInvocationPersistenceService : BackgroundService, IToolI
 
     public ToolInvocationPersistenceService(
         IServiceScopeFactory scopeFactory,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<ToolInvocationPersistenceService> logger)
     {
         _scopeFactory = scopeFactory;
+        _heartbeat = heartbeat;
         _logger = logger;
         _channel = Channel.CreateBounded<ToolInvocation>(new BoundedChannelOptions(ChannelCapacity)
         {
@@ -46,6 +51,7 @@ public sealed class ToolInvocationPersistenceService : BackgroundService, IToolI
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         _logger.LogInformation("[ToolInvocationPersistence] Background service started.");
 
         await foreach (var item in _channel.Reader.ReadAllAsync(stoppingToken))
@@ -62,9 +68,11 @@ public sealed class ToolInvocationPersistenceService : BackgroundService, IToolI
 
                 foreach (var invocation in batch)
                     await repo.AppendAsync(invocation, stoppingToken);
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 _logger.LogWarning(ex, "[ToolInvocationPersistence] Falha ao persistir batch de {Count} item(ns).", batch.Count);
             }
         }

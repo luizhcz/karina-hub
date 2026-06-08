@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Core.Abstractions.Blocklist;
 using EfsAiHub.Core.Abstractions.Events;
 using EfsAiHub.Core.Abstractions.Persistence;
@@ -43,6 +44,8 @@ public class BlocklistEngine : IHostedService, IDisposable
     private static readonly TimeSpan L1Ttl = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan L2Ttl = TimeSpan.FromSeconds(60);
 
+    private const string HeartbeatName = "BlocklistEngine";
+
     private readonly IBlocklistCatalogRepository _catalogRepo;
     private readonly IProjectRepository _projectRepo;
     private readonly IEfsRedisCache _l2Cache;
@@ -50,6 +53,7 @@ public class BlocklistEngine : IHostedService, IDisposable
     private readonly ICacheInvalidationBus? _cacheBus;
     private readonly IServiceProvider _services;
     private readonly IReadOnlyDictionary<string, IBuiltInPatternHandler> _builtIns;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<BlocklistEngine> _logger;
 
     // L1: matcher compilado por projectId. Tupla (matcher, expiresAtUtc) — checagem manual de TTL.
@@ -67,6 +71,7 @@ public class BlocklistEngine : IHostedService, IDisposable
         IEfsRedisCache l2Cache,
         PgNotifyDispatcher dispatcher,
         IEnumerable<IBuiltInPatternHandler> builtIns,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<BlocklistEngine> logger,
         IServiceProvider services,
         ICacheInvalidationBus? cacheBus = null)
@@ -78,11 +83,13 @@ public class BlocklistEngine : IHostedService, IDisposable
         _cacheBus = cacheBus;
         _services = services;
         _builtIns = builtIns.ToDictionary(b => b.Id, StringComparer.OrdinalIgnoreCase);
+        _heartbeat = heartbeat;
         _logger = logger;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         // Fail-fast: SAFETY_VIOLATION em streaming exige IWorkflowEventBus pra publicar
         // no canal SSE. Se não estiver registrado, cliente vê HTTP 422 mas SSE não fecha
         // com terminal event — falha silenciosa que demora dias pra ser detectada.
@@ -317,9 +324,14 @@ public class BlocklistEngine : IHostedService, IDisposable
         // Cleanup dos semaphores junto pra não acumular SemaphoreSlim de projetos
         // que talvez nunca mais venham. Reabre on-demand no próximo GetMatcherAsync.
         _semaphores.Clear();
-        try { await _l2Cache.RemoveAsync(CatalogCacheKey); }
+        try
+        {
+            await _l2Cache.RemoveAsync(CatalogCacheKey);
+            _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
+        }
         catch (Exception ex)
         {
+            _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
             _logger.LogWarning(ex, "[BlocklistEngine] Falha ao limpar L2 — TTL cobre fallback.");
         }
         _logger.LogInformation("[BlocklistEngine] Catálogo invalidado via NOTIFY 'blocklist_changed'.");

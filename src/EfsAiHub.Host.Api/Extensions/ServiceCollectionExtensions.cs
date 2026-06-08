@@ -1,3 +1,4 @@
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Core.Abstractions.Conversations;
 using EfsAiHub.Host.Api.CodeExecutors;
 using EfsAiHub.Host.Worker.Services;
@@ -394,8 +395,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Core.Orchestration.Interfaces.ILlmInvocationLogSink>(
             sp => sp.GetRequiredService<EfsAiHub.Host.Worker.Services.LlmInvocationLogPersistenceService>());
         services.AddHostedService(sp => sp.GetRequiredService<EfsAiHub.Host.Worker.Services.LlmInvocationLogPersistenceService>());
-        services.AddHostedService<EfsAiHub.Host.Worker.Services.LlmInvocationLogRetentionJob>();
-        services.AddHostedService<EfsAiHub.Host.Worker.Services.LlmCaptureConfigExpiryJob>();
         services.AddSingleton<NodePersistenceService>();
         services.AddHostedService(sp => sp.GetRequiredService<NodePersistenceService>());
         services.AddSingleton<IHumanInteractionRepository, PgHumanInteractionRepository>();
@@ -408,7 +407,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Host.Api.Chat.AgUi.Streaming.AgUiTokenChannel>();
         services.AddSingleton<EfsAiHub.Core.Abstractions.AgUi.IAgUiTokenSink>(
             sp => sp.GetRequiredService<EfsAiHub.Host.Api.Chat.AgUi.Streaming.AgUiTokenChannel>());
-        services.AddHostedService<EfsAiHub.Host.Api.Chat.AgUi.Streaming.AgUiTokenChannelCleanupService>();
         services.AddMemoryCache();
         services.AddSingleton<EfsAiHub.Host.Api.Chat.AgUi.State.IAgUiStateStore, EfsAiHub.Host.Api.Chat.AgUi.State.RedisAgUiStateStore>();
         services.AddSingleton<EfsAiHub.Host.Api.Chat.AgUi.State.AgUiStateManager>();
@@ -489,12 +487,8 @@ public static class ServiceCollectionExtensions
         // seedados via db/seeds.sql ficam sem agent_versions row até a primeira
         // edição via API/UI — fluxo aceitável porque seed acontece raramente
         // e via PR explícito.
-        services.AddHostedService<AgentSessionCleanupService>();
-        services.AddHostedService<AgentSandboxCleanupService>();
-        services.AddHostedService<AuditRetentionService>();
         if (engineOpts.MultiNode)
             services.AddHostedService<CrossNodeCoordinator>();
-        services.AddHostedService<StuckExecutionRecoveryService>();
 
         // Standalone Pools — workflows assíncronos com fila isolada (Redis slot
         // counter scope=standalone + lease em background_response_jobs).
@@ -526,11 +520,7 @@ public static class ServiceCollectionExtensions
             EfsAiHub.Host.Worker.Services.Handlers.WorkflowStandaloneJobHandler>();
 
         services.AddHostedService<EfsAiHub.Host.Worker.Services.StandaloneJobDispatcherService>();
-        services.AddHostedService<EfsAiHub.Host.Worker.Services.StuckLeaseReaper>();
         services.AddHostedService<EfsAiHub.Host.Worker.Services.WebhookCallbackDeliveryService>();
-
-        // HitlRecoveryService DEVE ser registrado por último
-        services.AddHostedService<HitlRecoveryService>();
 
         // Background Service Registry — propagamos as opções pra refletir o que foi
         // efetivamente registrado (intervalos reais + gating do CrossNodeCoordinator).
@@ -555,7 +545,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<EfsAiHub.Host.Api.Services.Evaluation.IAgentDefinitionApplicationService,
             EfsAiHub.Host.Api.Services.Evaluation.AgentDefinitionApplicationService>();
         services.AddHostedService<EfsAiHub.Host.Worker.Services.EvaluationRunnerService>();
-        services.AddHostedService<EfsAiHub.Host.Worker.Services.EvaluationReaperService>();
 
         return services;
     }
@@ -567,26 +556,103 @@ public static class ServiceCollectionExtensions
     {
         var opts = engineOpts ?? new WorkflowEngineOptions();
 
+        // Sink in-memory de heartbeats. Singleton — todos os hosted services injetam
+        // o mesmo dicionário thread-safe e reportam Started/RecordSuccess/RecordError.
+        // Per-pod: em multi-instance, cada pod tem o próprio sink. Endpoint admin
+        // devolve só os heartbeats do pod que serviu o request.
+        services.AddSingleton<EfsAiHub.Core.Abstractions.BackgroundServices.IBackgroundServiceHeartbeatSink,
+            EfsAiHub.Platform.Runtime.Services.BackgroundServiceHeartbeatSink>();
+
         services.AddSingleton<EfsAiHub.Core.Abstractions.BackgroundServices.IBackgroundServiceRegistry>(_ =>
         {
             var registry = new EfsAiHub.Platform.Runtime.Services.BackgroundServiceRegistry();
 
-            registry.Register("DatabaseBootstrap", new() { Name = "DatabaseBootstrap", Description = "Limpeza no startup de execuções órfãs deixadas por restart", Lifecycle = "OneTime", ServiceType = typeof(DatabaseBootstrapService) });
-            registry.Register("AgentSessionCleanup", new() { Name = "AgentSessionCleanup", Description = "Remove sessões de agente expiradas pelo TTL", Lifecycle = "Continuous", Interval = TimeSpan.FromHours(6), ServiceType = typeof(AgentSessionCleanupService) });
-            registry.Register("AuditRetention", new() { Name = "AuditRetention", Description = "Descarta partições antigas das tabelas de auditoria", Lifecycle = "Continuous", Interval = TimeSpan.FromHours(24), ServiceType = typeof(AuditRetentionService) });
+            // ── Bootstrap (rodam uma vez no startup) ─────────────────────────
+            registry.Register("DatabaseBootstrap",
+                new() { Name = "DatabaseBootstrap",
+                    Description = "Limpeza no startup de execuções órfãs deixadas por restart",
+                    Lifecycle = "OneTime",
+                    Category = BackgroundServiceCategory.Bootstrap,
+                    ServiceType = typeof(DatabaseBootstrapService) });
+            registry.Register("AdminPermissionsStartupValidator",
+                new() { Name = "AdminPermissionsStartupValidator",
+                    Description = "Valida config Admin:AdminPermissions no boot — warning quando vazia fora de Development.",
+                    Lifecycle = "OneTime",
+                    Category = BackgroundServiceCategory.Bootstrap,
+                    ServiceType = typeof(EfsAiHub.Host.Api.Services.AdminPermissionsStartupValidator) });
+
+            // ── Persistence (drenam Channel bounded e persistem em batch) ────
+            registry.Register("TokenUsagePersistence",
+                new() { Name = "TokenUsagePersistence",
+                    Description = "Persiste consumo de tokens em lote (channel-driven, batch=10).",
+                    Lifecycle = "Continuous",
+                    Category = BackgroundServiceCategory.Persistence,
+                    ServiceType = typeof(TokenUsagePersistenceService) });
+            registry.Register("ToolInvocationPersistence",
+                new() { Name = "ToolInvocationPersistence",
+                    Description = "Persiste invocações de tools em lote (channel-driven, batch=10).",
+                    Lifecycle = "Continuous",
+                    Category = BackgroundServiceCategory.Persistence,
+                    ServiceType = typeof(ToolInvocationPersistenceService) });
+            registry.Register("LlmInvocationLogPersistence",
+                new() { Name = "LlmInvocationLogPersistence",
+                    Description = "Drena channel de captura de prompts LLM e persiste em llm_invocation_log (batch=50).",
+                    Lifecycle = "Continuous",
+                    Category = BackgroundServiceCategory.Persistence,
+                    ServiceType = typeof(LlmInvocationLogPersistenceService) });
+            registry.Register("NodePersistence",
+                new() { Name = "NodePersistence",
+                    Description = "Persiste sequencialmente o estado dos nós de workflow + publica eventos.",
+                    Lifecycle = "Continuous",
+                    Category = BackgroundServiceCategory.Persistence,
+                    ServiceType = typeof(NodePersistenceService) });
+
+            // ── Dispatcher (filas de jobs e entrega de webhooks) ─────────────
+            registry.Register("StandaloneJobDispatcher",
+                new() { Name = "StandaloneJobDispatcher",
+                    Description = "Consome jobs da fila standalone (background_response_jobs) e dispara workflows assíncronos. Gateado por StandalonePools:Enabled.",
+                    Lifecycle = "Continuous",
+                    Category = BackgroundServiceCategory.Dispatcher,
+                    ServiceType = typeof(StandaloneJobDispatcherService) });
+            registry.Register("WebhookCallbackDelivery",
+                new() { Name = "WebhookCallbackDelivery",
+                    Description = "Entrega webhooks de jobs standalone terminais (CallbackTarget). Uma tentativa por delivery — sem retry.",
+                    Lifecycle = "Continuous",
+                    Category = BackgroundServiceCategory.Dispatcher,
+                    ServiceType = typeof(WebhookCallbackDeliveryService) });
+
+            // ── Evaluation ───────────────────────────────────────────────────
+            registry.Register("EvaluationRunner",
+                new() { Name = "EvaluationRunner",
+                    Description = "Processa EvaluationRun em Pending. Dequeue atômico + Parallel.ForEachAsync sobre cases.",
+                    Lifecycle = "Continuous",
+                    Category = BackgroundServiceCategory.Evaluation,
+                    ServiceType = typeof(EvaluationRunnerService) });
+
+            // ── Messaging (LISTEN/NOTIFY cross-pod) ──────────────────────────
             // CrossNodeCoordinator só aparece no registry se o hosted service foi registrado
             // (gated por WorkflowEngine:MultiNode) — evita confusão na UI em deploy single-node.
             if (opts.MultiNode)
-                registry.Register("CrossNodeCoordinator", new() { Name = "CrossNodeCoordinator", Description = "Propaga cancelamentos e eventos HITL entre pods via LISTEN/NOTIFY", Lifecycle = "Continuous", ServiceType = typeof(CrossNodeCoordinator) });
-            registry.Register("HitlRecovery", new() { Name = "HitlRecovery", Description = "Retoma execuções HITL pausadas após restart ou timeout", Lifecycle = "Continuous", Interval = TimeSpan.FromSeconds(Math.Max(1, opts.HitlRecoveryIntervalSeconds)), ServiceType = typeof(HitlRecoveryService) });
-            registry.Register("StuckExecutionRecovery", new() { Name = "StuckExecutionRecovery", Description = "Marca como Failed execuções Running paradas há mais que o timeout configurado", Lifecycle = "Continuous", Interval = TimeSpan.FromSeconds(Math.Max(1, opts.StuckExecutionRecoveryIntervalSeconds)), ServiceType = typeof(StuckExecutionRecoveryService) });
-            registry.Register("NodePersistence", new() { Name = "NodePersistence", Description = "Persiste sequencialmente o estado dos nós de workflow", Lifecycle = "Continuous", ServiceType = typeof(NodePersistenceService) });
-            registry.Register("TokenUsagePersistence", new() { Name = "TokenUsagePersistence", Description = "Persiste consumo de tokens em lote", Lifecycle = "Continuous", ServiceType = typeof(TokenUsagePersistenceService) });
-            registry.Register("ToolInvocationPersistence", new() { Name = "ToolInvocationPersistence", Description = "Persiste invocações de tools em lote", Lifecycle = "Continuous", ServiceType = typeof(ToolInvocationPersistenceService) });
-            registry.Register("AgUiTokenChannelCleanup", new() { Name = "AgUiTokenChannelCleanup", Description = "Remove canais SSE inativos do streaming AG-UI", Lifecycle = "Continuous", Interval = TimeSpan.FromMinutes(5), ServiceType = typeof(EfsAiHub.Host.Api.Chat.AgUi.Streaming.AgUiTokenChannelCleanupService) });
-            registry.Register("StandaloneJobDispatcher", new() { Name = "StandaloneJobDispatcher", Description = "Consome jobs da fila standalone (background_response_jobs) e dispara workflows assíncronos. Gateado por StandalonePools:Enabled.", Lifecycle = "Continuous", ServiceType = typeof(EfsAiHub.Host.Worker.Services.StandaloneJobDispatcherService) });
-            registry.Register("StuckLeaseReaper", new() { Name = "StuckLeaseReaper", Description = "Devolve pra Queued jobs standalone com lease expirado (pod morreu, heartbeat falhou).", Lifecycle = "Continuous", ServiceType = typeof(EfsAiHub.Host.Worker.Services.StuckLeaseReaper) });
-            registry.Register("WebhookCallbackDelivery", new() { Name = "WebhookCallbackDelivery", Description = "Entrega webhooks de jobs standalone terminais (CallbackTarget). Uma tentativa por delivery — sem retry.", Lifecycle = "Continuous", ServiceType = typeof(EfsAiHub.Host.Worker.Services.WebhookCallbackDeliveryService) });
+                registry.Register("CrossNodeCoordinator",
+                    new() { Name = "CrossNodeCoordinator",
+                        Description = "Propaga cancelamentos e eventos HITL entre pods via LISTEN/NOTIFY.",
+                        Lifecycle = "Continuous",
+                        Category = BackgroundServiceCategory.Messaging,
+                        ServiceType = typeof(CrossNodeCoordinator) });
+            registry.Register("PgNotifyDispatcher",
+                new() { Name = "PgNotifyDispatcher",
+                    Description = "Dispatcher singleton que multiplexa LISTEN em wf_events, efs_cache_invalidate, blocklist_changed, eval_run_cancelled.",
+                    Lifecycle = "Continuous",
+                    Category = BackgroundServiceCategory.Messaging,
+                    ServiceType = typeof(EfsAiHub.Infra.Messaging.PgNotifyDispatcher) });
+
+            // ── Guards (hot-reload de configs de runtime) ────────────────────
+            registry.Register("BlocklistEngine",
+                new() { Name = "BlocklistEngine",
+                    Description = "Resolve BlocklistMatcher efetivo por projeto. Hot-reload via NOTIFY 'blocklist_changed' + cache híbrido L1/L2.",
+                    Lifecycle = "Continuous",
+                    Category = BackgroundServiceCategory.Guards,
+                    ServiceType = typeof(EfsAiHub.Platform.Runtime.Guards.BlocklistEngine) });
 
             return registry;
         });

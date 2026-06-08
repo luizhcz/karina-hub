@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Platform.Runtime.Interfaces;
 using EfsAiHub.Core.Orchestration.Enums;
 using EfsAiHub.Infra.Observability;
@@ -22,27 +23,43 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class HitlRecoveryService : BackgroundService
 {
+    private const string HeartbeatName = "HitlRecovery";
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly NpgsqlDataSource _dataSource;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<HitlRecoveryService> _logger;
     private readonly WorkflowEngineOptions _options;
 
     public HitlRecoveryService(
         IServiceScopeFactory scopeFactory,
         [FromKeyedServices("general")] NpgsqlDataSource dataSource,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<HitlRecoveryService> logger,
         IOptions<WorkflowEngineOptions> options)
     {
         _scopeFactory = scopeFactory;
         _dataSource = dataSource;
+        _heartbeat = heartbeat;
         _logger = logger;
         _options = options.Value;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         // Primeiro ciclo: imediato (startup recovery)
-        await RecoverAllAsync(stoppingToken);
+        try
+        {
+            await RecoverAllAsync(stoppingToken);
+            _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
+        catch (Exception ex)
+        {
+            _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
+            _logger.LogError(ex, "[HitlRecovery] Erro no recovery de startup.");
+        }
 
         var intervalSeconds = _options.HitlRecoveryIntervalSeconds;
         if (intervalSeconds <= 0)
@@ -60,6 +77,7 @@ public sealed class HitlRecoveryService : BackgroundService
             try
             {
                 await RecoverAllAsync(stoppingToken);
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -67,6 +85,7 @@ public sealed class HitlRecoveryService : BackgroundService
             }
             catch (Exception ex)
             {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 _logger.LogError(ex, "[HitlRecovery] Erro no ciclo periódico de recovery.");
             }
         }

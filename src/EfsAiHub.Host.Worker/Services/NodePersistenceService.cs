@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Core.Abstractions.Execution;
 
 namespace EfsAiHub.Host.Worker.Services;
@@ -34,10 +35,12 @@ public sealed record NodePersistenceJob(
 /// </summary>
 public sealed class NodePersistenceService : BackgroundService
 {
+    private const string HeartbeatName = "NodePersistence";
     private const int ChannelCapacity = 2_000;
 
     private readonly Channel<NodePersistenceJob> _channel;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<NodePersistenceService> _logger;
 
     public ChannelWriter<NodePersistenceJob> Writer => _channel.Writer;
@@ -58,9 +61,11 @@ public sealed class NodePersistenceService : BackgroundService
 
     public NodePersistenceService(
         IServiceScopeFactory scopeFactory,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<NodePersistenceService> logger)
     {
         _scopeFactory = scopeFactory;
+        _heartbeat = heartbeat;
         _logger = logger;
         _channel = Channel.CreateBounded<NodePersistenceJob>(new BoundedChannelOptions(ChannelCapacity)
         {
@@ -71,6 +76,7 @@ public sealed class NodePersistenceService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         _logger.LogInformation("[NodePersistence] Background service started.");
 
         await foreach (var job in _channel.Reader.ReadAllAsync(stoppingToken))
@@ -113,9 +119,11 @@ public sealed class NodePersistenceService : BackgroundService
                     ExecutionId = job.ExecutionId,
                     Payload = job.PayloadJson
                 });
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 _logger.LogWarning(ex,
                     "[NodePersistence] Falha ao persistir job {EventType} para execução '{ExecutionId}'.",
                     job.EventType, job.ExecutionId);

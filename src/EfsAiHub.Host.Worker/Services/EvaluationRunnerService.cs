@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using EfsAiHub.Core.Abstractions.BackgroundServices;
 using EfsAiHub.Core.Abstractions.Projects;
 using EfsAiHub.Core.Abstractions.Secrets;
 using EfsAiHub.Core.Agents;
@@ -37,9 +38,12 @@ namespace EfsAiHub.Host.Worker.Services;
 /// </summary>
 public sealed class EvaluationRunnerService : BackgroundService
 {
+    private const string HeartbeatName = "EvaluationRunner";
+
     private readonly IServiceProvider _serviceProvider;
     private readonly PgNotifyDispatcher _notifyDispatcher;
     private readonly IOptions<EvaluationOptions> _options;
+    private readonly IBackgroundServiceHeartbeatSink _heartbeat;
     private readonly ILogger<EvaluationRunnerService> _logger;
 
     // Map RunId → CTS local. Cancel chega via NOTIFY sinaliza o CTS específico.
@@ -49,16 +53,19 @@ public sealed class EvaluationRunnerService : BackgroundService
         IServiceProvider serviceProvider,
         PgNotifyDispatcher notifyDispatcher,
         IOptions<EvaluationOptions> options,
+        IBackgroundServiceHeartbeatSink heartbeat,
         ILogger<EvaluationRunnerService> logger)
     {
         _serviceProvider = serviceProvider;
         _notifyDispatcher = notifyDispatcher;
         _options = options;
+        _heartbeat = heartbeat;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
         var opts = _options.Value;
         if (!opts.Enabled)
         {
@@ -105,6 +112,7 @@ public sealed class EvaluationRunnerService : BackgroundService
                     _ = Task.Run(() => ProcessRunSafelyAsync(run, stoppingToken), stoppingToken);
                 }
 
+                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
                 await timer.WaitForNextTickAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -113,6 +121,7 @@ public sealed class EvaluationRunnerService : BackgroundService
             }
             catch (Exception ex)
             {
+                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
                 _logger.LogError(ex, "[EvaluationRunner] Falha no loop de polling.");
                 try { await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken); }
                 catch (OperationCanceledException) { break; }
