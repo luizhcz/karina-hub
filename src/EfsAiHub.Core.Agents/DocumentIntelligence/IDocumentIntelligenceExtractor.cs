@@ -6,8 +6,9 @@ namespace EfsAiHub.Core.Agents.DocumentIntelligence;
 /// e em Redis (di:v2:*) — qualquer caminho que precise extrair documentos
 /// (tool de agente, ingestion, futuros endpoints) DEVE passar por aqui.
 ///
-/// Chamar <c>IDocumentIntelligenceService.AnalyzeBytesAsync</c> direto bypassa
-/// audit/cache/custo/gate e gera dívida operacional.
+/// O wrapper raw do SDK Azure (<c>DocumentIntelligenceService</c>) é
+/// dependência interna deste pipeline — injetado apenas aqui, sem interface
+/// pública e sem registro próprio no DI fora do escopo deste assembly.
 ///
 /// Contrato:
 /// <list type="bullet">

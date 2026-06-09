@@ -2,22 +2,29 @@ using System.Diagnostics;
 using System.Text.Json;
 using Azure;
 using Azure.AI.DocumentIntelligence;
+using EfsAiHub.Core.Abstractions.Persistence;
 using EfsAiHub.Core.Agents.DocumentIntelligence;
 using EfsAiHub.Platform.Runtime.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using EfsAiHub.Core.Abstractions.Persistence;
 
 namespace EfsAiHub.Platform.Runtime.Services;
 
 /// <summary>
-/// Wrapper do Azure Document Intelligence SDK.
-/// Singleton — DocumentIntelligenceClient é thread-safe.
-/// Segue pattern de AzureOpenAiClientProvider: credential + endpoint no constructor.
+/// Wrapper concreto do Azure Document Intelligence SDK. Não exposto via
+/// interface — o único consumidor legítimo é <see cref="DocumentIntelligenceExtractor"/>,
+/// que injeta a classe diretamente. Tornar pública uma interface aqui só viria
+/// pra permitir os call sites bypass que motivaram o refactor de 2026-06
+/// (ingestion chamando Azure direto sem audit/cache/custo).
+///
+/// Métodos <c>virtual</c> preservam test seam: tests sobem uma classe derivada
+/// que overridda <see cref="AnalyzeAsync"/>/<see cref="AnalyzeBytesAsync"/>
+/// sem precisar de Azure DI real.
+///
+/// Singleton — DocumentIntelligenceClient é thread-safe e construir o cliente
+/// envolve handshake TLS + token credential resolution.
 /// </summary>
-#pragma warning disable CS0618
-public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
-#pragma warning restore CS0618
+public class DocumentIntelligenceService
 {
     private readonly DocumentIntelligenceClient _client;
     private readonly ILogger<DocumentIntelligenceService> _logger;
@@ -39,7 +46,7 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
             opts.Endpoint, string.IsNullOrWhiteSpace(opts.ApiKey));
     }
 
-    public async Task<DiAnalyzeResult> AnalyzeAsync(
+    public virtual async Task<DiAnalyzeResult> AnalyzeAsync(
         Uri sourceUri,
         string model,
         string[]? features,
@@ -51,7 +58,7 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
         return await AnalyzeCoreAsync(options, ct);
     }
 
-    public async Task<DiAnalyzeResult> AnalyzeBytesAsync(
+    public virtual async Task<DiAnalyzeResult> AnalyzeBytesAsync(
         byte[] content,
         string model,
         string[]? features,

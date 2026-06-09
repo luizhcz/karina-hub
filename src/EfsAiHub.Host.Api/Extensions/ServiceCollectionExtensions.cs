@@ -307,11 +307,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Core.Abstractions.Users.IUserDirectory, PgUserDirectory>();
         services.AddSingleton<EfsAiHub.Core.Abstractions.Users.IUserMembershipService, PgUserMembershipService>();
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentExtractionRepository, PgDocumentExtractionRepository>();
-        // IDocumentIntelligenceService é [Obsolete] no consumer side; registro é
-        // legítimo (Extractor precisa injetar). Pragma local pra silenciar.
-        #pragma warning disable CS0618
-        services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentIntelligenceService, EfsAiHub.Platform.Runtime.Services.DocumentIntelligenceService>();
-        #pragma warning restore CS0618
+        // Wrapper concreto do Azure DI SDK. Registrado sem interface — única
+        // injeção legítima é em DocumentIntelligenceExtractor (mesmo assembly).
+        // Estrutura impede o bug de bypass que motivou o refactor 2026-06.
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Services.DocumentIntelligenceService>();
         // Extractor: pipeline canônico que persiste em document_extraction_jobs/events.
         // Singleton — gate de concorrência foi migrado pra IDistributedSlotCounter,
         // mas a classe segue Singleton pra reuso de IHttpClientFactory/Redis/repo.

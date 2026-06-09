@@ -53,9 +53,7 @@ public sealed class DocumentIntelligenceExtractor : IDocumentIntelligenceExtract
     };
 
     private readonly IDocumentExtractionRepository _repo;
-    #pragma warning disable CS0618
-    private readonly IDocumentIntelligenceService _diService;
-    #pragma warning restore CS0618
+    private readonly DocumentIntelligenceService _diService;
     private readonly IEfsRedisCache _redis;
     private readonly IDocumentIntelligencePricingCache _pricingCache;
     private readonly IDistributedSlotCounter _slots;
@@ -66,9 +64,7 @@ public sealed class DocumentIntelligenceExtractor : IDocumentIntelligenceExtract
 
     public DocumentIntelligenceExtractor(
         IDocumentExtractionRepository repo,
-        #pragma warning disable CS0618
-        IDocumentIntelligenceService diService,
-        #pragma warning restore CS0618
+        DocumentIntelligenceService diService,
         IEfsRedisCache redis,
         IDocumentIntelligencePricingCache pricingCache,
         IDistributedSlotCounter slots,
