@@ -60,7 +60,7 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
     private readonly IngestionDownloader _downloader;
     private readonly IEfsRedisCache _cache;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly IDocumentIntelligenceService _diService;
+    private readonly IDocumentIntelligenceExtractor _extractor;
     private readonly IProjectContextAccessor _projectAccessor;
     private readonly ITenantContextAccessor _tenantAccessor;
     private readonly DocumentIntelligenceOptions _diOptions;
@@ -72,7 +72,7 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         IngestionDownloader downloader,
         IEfsRedisCache cache,
         IServiceScopeFactory scopeFactory,
-        IDocumentIntelligenceService diService,
+        IDocumentIntelligenceExtractor extractor,
         IProjectContextAccessor projectAccessor,
         ITenantContextAccessor tenantAccessor,
         IOptions<DocumentIntelligenceOptions> diOptions,
@@ -83,7 +83,7 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         _downloader = downloader;
         _cache = cache;
         _scopeFactory = scopeFactory;
-        _diService = diService;
+        _extractor = extractor;
         _projectAccessor = projectAccessor;
         _tenantAccessor = tenantAccessor;
         _diOptions = diOptions.Value;
@@ -311,18 +311,38 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
             }
         }
 
-        DiAnalyzeResult result;
+        // Chamada via Extractor (não _diService direto) — garante que
+        // jobs/events/cache em aihub.document_extraction_* são populados E que
+        // cache HIT cross-ingestion (mesmo PDF, mesmo model) economiza o Azure.
+        // Bug histórico (pré-refactor 2026-06): chamava _diService.AnalyzeBytesAsync
+        // direto e perdia toda a observabilidade financeira/auditoria.
+        ExtractionResult result;
         try
         {
-            result = await _diService.AnalyzeBytesAsync(
-                pdfBytes,
-                model: _diOptions.DefaultModel,
-                features: null,
-                outputFormat: "markdown",
-                ct).ConfigureAwait(false);
+            result = await _extractor.ExtractAsync(new ExtractionInput(
+                Source: new ExtractionSource.Bytes(pdfBytes),
+                // Schema legacy é intocável: ConversationId/UserId vão direto pras
+                // colunas existentes em document_extraction_jobs. Sintético "ingestion:"
+                // distingue do tool de agente sem precisar de coluna nova.
+                ConversationId: $"ingestion:{job.JobId}",
+                UserId: string.IsNullOrEmpty(job.AgentId) ? "ingestion" : job.AgentId,
+                Model: _diOptions.DefaultModel,
+                OutputFormat: "markdown",
+                Features: null,
+                CacheEnabled: true), ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Shutdown do worker / cancelamento do dispatcher — NÃO consome attempt.
+            // Não chama FailAsync: o job fica em Running com lease, e o StuckLeaseReaper
+            // (se reativado) ou o restart limpo retoma do step persistido.
+            throw;
         }
         catch (Exception ex)
         {
+            // Apenas exceções catastróficas (Azure 401/403, falha de auth) propagam até aqui.
+            // Erros previsíveis (PDF inválido, gate timeout, 429) vêm como
+            // Status="failed" sem throw — tratados no bloco abaixo.
             _logger.LogWarning(ex, "[Ingestion] Document Intelligence falhou job={JobId}.", job.JobId);
             var permanentDi = job.Attempt >= _poolOptions.MaxAttempts;
             DateTime? nextDi = permanentDi
@@ -330,6 +350,23 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
                 : DateTime.UtcNow.AddSeconds(CalcBackoffSeconds(job.Attempt));
             await ctx.FailAsync($"Document Intelligence falhou: {ex.Message}", nextDi, permanentDi, ct)
                 .ConfigureAwait(false);
+            return null;
+        }
+
+        if (result.Status == "failed")
+        {
+            // Heurística de retry centralizada no domínio: ExtractionErrorCode.IsPermanent
+            // mapeia códigos que NÃO ganham nada retentando (PDF quebrado, file size,
+            // config error, source unavailable, page limit). Demais (GateTimeout/Timeout/
+            // 429/5xx do Azure) ainda contam contra MaxAttempts.
+            var permanent = ExtractionErrorCode.IsPermanent(result.ErrorCode)
+                || job.Attempt >= _poolOptions.MaxAttempts;
+            DateTime? nextRetry = permanent
+                ? null
+                : DateTime.UtcNow.AddSeconds(CalcBackoffSeconds(job.Attempt));
+            await ctx.FailAsync(
+                $"Document Intelligence falhou ({result.ErrorCode}): {result.ErrorMessage}",
+                nextRetry, permanent, ct).ConfigureAwait(false);
             return null;
         }
 

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using EfsAiHub.Core.Agents.DocumentIntelligence;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -10,6 +9,10 @@ namespace EfsAiHub.Infra.Persistence.Postgres;
 /// <summary>
 /// Repositório para jobs, eventos e cache de extração de documentos.
 /// Usa raw NpgsqlDataSource do pool "general" (mesmo padrão de PgExecutionAnalyticsRepository).
+///
+/// <c>UpsertJobAsync</c> faz INSERT ... ON CONFLICT (id) DO UPDATE em uma única
+/// round-trip — sem padrão "try-insert-catch-try-update" que mascarava
+/// connection errors. Atomicidade do PG garante semântica.
 /// </summary>
 public class PgDocumentExtractionRepository : IDocumentExtractionRepository
 {
@@ -24,15 +27,41 @@ public class PgDocumentExtractionRepository : IDocumentExtractionRepository
         _logger = logger;
     }
 
-    public async Task InsertJobAsync(ExtractionJob job, CancellationToken ct)
+    public async Task UpsertJobAsync(ExtractionJob job, CancellationToken ct)
     {
+        // INSERT ... ON CONFLICT (id) DO UPDATE: o caller mantém o ExtractionJob
+        // mutável e re-chama UpsertJobAsync a cada transição de status. As
+        // colunas imutáveis (conversation_id, user_id, source_type, content_sha256,
+        // model, features_hash, created_at) só são gravadas na primeira inserção;
+        // em re-chamada, ON CONFLICT preserva valores existentes pra essas e
+        // atualiza só as mutáveis.
         const string sql = """
-            INSERT INTO aihub.document_extraction_jobs
-                (id, conversation_id, user_id, source_type, source_ref, content_sha256,
-                 model, features_hash, status, created_at)
-            VALUES
-                (@id, @convId, @userId, @srcType, @srcRef, @sha256,
-                 @model, @featHash, @status, @createdAt)
+            INSERT INTO aihub.document_extraction_jobs (
+                id, conversation_id, user_id,
+                source_type, source_ref, content_sha256, model, features_hash,
+                status, operation_id, result_ref, page_count, cost_usd,
+                error_code, error_message,
+                created_at, started_at, finished_at, duration_ms
+            )
+            VALUES (
+                @id, @convId, @userId,
+                @srcType, @srcRef, @sha256, @model, @featHash,
+                @status, @opId, @resultRef, @pageCount, @costUsd,
+                @errCode, @errMsg,
+                @createdAt, @startedAt, @finishedAt, @durationMs
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                source_ref    = EXCLUDED.source_ref,
+                status        = EXCLUDED.status,
+                operation_id  = EXCLUDED.operation_id,
+                result_ref    = EXCLUDED.result_ref,
+                page_count    = EXCLUDED.page_count,
+                cost_usd      = EXCLUDED.cost_usd,
+                error_code    = EXCLUDED.error_code,
+                error_message = EXCLUDED.error_message,
+                started_at    = EXCLUDED.started_at,
+                finished_at   = EXCLUDED.finished_at,
+                duration_ms   = EXCLUDED.duration_ms
             """;
 
         await using var conn = await _ds.OpenConnectionAsync(ct);
@@ -46,31 +75,13 @@ public class PgDocumentExtractionRepository : IDocumentExtractionRepository
         cmd.Parameters.AddWithValue("model", job.Model);
         cmd.Parameters.Add(new NpgsqlParameter("featHash", NpgsqlDbType.Text) { Value = (object?)job.FeaturesHash ?? DBNull.Value });
         cmd.Parameters.AddWithValue("status", job.Status);
-        cmd.Parameters.AddWithValue("createdAt", job.CreatedAt);
-        await cmd.ExecuteNonQueryAsync(ct);
-    }
-
-    public async Task UpdateJobAsync(ExtractionJob job, CancellationToken ct)
-    {
-        const string sql = """
-            UPDATE aihub.document_extraction_jobs SET
-                status = @status, operation_id = @opId, result_ref = @resultRef,
-                page_count = @pageCount, cost_usd = @costUsd,
-                error_code = @errCode, error_message = @errMsg,
-                started_at = @startedAt, finished_at = @finishedAt, duration_ms = @durationMs
-            WHERE id = @id
-            """;
-
-        await using var conn = await _ds.OpenConnectionAsync(ct);
-        await using var cmd = new NpgsqlCommand(sql, conn);
-        cmd.Parameters.AddWithValue("id", job.Id);
-        cmd.Parameters.AddWithValue("status", job.Status);
         cmd.Parameters.Add(new NpgsqlParameter("opId", NpgsqlDbType.Text) { Value = (object?)job.OperationId ?? DBNull.Value });
         cmd.Parameters.Add(new NpgsqlParameter("resultRef", NpgsqlDbType.Text) { Value = (object?)job.ResultRef ?? DBNull.Value });
         cmd.Parameters.Add(new NpgsqlParameter("pageCount", NpgsqlDbType.Integer) { Value = (object?)job.PageCount ?? DBNull.Value });
         cmd.Parameters.Add(new NpgsqlParameter("costUsd", NpgsqlDbType.Numeric) { Value = (object?)job.CostUsd ?? DBNull.Value });
         cmd.Parameters.Add(new NpgsqlParameter("errCode", NpgsqlDbType.Text) { Value = (object?)job.ErrorCode ?? DBNull.Value });
         cmd.Parameters.Add(new NpgsqlParameter("errMsg", NpgsqlDbType.Text) { Value = (object?)job.ErrorMessage ?? DBNull.Value });
+        cmd.Parameters.AddWithValue("createdAt", job.CreatedAt);
         cmd.Parameters.Add(new NpgsqlParameter("startedAt", NpgsqlDbType.TimestampTz) { Value = (object?)job.StartedAt ?? DBNull.Value });
         cmd.Parameters.Add(new NpgsqlParameter("finishedAt", NpgsqlDbType.TimestampTz) { Value = (object?)job.FinishedAt ?? DBNull.Value });
         cmd.Parameters.Add(new NpgsqlParameter("durationMs", NpgsqlDbType.Integer) { Value = (object?)job.DurationMs ?? DBNull.Value });
@@ -96,6 +107,51 @@ public class PgDocumentExtractionRepository : IDocumentExtractionRepository
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[DocExtraction] Falha ao inserir evento '{EventType}' para job '{JobId}'.", evt.EventType, evt.JobId);
+        }
+    }
+
+    public async Task InsertEventsBatchAsync(IReadOnlyList<ExtractionEvent> events, CancellationToken ct)
+    {
+        if (events is null || events.Count == 0) return;
+
+        // unnest(...) com arrays paralelos: 1 round-trip ao invés de N. Ordem é
+        // preservada implicitamente — Postgres atribui occurred_at=now() na ordem
+        // de processamento, e como o unnest mantém ordem do array, audit fica
+        // consistente. Single statement = single autocommit = atomic.
+        // Detail é serializado pro `text[]` e cast pra jsonb dentro do SELECT.
+        const string sql = """
+            INSERT INTO aihub.document_extraction_events (job_id, event_type, detail)
+            SELECT t.job_id, t.event_type,
+                   CASE WHEN t.detail IS NULL THEN NULL ELSE t.detail::jsonb END
+            FROM unnest(@jobIds::uuid[], @types::text[], @details::text[])
+                 AS t(job_id, event_type, detail)
+            """;
+
+        var jobIds = new Guid[events.Count];
+        var types = new string[events.Count];
+        var details = new string?[events.Count];
+        for (var i = 0; i < events.Count; i++)
+        {
+            jobIds[i] = events[i].JobId;
+            types[i] = events[i].EventType;
+            details[i] = events[i].Detail;
+        }
+
+        try
+        {
+            await using var conn = await _ds.OpenConnectionAsync(ct);
+            await using var cmd = new NpgsqlCommand(sql, conn);
+            cmd.Parameters.Add(new NpgsqlParameter("jobIds", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = jobIds });
+            cmd.Parameters.Add(new NpgsqlParameter("types", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = types });
+            // Npgsql traduz C# null pra SQL NULL em arrays text[]/jsonb[] automaticamente
+            // quando o elemento é string? (não usar DBNull em mid-array, quebra inferência).
+            cmd.Parameters.Add(new NpgsqlParameter("details", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = details });
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "[DocExtraction] Falha ao inserir batch de {Count} eventos. Eventos perdidos.", events.Count);
         }
     }
 

@@ -38,7 +38,7 @@ public class DocumentIntelligenceAdminController : ControllerBase
     }
 
     [HttpGet("usage")]
-    [SwaggerOperation(Summary = "Agregados de uso/custo do Document Intelligence num período")]
+    [SwaggerOperation(Summary = "Agregados cross-tenant de uso/custo do Document Intelligence num período. Schema é tenant-blind por governance.")]
     public async Task<IActionResult> GetUsage(
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
@@ -61,7 +61,7 @@ public class DocumentIntelligenceAdminController : ControllerBase
     }
 
     [HttpGet("jobs")]
-    [SwaggerOperation(Summary = "Lista jobs de extração recentes (todos os status)")]
+    [SwaggerOperation(Summary = "Lista cross-tenant de jobs de extração recentes (todos os status).")]
     public async Task<IActionResult> GetRecentJobs(
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,

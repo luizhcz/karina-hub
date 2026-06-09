@@ -3,6 +3,11 @@ using Npgsql;
 
 namespace EfsAiHub.Infra.Persistence.Postgres;
 
+/// <summary>
+/// Implementação Postgres das queries analíticas DI. Single-table (sem JOINs):
+/// agrega direto em <c>document_extraction_jobs</c>. Tenant-blind por
+/// constraint de schema (legacy intocável).
+/// </summary>
 public sealed class PgDocumentIntelligenceUsageQueries : IDocumentIntelligenceUsageQueries
 {
     private readonly NpgsqlDataSource _dataSource;

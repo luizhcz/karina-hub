@@ -3,6 +3,10 @@ namespace EfsAiHub.Core.Agents.DocumentIntelligence;
 /// <summary>
 /// Registro principal de cada extração no Postgres.
 /// Classe mutável para permitir updates de status durante o fluxo.
+///
+/// Schema legacy é intocável (governance): qualquer atributo de contexto
+/// adicional (tenant, project, caller_kind) que não tenha coluna existente
+/// na tabela DEVE ser modelado fora deste record — não tem cabimento aqui.
 /// </summary>
 public class ExtractionJob
 {

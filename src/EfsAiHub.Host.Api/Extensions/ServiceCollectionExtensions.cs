@@ -307,7 +307,22 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Core.Abstractions.Users.IUserDirectory, PgUserDirectory>();
         services.AddSingleton<EfsAiHub.Core.Abstractions.Users.IUserMembershipService, PgUserMembershipService>();
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentExtractionRepository, PgDocumentExtractionRepository>();
+        // IDocumentIntelligenceService é [Obsolete] no consumer side; registro é
+        // legítimo (Extractor precisa injetar). Pragma local pra silenciar.
+        #pragma warning disable CS0618
         services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentIntelligenceService, EfsAiHub.Platform.Runtime.Services.DocumentIntelligenceService>();
+        #pragma warning restore CS0618
+        // Extractor: pipeline canônico que persiste em document_extraction_jobs/events.
+        // Singleton — gate de concorrência foi migrado pra IDistributedSlotCounter,
+        // mas a classe segue Singleton pra reuso de IHttpClientFactory/Redis/repo.
+        services.AddSingleton<EfsAiHub.Core.Agents.DocumentIntelligence.IDocumentIntelligenceExtractor,
+            EfsAiHub.Platform.Runtime.Services.DocumentIntelligenceExtractor>();
+        // Named HttpClient pro download de PDFs: Timeout=30s previne worker travado
+        // em URL hostil (default do HttpClient é 100s). Perf review fix #7.
+        services.AddHttpClient(
+            EfsAiHub.Platform.Runtime.Services.DocumentIntelligenceExtractor.DownloadHttpClientName,
+            client => client.Timeout = TimeSpan.FromSeconds(30));
+        // Functions agora é apenas o adapter JSON sobre o extractor.
         services.AddSingleton<EfsAiHub.Platform.Runtime.Executors.DocumentIntelligenceFunctions>();
 
         // Evaluation subsystem repositories (ADR 0015)

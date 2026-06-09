@@ -3,6 +3,10 @@ namespace EfsAiHub.Core.Abstractions.Observability;
 /// <summary>
 /// Relatórios agregados de uso/custo do Document Intelligence, lidos direto de
 /// <c>aihub.document_extraction_jobs</c>. Usado pelo admin dashboard.
+///
+/// Schema é tenant-blind por design (legacy intocável) — agregação cobre TODOS
+/// os jobs do banco no período. UI exibe label "cross-tenant" pra evitar
+/// confusão.
 /// </summary>
 public interface IDocumentIntelligenceUsageQueries
 {

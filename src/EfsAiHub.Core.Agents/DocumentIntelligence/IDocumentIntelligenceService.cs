@@ -1,10 +1,19 @@
 namespace EfsAiHub.Core.Agents.DocumentIntelligence;
 
 /// <summary>
-/// Wrapper para o Azure Document Intelligence SDK.
-/// outputFormat: "markdown" | "text" — controla <c>AnalyzeDocumentOptions.OutputContentFormat</c>.
-/// Markdown é o default desde 2026 (mais estrutura pro LLM consumir).
+/// Wrapper RAW para o Azure Document Intelligence SDK. NÃO use diretamente fora
+/// do <see cref="IDocumentIntelligenceExtractor"/> — chamar este wrapper bypassa
+/// audit (jobs/events), cache (Redis + Postgres), gate de concorrência e custo,
+/// como aconteceu pré-refactor com o IngestionJobHandler (4 documentos sumiram
+/// da tela DI Analytics).
+///
+/// Marcado como <c>[Obsolete(error=false)]</c> pra que o compilador emita warning
+/// CS0618 em qualquer chamada nova fora do extractor — a cerca, não a placa.
 /// </summary>
+[Obsolete(
+    "Use IDocumentIntelligenceExtractor.ExtractAsync. Chamar IDocumentIntelligenceService " +
+    "direto bypassa audit (document_extraction_jobs/events), cache, gate e custo. " +
+    "Uso permitido APENAS dentro de DocumentIntelligenceExtractor.")]
 public interface IDocumentIntelligenceService
 {
     Task<DiAnalyzeResult> AnalyzeAsync(

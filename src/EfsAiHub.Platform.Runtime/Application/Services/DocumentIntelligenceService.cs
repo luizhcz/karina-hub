@@ -15,7 +15,9 @@ namespace EfsAiHub.Platform.Runtime.Services;
 /// Singleton — DocumentIntelligenceClient é thread-safe.
 /// Segue pattern de AzureOpenAiClientProvider: credential + endpoint no constructor.
 /// </summary>
+#pragma warning disable CS0618
 public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
+#pragma warning restore CS0618
 {
     private readonly DocumentIntelligenceClient _client;
     private readonly ILogger<DocumentIntelligenceService> _logger;
