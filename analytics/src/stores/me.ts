@@ -99,6 +99,15 @@ export function useProjects(): ProjectRef[] | null {
   return me ? me.projects : null
 }
 
+/**
+ * Status admin do usuário atual. Retorna null enquanto /me carrega — telas
+ * admin (auditoria, captura/chamadas LLM) usam pra gatear UI antes do backend.
+ */
+export function useIsAdmin(): boolean | null {
+  const me = useMe()
+  return me ? me.isAdmin : null
+}
+
 export function refreshMe(): Promise<MeResponse> {
   cachedMe = null
   inflight = null

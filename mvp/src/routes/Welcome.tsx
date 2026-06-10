@@ -20,7 +20,7 @@ export function Welcome() {
   // Redireciona em useEffect pra evitar update durante render (React 18 warn).
   useEffect(() => {
     if (me && (me.isAdmin || me.projects.length > 0)) {
-      navigate('/dashboard', { replace: true })
+      navigate('/agentes', { replace: true })
     }
   }, [me, navigate])
 

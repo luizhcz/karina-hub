@@ -28,7 +28,6 @@ interface NavItem {
 // Intenções e Aprovações são admin-only — escondidos do menu pra non-admin
 // pra evitar 403 ao entrar. Backend ainda enforça via AdminGate.
 const navItems: NavItem[] = [
-  { label: 'Dashboard', to: '/dashboard', icon: <ChartIcon className="h-5 w-5" /> },
   { label: 'Agentes', to: '/agentes', icon: <AgentIcon className="h-5 w-5" /> },
   { label: 'Intenções', to: '/intencoes', icon: <SparklesIcon className="h-5 w-5" />, adminOnly: true },
   { label: 'Aprovações', to: '/aprovacoes', icon: <CheckIcon className="h-5 w-5" />, adminOnly: true },

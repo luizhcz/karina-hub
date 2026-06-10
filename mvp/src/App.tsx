@@ -10,7 +10,6 @@ import { useMe } from './stores/me'
 // Eager: rotas leves que aparecem no first-paint do usuário típico
 // (dashboard, lista de agentes, welcome). Splash de Suspense fica reservado
 // pra deeper navigations onde o ganho de cache compensa o flicker inicial.
-import { Dashboard } from './routes/Dashboard'
 import { Welcome } from './routes/Welcome'
 import { AgentsList } from './routes/AgentsList'
 import { Implantacoes } from './routes/Implantacoes'
@@ -106,8 +105,7 @@ export function App() {
           {/* Rotas que exigem projeto vinculado: redirecionam pra /bem-vindo
               quando non-admin tem projects=[]. Admin passa sempre. */}
           <Route element={<GuardedOutlet />}>
-            <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
+            <Route index element={<Navigate to="/agentes" replace />} />
             <Route path="/agentes" element={<AgentsList />} />
             <Route path="/agentes/novo" element={<AgentEditor mode="create" />} />
             <Route path="/agentes/:id/versoes" element={<AgentVersions />} />

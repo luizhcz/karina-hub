@@ -449,13 +449,12 @@ public class AgentFactory : IAgentFactory
             ? new FunctionInvokingChatClient(rawChatClient) { MaximumIterationsPerRequest = 10 }
             : rawChatClient;
 
-        chatClient = WrapWithMiddlewares(chatClient, definition, isStandaloneFlow);
-
-        // LlmInvocationCapture no caminho Graph — wrapper mais externo do
-        // chatClient. Opt-in via DI; quando captura está OFF (default), o
-        // middleware curto-circuita pra inner sem alocação extra.
-        // P1-8: reusa agentVersionId já resolvido na linha 415 — evita lookup
-        // duplicado no DB.
+        // LlmInvocationCapture ANTES de WrapWithMiddlewares — assim fica INTERNO à memória
+        // operacional e demais middlewares, gravando o request EXATAMENTE como chega ao modelo
+        // (com o bloco <operational_memory>, RAG, etc.) e a resposta crua. Externo ao
+        // FunctionInvoking → uma row por turno (não por iteração do tool loop). Opt-in via DI;
+        // com captura OFF (default), curto-circuita pra inner sem alocação.
+        // P1-8: reusa agentVersionId já resolvido na linha 415 — evita lookup duplicado no DB.
         if (_captureConfig is not null && _payloadSanitizer is not null && _captureSink is not null)
         {
             var captureModelId = definition.Model.DeploymentName ?? "unknown";
@@ -470,6 +469,8 @@ public class AgentFactory : IAgentFactory
                 writer: _captureSink.Writer,
                 logger: _logger);
         }
+
+        chatClient = WrapWithMiddlewares(chatClient, definition, isStandaloneFlow);
 
         // Snapshot já trouxe Instructions composto e PromptVersionId — runtime
         // não toca o repo de prompts.
@@ -757,14 +758,40 @@ public class AgentFactory : IAgentFactory
     {
         var modelId = definition.Model.DeploymentName ?? "unknown";
 
-        // Cadeia: Retry → Circuit → Blocklist → [AccountGuard etc] → OperationalMemory → TokenTracking → Raw
+        IChatClient current = inner;
+
+        // LlmInvocationCapture é o wrapper MAIS INTERNO (colado no provider): grava o request
+        // EXATAMENTE como chega ao modelo — já com o bloco <operational_memory>, RAG e demais
+        // injeções dos middlewares internos — e a resposta crua do modelo. RetryingChatClient
+        // (externo) reentra a cadeia, então cada tentativa vira uma row distinta com o mesmo
+        // TurnId. Opt-in: sem os 3 deps injetados, não envolve (mantém BC com testes).
+        // Trade-off: chamadas curto-circuitadas/fallback do CircuitBreaker (provider bare, fora
+        // desta cadeia) não passam por aqui e não são capturadas — cenário raro de degradação.
+        if (_captureConfig is not null && _payloadSanitizer is not null && _captureSink is not null)
+        {
+            var versionId = EfsAiHub.Core.Orchestration.Executors.DelegateExecutor.Current.Value?
+                .AgentVersions?.TryGetValue(definition.Id, out var v) == true ? v : null;
+            current = new EfsAiHub.Platform.Runtime.Middlewares.LlmInvocationCaptureChatClient(
+                current,
+                agentId: definition.Id,
+                agentVersionId: versionId,
+                modelId: modelId,
+                provider: definition.Provider.Type,
+                configService: _captureConfig,
+                sanitizer: _payloadSanitizer,
+                writer: _captureSink.Writer,
+                logger: _logger);
+        }
+
+        // Cadeia: Retry → Circuit → Blocklist → [POST-MEMORY] → OperationalMemory → [PRE-MEMORY]
+        //         → TokenTracking → Capture → Raw
         // agentMaxCostUsd: quando setado em AgentDefinition.CostBudget.MaxCostUsd, o
         // TokenTrackingChatClient emite LogCritical (warning-only) quando o custo
         // acumulado da execução cruza esse teto. Não bloqueia.
         // agentOwnerProjectId: propaga pro audit dual em llm_token_usage. Quando
         // o caller != owner, OriginAgentProjectId é populado; senão null (preserva BC).
-        IChatClient current = new TokenTrackingChatClient(
-            inner, definition.Id, modelId, _tokenPersistence.Writer, _logger, _pricingCache, _agUiTokenSink,
+        current = new TokenTrackingChatClient(
+            current, definition.Id, modelId, _tokenPersistence.Writer, _logger, _pricingCache, _agUiTokenSink,
             agentMaxCostUsd: definition.CostBudget?.MaxCostUsd,
             agentOwnerProjectId: definition.ProjectId);
 
@@ -811,27 +838,6 @@ public class AgentFactory : IAgentFactory
             current = new CircuitBreakerChatClient(
                 current, _circuitBreaker, providerKey, _logger,
                 fallbackClient, fallbackProviderType);
-        }
-
-        // LlmInvocationCapture posicionado entre CircuitBreaker (dentro) e
-        // Retrying (fora) — vê o request final que efetivamente chega no
-        // provider e cada tentativa de retry vira uma row distinta com mesmo
-        // TurnId. Opt-in dependency: quando os 3 não estão injetados,
-        // middleware não envolve (mantém BC com testes).
-        if (_captureConfig is not null && _payloadSanitizer is not null && _captureSink is not null)
-        {
-            var versionId = EfsAiHub.Core.Orchestration.Executors.DelegateExecutor.Current.Value?
-                .AgentVersions?.TryGetValue(definition.Id, out var v) == true ? v : null;
-            current = new EfsAiHub.Platform.Runtime.Middlewares.LlmInvocationCaptureChatClient(
-                current,
-                agentId: definition.Id,
-                agentVersionId: versionId,
-                modelId: modelId,
-                provider: definition.Provider.Type,
-                configService: _captureConfig,
-                sanitizer: _payloadSanitizer,
-                writer: _captureSink.Writer,
-                logger: _logger);
         }
 
         return new RetryingChatClient(current, definition.Id, modelId, _logger, definition.Resilience);

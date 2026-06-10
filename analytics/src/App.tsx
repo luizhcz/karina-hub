@@ -12,6 +12,10 @@ import { Execucoes } from './routes/Execucoes'
 import { Workers } from './routes/Workers'
 import { Feedback } from './routes/Feedback'
 import { DocumentIntelligence } from './routes/DocumentIntelligence'
+import { AuditoriaList } from './routes/admin/AuditoriaList'
+import { LlmCaptureControl } from './routes/admin/LlmCaptureControl'
+import { LlmCallsList } from './routes/admin/LlmCallsList'
+import { LlmCallDetailPage } from './routes/admin/LlmCallDetail'
 import { Onboarding } from './routes/Onboarding'
 import { getIdentity, subscribeIdentity } from './stores/identity'
 import { readAccessToken } from './auth/headers'
@@ -66,6 +70,10 @@ function AuthenticatedApp() {
         <Route path="/workers" element={<Workers />} />
         <Route path="/feedback" element={<Feedback />} />
         <Route path="/document-intelligence" element={<DocumentIntelligence />} />
+        <Route path="/admin/auditoria" element={<AuditoriaList />} />
+        <Route path="/admin/llm-capture" element={<LlmCaptureControl />} />
+        <Route path="/admin/llm-calls" element={<LlmCallsList />} />
+        <Route path="/admin/llm-calls/:id" element={<LlmCallDetailPage />} />
       </Route>
     </Routes>
   )

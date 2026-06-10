@@ -18,6 +18,7 @@
  */
 import { NavLink } from 'react-router'
 import { cn } from './ui/cn'
+import { useIsAdmin } from '../stores/me'
 
 interface NavItem {
   to: string
@@ -28,6 +29,7 @@ interface NavItem {
 interface NavGroup {
   title: string
   items: ReadonlyArray<NavItem>
+  adminOnly?: boolean
 }
 
 const NAV_GROUPS: ReadonlyArray<NavGroup> = [
@@ -57,9 +59,22 @@ const NAV_GROUPS: ReadonlyArray<NavGroup> = [
       { to: '/workers', label: 'Workers', icon: <CpuIcon /> },
     ],
   },
+  {
+    title: 'Administração',
+    adminOnly: true,
+    items: [
+      { to: '/admin/auditoria', label: 'Auditoria', icon: <AuditIcon /> },
+      { to: '/admin/llm-capture', label: 'Captura LLM', icon: <CaptureIcon /> },
+      { to: '/admin/llm-calls', label: 'Chamadas LLM', icon: <LlmCallsIcon /> },
+    ],
+  },
 ]
 
 export function Sidebar() {
+  const isAdmin = useIsAdmin()
+  // Grupo "Administração" só aparece pra admin — as telas também gateiam via
+  // useIsAdmin + backend (403). null (carregando) esconde até resolver.
+  const groups = NAV_GROUPS.filter((g) => !g.adminOnly || isAdmin === true)
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-bg-soft">
       <div className="flex items-center gap-2 px-5 py-5">
@@ -73,7 +88,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 px-3 py-2">
-        {NAV_GROUPS.map((group) => (
+        {groups.map((group) => (
           <div key={group.title} className="mb-5 last:mb-0">
             <div className="px-3 pb-1.5 text-[10px] font-medium uppercase tracking-widest text-fg-dim">
               {group.title}
@@ -246,6 +261,35 @@ function CpuIcon() {
       <path d="M10 3.5v-1" />
       <path d="M6 13.5v1" />
       <path d="M10 13.5v1" />
+    </svg>
+  )
+}
+
+function AuditIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
+      <path d="M3 2.5h6L13 6v7.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5z" />
+      <path d="M9 2.5V6h4" />
+      <path d="M5.5 9l1.4 1.4L10 7.3" />
+    </svg>
+  )
+}
+
+function CaptureIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
+      <circle cx="8" cy="8" r="2" />
+      <path d="M2.5 8a5.5 5.5 0 0 1 11 0a5.5 5.5 0 0 1-11 0z" />
+    </svg>
+  )
+}
+
+function LlmCallsIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
+      <path d="M3 4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H6.5L4 12v-2H4a1 1 0 0 1-1-1z" />
+      <path d="M5.5 6h5" />
+      <path d="M5.5 8h3" />
     </svg>
   )
 }
