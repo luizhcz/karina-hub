@@ -54,7 +54,7 @@ public sealed class AgentTemplateService : IAgentTemplateService
     private const string ConversationalSchemaName = "ConversationalTurn";
 
     private const string ConversationalSchemaDefaultDescription =
-        "Resposta canônica do Conversational: output_type (renderer family), output_status (variação), message (texto), output (payload).";
+        "Resposta canônica do Conversational: output_type (renderer family), output_status (variação), message (texto), historyText (prosa pro histórico), output (payload).";
 
     private const string OutputTypeDescription =
         "Família de renderer que o frontend deve usar pra esta resposta. Valor único definido pelo agente.";
@@ -64,6 +64,13 @@ public sealed class AgentTemplateService : IAgentTemplateService
 
     private const string MessageDescription =
         "Texto humano em PT-BR pro usuário — curto, claro, direto.";
+
+    private const string HistoryTextDescription =
+        "Prosa natural completa e autossuficiente do que foi respondido neste turno " +
+        "(reescreva message+output como narração curta). Quem ler só este texto, sem ver " +
+        "output, entende o que o assistente disse/pediu. Sem JSON, markdown ou nomes de " +
+        "campo; nunca fragmentos dêiticos tipo 'ok, anotado'. Usado só pra montar o " +
+        "histórico do próximo turno — não é exibido ao usuário.";
 
     // Defaults aplicados quando o agente Conversational não tem as metadata
     // keys configuradas (basic mode no MVP ou agente seedado sem config).
@@ -304,9 +311,14 @@ public sealed class AgentTemplateService : IAgentTemplateService
                 ["type"] = "string",
                 ["description"] = MessageDescription,
             },
+            ["historyText"] = new JsonObject
+            {
+                ["type"] = "string",
+                ["description"] = HistoryTextDescription,
+            },
         };
 
-        var required = new JsonArray { "output_type", "output_status", "message" };
+        var required = new JsonArray { "output_type", "output_status", "message", "historyText" };
         if (outputSubSchema is not null)
         {
             properties["output"] = outputSubSchema;

@@ -36,8 +36,22 @@ public static class ExecutionOutputParser
             {
                 var textContent = msgEl.GetString() ?? finalOutput;
 
+                // Envelope canônico do Conversational
+                // ({output_type/output_status, message, historyText, output}): preserva o
+                // envelope INTEIRO como StructuredOutput pra que o ChatTurnContextMapper
+                // detecte o shape canônico e leia historyText/output_status ao montar o
+                // histórico. Sem isso, agentes com `output` teriam só o sub-objeto persistido
+                // → o histórico renderizaria o JSON cru do output.
+                var isCanonicalEnvelope =
+                    doc.RootElement.TryGetProperty("output_type", out _) ||
+                    doc.RootElement.TryGetProperty("output_status", out _);
+
                 JsonDocument structured;
-                if (doc.RootElement.TryGetProperty("output", out var outEl) &&
+                if (isCanonicalEnvelope)
+                {
+                    structured = JsonDocument.Parse(finalOutput);
+                }
+                else if (doc.RootElement.TryGetProperty("output", out var outEl) &&
                     outEl.ValueKind != JsonValueKind.Null)
                 {
                     structured = JsonDocument.Parse(outEl.GetRawText());

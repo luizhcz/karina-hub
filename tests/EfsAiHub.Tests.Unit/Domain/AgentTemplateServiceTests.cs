@@ -61,11 +61,12 @@ public class AgentTemplateServiceTests
         props.TryGetProperty("output_type", out _).Should().BeTrue();
         props.TryGetProperty("output_status", out _).Should().BeTrue();
         props.TryGetProperty("message", out _).Should().BeTrue();
+        props.TryGetProperty("historyText", out _).Should().BeTrue();
         props.TryGetProperty("output", out var output).Should().BeTrue();
         output.GetProperty("properties").GetProperty("ticker").GetProperty("type").GetString()
             .Should().Be("string");
         root.GetProperty("required").EnumerateArray().Select(e => e.GetString()).Should()
-            .BeEquivalentTo(new[] { "output_type", "output_status", "message", "output" });
+            .BeEquivalentTo(new[] { "output_type", "output_status", "message", "historyText", "output" });
     }
 
     [Fact]
@@ -80,9 +81,10 @@ public class AgentTemplateServiceTests
         props.TryGetProperty("output_type", out _).Should().BeTrue();
         props.TryGetProperty("output_status", out _).Should().BeTrue();
         props.TryGetProperty("message", out _).Should().BeTrue();
+        props.TryGetProperty("historyText", out _).Should().BeTrue();
         props.TryGetProperty("output", out _).Should().BeFalse();
         root.GetProperty("required").EnumerateArray().Select(e => e.GetString()).Should()
-            .BeEquivalentTo(new[] { "output_type", "output_status", "message" });
+            .BeEquivalentTo(new[] { "output_type", "output_status", "message", "historyText" });
     }
 
     [Fact]

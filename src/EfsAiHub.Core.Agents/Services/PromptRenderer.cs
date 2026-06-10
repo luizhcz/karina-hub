@@ -302,6 +302,7 @@ public static class PromptRenderer
             ["output_type"] = outputType,
             ["output_status"] = BuildStatusPlaceholder(statuses),
             ["message"] = "<texto humano em pt-BR, curto e direto>",
+            ["historyText"] = "<prosa natural completa e autossuficiente do que foi respondido — sem JSON/markdown>",
         };
 
         var outputSubSchema = ExtractOutputSubSchema(structuredOutputSchema);

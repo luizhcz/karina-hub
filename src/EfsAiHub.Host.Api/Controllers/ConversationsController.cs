@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using EfsAiHub.Core.Abstractions.Conversations;
 using EfsAiHub.Host.Api.Endpoints.Polling;
 using EfsAiHub.Host.Api.Models.Requests;
@@ -96,7 +97,7 @@ public class ConversationsController : ControllerBase
             m.MessageId,
             m.Role,
             message = m.Content,
-            output = m.StructuredOutput?.RootElement,
+            output = UnwrapStructuredOutput(m.StructuredOutput),
             m.CreatedAt,
             m.ExecutionId
         }));
@@ -140,12 +141,29 @@ public class ConversationsController : ControllerBase
                 m.MessageId,
                 m.Role,
                 message = m.Content,
-                output = m.StructuredOutput?.RootElement,
+                output = UnwrapStructuredOutput(m.StructuredOutput),
                 m.CreatedAt,
                 m.ExecutionId
             }),
             executions
         });
+    }
+
+    // Admin: `output` expõe o payload estruturado do agente. O StructuredOutput
+    // persistido é o envelope canônico inteiro (pra alimentar historyText no
+    // histórico); desembrulha pro sub-`output` quando canônico, mantendo o
+    // contrato (output = dados do agente, não os meta-campos do envelope).
+    private static JsonElement? UnwrapStructuredOutput(JsonDocument? structured)
+    {
+        if (structured is null) return null;
+        var root = structured.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) return root;
+
+        var isCanonical = root.TryGetProperty("output_type", out _)
+            || root.TryGetProperty("output_status", out _);
+        if (!isCanonical) return root;
+
+        return root.TryGetProperty("output", out var output) ? output : null;
     }
 
     [HttpPost("{id}/messages")]

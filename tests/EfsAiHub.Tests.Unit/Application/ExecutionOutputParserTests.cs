@@ -21,6 +21,24 @@ public class ExecutionOutputParserTests
     }
 
     [Fact]
+    public void EnvelopeCanonico_PreservaEnvelopeInteiroComoStructuredOutput()
+    {
+        // Envelope canônico Conversational ({output_type/output_status, message,
+        // historyText, output}): persiste o envelope INTEIRO (não só o sub-output)
+        // pra que o histórico detecte o shape e leia historyText/output_status.
+        var json = """{"output_type":"text","output_status":"done","message":"Cotação enviada.","historyText":"Informei que PETR4 está em R$ 28,50.","output":{"ticker":"PETR4","preco":28.50}}""";
+        var parsed = ExecutionOutputParser.Parse(json);
+
+        parsed.TextContent.Should().Be("Cotação enviada."); // UI continua com message curto
+        parsed.StructuredOutput.Should().NotBeNull();
+        var root = parsed.StructuredOutput!.RootElement;
+        root.GetProperty("output_type").GetString().Should().Be("text");
+        root.GetProperty("output_status").GetString().Should().Be("done");
+        root.GetProperty("historyText").GetString().Should().Contain("PETR4");
+        root.GetProperty("output").GetProperty("ticker").GetString().Should().Be("PETR4");
+    }
+
+    [Fact]
     public void MessageSemOutput_RetornaDocumentoInteiro()
     {
         var json = """{"message": "Feito."}""";

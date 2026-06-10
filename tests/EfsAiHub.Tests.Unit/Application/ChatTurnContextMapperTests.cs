@@ -89,6 +89,45 @@ public class ChatTurnContextMapperTests
     }
 
     [Fact]
+    public void Build_Historico_AssistantComEnvelopeCanonico_UsaHistoryText()
+    {
+        // Agente rico: o histórico deve usar historyText (prosa), com o marker do
+        // output_status, e NÃO vazar o JSON cru do sub-output.
+        var envelope = JsonSerializer.Deserialize<JsonElement>(
+            """{"output_type":"text","output_status":"done","message":"Cotação enviada.","historyText":"Informei que PETR4 está em R$ 28,50.","output":{"ticker":"PETR4","preco":28.50}}""");
+        var history = new List<ChatTurnMessage>
+        {
+            new() { Role = "assistant", Content = "Cotação enviada.", Output = envelope }
+        };
+        var json = BuildCtxJson(history: history);
+
+        var messages = ChatTurnContextMapper.Build(json, OrchestrationMode.Handoff);
+
+        var assistant = messages.Single(m => m.Role == ChatRole.Assistant);
+        assistant.Text.Should().StartWith("[ASSISTANT-DONE]");
+        assistant.Text.Should().Contain("Informei que PETR4 está em R$ 28,50.");
+        assistant.Text.Should().NotContain("ticker"); // sem JSON cru do output
+    }
+
+    [Fact]
+    public void Build_Historico_AssistantSemHistoryText_CaiNoMessage()
+    {
+        // Envelope sem historyText (agente não re-salvo): fallback pro message.
+        var envelope = JsonSerializer.Deserialize<JsonElement>(
+            """{"output_type":"text","output_status":"incomplete","message":"Qual a conta?"}""");
+        var history = new List<ChatTurnMessage>
+        {
+            new() { Role = "assistant", Content = "Qual a conta?", Output = envelope }
+        };
+        var json = BuildCtxJson(history: history);
+
+        var messages = ChatTurnContextMapper.Build(json, OrchestrationMode.Handoff);
+
+        var assistant = messages.Single(m => m.Role == ChatRole.Assistant);
+        assistant.Text.Should().Be("[ASSISTANT-INCOMPLETE] Qual a conta?");
+    }
+
+    [Fact]
     public void Build_InputVazio_RetornaUmaUserMessageVazia()
     {
         var messages = ChatTurnContextMapper.Build(null, OrchestrationMode.Sequential);

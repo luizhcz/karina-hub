@@ -188,8 +188,18 @@ public static class ChatTurnContextMapper
         if (!isCanonical)
             return TryGetRawText(output) ?? fallback;
 
+        // Histórico prefere historyText (prosa completa/autossuficiente que o agente
+        // emite pra continuidade); cai pro message (texto curto da UI) quando ausente —
+        // agentes não re-salvos / envelopes antigos não têm o campo.
         string? text = null;
-        if (output.TryGetProperty("message", out var msgField)
+        if (output.TryGetProperty("historyText", out var historyField)
+            && historyField.ValueKind == JsonValueKind.String)
+        {
+            var h = historyField.GetString();
+            if (!string.IsNullOrWhiteSpace(h)) text = h;
+        }
+        if (text is null
+            && output.TryGetProperty("message", out var msgField)
             && msgField.ValueKind == JsonValueKind.String)
         {
             var s = msgField.GetString();
