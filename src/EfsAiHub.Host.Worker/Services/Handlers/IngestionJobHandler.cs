@@ -6,6 +6,7 @@ using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Agents.DocumentIntelligence;
 using EfsAiHub.Core.Agents.Responses;
 using EfsAiHub.Core.Orchestration.Workflows;
+using EfsAiHub.Infra.Observability;
 using EfsAiHub.Infra.Persistence.Cache;
 using EfsAiHub.Platform.Runtime.Configuration;
 using EfsAiHub.Platform.Runtime.Ingestion;
@@ -283,6 +284,16 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
             return state;
         }
 
+        // Peek de capacidade ANTES de baixar/extrair o PDF: se o gate do Document
+        // Intelligence já está cheio, não adianta baixar dezenas de MB só pra bater
+        // no gate e voltar pra fila. Numa espera longa o PDF já saiu do cache Redis
+        // (TTL ~JobMaxLifetime), então sem esse peek re-baixaríamos a CADA ciclo de
+        // espera — martelando a origem. Advisory: o teto real é atômico dentro do
+        // ExtractAsync, que ainda devolve GATE_TIMEOUT (mesmo caminho de espera) se
+        // a vaga sumir entre o peek e a aquisição.
+        if (!await _extractor.HasCapacityAsync(ct).ConfigureAwait(false))
+            return await DeferForCapacityAsync(state, ctx, ExtractionErrorCode.GateTimeout, ct).ConfigureAwait(false);
+
         await ctx.UpdateStepAsync(StepExtracting, ct).ConfigureAwait(false);
 
         byte[]? pdfBytes = null;
@@ -356,31 +367,20 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         if (result.Status == "failed")
         {
             // Backpressure de capacidade (gate Document Intelligence cheio): a
-            // extração nem chegou a rodar — não é falha do job. Re-enfileira
-            // aguardando capacidade liberar SEM consumir tentativa (ctx.DeferAsync),
-            // em vez de FailAsync que caminharia pro teto de MaxAttempts e mataria
-            // o job permanente só por encontrar o gate cheio. DeferCount bound o
-            // loop pra que um gate que nunca libera ainda termine em falha real.
-            if (ExtractionErrorCode.IsCapacityBackpressure(result.ErrorCode)
-                && state.DeferCount < _poolOptions.MaxBackpressureDefers)
-            {
-                var deferred = state with { DeferCount = state.DeferCount + 1 };
-                // Persiste o contador ANTES do defer: UpdateIngestionContext exige
-                // Status='Running' (ownership), e o defer logo abaixo vira Queued.
-                await ctx.UpdateIngestionContextAsync(SerializeContext(deferred), ct).ConfigureAwait(false);
-                var deferUntil = DateTime.UtcNow.AddSeconds(CalcDeferBackoffSeconds());
-                await ctx.DeferAsync(
-                    $"Document Intelligence saturado ({result.ErrorCode}) — aguardando capacidade " +
-                    $"(defer {deferred.DeferCount}/{_poolOptions.MaxBackpressureDefers}).",
-                    deferUntil, ct).ConfigureAwait(false);
-                return null;
-            }
+            // extração nem chegou a rodar — não é falha do job, é falta de vaga
+            // AGORA. Falta de capacidade é ESPERA, nunca erro: re-enfileira
+            // (ctx.DeferAsync) sem consumir Attempt e SEM TETO — o job aguarda na
+            // fila o tempo que for (minutos, horas, dias) até abrir vaga. A vez dele
+            // chega pela ordem FIFO do TryLeaseAsync. DeferCount é só telemetria de
+            // há quanto tempo está esperando; não decide mais vida/morte.
+            if (ExtractionErrorCode.IsCapacityBackpressure(result.ErrorCode))
+                return await DeferForCapacityAsync(state, ctx, result.ErrorCode!, ct).ConfigureAwait(false);
 
+            // Falha REAL do processamento (PDF quebrado, source 404, Azure 4xx/5xx).
             // Heurística de retry centralizada no domínio: ExtractionErrorCode.IsPermanent
             // mapeia códigos que NÃO ganham nada retentando (PDF quebrado, file size,
             // config error, source unavailable, page limit). Demais (Timeout/429/5xx
-            // do Azure, e GateTimeout após esgotar MaxBackpressureDefers) contam
-            // contra MaxAttempts.
+            // do Azure) contam contra MaxAttempts.
             var permanent = ExtractionErrorCode.IsPermanent(result.ErrorCode)
                 || job.Attempt >= _poolOptions.MaxAttempts;
             DateTime? nextRetry = permanent
@@ -578,15 +578,36 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         return (int)(baseSecs * multiplier);
     }
 
-    // Backoff de backpressure: plano (não exponencial) porque DeferCount não
-    // representa "falhas acumuladas" e sim "espera por capacidade" — queremos
-    // reavaliar o gate logo, não recuar cada vez mais. Jitter espalha o
-    // thundering herd quando vários jobs caem no gate cheio e voltam pra fila
-    // no mesmo instante (senão re-disputam o slot todos juntos no mesmo tick).
-    private int CalcDeferBackoffSeconds()
+    // Backoff de espera por capacidade: plano (não exponencial) porque não
+    // representa "falhas acumuladas" e sim "aguardando vaga" — não faz sentido
+    // recuar cada vez mais numa espera legítima. Jitter espalha o thundering herd
+    // quando vários jobs caem no mesmo gate cheio e voltam pra fila no mesmo
+    // instante (senão re-disputam a vaga todos juntos no mesmo tick).
+    private int CalcCapacityWaitBackoffSeconds()
     {
-        var baseSecs = Math.Max(1, _poolOptions.RetryBackoffBaseSeconds);
+        var baseSecs = Math.Max(1, _poolOptions.CapacityWaitBackoffSeconds);
         return baseSecs + Random.Shared.Next(0, baseSecs + 1);
+    }
+
+    // Falta de capacidade do Document Intelligence é ESPERA, não erro: devolve o
+    // job pra fila (DeferAsync — sem consumir Attempt, sem teto) até abrir vaga.
+    // Compartilhado pelo peek pré-download e pelo retorno GATE_TIMEOUT do
+    // ExtractAsync. DeferCount é só telemetria de "há quanto tempo espera".
+    private async Task<IngestionState?> DeferForCapacityAsync(
+        IngestionState state, IStandaloneJobContext ctx, string errorCode, CancellationToken ct)
+    {
+        MetricsRegistry.IngestionCapacityWaits.Add(1,
+            new KeyValuePair<string, object?>("error_code", errorCode));
+
+        var deferred = state with { DeferCount = state.DeferCount + 1 };
+        // Persiste o contador ANTES do defer: UpdateIngestionContext exige
+        // Status='Running' (ownership), e o defer logo abaixo vira Queued.
+        await ctx.UpdateIngestionContextAsync(SerializeContext(deferred), ct).ConfigureAwait(false);
+        var deferUntil = DateTime.UtcNow.AddSeconds(CalcCapacityWaitBackoffSeconds());
+        await ctx.DeferAsync(
+            $"Document Intelligence sem capacidade ({errorCode}) — aguardando vaga na fila (espera #{deferred.DeferCount}).",
+            deferUntil, ct).ConfigureAwait(false);
+        return null;
     }
 
     /// <summary>
@@ -608,9 +629,10 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         [property: JsonPropertyName("extractedContent")] string? ExtractedContent = null,
         [property: JsonPropertyName("extractionId")] string? ExtractionId = null,
         [property: JsonPropertyName("pageCount")] int PageCount = 0,
-        // Conta quantas vezes o job foi re-enfileirado por gate de capacidade
-        // cheio (GATE_TIMEOUT). Backpressure não consome Attempt, então esse
-        // contador é o que bound o loop via StandalonePoolsOptions.MaxBackpressureDefers.
+        // Quantas vezes o job foi re-enfileirado esperando capacidade do Document
+        // Intelligence (gate cheio). Pura telemetria de "há quanto tempo espera" —
+        // backpressure não consome Attempt e não tem teto; o job aguarda até abrir
+        // vaga. Cresce sem limite em saturação prolongada (apenas um int no JSONB).
         [property: JsonPropertyName("deferCount")] int DeferCount = 0);
 
     /// <summary>Shape do input passado ao workflow após a extração.</summary>

@@ -26,6 +26,17 @@ namespace EfsAiHub.Core.Agents.DocumentIntelligence;
 public interface IDocumentIntelligenceExtractor
 {
     Task<ExtractionResult> ExtractAsync(ExtractionInput input, CancellationToken ct);
+
+    /// <summary>
+    /// Checagem barata e ADVISORY de capacidade do gate de concorrência: <c>true</c>
+    /// se provavelmente há vaga pra uma extração agora. NÃO reserva nada — o teto
+    /// real é aplicado atomicamente dentro de <see cref="ExtractAsync"/> (que devolve
+    /// <c>GATE_TIMEOUT</c> se a vaga sumir entre esta checagem e a aquisição). Serve
+    /// pro caller evitar trabalho caro (baixar o PDF) quando o gate já está
+    /// visivelmente cheio — crítico numa espera longa, em que o PDF já saiu do cache
+    /// e seria re-baixado a cada ciclo só pra bater no gate.
+    /// </summary>
+    Task<bool> HasCapacityAsync(CancellationToken ct);
 }
 
 /// <summary>

@@ -92,8 +92,17 @@ services:
       Secrets__Bootstrap__OpenAI__ApiKey: ""
 
       # Document Intelligence — endpoint não é secret; ApiKey vem de Secrets:Bootstrap.
+      # Em dev local injetamos a ApiKey direto do .env: o cliente Azure DI só usa
+      # AzureKeyCredential quando ApiKey está setado (decide por IsNullOrWhiteSpace,
+      # não por UseManagedIdentity); sem ela cairia em DefaultAzureCredential e 401.
       DocumentIntelligence__Endpoint: ${DOCUMENT_INTELLIGENCE_ENDPOINT:-https://efs-ai-hub-resource.cognitiveservices.azure.com}
       DocumentIntelligence__UseManagedIdentity: "false"
+      DocumentIntelligence__ApiKey: ${DOCUMENT_INTELLIGENCE_API_KEY:-}
+
+      # Ingestion + pool standalone ligados explicitamente (já vêm true em
+      # appsettings.Development.json; reforço por clareza pro teste e2e).
+      IngestionApi__Enabled: "true"
+      StandalonePools__Enabled: "true"
 
       # OpenTelemetry — aponta pro Aspire Dashboard (OTLP gRPC). Guard em
       # Program.cs continua: se ficar vazio, exporters/logger OTel não são

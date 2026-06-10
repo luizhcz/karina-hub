@@ -656,6 +656,16 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("standalone.stuck_leases_recovered_total",
             description: "Jobs com lease expirado resgatados pelo reaper. Tags: outcome (requeued|failed_max_attempts).");
 
+    /// <summary>
+    /// Incrementado cada vez que um job de ingestão volta pra fila por falta de
+    /// capacidade do Document Intelligence (gate cheio). É espera, NÃO erro — taxa
+    /// alta e sustentada deste contador é o sinal de que falta capacidade
+    /// (escalar <c>MaxConcurrentExtractions</c> ou o Azure DI). Tags: error_code.
+    /// </summary>
+    public static readonly Counter<long> IngestionCapacityWaits =
+        _meter.CreateCounter<long>("ingestion.capacity_waits_total",
+            description: "Re-enfileiramentos de ingestão por falta de capacidade do Document Intelligence (espera, não erro). Tags: error_code.");
+
     // ── Webhook deliveries ──────────────────────────────────────────────────
 
     /// <summary>

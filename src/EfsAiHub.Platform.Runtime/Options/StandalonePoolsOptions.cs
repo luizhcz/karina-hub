@@ -74,15 +74,18 @@ public sealed class StandalonePoolsOptions
     public int RetryBackoffBaseSeconds { get; init; } = 5;
 
     /// <summary>
-    /// Teto de re-enfileiramentos por backpressure (gate de capacidade externa
-    /// cheio) antes de um job desistir com falha real. Backpressure NÃO consome
-    /// <c>Attempt</c> — sem esse teto, um gate permanentemente saturado
-    /// re-enfileiraria o job indefinidamente. Com backoff plano de
-    /// <see cref="RetryBackoffBaseSeconds"/>, 100 defers cobrem vários minutos
-    /// de saturação contínua antes de declarar capacidade indisponível.
-    /// Default: 100.
+    /// Backoff base (segundos) entre re-checagens quando um job está esperando
+    /// capacidade de um gate externo (ex.: Document Intelligence cheio). É espera,
+    /// não falha: o job volta pra <c>Queued</c> sem consumir <c>Attempt</c> e sem
+    /// teto — aguarda na fila o tempo que for até abrir vaga. O valor real aplicado
+    /// é <c>base + jitter(0..base)</c>, pra espalhar o thundering herd quando muitos
+    /// jobs caem no mesmo gate cheio. Maior que <see cref="RetryBackoffBaseSeconds"/>
+    /// de propósito: re-checar de 15 em 15s (e não de 5 em 5s) reduz o churn de
+    /// lease/handler sob fila grande, ao custo de até ~2x base de latência extra pra
+    /// pegar uma vaga recém-liberada — irrelevante numa espera de minutos/horas.
+    /// Default: 15 (espera real de 15–30s por ciclo).
     /// </summary>
-    public int MaxBackpressureDefers { get; init; } = 100;
+    public int CapacityWaitBackoffSeconds { get; init; } = 15;
 
     /// <summary>
     /// Intervalo do <c>StuckLeaseReaper</c> — varre leases expirados e devolve

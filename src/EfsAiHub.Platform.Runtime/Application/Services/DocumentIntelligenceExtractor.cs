@@ -88,6 +88,15 @@ public sealed class DocumentIntelligenceExtractor : IDocumentIntelligenceExtract
         _slotTtl = TimeSpan.FromSeconds(pollingTtl + 60);
     }
 
+    public async Task<bool> HasCapacityAsync(CancellationToken ct)
+    {
+        // Advisory: GetActiveCount poda slots vencidos e devolve a contagem real
+        // (ZCARD). Sem reserva — o teto é imposto atomicamente no TryAcquireAsync
+        // dentro de ExtractAsync. Math.Max espelha o piso aplicado lá.
+        var active = await _slots.GetActiveCountAsync(SlotScope);
+        return active < Math.Max(1, _options.MaxConcurrentExtractions);
+    }
+
     public async Task<ExtractionResult> ExtractAsync(ExtractionInput input, CancellationToken ct)
     {
         var outputFormat = input.OutputFormat?.Equals("text", StringComparison.OrdinalIgnoreCase) == true
