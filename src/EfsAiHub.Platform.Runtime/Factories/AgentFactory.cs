@@ -537,7 +537,11 @@ public class AgentFactory : IAgentFactory
                 input,
                 composedPersona.UserReinforcement,
                 historyWindow: historyWindow,
-                includeSharedState: includeSharedState);
+                includeSharedState: includeSharedState,
+                // Mapa completo id→nome do workflow (via ExecutionContext) pra renderizar
+                // drafts de OUTROS agentes no shared state com nome; fallback pro próprio.
+                agentNamesById: execCtx?.AgentNamesById
+                    ?? new Dictionary<string, string> { [definition.Id] = definition.Name });
 
             // Anota provenance per-message: cada item adicionado é tracable
             // pela posição no array final de `messages`.

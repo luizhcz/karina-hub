@@ -38,7 +38,8 @@ public static class ChatTurnContextMapper
         string? userReinforcement = null,
         JsonSerializerOptions? opts = null,
         int? historyWindow = null,
-        bool includeSharedState = true)
+        bool includeSharedState = true,
+        IReadOnlyDictionary<string, string>? agentNamesById = null)
     {
         if (string.IsNullOrWhiteSpace(rawInput) || rawInput[0] != '{')
             return null;
@@ -57,7 +58,7 @@ public static class ChatTurnContextMapper
         if (ctx is null || ctx.Metadata.Count == 0)
             return null;
 
-        return BuildMessages(ctx, userReinforcement, historyWindow, includeSharedState);
+        return BuildMessages(ctx, userReinforcement, historyWindow, includeSharedState, agentNamesById);
     }
 
     /// <summary>
@@ -65,7 +66,11 @@ public static class ChatTurnContextMapper
     /// Para Handoff/GroupChat: expande ChatTurnContext em mensagens reais (sem JSON blob duplicado).
     /// Para outros modos: retorna o JSON blob como mensagem User única.
     /// </summary>
-    public static List<AiChatMessage> Build(string? rawInput, OrchestrationMode mode, JsonSerializerOptions? opts = null)
+    public static List<AiChatMessage> Build(
+        string? rawInput,
+        OrchestrationMode mode,
+        JsonSerializerOptions? opts = null,
+        IReadOnlyDictionary<string, string>? agentNamesById = null)
     {
         if (string.IsNullOrEmpty(rawInput))
             return [new(ChatRole.User, string.Empty)];
@@ -81,7 +86,7 @@ public static class ChatTurnContextMapper
             if (ctx is null)
                 return [new(ChatRole.User, rawInput)];
 
-            return BuildMessages(ctx);
+            return BuildMessages(ctx, agentNamesById: agentNamesById);
         }
         catch
         {
@@ -95,7 +100,8 @@ public static class ChatTurnContextMapper
         ChatTurnContext ctx,
         string? userReinforcement = null,
         int? historyWindow = null,
-        bool includeSharedState = true)
+        bool includeSharedState = true,
+        IReadOnlyDictionary<string, string>? agentNamesById = null)
     {
         var messages = new List<AiChatMessage>();
 
@@ -117,7 +123,7 @@ public static class ChatTurnContextMapper
             && ctx.SharedState is { } state
             && state.ValueKind == JsonValueKind.Object)
         {
-            var rendered = RenderSharedStateForPrompt(state);
+            var rendered = RenderSharedStateForPrompt(state, agentNamesById);
             if (rendered is not null)
                 messages.Add(new(ChatRole.System, rendered));
         }
@@ -241,13 +247,16 @@ public static class ChatTurnContextMapper
     /// Renderiza <c>SharedState</c> como bloco <c>&lt;shared_state&gt;</c>.
     /// Shape esperado <c>{ "agents": { "&lt;stateKey&gt;": &lt;draft&gt; } }</c>
     /// (produzido pelo <c>StructuredOutputStateChatClient</c>). Cada agente
-    /// vira section <c>## &lt;agentId&gt; — status: &lt;status&gt;</c> com
-    /// corpo do <c>output</c> em key:value. Drafts canônicos sem
+    /// vira section <c>## &lt;nome&gt; — status: &lt;status&gt;</c> com
+    /// corpo do <c>output</c> em key:value — <c>&lt;nome&gt;</c> resolve a
+    /// chave (id do agente) via <paramref name="agentNamesById"/>, com
+    /// fallback pro próprio id quando ausente. Drafts canônicos sem
     /// <c>output</c> não iteram os meta-keys do wrapper (output_type etc) —
     /// só status no header. Nulls viram <c>&lt;null&gt;</c> em vez de
     /// <c>(vazio)</c> pra evitar colisão com strings literais em PT-BR.
     /// </summary>
-    private static string? RenderSharedStateForPrompt(JsonElement state)
+    private static string? RenderSharedStateForPrompt(
+        JsonElement state, IReadOnlyDictionary<string, string>? agentNamesById)
     {
         if (state.ValueKind != JsonValueKind.Object) return null;
         if (!state.TryGetProperty("agents", out var agents)
@@ -286,7 +295,12 @@ public static class ChatTurnContextMapper
 
             if (!first) inner.Append("\n\n");
             first = false;
-            inner.Append("## ").Append(SanitizeScalarString(entry.Name));
+            var displayName = agentNamesById is not null
+                && agentNamesById.TryGetValue(entry.Name, out var agentName)
+                && !string.IsNullOrWhiteSpace(agentName)
+                    ? agentName
+                    : entry.Name;
+            inner.Append("## ").Append(SanitizeScalarString(displayName));
             if (!string.IsNullOrEmpty(status))
                 inner.Append(" — status: ").Append(SanitizeScalarString(status));
             inner.Append('\n');

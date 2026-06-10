@@ -56,7 +56,7 @@ public sealed class EdgePredicateEvaluator : IEdgePredicateEvaluator
             {
                 try
                 {
-                    localDoc = JsonDocument.Parse(output);
+                    localDoc = JsonDocument.Parse(StripJsonFence(output));
                     doc = localDoc;
                 }
                 catch (JsonException ex)
@@ -85,6 +85,32 @@ public sealed class EdgePredicateEvaluator : IEdgePredicateEvaluator
         {
             localDoc?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Remove cercas de código markdown (crases triplas, com ou sem o tag
+    /// "json") que o LLM às vezes adiciona ao redor do JSON mesmo sob
+    /// response_format. Sem isso o <see cref="JsonDocument.Parse(string)"/>
+    /// lança e o predicate cai pra false, fazendo o Switch errar a rota.
+    /// </summary>
+    private static string StripJsonFence(string raw)
+    {
+        var s = raw.Trim();
+        if (!s.StartsWith("```", StringComparison.Ordinal))
+            return s;
+
+        // Descarta a linha da cerca de abertura ("```" ou "```json").
+        var firstNewline = s.IndexOf('\n');
+        if (firstNewline < 0)
+            return s;
+        s = s[(firstNewline + 1)..];
+
+        // Descarta a cerca de fechamento, se presente.
+        var lastFence = s.LastIndexOf("```", StringComparison.Ordinal);
+        if (lastFence >= 0)
+            s = s[..lastFence];
+
+        return s.Trim();
     }
 
     private bool ApplyOperator(EdgePredicate predicate, JsonElement field)

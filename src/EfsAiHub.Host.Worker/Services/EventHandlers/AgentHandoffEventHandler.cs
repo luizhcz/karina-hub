@@ -113,7 +113,10 @@ public sealed class AgentHandoffEventHandler
         // Persiste a ChatMessage do step com o MESMO messageId que foi emitido
         // no stream — cliente que pegou o ID via TEXT_MESSAGE_END pode usar direto
         // pra referenciar a mensagem no banco (feedback, etc).
-        if (!string.IsNullOrEmpty(prev.MessageId) && !string.IsNullOrEmpty(output))
+        // Router classifica intenção, não é turno de conversa → fora do
+        // transcript (ver ChatTranscriptPolicy).
+        if (!string.IsNullOrEmpty(prev.MessageId) && !string.IsNullOrEmpty(output)
+            && ChatTranscriptPolicy.ProducesTranscriptTurn(previousInfo?.Type))
         {
             await _failureWriter.MarkStepCompletedAsync(
                 execution, previousAgentId, prev.MessageId, output, ct);

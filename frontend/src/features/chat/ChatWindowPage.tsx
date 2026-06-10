@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router'
 import { cn } from '../../shared/utils/cn'
 import { Button } from '../../shared/ui/Button'
@@ -16,6 +16,7 @@ import { getIdentityHeaders, post, ApiError } from '../../api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { KEYS } from '../../api/chat'
 import { useWorkflowVersions } from '../../api/workflows'
+import { useAgents } from '../../api/agents'
 import type { LocalMsg } from './types'
 import { UserBubble } from './components/UserBubble'
 import { AssistantBubble } from './components/AssistantBubble'
@@ -124,6 +125,14 @@ export function ChatWindowPage() {
   const versionsQuery = useWorkflowVersions(
     conversation?.workflowId ?? '',
     !!conversation?.workflowId,
+  )
+
+  // Mapa id→nome dos agentes pro SharedStatePanel exibir nome legível em vez do
+  // id (a chave do shared state é o id do agente).
+  const agentsQuery = useAgents()
+  const agentNamesById = useMemo(
+    () => Object.fromEntries((agentsQuery.data ?? []).map((a) => [a.id, a.name])),
+    [agentsQuery.data],
   )
 
   const makeHeaders = (workflowId?: string | null): Record<string, string> => ({
@@ -734,6 +743,7 @@ export function ChatWindowPage() {
               changedPaths={changedPaths}
               timestamp={stateTimestamp}
               isStreaming={isSending}
+              agentNames={agentNamesById}
             />
           )}
         </div>

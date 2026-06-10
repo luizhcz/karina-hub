@@ -8,9 +8,16 @@ interface SharedStatePanelProps {
   changedPaths: Set<string>
   timestamp?: string | null
   isStreaming: boolean
+  /**
+   * Mapa id→nome dos agentes. A chave em agentState é o id do agente; o nome
+   * legível vem daqui. Fallback pro id "prettified" quando o id não está no mapa.
+   */
+  agentNames?: Record<string, string>
 }
 
-function formatAgentName(key: string): string {
+function resolveAgentName(key: string, agentNames?: Record<string, string>): string {
+  const mapped = agentNames?.[key]
+  if (mapped && mapped.trim()) return mapped
   return key
     .replace(/-/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase())
@@ -41,10 +48,12 @@ function AgentSection({
   agentKey,
   fields,
   changedPaths,
+  agentNames,
 }: {
   agentKey: string
   fields: Record<string, unknown>
   changedPaths: Set<string>
+  agentNames?: Record<string, string>
 }) {
   const [expanded, setExpanded] = useState(true)
 
@@ -55,7 +64,7 @@ function AgentSection({
         className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 cursor-pointer"
       >
         <Badge variant="purple" className="text-[10px]">
-          {formatAgentName(agentKey)}
+          {resolveAgentName(agentKey, agentNames)}
         </Badge>
         <span className="flex-1" />
         <span className="text-text-muted text-xs">{expanded ? '▾' : '▸'}</span>
@@ -94,7 +103,7 @@ function AgentSection({
   )
 }
 
-export function SharedStatePanel({ agentState, changedPaths, timestamp, isStreaming }: SharedStatePanelProps) {
+export function SharedStatePanel({ agentState, changedPaths, timestamp, isStreaming, agentNames }: SharedStatePanelProps) {
   const [expanded, setExpanded] = useState(true)
 
   return (
@@ -137,6 +146,7 @@ export function SharedStatePanel({ agentState, changedPaths, timestamp, isStream
                 agentKey={agentKey}
                 fields={fields as Record<string, unknown>}
                 changedPaths={changedPaths}
+                agentNames={agentNames}
               />
             ))}
             {timestamp && (

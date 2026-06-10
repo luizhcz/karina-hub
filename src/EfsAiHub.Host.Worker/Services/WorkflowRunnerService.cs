@@ -187,6 +187,16 @@ public class WorkflowRunnerService
             };
         }
 
+        // Mapa id→nome dos agentes do workflow pra que o shared state seja
+        // renderizado no prompt com nome legível (a chave do state é o id).
+        Dictionary<string, string>? agentNamesById = null;
+        if (agentNames is not null)
+        {
+            agentNamesById = new Dictionary<string, string>(agentNames.Count);
+            foreach (var kv in agentNames)
+                agentNamesById[kv.Key] = kv.Value.Name;
+        }
+
         // Expõe contexto de execução para code executors e TokenTrackingChatClient via um único AsyncLocal
         DelegateExecutor.Current.Value = new EfsAiHub.Core.Agents.Execution.ExecutionContext(
             ExecutionId: execution.ExecutionId,
@@ -203,7 +213,8 @@ public class WorkflowRunnerService
             EnrichmentRules: enrichmentRules,
             Persona: persona,
             ProjectId: projectId,
-            ExperimentAssignments: new System.Collections.Concurrent.ConcurrentDictionary<string, EfsAiHub.Core.Abstractions.Identity.Persona.ExperimentAssignment>());
+            ExperimentAssignments: new System.Collections.Concurrent.ConcurrentDictionary<string, EfsAiHub.Core.Abstractions.Identity.Persona.ExperimentAssignment>(),
+            AgentNamesById: agentNamesById);
 
         try
         {
@@ -212,7 +223,8 @@ public class WorkflowRunnerService
             // Nenhum CheckpointAsync explícito é chamado no HandleHitlRequestAsync:
             // o próprio framework cria um checkpoint ao final de cada SuperStep.
             var checkpointManager = _checkpointAdapter.CreateManager();
-            var inputMessages = ChatTurnContextMapper.Build(execution.Input, orchestrationMode);
+            var inputMessages = ChatTurnContextMapper.Build(
+                execution.Input, orchestrationMode, agentNamesById: agentNamesById);
 
             _logger.LogInformation("Execução '{ExecutionId}': chamando RunStreamingAsync.", execution.ExecutionId);
             await using var run = await InProcessExecution.RunStreamingAsync(
@@ -400,6 +412,14 @@ public class WorkflowRunnerService
             };
         }
 
+        Dictionary<string, string>? resumeAgentNamesById = null;
+        if (agentNames is not null)
+        {
+            resumeAgentNamesById = new Dictionary<string, string>(agentNames.Count);
+            foreach (var kv in agentNames)
+                resumeAgentNamesById[kv.Key] = kv.Value.Name;
+        }
+
         DelegateExecutor.Current.Value = new EfsAiHub.Core.Agents.Execution.ExecutionContext(
             ExecutionId: execution.ExecutionId,
             WorkflowId: execution.WorkflowId,
@@ -415,7 +435,8 @@ public class WorkflowRunnerService
             EnrichmentRules: null,
             Persona: resumePersona,
             ProjectId: resumeProjectId,
-            ExperimentAssignments: new System.Collections.Concurrent.ConcurrentDictionary<string, EfsAiHub.Core.Abstractions.Identity.Persona.ExperimentAssignment>());
+            ExperimentAssignments: new System.Collections.Concurrent.ConcurrentDictionary<string, EfsAiHub.Core.Abstractions.Identity.Persona.ExperimentAssignment>(),
+            AgentNamesById: resumeAgentNamesById);
 
         try
         {
@@ -537,7 +558,11 @@ public class WorkflowRunnerService
                     // OnStepCompletedAsync ANTES de publicar o evento — ordem garante que
                     // GET /messages ao receber STEP_FINISHED ache a mensagem.
                     NodeChatStepInfo? chatInfo = null;
+                    // Router classifica intenção, não produz turno de conversa →
+                    // fora do transcript (ver ChatTranscriptPolicy).
                     if (kind == "agent" && !wasStreamed
+                        && agentInfo is not null
+                        && ChatTranscriptPolicy.ProducesTranscriptTurn(agentInfo.Type)
                         && !string.IsNullOrEmpty(record.MessageId)
                         && !string.IsNullOrEmpty(data)
                         && execution.Metadata.TryGetValue("conversationId", out var conversationId))

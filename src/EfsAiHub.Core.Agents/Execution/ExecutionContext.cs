@@ -57,7 +57,11 @@ public sealed record ExecutionContext(
     // determinístico por userId, e grava aqui. TokenTrackingChatClient lê
     // pra persistir ExperimentId + Variant em llm_token_usage. Null quando
     // nenhum agent dessa execução participou de experiment.
-    ConcurrentDictionary<string, ExperimentAssignment>? ExperimentAssignments = null);
+    ConcurrentDictionary<string, ExperimentAssignment>? ExperimentAssignments = null,
+    // Mapa id→nome dos agentes do workflow. Setado pelo WorkflowRunnerService a
+    // partir de agentNames; consumido pelo ChatTurnContextMapper (via AgentFactory)
+    // pra renderizar o shared state no prompt com nome legível em vez do id.
+    IReadOnlyDictionary<string, string>? AgentNamesById = null);
 
 /// <summary>
 /// Modo de proteção de conta aplicado a tool calls de uma execução:
