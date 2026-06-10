@@ -177,6 +177,19 @@ public interface IBackgroundResponseRepository
     /// </summary>
     Task<bool> FailAsync(string jobId, string podId, string lastError, DateTime? nextAttemptAt, bool permanent, CancellationToken ct = default);
 
+    /// <summary>
+    /// Devolve o job pra <c>Queued</c> por backpressure de capacidade (um gate
+    /// de concorrência externo estava cheio e o job não chegou a processar) sem
+    /// consumir tentativa: decrementa <c>Attempt</c> pra compensar o incremento
+    /// que o <see cref="TryLeaseAsync"/> aplicou neste lease (piso em 0). É a
+    /// diferença chave pra <see cref="FailAsync"/> com <c>permanent=false</c>,
+    /// que preserva <c>Attempt</c> e portanto caminha pro teto de
+    /// <c>MaxAttempts</c>. Não é terminal: sem <c>CompletedAt</c>, sem webhook.
+    /// WHERE inclui ownership check — retorna <c>false</c> quando o lease já foi
+    /// roubado.
+    /// </summary>
+    Task<bool> DeferAsync(string jobId, string podId, string reason, DateTime nextAttemptAt, CancellationToken ct = default);
+
     /// <summary>Associa <c>ExecutionId</c> ao job após dispatch do workflow.</summary>
     Task SetExecutionIdAsync(string jobId, string executionId, CancellationToken ct = default);
 }

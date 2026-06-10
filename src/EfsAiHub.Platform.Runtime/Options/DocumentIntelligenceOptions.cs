@@ -15,14 +15,15 @@ public class DocumentIntelligenceOptions
     /// <summary>Tamanho máximo do arquivo PDF em bytes (padrão: 50 MB).</summary>
     public long MaxFileSizeBytes { get; init; } = 50 * 1024 * 1024;
     public int PollingTimeoutSeconds { get; init; } = 180;
-    public int GateWaitTimeoutSeconds { get; init; } = 600;
     public int CacheTtlDays { get; init; } = 7;
 
     /// <summary>
-    /// Concorrência máxima de extrações simultâneas por pod. Default 4 — Azure DI
-    /// tem rate limit por endpoint (15 RPS em S0), N pods × 4 extrações cobre
-    /// volume típico. Valores muito altos saturam o endpoint e geram 429 do Azure;
-    /// muito baixos serializam demais ingestão de PDF em massa.
+    /// Teto GLOBAL (cross-pod) de extrações simultâneas, imposto via contador de
+    /// slots distribuído num scope Redis compartilhado (<c>document-intelligence</c>).
+    /// NÃO é por pod: todas as réplicas disputam o mesmo contador, então este é o
+    /// número máximo de extrações em voo no cluster inteiro. Azure DI tem rate
+    /// limit por endpoint (~15 RPS em S0) — manter o teto abaixo disso evita 429;
+    /// valores muito baixos serializam demais ingestão de PDF em massa.
     /// </summary>
-    public int MaxConcurrentExtractions { get; init; } = 4;
+    public int MaxConcurrentExtractions { get; init; } = 10;
 }

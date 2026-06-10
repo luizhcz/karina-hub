@@ -355,10 +355,32 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
 
         if (result.Status == "failed")
         {
+            // Backpressure de capacidade (gate Document Intelligence cheio): a
+            // extração nem chegou a rodar — não é falha do job. Re-enfileira
+            // aguardando capacidade liberar SEM consumir tentativa (ctx.DeferAsync),
+            // em vez de FailAsync que caminharia pro teto de MaxAttempts e mataria
+            // o job permanente só por encontrar o gate cheio. DeferCount bound o
+            // loop pra que um gate que nunca libera ainda termine em falha real.
+            if (ExtractionErrorCode.IsCapacityBackpressure(result.ErrorCode)
+                && state.DeferCount < _poolOptions.MaxBackpressureDefers)
+            {
+                var deferred = state with { DeferCount = state.DeferCount + 1 };
+                // Persiste o contador ANTES do defer: UpdateIngestionContext exige
+                // Status='Running' (ownership), e o defer logo abaixo vira Queued.
+                await ctx.UpdateIngestionContextAsync(SerializeContext(deferred), ct).ConfigureAwait(false);
+                var deferUntil = DateTime.UtcNow.AddSeconds(CalcDeferBackoffSeconds());
+                await ctx.DeferAsync(
+                    $"Document Intelligence saturado ({result.ErrorCode}) — aguardando capacidade " +
+                    $"(defer {deferred.DeferCount}/{_poolOptions.MaxBackpressureDefers}).",
+                    deferUntil, ct).ConfigureAwait(false);
+                return null;
+            }
+
             // Heurística de retry centralizada no domínio: ExtractionErrorCode.IsPermanent
             // mapeia códigos que NÃO ganham nada retentando (PDF quebrado, file size,
-            // config error, source unavailable, page limit). Demais (GateTimeout/Timeout/
-            // 429/5xx do Azure) ainda contam contra MaxAttempts.
+            // config error, source unavailable, page limit). Demais (Timeout/429/5xx
+            // do Azure, e GateTimeout após esgotar MaxBackpressureDefers) contam
+            // contra MaxAttempts.
             var permanent = ExtractionErrorCode.IsPermanent(result.ErrorCode)
                 || job.Attempt >= _poolOptions.MaxAttempts;
             DateTime? nextRetry = permanent
@@ -556,6 +578,17 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         return (int)(baseSecs * multiplier);
     }
 
+    // Backoff de backpressure: plano (não exponencial) porque DeferCount não
+    // representa "falhas acumuladas" e sim "espera por capacidade" — queremos
+    // reavaliar o gate logo, não recuar cada vez mais. Jitter espalha o
+    // thundering herd quando vários jobs caem no gate cheio e voltam pra fila
+    // no mesmo instante (senão re-disputam o slot todos juntos no mesmo tick).
+    private int CalcDeferBackoffSeconds()
+    {
+        var baseSecs = Math.Max(1, _poolOptions.RetryBackoffBaseSeconds);
+        return baseSecs + Random.Shared.Next(0, baseSecs + 1);
+    }
+
     /// <summary>
     /// Persistido em <c>background_response_jobs.IngestionContext</c> entre
     /// steps. PDFs não vão aqui (vão pro Redis); só o flag <c>HasCachedPdf</c>
@@ -574,7 +607,11 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         [property: JsonPropertyName("hasCachedPdf")] bool HasCachedPdf = false,
         [property: JsonPropertyName("extractedContent")] string? ExtractedContent = null,
         [property: JsonPropertyName("extractionId")] string? ExtractionId = null,
-        [property: JsonPropertyName("pageCount")] int PageCount = 0);
+        [property: JsonPropertyName("pageCount")] int PageCount = 0,
+        // Conta quantas vezes o job foi re-enfileirado por gate de capacidade
+        // cheio (GATE_TIMEOUT). Backpressure não consome Attempt, então esse
+        // contador é o que bound o loop via StandalonePoolsOptions.MaxBackpressureDefers.
+        [property: JsonPropertyName("deferCount")] int DeferCount = 0);
 
     /// <summary>Shape do input passado ao workflow após a extração.</summary>
     private sealed class IngestionWorkflowEnvelope

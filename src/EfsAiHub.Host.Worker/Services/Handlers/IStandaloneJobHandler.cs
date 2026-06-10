@@ -61,6 +61,16 @@ public interface IStandaloneJobContext
     /// </summary>
     Task<bool> FailAsync(string lastError, DateTime? nextAttemptAt, bool permanent, CancellationToken ct);
 
+    /// <summary>
+    /// Re-enfileira por backpressure de capacidade (um gate de concorrência
+    /// externo estava cheio e o job não chegou a processar) SEM consumir
+    /// tentativa nem marcar terminal. Use no lugar de <see cref="FailAsync"/>
+    /// quando o motivo é "sem capacidade agora", não "o processamento falhou" —
+    /// assim a saturação não caminha pro teto de tentativas. Retorna false
+    /// quando o lease já foi roubado.
+    /// </summary>
+    Task<bool> DeferAsync(string reason, DateTime nextAttemptAt, CancellationToken ct);
+
     Task UpdateStepAsync(string? step, CancellationToken ct);
     Task UpdateIngestionContextAsync(string? ingestionContextJson, CancellationToken ct);
     Task SetExecutionIdAsync(string executionId, CancellationToken ct);

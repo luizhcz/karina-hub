@@ -74,6 +74,17 @@ public sealed class StandalonePoolsOptions
     public int RetryBackoffBaseSeconds { get; init; } = 5;
 
     /// <summary>
+    /// Teto de re-enfileiramentos por backpressure (gate de capacidade externa
+    /// cheio) antes de um job desistir com falha real. Backpressure NÃO consome
+    /// <c>Attempt</c> — sem esse teto, um gate permanentemente saturado
+    /// re-enfileiraria o job indefinidamente. Com backoff plano de
+    /// <see cref="RetryBackoffBaseSeconds"/>, 100 defers cobrem vários minutos
+    /// de saturação contínua antes de declarar capacidade indisponível.
+    /// Default: 100.
+    /// </summary>
+    public int MaxBackpressureDefers { get; init; } = 100;
+
+    /// <summary>
     /// Intervalo do <c>StuckLeaseReaper</c> — varre leases expirados e devolve
     /// jobs pra Queued. Default: 30s (rápido pra que pod crash não trave job
     /// muito mais que o LeaseTtl).

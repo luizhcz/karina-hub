@@ -25,7 +25,12 @@ public static class ExtractionErrorCode
     public const string AzureDiFailure     = "AZURE_DI_FAILURE";
     /// <summary>Timeout do polling do Azure DI (excedeu PollingTimeoutSeconds).</summary>
     public const string Timeout            = "TIMEOUT";
-    /// <summary>Gate de concorrência local cheio (MaxConcurrentExtractions saturado por GateWaitTimeoutSeconds).</summary>
+    /// <summary>
+    /// Gate de concorrência distribuído (cross-pod) cheio: as MaxConcurrentExtractions
+    /// vagas estão ocupadas. É fail-fast — a aquisição não espera por vaga; quando
+    /// esgotado retorna na hora. Não é falha do job (a extração nem rodou): é
+    /// backpressure de capacidade, classificado por <see cref="IsCapacityBackpressure"/>.
+    /// </summary>
     public const string GateTimeout        = "GATE_TIMEOUT";
     /// <summary>Cancelamento via workflow / token do caller. Não é "permanente" — retomada de boot pode tentar de novo.</summary>
     public const string Cancelled          = "CANCELLED";
@@ -46,4 +51,13 @@ public static class ExtractionErrorCode
         PageLimitExceeded  => true,
         _ => false,
     };
+
+    /// <summary>
+    /// Backpressure de capacidade: o gate de concorrência estava cheio e a
+    /// extração NÃO chegou a rodar — não houve chamada ao provider nem falha
+    /// real. Caller deve re-enfileirar aguardando capacidade liberar, SEM
+    /// consumir tentativa, em vez de contar contra MaxAttempts (senão um job
+    /// morre permanente só por encontrar o gate cheio algumas vezes).
+    /// </summary>
+    public static bool IsCapacityBackpressure(string? errorCode) => errorCode == GateTimeout;
 }

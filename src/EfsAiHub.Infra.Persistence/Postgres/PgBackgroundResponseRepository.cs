@@ -385,6 +385,36 @@ public sealed class PgBackgroundResponseRepository : IBackgroundResponseReposito
         return affected;
     }
 
+    public async Task<bool> DeferAsync(string jobId, string podId, string reason, DateTime nextAttemptAt, CancellationToken ct = default)
+    {
+        // Backpressure de capacidade: devolve pra Queued e desfaz o incremento
+        // de Attempt do lease (GREATEST piso em 0) — o job não chegou a rodar,
+        // então não pode contar contra MaxAttempts. Não toca CompletedAt e não
+        // dispara webhook (não é terminal). Ownership-aware.
+        const string sql = """
+            UPDATE aihub.background_response_jobs
+            SET "Status"        = 'Queued',
+                "LastError"     = @reason,
+                "NextAttemptAt" = @nextAttempt,
+                "Attempt"       = GREATEST("Attempt" - 1, 0),
+                "LeasedBy"      = NULL,
+                "LeaseUntil"    = NULL,
+                "UpdatedAt"     = NOW()
+            WHERE "JobId"    = @jobId
+              AND "LeasedBy" = @podId
+              AND "Status"   = 'Running';
+            """;
+
+        await using var conn = await _dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("jobId", jobId);
+        cmd.Parameters.AddWithValue("podId", podId);
+        cmd.Parameters.AddWithValue("reason", (object?)reason ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("nextAttempt", nextAttemptAt);
+        var affected = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        return affected == 1;
+    }
+
     /// <summary>
     /// Executa o UPDATE de Complete numa transação aberta e, se houver
     /// CallbackTarget, INSERT em webhook_deliveries no mesmo escopo.

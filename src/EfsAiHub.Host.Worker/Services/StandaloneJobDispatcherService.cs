@@ -145,7 +145,9 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
             var acquiredSlot = await _slots.TryAcquireAsync(SlotScope, _options.GlobalConcurrency, _slotTtl)
                 .ConfigureAwait(false);
             // Race aceitável: outro pod adquiriu slot entre o GetActiveCount e o TryAcquire.
-            // Devolve o job pra Queued com NextAttemptAt curto e segue.
+            // Backpressure puro (o job não chegou a rodar) — devolve pra Queued via
+            // DeferAsync, que NÃO consome tentativa. FailAsync aqui penalizaria o job
+            // por uma corrida de capacidade alheia ao seu processamento.
             if (!acquiredSlot)
             {
                 _logger.LogDebug(
@@ -153,12 +155,12 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
                     job.JobId);
                 MetricsRegistry.StandaloneAdmissionRejected.Add(1,
                     new KeyValuePair<string, object?>("reason", "global_safety"));
-                await _jobs.FailAsync(
+                await _jobs.DeferAsync(
                     job.JobId,
                     _podId,
                     "Global concurrency cap reached, queued for retry",
                     DateTime.UtcNow.AddSeconds(_options.PollIdleSeconds * 2),
-                    permanent: false, ct).ConfigureAwait(false);
+                    ct).ConfigureAwait(false);
                 continue;
             }
 

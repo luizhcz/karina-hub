@@ -49,6 +49,11 @@ internal sealed class StandaloneJobContext : IStandaloneJobContext
         return ok;
     }
 
+    public Task<bool> DeferAsync(string reason, DateTime nextAttemptAt, CancellationToken ct)
+        // Backpressure: re-enfileira sem terminal. NÃO seta LastTerminalStatus —
+        // o job volta pra Queued, não é um outcome final pras métricas.
+        => _jobs.DeferAsync(_jobId, PodId, reason, nextAttemptAt, ct);
+
     public async Task UpdateStepAsync(string? step, CancellationToken ct)
         => await _jobs.UpdateStepAsync(_jobId, PodId, step, ct).ConfigureAwait(false);
 
