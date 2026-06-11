@@ -14,11 +14,16 @@ public interface IAgentFactory
     /// num workflow standalone (sem continuidade entre chamadas) — desliga a
     /// composição do schema com <c>operationalMemory</c> e o middleware de
     /// memória correspondente. Default false preserva BC.
+    ///
+    /// <paramref name="resolvedVersionId"/> é o AgentVersionId EFETIVO já resolvido
+    /// (quando o caller pinou uma versão) — usado só pra telemetria coerente
+    /// (LlmTokenUsage). Null = current (fallback legado).
     /// </summary>
     Task<ExecutableWorkflow> CreateAgentAsync(
         AgentDefinition definition,
         CancellationToken ct = default,
-        bool isStandaloneFlow = false);
+        bool isStandaloneFlow = false,
+        string? resolvedVersionId = null);
 
     /// <summary>
     /// Cria instâncias de agentes para todas as referências de um workflow.
@@ -36,9 +41,15 @@ public interface IAgentFactory
     /// <paramref name="isStandaloneFlow"/> equivalente ao
     /// <see cref="CreateAgentAsync"/> — usado pelo WorkflowFactory pra
     /// propagar o <c>InputMode</c> do workflow ao build do handler.
+    ///
+    /// <paramref name="agentVersionId"/> é o pin de versão do agente vindo do
+    /// snapshot do workflow (<c>WorkflowAgentReference.AgentVersionId</c>). Presente
+    /// → roda a versão pinada (patch-propagation: exato se breaking, current se não);
+    /// null → current.
     /// </summary>
     Task<Func<string, CancellationToken, Task<string>>> CreateLlmHandlerAsync(
         string agentId,
+        string? agentVersionId = null,
         CancellationToken ct = default,
         bool isStandaloneFlow = false);
 }

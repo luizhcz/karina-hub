@@ -174,7 +174,8 @@ public class AgentFactory : IAgentFactory
     public async Task<ExecutableWorkflow> CreateAgentAsync(
         AgentDefinition definition,
         CancellationToken ct = default,
-        bool isStandaloneFlow = false)
+        bool isStandaloneFlow = false,
+        string? resolvedVersionId = null)
     {
         _logger.LogInformation(
             "Creating agent '{AgentName}' (id: {AgentId}, provider: {Provider}/{ClientType}, standalone: {Standalone})",
@@ -184,7 +185,7 @@ public class AgentFactory : IAgentFactory
         DelegateExecutor.CurrentLogger.Value = _logger;
 
         definition = await InjectProjectCredentials(definition, ct);
-        await TrackAgentVersionAsync(definition.Id, ct);
+        await TrackAgentVersionAsync(definition.Id, resolvedVersionId, ct);
         TrackPromptVersion(definition);
         var provider = ResolveProvider(definition);
         var options = ChatOptionsBuilder.BuildAgentOptions(
@@ -241,7 +242,7 @@ public class AgentFactory : IAgentFactory
         DelegateExecutor.CurrentLogger.Value = _logger;
 
         definition = await InjectProjectCredentials(definition, ct);
-        await TrackAgentVersionAsync(definition.Id, ct);
+        await TrackAgentVersionAsync(definition.Id, null, ct);
         TrackPromptVersion(definition);
         var provider = ResolveProvider(definition);
         var rawClient = await provider.CreateChatClientAsync(definition, ct);
@@ -263,53 +264,11 @@ public class AgentFactory : IAgentFactory
 
         foreach (var agentRef in workflow.Agents)
         {
-            // Governance source = live row (Visibility/ProjectId/TenantId/AllowedProjectIds
-            // são mutáveis e cross-cutting; mudança no owner deve afetar workflows pinados).
-            var governanceSource = await _agentRepo.GetByIdAsync(agentRef.AgentId, ct);
-            if (governanceSource is null)
-            {
-                // Orphan: pin existente sem agent_definitions row é caso operacional crítico
-                // (deleted owner, drift). Incrementa métrica antes do throw pra dashboards/alertas
-                // de ops capturarem mesmo que workflow execução falhe imediatamente.
-                if (!string.IsNullOrEmpty(agentRef.AgentVersionId))
-                {
-                    EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionGovernanceMissing.Add(1,
-                        new KeyValuePair<string, object?>("agent_id", agentRef.AgentId));
-                }
-                throw new InvalidOperationException(
-                    $"Agent '{agentRef.AgentId}' referenced in workflow '{workflow.Id}' not found.");
-            }
-
-            AgentDefinition definition;
-            if (!string.IsNullOrEmpty(agentRef.AgentVersionId) && _agentVersionRepo is not null)
-            {
-                // Pin setado: resolve via patch propagation (current se não há breaking
-                // entre pinned e current; pin exato senão). Reconstrói AgentDefinition
-                // do snapshot lossless hidratando governança da row corrente.
-                var snapshot = await _agentVersionRepo.ResolveEffectiveAsync(
-                    agentRef.AgentId, agentRef.AgentVersionId, ct);
-                definition = snapshot.ToDefinition(governanceSource);
-
-                var strategy = string.Equals(snapshot.AgentVersionId, agentRef.AgentVersionId, StringComparison.OrdinalIgnoreCase)
-                    ? "exact"
-                    : "propagated";
-                EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionPinResolutions.Add(1,
-                    new KeyValuePair<string, object?>("strategy", strategy),
-                    new KeyValuePair<string, object?>("agent_id", agentRef.AgentId));
-            }
-            else
-            {
-                // Sem pin: cenário esperado apenas em testes que não injetam IAgentVersionRepository
-                // ou em runtime stale (cache não-invalidado pós-criação). Workflow validator
-                // sempre exige pin no save — atinge esse branch sinaliza divergência.
-                definition = governanceSource;
-                if (!string.IsNullOrEmpty(agentRef.AgentVersionId) || _agentVersionRepo is null)
-                {
-                    EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionPinResolutions.Add(1,
-                        new KeyValuePair<string, object?>("strategy", "no_pin_unexpected"),
-                        new KeyValuePair<string, object?>("agent_id", agentRef.AgentId));
-                }
-            }
+            // Resolve governança (row viva) + comportamento (snapshot da versão pinada)
+            // num único ponto — agora compartilhado com o caminho Graph
+            // (CreateLlmHandlerAsync), que antes ignorava o pin e rodava current.
+            var (definition, resolvedVersionId) = await ResolveAgentDefinitionAsync(
+                agentRef.AgentId, agentRef.AgentVersionId, workflow.Id, ct);
 
             // Agent desligado pelo owner: pula completamente — não entra no dict, não cria
             // chat client, não invoca HITL. Workflow continua execução com agent ausente
@@ -407,17 +366,72 @@ public class AgentFactory : IAgentFactory
                 }
             }
 
-            result[agentRef.AgentId] = await CreateAgentAsync(definition, ct, isStandaloneFlow);
+            result[agentRef.AgentId] = await CreateAgentAsync(definition, ct, isStandaloneFlow, resolvedVersionId);
         }
 
         return result;
     }
 
-    public async Task<Func<string, CancellationToken, Task<string>>> CreateLlmHandlerAsync(
-        string agentId, CancellationToken ct = default, bool isStandaloneFlow = false)
+    /// <summary>
+    /// Resolve a AgentDefinition efetiva de um agentRef de workflow: governança
+    /// (Visibility/ProjectId/Enabled/...) vem da row viva; comportamento
+    /// (instructions/schema/tools/model) vem do snapshot da versão pinada via
+    /// <see cref="IAgentVersionRepository.ResolveEffectiveAsync"/> (patch-propagation:
+    /// current se não-breaking entre pin e current, pin exato se breaking). Retorna
+    /// também o AgentVersionId EFETIVO (o que de fato roda) pra telemetria. Sem pin /
+    /// sem repo → row viva (current). Compartilhado entre Graph e não-Graph.
+    /// </summary>
+    private async Task<(AgentDefinition Definition, string? ResolvedVersionId)> ResolveAgentDefinitionAsync(
+        string agentId, string? agentVersionId, string workflowIdForLog, CancellationToken ct)
     {
-        var definition = await _agentRepo.GetByIdAsync(agentId, ct)
-            ?? throw new InvalidOperationException($"Agent '{agentId}' not found.");
+        // Governance source = live row (Visibility/ProjectId/TenantId/Enabled são
+        // mutáveis e cross-cutting; mudança no owner afeta workflows pinados).
+        var governanceSource = await _agentRepo.GetByIdAsync(agentId, ct);
+        if (governanceSource is null)
+        {
+            // Orphan: pin existente sem agent_definitions row é caso operacional crítico
+            // (deleted owner, drift). Métrica antes do throw pra ops capturarem.
+            if (!string.IsNullOrEmpty(agentVersionId))
+                EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionGovernanceMissing.Add(1,
+                    new KeyValuePair<string, object?>("agent_id", agentId));
+            throw new InvalidOperationException(
+                $"Agent '{agentId}' referenced in workflow '{workflowIdForLog}' not found.");
+        }
+
+        if (!string.IsNullOrEmpty(agentVersionId) && _agentVersionRepo is not null)
+        {
+            // Pin setado: reconstrói do snapshot lossless hidratando governança da row viva.
+            var snapshot = await _agentVersionRepo.ResolveEffectiveAsync(agentId, agentVersionId, ct);
+            var definition = snapshot.ToDefinition(governanceSource);
+            // Enabled é governança mutável e ToDefinition não hidrata — puxa da row viva
+            // pra que o skip de agente desligado funcione em workflow pinado.
+            definition.Enabled = governanceSource.Enabled;
+
+            var strategy = string.Equals(snapshot.AgentVersionId, agentVersionId, StringComparison.OrdinalIgnoreCase)
+                ? "exact" : "propagated";
+            EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionPinResolutions.Add(1,
+                new KeyValuePair<string, object?>("strategy", strategy),
+                new KeyValuePair<string, object?>("agent_id", agentId));
+            return (definition, snapshot.AgentVersionId);
+        }
+
+        // Sem pin / sem repo: row viva (current). Validator exige pin no save, então
+        // pin vazio com repo presente sinaliza divergência — emite métrica.
+        if (!string.IsNullOrEmpty(agentVersionId) || _agentVersionRepo is null)
+            EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionPinResolutions.Add(1,
+                new KeyValuePair<string, object?>("strategy", "no_pin_unexpected"),
+                new KeyValuePair<string, object?>("agent_id", agentId));
+        return (governanceSource, null);
+    }
+
+    public async Task<Func<string, CancellationToken, Task<string>>> CreateLlmHandlerAsync(
+        string agentId, string? agentVersionId = null, CancellationToken ct = default, bool isStandaloneFlow = false)
+    {
+        // Honra o pin de versão do agente (agentRef.AgentVersionId vindo do snapshot do
+        // workflow). Antes esse caminho Graph rodava sempre a row current, ignorando o
+        // pin — mesma resolução do caminho não-Graph (CreateAgentsForWorkflowAsync).
+        var (definition, resolvedVersionId) = await ResolveAgentDefinitionAsync(
+            agentId, agentVersionId, "graph_handler", ct);
 
         // Agent desligado: lança AgentDisabledException pra caller (BuildBindingMapAsync no
         // Graph mode) skipar a chave do bindingMap. Pipeline continua sem o agent.
@@ -433,7 +447,9 @@ public class AgentFactory : IAgentFactory
         }
 
         definition = await InjectProjectCredentials(definition, ct);
-        var agentVersionId = await TrackAgentVersionAsync(agentId, ct);
+        // Telemetria com a versão EFETIVA resolvida (não current) — coerente com o
+        // comportamento que de fato roda quando há pin.
+        var trackedVersionId = await TrackAgentVersionAsync(agentId, resolvedVersionId, ct);
         TrackPromptVersion(definition);
         var provider = ResolveProvider(definition);
         var rawChatClient = await provider.CreateChatClientAsync(definition, ct);
@@ -461,7 +477,7 @@ public class AgentFactory : IAgentFactory
             chatClient = new EfsAiHub.Platform.Runtime.Middlewares.LlmInvocationCaptureChatClient(
                 chatClient,
                 agentId: definition.Id,
-                agentVersionId: agentVersionId,
+                agentVersionId: trackedVersionId,
                 modelId: captureModelId,
                 provider: definition.Provider.Type,
                 configService: _captureConfig,
@@ -729,10 +745,18 @@ public class AgentFactory : IAgentFactory
     }
 
     /// <summary>
-    /// Retorna o AgentVersionId para uso em LlmTokenUsage (Graph mode).
+    /// Registra o AgentVersionId para LlmTokenUsage/captura. Prefere a versão EFETIVA
+    /// já resolvida (<paramref name="resolvedVersionId"/>) — a que de fato roda quando
+    /// há pin. Sem ela (eval/standalone), faz fallback pra current (comportamento legado).
     /// </summary>
-    private async Task<string?> TrackAgentVersionAsync(string agentId, CancellationToken ct)
+    private async Task<string?> TrackAgentVersionAsync(string agentId, string? resolvedVersionId, CancellationToken ct)
     {
+        if (!string.IsNullOrEmpty(resolvedVersionId))
+        {
+            DelegateExecutor.Current.Value?.AgentVersions?.TryAdd(agentId, resolvedVersionId);
+            return resolvedVersionId;
+        }
+
         if (_agentVersionRepo is null) return null;
 
         try

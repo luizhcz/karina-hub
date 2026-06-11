@@ -284,7 +284,7 @@ public partial class WorkflowFactory : IWorkflowFactory
         {
             try
             {
-                var handler = await _agentFactory.CreateLlmHandlerAsync(agentRef.AgentId, ct, isStandaloneFlow);
+                var handler = await _agentFactory.CreateLlmHandlerAsync(agentRef.AgentId, agentRef.AgentVersionId, ct, isStandaloneFlow);
                 Executor<string, string> executor = new DelegateExecutor(agentRef.AgentId, handler);
 
                 if (hitlEnabled && agentRef.Hitl is not null)
