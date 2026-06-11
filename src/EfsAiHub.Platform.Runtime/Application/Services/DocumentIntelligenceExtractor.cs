@@ -236,7 +236,8 @@ public sealed class DocumentIntelligenceExtractor : IDocumentIntelligenceExtract
 
             job.Status = "running";
             job.StartedAt = DateTime.UtcNow;
-            await _repo.UpsertJobAsync(job, ct);
+            // Persistência da linha de auditoria movida pra DEPOIS do gate: sem vaga
+            // nada roda, então não deve sobrar registro algum (ver bloco do gate).
 
             // Gate distribuído (cross-pod). TryAcquire é fail-fast — sem WaitAsync
             // com timeout. Quando saturado, retorna GateTimeout imediatamente e
@@ -251,11 +252,18 @@ public sealed class DocumentIntelligenceExtractor : IDocumentIntelligenceExtract
                 slotAcquired = await _slots.TryAcquireAsync(SlotScope, maxConcurrent, _slotTtl);
                 if (!slotAcquired)
                 {
-                    return await FinalizeFailedAsync(job, pendingEvents, ExtractionErrorCode.GateTimeout,
-                        $"Capacidade global '{SlotScope}' esgotada ({maxConcurrent} slots). Tente em alguns instantes.", detail: null);
+                    // Backpressure de capacidade NÃO é uma extração — nada rodou.
+                    // NÃO persiste linha de auditoria nem eventos: senão cada espera
+                    // deixaria um 'failed/GATE_TIMEOUT' órfão que a tentativa
+                    // bem-sucedida nunca reconcilia (cada ExtractAsync usa um id novo).
+                    // O caller (ingestion) defere; só quem pega vaga vira registro.
+                    pendingEvents.Clear();
+                    return GateTimeoutResult(jobId, maxConcurrent);
                 }
 
                 pendingEvents.Add(new ExtractionEvent(jobId, "gate_acquired"));
+                // Vaga garantida: só agora persiste a linha "running" da extração.
+                await _repo.UpsertJobAsync(job, ct);
 
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeoutCts.CancelAfter(TimeSpan.FromSeconds(_options.PollingTimeoutSeconds));
@@ -401,6 +409,24 @@ public sealed class DocumentIntelligenceExtractor : IDocumentIntelligenceExtract
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
+
+    // Resultado de gate cheio SEM efeito colateral de persistência: capacidade é
+    // espera, não falha de extração — não grava em document_extraction_jobs/events.
+    // O caller reconhece GATE_TIMEOUT (IsCapacityBackpressure) e re-enfileira; a
+    // tentativa que conseguir vaga é a única que vira registro de auditoria.
+    private static ExtractionResult GateTimeoutResult(Guid jobId, int maxConcurrent) => new(
+        JobId: jobId,
+        Status: "failed",
+        Content: null,
+        ResultRef: null,
+        PageCount: 0,
+        CostUsd: 0m,
+        FromCache: false,
+        OperationId: null,
+        DurationMs: null,
+        ErrorCode: ExtractionErrorCode.GateTimeout,
+        ErrorMessage: $"Capacidade global '{SlotScope}' esgotada ({maxConcurrent} slots). Aguardando vaga.",
+        ErrorDetail: null);
 
     private async Task<ExtractionResult> FinalizeFailedAsync(
         ExtractionJob job, List<ExtractionEvent> pendingEvents,
