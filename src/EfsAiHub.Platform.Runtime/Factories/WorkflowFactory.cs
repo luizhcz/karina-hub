@@ -48,7 +48,7 @@ public partial class WorkflowFactory : IWorkflowFactory
         _logger = logger;
     }
 
-    public async Task<ExecutableWorkflow> BuildWorkflowAsync(WorkflowDefinition definition, string? startAgentId = null, CancellationToken ct = default)
+    public async Task<ExecutableWorkflow> BuildWorkflowAsync(WorkflowDefinition definition, string? startAgentId = null, CancellationToken ct = default, bool freezeExact = false)
     {
         _logger.LogInformation("Construindo workflow '{WorkflowId}' no modo {Mode}, startAgent='{StartAgent}'",
             definition.Id, definition.OrchestrationMode, startAgentId ?? "(default)");
@@ -56,7 +56,7 @@ public partial class WorkflowFactory : IWorkflowFactory
         // Graph mode usa DelegateExecutors com IChatClient direto (evita incompatibilidade de tipos)
         if (definition.OrchestrationMode == OrchestrationMode.Graph)
         {
-            var graphWorkflow = await BuildGraphAsync(definition, ct);
+            var graphWorkflow = await BuildGraphAsync(definition, ct, freezeExact);
             if (definition.Configuration.ExposeAsAgent)
             {
                 _logger.LogInformation("Expondo workflow '{WorkflowId}' como AIAgent.", definition.Id);
@@ -67,7 +67,7 @@ public partial class WorkflowFactory : IWorkflowFactory
             return ExecutableWorkflow.FromWorkflow(graphWorkflow);
         }
 
-        var agentMap = await _agentFactory.CreateAgentsForWorkflowAsync(definition, ct);
+        var agentMap = await _agentFactory.CreateAgentsForWorkflowAsync(definition, ct, freezeExact);
 
         // Monta lista ordenada respeitando a ordem dos agentes no JSON
         var agents = definition.Agents
@@ -212,9 +212,9 @@ public partial class WorkflowFactory : IWorkflowFactory
     /// Todos os nós são Executor&lt;string,string&gt; para garantir compatibilidade de tipos.
     /// Agentes LLM são encapsulados como DelegateExecutors que chamam IChatClient diretamente.
     /// </summary>
-    private async Task<Workflow> BuildGraphAsync(WorkflowDefinition definition, CancellationToken ct)
+    private async Task<Workflow> BuildGraphAsync(WorkflowDefinition definition, CancellationToken ct, bool freezeExact)
     {
-        var bindingMap = await BuildBindingMapAsync(definition, ct);
+        var bindingMap = await BuildBindingMapAsync(definition, ct, freezeExact);
 
         if (bindingMap.Count == 0)
             throw new InvalidOperationException(
@@ -265,7 +265,7 @@ public partial class WorkflowFactory : IWorkflowFactory
     /// Cria o mapa de ExecutorBindings para agentes LLM e code executors.
     /// </summary>
     private async Task<Dictionary<string, ExecutorBinding>> BuildBindingMapAsync(
-        WorkflowDefinition definition, CancellationToken ct)
+        WorkflowDefinition definition, CancellationToken ct, bool freezeExact)
     {
         var bindingMap = new Dictionary<string, ExecutorBinding>(StringComparer.OrdinalIgnoreCase);
 
@@ -284,7 +284,7 @@ public partial class WorkflowFactory : IWorkflowFactory
         {
             try
             {
-                var handler = await _agentFactory.CreateLlmHandlerAsync(agentRef.AgentId, agentRef.AgentVersionId, ct, isStandaloneFlow);
+                var handler = await _agentFactory.CreateLlmHandlerAsync(agentRef.AgentId, agentRef.AgentVersionId, ct, isStandaloneFlow, freezeExact);
                 Executor<string, string> executor = new DelegateExecutor(agentRef.AgentId, handler);
 
                 if (hitlEnabled && agentRef.Hitl is not null)

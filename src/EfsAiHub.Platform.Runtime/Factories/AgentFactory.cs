@@ -250,7 +250,7 @@ public class AgentFactory : IAgentFactory
     }
 
     public async Task<IReadOnlyDictionary<string, ExecutableWorkflow>> CreateAgentsForWorkflowAsync(
-        WorkflowDefinition workflow, CancellationToken ct = default)
+        WorkflowDefinition workflow, CancellationToken ct = default, bool freezeExact = false)
     {
         var result = new Dictionary<string, ExecutableWorkflow>();
 
@@ -268,7 +268,7 @@ public class AgentFactory : IAgentFactory
             // num único ponto — agora compartilhado com o caminho Graph
             // (CreateLlmHandlerAsync), que antes ignorava o pin e rodava current.
             var (definition, resolvedVersionId) = await ResolveAgentDefinitionAsync(
-                agentRef.AgentId, agentRef.AgentVersionId, workflow.Id, ct);
+                agentRef.AgentId, agentRef.AgentVersionId, workflow.Id, freezeExact, ct);
 
             // Agent desligado pelo owner: pula completamente — não entra no dict, não cria
             // chat client, não invoca HITL. Workflow continua execução com agent ausente
@@ -382,7 +382,7 @@ public class AgentFactory : IAgentFactory
     /// sem repo → row viva (current). Compartilhado entre Graph e não-Graph.
     /// </summary>
     private async Task<(AgentDefinition Definition, string? ResolvedVersionId)> ResolveAgentDefinitionAsync(
-        string agentId, string? agentVersionId, string workflowIdForLog, CancellationToken ct)
+        string agentId, string? agentVersionId, string workflowIdForLog, bool freezeExact, CancellationToken ct)
     {
         // Governance source = live row (Visibility/ProjectId/TenantId/Enabled são
         // mutáveis e cross-cutting; mudança no owner afeta workflows pinados).
@@ -400,15 +400,29 @@ public class AgentFactory : IAgentFactory
 
         if (!string.IsNullOrEmpty(agentVersionId) && _agentVersionRepo is not null)
         {
-            // Pin setado: reconstrói do snapshot lossless hidratando governança da row viva.
-            var snapshot = await _agentVersionRepo.ResolveEffectiveAsync(agentId, agentVersionId, ct);
+            // freezeExact = execução disparada com x-version (WorkflowVersion pinada):
+            // freeze EXATO da versão pinada do agente, sem patch-propagation. Ao vivo
+            // (freezeExact=false) usa ResolveEffectiveAsync (propaga não-breaking, trava
+            // breaking) — preserva o roll-out automático de patches nos workflows ativos.
+            var snapshot = freezeExact
+                ? (await _agentVersionRepo.GetByIdAsync(agentVersionId, ct)
+                    ?? throw new InvalidOperationException(
+                        $"AgentVersion '{agentVersionId}' pinada (x-version) não encontrada para o agente '{agentId}'."))
+                : await _agentVersionRepo.ResolveEffectiveAsync(agentId, agentVersionId, ct);
+
+            if (freezeExact && !string.Equals(snapshot.AgentDefinitionId, agentId, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"AgentVersion '{agentVersionId}' não pertence ao agente '{agentId}'.");
+
+            // Reconstrói do snapshot lossless hidratando governança da row viva.
             var definition = snapshot.ToDefinition(governanceSource);
             // Enabled é governança mutável e ToDefinition não hidrata — puxa da row viva
             // pra que o skip de agente desligado funcione em workflow pinado.
             definition.Enabled = governanceSource.Enabled;
 
-            var strategy = string.Equals(snapshot.AgentVersionId, agentVersionId, StringComparison.OrdinalIgnoreCase)
-                ? "exact" : "propagated";
+            var strategy = freezeExact
+                ? "exact_pin"
+                : (string.Equals(snapshot.AgentVersionId, agentVersionId, StringComparison.OrdinalIgnoreCase) ? "exact" : "propagated");
             EfsAiHub.Infra.Observability.MetricsRegistry.AgentVersionPinResolutions.Add(1,
                 new KeyValuePair<string, object?>("strategy", strategy),
                 new KeyValuePair<string, object?>("agent_id", agentId));
@@ -425,13 +439,13 @@ public class AgentFactory : IAgentFactory
     }
 
     public async Task<Func<string, CancellationToken, Task<string>>> CreateLlmHandlerAsync(
-        string agentId, string? agentVersionId = null, CancellationToken ct = default, bool isStandaloneFlow = false)
+        string agentId, string? agentVersionId = null, CancellationToken ct = default, bool isStandaloneFlow = false, bool freezeExact = false)
     {
         // Honra o pin de versão do agente (agentRef.AgentVersionId vindo do snapshot do
         // workflow). Antes esse caminho Graph rodava sempre a row current, ignorando o
         // pin — mesma resolução do caminho não-Graph (CreateAgentsForWorkflowAsync).
         var (definition, resolvedVersionId) = await ResolveAgentDefinitionAsync(
-            agentId, agentVersionId, "graph_handler", ct);
+            agentId, agentVersionId, "graph_handler", freezeExact, ct);
 
         // Agent desligado: lança AgentDisabledException pra caller (BuildBindingMapAsync no
         // Graph mode) skipar a chave do bindingMap. Pipeline continua sem o agent.

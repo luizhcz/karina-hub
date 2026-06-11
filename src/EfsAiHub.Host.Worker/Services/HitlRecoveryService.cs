@@ -325,7 +325,10 @@ public sealed class HitlRecoveryService : BackgroundService
             try
             {
                 exec.Metadata.TryGetValue("startAgentId", out var startAgentId);
-                var executable = await workflowFactory.BuildWorkflowAsync(definition, startAgentId, ct);
+                // Resume preserva o regime da execução original: se foi pinada (x-version),
+                // congela a versão exata dos agentes; senão propaga.
+                var executable = await workflowFactory.BuildWorkflowAsync(
+                    definition, startAgentId, ct, freezeExact: exec.WorkflowVersionId is not null);
 
                 int timeout = definition.Configuration.TimeoutSeconds > 0
                     ? definition.Configuration.TimeoutSeconds

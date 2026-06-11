@@ -31,7 +31,8 @@ public interface IAgentFactory
     /// </summary>
     Task<IReadOnlyDictionary<string, ExecutableWorkflow>> CreateAgentsForWorkflowAsync(
         WorkflowDefinition workflow,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        bool freezeExact = false);
 
     /// <summary>
     /// Cria um handler string→string para uso como DelegateExecutor em Graph mode.
@@ -43,13 +44,16 @@ public interface IAgentFactory
     /// propagar o <c>InputMode</c> do workflow ao build do handler.
     ///
     /// <paramref name="agentVersionId"/> é o pin de versão do agente vindo do
-    /// snapshot do workflow (<c>WorkflowAgentReference.AgentVersionId</c>). Presente
-    /// → roda a versão pinada (patch-propagation: exato se breaking, current se não);
-    /// null → current.
+    /// snapshot do workflow (<c>WorkflowAgentReference.AgentVersionId</c>); null → current.
+    ///
+    /// <paramref name="freezeExact"/> = execução pinada via x-version: roda a versão
+    /// EXATA pinada (sem patch-propagation). false (ao vivo) usa patch-propagation
+    /// (propaga não-breaking, trava breaking).
     /// </summary>
     Task<Func<string, CancellationToken, Task<string>>> CreateLlmHandlerAsync(
         string agentId,
         string? agentVersionId = null,
         CancellationToken ct = default,
-        bool isStandaloneFlow = false);
+        bool isStandaloneFlow = false,
+        bool freezeExact = false);
 }

@@ -14,5 +14,9 @@ public interface IWorkflowFactory
     /// Opcional — para Handoff mode, indica qual agente deve ser o entry point
     /// (otimização: evita passar pelo manager em continuações de conversa).
     /// </param>
-    Task<ExecutableWorkflow> BuildWorkflowAsync(WorkflowDefinition definition, string? startAgentId = null, CancellationToken ct = default);
+    /// <param name="freezeExact">
+    /// Execução disparada com x-version (WorkflowVersion pinada): congela a versão
+    /// EXATA dos agentes (sem patch-propagation). false (ao vivo) → propaga não-breaking.
+    /// </param>
+    Task<ExecutableWorkflow> BuildWorkflowAsync(WorkflowDefinition definition, string? startAgentId = null, CancellationToken ct = default, bool freezeExact = false);
 }

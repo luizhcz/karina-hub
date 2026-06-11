@@ -32,7 +32,10 @@ public class WorkflowExecutor : IWorkflowExecutor
         CancellationToken ct = default)
     {
         execution.Metadata.TryGetValue("startAgentId", out var startAgentId);
-        var executableWorkflow = await _workflowFactory.BuildWorkflowAsync(definition, startAgentId, ct);
+        // freezeExact: execução disparada com x-version (WorkflowVersion pinada) congela
+        // a versão EXATA dos agentes (sem patch-propagation). Ao vivo → propaga.
+        var executableWorkflow = await _workflowFactory.BuildWorkflowAsync(
+            definition, startAgentId, ct, freezeExact: execution.WorkflowVersionId is not null);
 
         int timeout = definition.Configuration.TimeoutSeconds > 0
             ? definition.Configuration.TimeoutSeconds
