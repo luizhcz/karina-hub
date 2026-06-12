@@ -82,6 +82,17 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.PortfolioAnalysisTool>();
         services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.ClientPositionsTool>();
 
+        // Asset Swap Suggestion — endpoints mockados (trocar por clients HTTP depois,
+        // sem tocar engine/tool), engine e tool. Stateless ⇒ Singleton.
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.SwapSuggestion.IPositionEndpoint,
+            EfsAiHub.Platform.Runtime.Tools.SwapSuggestion.MockPositionEndpoint>();
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.SwapSuggestion.IAssetEndpoint,
+            EfsAiHub.Platform.Runtime.Tools.SwapSuggestion.MockAssetEndpoint>();
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.SwapSuggestion.IRecommendationEndpoint,
+            EfsAiHub.Platform.Runtime.Tools.SwapSuggestion.MockRecommendationEndpoint>();
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.SwapSuggestion.SwapSuggestionEngine>();
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Tools.SwapSuggestion.SwapSuggestionTool>();
+
         services.AddSingleton<IFunctionToolRegistry>(sp =>
         {
             var registry = new FunctionToolRegistry(
@@ -96,6 +107,9 @@ public static class ServiceCollectionExtensions
             var positions = sp.GetRequiredService<EfsAiHub.Platform.Runtime.Tools.ClientPositionsTool>();
             registry.Register("get_portfolio", AIFunctionFactory.Create(positions.GetPortfolioAsync));
             registry.Register("get_position",  AIFunctionFactory.Create(positions.GetPositionAsync));
+
+            var swap = sp.GetRequiredService<EfsAiHub.Platform.Runtime.Tools.SwapSuggestion.SwapSuggestionTool>();
+            registry.Register("suggest_swaps", AIFunctionFactory.Create(swap.SuggestSwapsAsync));
 
             return registry;
         });
