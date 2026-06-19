@@ -45,6 +45,7 @@
 
     <ProjectReference Include="..\EfsAiHub.Host.Worker\EfsAiHub.Host.Worker.csproj" />
     <ProjectReference Include="..\EfsAiHub.Infra.LlmProviders\EfsAiHub.Infra.LlmProviders.csproj" />
+    <ProjectReference Include="..\EfsAiHub.Infra.Storage\EfsAiHub.Infra.Storage.csproj" />
   </ItemGroup>
 
   <ItemGroup>

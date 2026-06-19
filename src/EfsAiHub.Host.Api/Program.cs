@@ -9,6 +9,7 @@ using EfsAiHub.Core.Abstractions.Secrets;
 using EfsAiHub.Infra.Secrets;
 using EfsAiHub.Infra.Secrets.Configuration;
 using EfsAiHub.Infra.Secrets.Health;
+using EfsAiHub.Infra.Storage;
 using EfsAiHub.Platform.Runtime.Interfaces;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
@@ -82,6 +83,9 @@ builder.Services.AddSingleton<TokenCredential, LazyAzureServicePrincipalCredenti
 // consome do IRuntimeSecretStore (in-memory, sub-microssegundo). Restart é
 // obrigatório pra picking up rotação ou novo project/agent com secret novo.
 builder.Services.AddAwsSecretsManager(builder.Configuration, bootstrapMap);
+// Object store durável (S3) pros arquivos crus da ingestão. Flag-off (default)
+// registra um no-op; credenciais via default chain, igual ao Secrets Manager.
+builder.Services.AddS3ObjectStore(builder.Configuration);
 builder.Services.AddSingleton<MutableRuntimeSecretStoreHost>();
 builder.Services.AddSingleton<IRuntimeSecretStore>(
     sp => sp.GetRequiredService<MutableRuntimeSecretStoreHost>());

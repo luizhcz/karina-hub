@@ -104,6 +104,14 @@ services:
       IngestionApi__Enabled: "true"
       StandalonePools__Enabled: "true"
 
+      # S3 do arquivo cru da ingestão. Valores vêm do .env (dev-específico) — o
+      # committed fica seguro: default OFF e sem ARN de conta baked-in. Credenciais
+      # via AWS_PROFILE + ~/.aws montado (default chain). BucketName aceita ARN de
+      # S3 Access Point. Em prod, ligar via env/secrets do ambiente.
+      Storage__S3__Enabled: ${S3_INGESTION_ENABLED:-false}
+      Storage__S3__BucketName: ${S3_INGESTION_BUCKET:-}
+      Storage__S3__Region: ${AWS_REGION:-us-east-1}
+
       # OpenTelemetry — aponta pro Aspire Dashboard (OTLP gRPC). Guard em
       # Program.cs continua: se ficar vazio, exporters/logger OTel não são
       # anexados e logs caem só no console.
