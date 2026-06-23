@@ -97,6 +97,12 @@ public sealed class DocumentIntelligenceExtractor : IDocumentIntelligenceExtract
         return active < Math.Max(1, _options.MaxConcurrentExtractions);
     }
 
+    // Magic bytes dos formatos binários aceitos neste fluxo: PDF (%PDF), PNG e JPEG.
+    private static bool LooksLikeSupportedDocument(ReadOnlySpan<byte> b) =>
+        (b.Length >= 5 && b[0] == 0x25 && b[1] == 0x50 && b[2] == 0x44 && b[3] == 0x46)   // %PDF
+        || (b.Length >= 8 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47) // PNG
+        || (b.Length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF);                // JPEG
+
     public async Task<ExtractionResult> ExtractAsync(ExtractionInput input, CancellationToken ct)
     {
         var outputFormat = input.OutputFormat?.Equals("text", StringComparison.OrdinalIgnoreCase) == true
@@ -185,10 +191,14 @@ public sealed class DocumentIntelligenceExtractor : IDocumentIntelligenceExtract
                     new { actualSizeBytes = pdfBytes.Length, maxAllowedBytes = _options.MaxFileSizeBytes });
             }
 
-            if (pdfBytes.Length < 5 || pdfBytes[0] != 0x25 || pdfBytes[1] != 0x50 || pdfBytes[2] != 0x44 || pdfBytes[3] != 0x46)
+            // Fail-fast por magic bytes: aceita os formatos binários que o Azure DI
+            // processa neste fluxo — PDF, PNG e JPEG. O SDK envia o binário cru e o
+            // serviço auto-detecta o formato; esta checagem só evita uma chamada à toa
+            // com lixo. (Outros formatos do DI — TIFF/BMP/HEIF/Office — não passam por aqui.)
+            if (!LooksLikeSupportedDocument(pdfBytes))
             {
                 return await FinalizeFailedAsync(job, pendingEvents, ExtractionErrorCode.UnreadablePdf,
-                    "Arquivo não é um PDF válido (magic bytes ausentes).", detail: null);
+                    "Arquivo não é um formato suportado (PDF, PNG ou JPEG).", detail: null);
             }
 
             pendingEvents.Add(new ExtractionEvent(jobId, "file_validated",

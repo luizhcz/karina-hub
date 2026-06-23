@@ -18,29 +18,30 @@ using Microsoft.Extensions.Options;
 namespace EfsAiHub.Host.Worker.Services.Handlers;
 
 /// <summary>
-/// Handler de jobs de ingestão URL→PDF/TXT/MD→workflow. Máquina de estados
+/// Handler de jobs de ingestão URL→PDF/PNG/JPEG/TXT/MD→workflow. Máquina de estados
 /// persistida via <c>Step</c> + <c>IngestionContext</c>, idempotente por step:
 /// crash do pod em qualquer ponto retoma de onde parou na próxima vez que o
 /// reaper devolve o job pra Queued.
 ///
 /// Política de storage: o texto extraído NÃO é persistido no JSONB do job — vive no
-/// S3 (fonte canônica) e, pra PDF, também no cache do Document Intelligence (rede de
-/// segurança). O JSONB guarda só o PONTEIRO do objeto, na pasta do workflow
+/// S3 (fonte canônica) e, pra PDF/imagem, também no cache do Document Intelligence
+/// (rede de segurança). O JSONB guarda só o PONTEIRO do objeto, na pasta do workflow
 /// (<c>{workflowId}/{sha256}.{ext}</c>): <c>RawObjectKey</c> (cru de TXT/MD) e
-/// <c>ExtractedObjectKey</c> (.txt extraído de PDF). O ponteiro só é gravado quando o
-/// PUT confirma (best-effort + anti-órfão). O texto chega ao workflow hidratado em
-/// memória: no caminho contíguo segue do download/extração; numa retomada pós-extração
-/// é lido do S3 pelo ponteiro, com fallback de re-download/re-extração (cache do DI =
-/// hit barato). PDF cru nunca é gravado.
+/// <c>ExtractedObjectKey</c> (texto extraído de PDF/PNG/JPEG). O ponteiro só é gravado
+/// quando o PUT confirma (best-effort + anti-órfão). O texto chega ao workflow
+/// hidratado em memória: no caminho contíguo segue do download/extração; numa retomada
+/// pós-extração é lido do S3 pelo ponteiro, com fallback de re-download/re-extração
+/// (cache do DI = hit barato). O binário cru (PDF/PNG/JPEG) nunca é gravado.
 ///
 /// Steps:
 /// <list type="bullet">
 ///   <item><c>null</c>/<c>"Queued"</c> → baixa o arquivo via <see cref="IngestionDownloader"/>.</item>
-///   <item><c>"Downloading"</c>/<c>"Validating"</c> → detecta tipo (PDF/TXT/MD);
-///         TXT/MD → grava o cru no S3 (ponteiro <c>RawObjectKey</c>); PDF → não grava o
-///         cru (bytes seguem em memória pra extração).</item>
-///   <item><c>"Extracting"</c> (só PDF) → chama Document Intelligence (texto) e grava
-///         SÓ a saída <c>.txt</c> no S3 (ponteiro <c>ExtractedObjectKey</c>).
+///   <item><c>"Downloading"</c>/<c>"Validating"</c> → detecta tipo (PDF/PNG/JPEG/TXT/MD);
+///         imagem valida dimensão (50×50–10.000×10.000 px); TXT/MD → grava o cru no S3
+///         (ponteiro <c>RawObjectKey</c>); PDF/imagem → não grava o cru (bytes seguem em
+///         memória pra extração).</item>
+///   <item><c>"Extracting"</c> (PDF/PNG/JPEG) → chama Document Intelligence (OCR) e grava
+///         SÓ a saída de texto no S3 (ponteiro <c>ExtractedObjectKey</c>).
 ///         TXT/MD pulam direto pra <c>"ContentPersisted"</c>.</item>
 ///   <item><c>"ContentPersisted"</c> → hidrata o texto (memória/S3/re-extração) e
 ///         dispara workflow via <see cref="IWorkflowDispatcher"/> com o conteúdo +
@@ -235,7 +236,7 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         if (type == DetectedFileType.Unsupported)
         {
             await ctx.FailAsync(
-                "Tipo de arquivo não suportado. Apenas PDF, TXT e MD são aceitos.",
+                "Tipo de arquivo não suportado. Apenas PDF, PNG, JPEG, TXT e MD são aceitos.",
                 null, permanent: true, ct).ConfigureAwait(false);
             return (null, null, null);
         }
@@ -251,16 +252,39 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
 
         // Política de storage: só a representação em TEXTO vai pro S3, e o JSONB guarda
         // só o PONTEIRO (nunca o texto).
-        //  - PDF: o cru NÃO é gravado; os bytes seguem em memória pra extração e só
-        //    o .txt extraído vai pro bucket (ver ResolveContentAsync).
+        //  - PDF/PNG/JPEG: o binário cru NÃO é gravado; os bytes seguem em memória pra
+        //    extração (OCR via DI) e só o texto extraído vira objeto no bucket.
         //  - TXT/MD: o cru JÁ É o texto → grava no S3 (best-effort) + valida UTF-8; o
         //    texto segue em memória pro dispatch contíguo.
         // Key lógica '{workflowId}/{sha256}.{ext}'; o prefixo do bucket é aplicado no
         // store. A "pasta" do workflow é criada implicitamente pelo PUT (S3 não tem mkdir).
         byte[]? pdfBytes = null;
         string? textContent = null;
-        if (type == DetectedFileType.Pdf)
+        if (type is DetectedFileType.Pdf or DetectedFileType.Png or DetectedFileType.Jpeg)
         {
+            // Imagem: valida a dimensão (50×50–10.000×10.000 px, limite do Azure DI)
+            // ANTES de seguir — fora do range falha cedo, sem gastar uma chamada ao DI.
+            if (type is DetectedFileType.Png or DetectedFileType.Jpeg)
+            {
+                var size = ImageDimensions.TryRead(type, download.Bytes);
+                if (size is null)
+                {
+                    await ctx.FailAsync("Imagem inválida ou corrompida (não foi possível ler as dimensões).",
+                        null, permanent: true, ct).ConfigureAwait(false);
+                    return (null, null, null);
+                }
+                if (!ImageDimensions.IsWithinLimits(size.Value))
+                {
+                    await ctx.FailAsync(
+                        $"Dimensões {size.Value.Width}x{size.Value.Height}px fora do permitido " +
+                        $"({ImageDimensions.MinDimension}x{ImageDimensions.MinDimension} a {ImageDimensions.MaxDimension}x{ImageDimensions.MaxDimension}).",
+                        null, permanent: true, ct).ConfigureAwait(false);
+                    return (null, null, null);
+                }
+            }
+
+            // PDF/imagem seguem o mesmo caminho: bytes em memória pra extração; o cru
+            // não vai pro S3.
             pdfBytes = download.Bytes;
         }
         else
@@ -603,8 +627,10 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         BackgroundResponseJob job, IngestionState state, CancellationToken ct)
     {
         Enum.TryParse<DetectedFileType>(state.DetectedType, ignoreCase: true, out var type);
-        var isPdf = type == DetectedFileType.Pdf;
-        var key = isPdf ? state.ExtractedObjectKey : state.RawObjectKey;
+        // PDF/PNG/JPEG passam por OCR no DI → ponteiro do texto extraído (ExtractedObjectKey).
+        // TXT/MD são texto cru → ponteiro do cru (RawObjectKey).
+        var needsExtraction = type is DetectedFileType.Pdf or DetectedFileType.Png or DetectedFileType.Jpeg;
+        var key = needsExtraction ? state.ExtractedObjectKey : state.RawObjectKey;
 
         // 1) S3 pelo ponteiro persistido — caminho normal de retomada.
         if (!string.IsNullOrEmpty(key))
@@ -618,13 +644,13 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         }
 
         // 2) Fallback: objeto ausente no S3 (PUT falhou na época, ou sumiu). Re-baixa
-        //    da origem (idempotente). TXT/MD já é texto; PDF precisa re-extrair.
+        //    da origem (idempotente). TXT/MD já é texto; PDF/imagem precisam re-extrair.
         byte[] pdfBytes;
         try
         {
             var download = await _downloader.DownloadAsync(new Uri(state.Url!), state.Headers, ct)
                 .ConfigureAwait(false);
-            if (!isPdf)
+            if (!needsExtraction)
             {
                 var text = Encoding.UTF8.GetString(download.Bytes);
                 var sha = ContentHashCalculator.ComputeFromBytes(download.Bytes);

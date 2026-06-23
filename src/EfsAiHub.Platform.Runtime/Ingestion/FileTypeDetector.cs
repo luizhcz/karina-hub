@@ -11,7 +11,9 @@ public enum DetectedFileType
     Unsupported = 0,
     Pdf = 1,
     Text = 2,
-    Markdown = 3
+    Markdown = 3,
+    Png = 4,
+    Jpeg = 5
 }
 
 /// <summary>
@@ -22,6 +24,9 @@ public enum DetectedFileType
 /// Estratégia:
 /// <list type="bullet">
 ///   <item>Magic bytes <c>%PDF-</c> → <see cref="DetectedFileType.Pdf"/>.</item>
+///   <item>Magic bytes PNG (<c>89 50 4E 47 …</c>) → <see cref="DetectedFileType.Png"/>;
+///         JPEG (<c>FF D8 FF</c>) → <see cref="DetectedFileType.Jpeg"/>. Vão pro DI
+///         (OCR), como o PDF.</item>
 ///   <item>UTF-8/ASCII decodificável + sem bytes de controle binários → texto.
 ///         Diferencia TXT vs MD via hint (Content-Type ou extensão); ambíguo
 ///         vira Markdown (superset visual e tooling-friendly).</item>
@@ -60,6 +65,21 @@ public static class FileTypeDetector
             && content[4] == 0x2D) // -
         {
             return DetectedFileType.Pdf;
+        }
+
+        // PNG: assinatura de 8 bytes 89 50 4E 47 0D 0A 1A 0A. Definitivo. Checado
+        // antes da heurística de texto porque imagens têm bytes de controle binários.
+        if (content.Length >= 8
+            && content[0] == 0x89 && content[1] == 0x50 && content[2] == 0x4E && content[3] == 0x47
+            && content[4] == 0x0D && content[5] == 0x0A && content[6] == 0x1A && content[7] == 0x0A)
+        {
+            return DetectedFileType.Png;
+        }
+
+        // JPEG: SOI + início do primeiro marker (FF D8 FF). Definitivo.
+        if (content.Length >= 3 && content[0] == 0xFF && content[1] == 0xD8 && content[2] == 0xFF)
+        {
+            return DetectedFileType.Jpeg;
         }
 
         // Heurística texto: scan dos primeiros N bytes — se houver byte de
