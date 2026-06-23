@@ -9,7 +9,6 @@ using EfsAiHub.Core.Agents.Responses;
 using EfsAiHub.Host.Worker.Services.Handlers;
 using EfsAiHub.Platform.Runtime.Configuration;
 using EfsAiHub.Platform.Runtime.Ingestion;
-using EfsAiHub.Platform.Runtime.Options;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -160,6 +159,78 @@ public sealed class IngestionJobHandlerHydrationTests
         h.PersistedContexts[^1].Should().NotContain("extractedObjectKey");
     }
 
+    // ── Modelo de extração via metadata ─────────────────────────────────────
+    [Fact]
+    public async Task Metadata_model_layout_usa_prebuilt_layout_markdown_e_grava_md()
+    {
+        var h = new Harness();
+        h.Downloader.DownloadAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
+            .Returns(new DownloadedFile(Encoding.ASCII.GetBytes("%PDF-1.4"), "application/pdf", new Uri("https://x/y.pdf"), 8));
+        h.Extractor.HasCapacityAsync(Arg.Any<CancellationToken>()).Returns(true);
+        h.Extractor.ExtractAsync(Arg.Any<ExtractionInput>(), Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult(Guid.NewGuid(), "succeeded", "# Markdown", null, 1, 0m, false, "op", 10, null, null, null));
+        h.ObjectStore.PutAsync(Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(true);
+        h.ExecutionCompletes();
+        var handler = h.Build();
+        var job = Job("Extracting", new IngestionJobHandler.IngestionState(
+            Url: "https://x/y.pdf", DetectedType: "Pdf",
+            Metadata: new Dictionary<string, string> { ["model"] = "prebuilt-layout" }));
+
+        await handler.ProcessAsync(job, h.Ctx, CancellationToken.None);
+
+        h.CapturedExtraction!.Model.Should().Be("prebuilt-layout");
+        h.CapturedExtraction.OutputFormat.Should().Be("markdown");
+        h.PutKeys.Should().Contain(k => k.EndsWith(".md"));
+    }
+
+    [Fact]
+    public async Task Sem_metadata_model_usa_prebuilt_read_texto_e_grava_txt()
+    {
+        var h = new Harness();
+        h.Downloader.DownloadAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyDictionary<string, string>?>(), Arg.Any<CancellationToken>())
+            .Returns(new DownloadedFile(Encoding.ASCII.GetBytes("%PDF-1.4"), "application/pdf", new Uri("https://x/y.pdf"), 8));
+        h.Extractor.HasCapacityAsync(Arg.Any<CancellationToken>()).Returns(true);
+        h.Extractor.ExtractAsync(Arg.Any<ExtractionInput>(), Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult(Guid.NewGuid(), "succeeded", "plain text", null, 1, 0m, false, "op", 10, null, null, null));
+        h.ObjectStore.PutAsync(Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(true);
+        h.ExecutionCompletes();
+        var handler = h.Build();
+        var job = Job("Extracting", new IngestionJobHandler.IngestionState(Url: "https://x/y.pdf", DetectedType: "Pdf"));
+
+        await handler.ProcessAsync(job, h.Ctx, CancellationToken.None);
+
+        h.CapturedExtraction!.Model.Should().Be("prebuilt-read");
+        h.CapturedExtraction.OutputFormat.Should().Be("text");
+        h.PutKeys.Should().Contain(k => k.EndsWith(".txt"));
+    }
+
+    [Theory]
+    [InlineData("prebuilt-layout", "markdown", "md")]
+    [InlineData("prebuilt-read", "text", "txt")]
+    public void Modelo_acopla_formato_e_extensao(string model, string fmt, string ext)
+    {
+        IngestionExtractionModel.OutputFormat(model).Should().Be(fmt);
+        IngestionExtractionModel.FileExtension(model).Should().Be(ext);
+    }
+
+    [Fact]
+    public void Resolve_default_eh_read_e_layout_vem_do_metadata_case_insensitive()
+    {
+        IngestionExtractionModel.Resolve(null).Should().Be("prebuilt-read");
+        IngestionExtractionModel.Resolve(new Dictionary<string, string> { ["model"] = "prebuilt-layout" }).Should().Be("prebuilt-layout");
+        IngestionExtractionModel.Resolve(new Dictionary<string, string> { ["MODEL"] = "PREBUILT-LAYOUT" }).Should().Be("prebuilt-layout");
+        IngestionExtractionModel.Resolve(new Dictionary<string, string> { ["model"] = "garbage" }).Should().Be("prebuilt-read");
+    }
+
+    [Fact]
+    public void IsValid_aceita_apenas_os_dois_modelos()
+    {
+        IngestionExtractionModel.IsValid("prebuilt-read").Should().BeTrue();
+        IngestionExtractionModel.IsValid("prebuilt-layout").Should().BeTrue();
+        IngestionExtractionModel.IsValid("prebuilt-foo").Should().BeFalse();
+        IngestionExtractionModel.IsValid(null).Should().BeFalse();
+    }
+
     // ── Harness ──────────────────────────────────────────────────────────────
     private sealed class Harness
     {
@@ -170,7 +241,9 @@ public sealed class IngestionJobHandlerHydrationTests
         public readonly IWorkflowExecutionRepository ExecutionRepo = Substitute.For<IWorkflowExecutionRepository>();
         public readonly IStandaloneJobContext Ctx = Substitute.For<IStandaloneJobContext>();
         public readonly List<string?> PersistedContexts = new();
+        public readonly List<string> PutKeys = new();
         public string? DispatchedPayload;
+        public ExtractionInput? CapturedExtraction;
 
         public IngestionJobHandler Build()
         {
@@ -187,6 +260,10 @@ public sealed class IngestionJobHandlerHydrationTests
             Ctx.DeferAsync(Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(true);
             Ctx.When(c => c.UpdateIngestionContextAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()))
                .Do(ci => PersistedContexts.Add((string?)ci[0]));
+            Extractor.When(e => e.ExtractAsync(Arg.Any<ExtractionInput>(), Arg.Any<CancellationToken>()))
+               .Do(ci => CapturedExtraction = ci.Arg<ExtractionInput>());
+            ObjectStore.When(o => o.PutAsync(Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()))
+               .Do(ci => PutKeys.Add((string)ci[0]));
 
             Dispatcher.TriggerAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, string>?>(),
                     Arg.Any<ExecutionSource>(), Arg.Any<ExecutionMode>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
@@ -195,7 +272,6 @@ public sealed class IngestionJobHandlerHydrationTests
             return new IngestionJobHandler(
                 Downloader, ObjectStore, scopeFactory, Extractor,
                 Substitute.For<IProjectContextAccessor>(), Substitute.For<ITenantContextAccessor>(),
-                Options.Create(new DocumentIntelligenceOptions { DefaultModel = "prebuilt-layout" }),
                 Options.Create(new StandalonePoolsOptions { Enabled = true, MaxAttempts = 3, JobMaxLifetimeMinutes = 1 }),
                 Options.Create(new IngestionApiOptions { Enabled = true }),
                 NullLogger<IngestionJobHandler>.Instance);

@@ -5,6 +5,7 @@ using EfsAiHub.Core.Abstractions.Identity;
 using EfsAiHub.Core.Agents.Responses;
 using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Runtime.Configuration;
+using EfsAiHub.Platform.Runtime.Ingestion;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -131,6 +132,13 @@ public sealed class IngestionsController : ControllerBase
             if (totalBytes > MaxMetadataBytes)
                 return BadRequest(new { error = $"metadata excede {MaxMetadataBytes} bytes agregados." });
         }
+
+        // Modelo de extração opcional via metadata "model" (só vale pra PDF). Valida na
+        // entrada — valor inválido falha cedo em vez de cair silenciosamente no default.
+        var requestedModel = IngestionExtractionModel.FindRawValue(request.Metadata);
+        if (requestedModel is not null && !IngestionExtractionModel.IsValid(requestedModel))
+            return BadRequest(new { error =
+                $"metadata.{IngestionExtractionModel.MetadataKey} inválido '{requestedModel}' — use '{IngestionExtractionModel.Read}' (texto) ou '{IngestionExtractionModel.Layout}' (markdown)." });
 
         string? idempotencyKey;
         try

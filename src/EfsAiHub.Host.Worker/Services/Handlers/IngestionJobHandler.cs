@@ -12,7 +12,6 @@ using EfsAiHub.Infra.Observability;
 using EfsAiHub.Platform.Runtime.Configuration;
 using EfsAiHub.Platform.Runtime.Ingestion;
 using EfsAiHub.Platform.Runtime.Interfaces;
-using EfsAiHub.Platform.Runtime.Options;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -67,7 +66,6 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
     private readonly IDocumentIntelligenceExtractor _extractor;
     private readonly IProjectContextAccessor _projectAccessor;
     private readonly ITenantContextAccessor _tenantAccessor;
-    private readonly DocumentIntelligenceOptions _diOptions;
     private readonly StandalonePoolsOptions _poolOptions;
     private readonly IngestionApiOptions _ingestionOptions;
     private readonly ILogger<IngestionJobHandler> _logger;
@@ -79,7 +77,6 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         IDocumentIntelligenceExtractor extractor,
         IProjectContextAccessor projectAccessor,
         ITenantContextAccessor tenantAccessor,
-        IOptions<DocumentIntelligenceOptions> diOptions,
         IOptions<StandalonePoolsOptions> poolOptions,
         IOptions<IngestionApiOptions> ingestionOptions,
         ILogger<IngestionJobHandler> logger)
@@ -90,7 +87,6 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         _extractor = extractor;
         _projectAccessor = projectAccessor;
         _tenantAccessor = tenantAccessor;
-        _diOptions = diOptions.Value;
         _poolOptions = poolOptions.Value;
         _ingestionOptions = ingestionOptions.Value;
         _logger = logger;
@@ -404,6 +400,11 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         // cache HIT cross-ingestion (mesmo PDF, mesmo model) economiza o Azure.
         // Bug histórico (pré-refactor 2026-06): chamava _diService.AnalyzeBytesAsync
         // direto e perdia toda a observabilidade financeira/auditoria.
+        // Modelo do DI escolhido pelo cliente via metadata "model" (default prebuilt-read).
+        // O modelo acopla o formato de saída e a extensão no S3: prebuilt-layout→markdown
+        // (.md), prebuilt-read→texto (.txt).
+        var model = IngestionExtractionModel.Resolve(state.Metadata);
+
         ExtractionResult result;
         try
         {
@@ -414,8 +415,8 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
                 // distingue do tool de agente sem precisar de coluna nova.
                 ConversationId: $"ingestion:{job.JobId}",
                 UserId: string.IsNullOrEmpty(job.AgentId) ? "ingestion" : job.AgentId,
-                Model: _diOptions.DefaultModel,
-                OutputFormat: "text",
+                Model: model,
+                OutputFormat: IngestionExtractionModel.OutputFormat(model),
                 Features: null,
                 CacheEnabled: true), ct).ConfigureAwait(false);
         }
@@ -472,18 +473,18 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
             return (null, null);
         }
 
-        // Saída do DI (texto) → S3 durável: pasta do workflow + sha256 do PDF + .txt.
-        // O PDF cru NÃO é gravado (só o texto). Best-effort: só grava o ponteiro se o
-        // PUT confirmar (anti-órfão). Se falhar, ExtractedObjectKey fica null e a
-        // retomada re-extrai (cache do DI = hit barato); o texto em memória ainda
-        // atende o dispatch contíguo deste tick.
+        // Saída do DI → S3 durável: pasta do workflow + sha256 do PDF + extensão do
+        // formato (.md p/ layout, .txt p/ read). O PDF cru NÃO é gravado (só o texto).
+        // Best-effort: só grava o ponteiro se o PUT confirmar (anti-órfão). Se falhar,
+        // ExtractedObjectKey fica null e a retomada re-extrai (cache do DI = hit barato);
+        // o texto em memória ainda atende o dispatch contíguo deste tick.
         string? extractedKey = null;
         if (!string.IsNullOrEmpty(result.Content))
         {
             var sha256 = ContentHashCalculator.ComputeFromBytes(pdfBytes);
-            var key = BuildObjectKey(job.WorkflowId!, sha256, "txt");
+            var key = BuildObjectKey(job.WorkflowId!, sha256, IngestionExtractionModel.FileExtension(model));
             var stored = await _objectStore.PutAsync(key, Encoding.UTF8.GetBytes(result.Content),
-                "text/plain; charset=utf-8", ct).ConfigureAwait(false);
+                IngestionExtractionModel.ContentType(model), ct).ConfigureAwait(false);
             extractedKey = stored ? key : null;
         }
 
@@ -649,6 +650,8 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
             return new HydrationResult(null, CapacityWait: true);
         }
 
+        var model = IngestionExtractionModel.Resolve(state.Metadata);
+
         ExtractionResult result;
         try
         {
@@ -656,8 +659,8 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
                 Source: new ExtractionSource.Bytes(pdfBytes),
                 ConversationId: $"ingestion:{job.JobId}",
                 UserId: string.IsNullOrEmpty(job.AgentId) ? "ingestion" : job.AgentId,
-                Model: _diOptions.DefaultModel,
-                OutputFormat: "text",
+                Model: model,
+                OutputFormat: IngestionExtractionModel.OutputFormat(model),
                 Features: null,
                 CacheEnabled: true), ct).ConfigureAwait(false);
         }
@@ -684,8 +687,8 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         if (!string.IsNullOrEmpty(result.Content))
         {
             var sha = ContentHashCalculator.ComputeFromBytes(pdfBytes);
-            await _objectStore.PutAsync(BuildObjectKey(job.WorkflowId!, sha, "txt"),
-                Encoding.UTF8.GetBytes(result.Content), "text/plain; charset=utf-8", ct).ConfigureAwait(false);
+            await _objectStore.PutAsync(BuildObjectKey(job.WorkflowId!, sha, IngestionExtractionModel.FileExtension(model)),
+                Encoding.UTF8.GetBytes(result.Content), IngestionExtractionModel.ContentType(model), ct).ConfigureAwait(false);
         }
         MetricsRegistry.IngestionContentHydrations.Add(1, new KeyValuePair<string, object?>("source", "reextract"));
         return new HydrationResult(result.Content, CapacityWait: false);
