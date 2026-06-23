@@ -23,6 +23,7 @@ public class TokenUsagePersistenceServiceTests
 
         var service = new TokenUsagePersistenceService(
             factory,
+            Substitute.For<EfsAiHub.Core.Abstractions.BackgroundServices.IBackgroundServiceHeartbeatSink>(),
             NullLogger<TokenUsagePersistenceService>.Instance);
 
         return (service, repo);

@@ -22,7 +22,7 @@ public class NodePersistenceServiceTests
         var factory = Substitute.For<IServiceScopeFactory>();
         factory.CreateScope().Returns(scope);
 
-        var service = new NodePersistenceService(factory, NullLogger<NodePersistenceService>.Instance);
+        var service = new NodePersistenceService(factory, Substitute.For<EfsAiHub.Core.Abstractions.BackgroundServices.IBackgroundServiceHeartbeatSink>(), NullLogger<NodePersistenceService>.Instance);
         return (service, nodeRepo, eventBus);
     }
 

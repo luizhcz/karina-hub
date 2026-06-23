@@ -271,6 +271,7 @@ public class BlocklistChatClientStreamingTests
             l2Cache: null!,
             dispatcher: null!,
             builtIns: Array.Empty<EfsAiHub.Platform.Runtime.Guards.BuiltIns.IBuiltInPatternHandler>(),
+            heartbeat: null!,
             logger: NullLogger<BlocklistEngine>.Instance,
             services: null!)
         {
