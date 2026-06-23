@@ -548,6 +548,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EfsAiHub.Host.Worker.Services.Handlers.IStandaloneJobHandler,
             EfsAiHub.Host.Worker.Services.Handlers.WorkflowStandaloneJobHandler>();
 
+        // Blindagem do host: um IHostedService/BackgroundService que lance exceção
+        // não-tratada NÃO pode derrubar a aplicação inteira. O default do .NET 6+ é
+        // StopHost (uma falha de rotina mata API + SSE + tudo). Trocamos para Ignore:
+        // a falha apenas encerra AQUELE serviço e é logada; a aplicação segue de pé.
+        // A detecção de serviço morto/travado fica por conta do heartbeat/tela Workers.
+        services.Configure<Microsoft.Extensions.Hosting.HostOptions>(o =>
+            o.BackgroundServiceExceptionBehavior =
+                Microsoft.Extensions.Hosting.BackgroundServiceExceptionBehavior.Ignore);
+
         services.AddHostedService<EfsAiHub.Host.Worker.Services.StandaloneJobDispatcherService>();
         services.AddHostedService<EfsAiHub.Host.Worker.Services.WebhookCallbackDeliveryService>();
 

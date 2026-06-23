@@ -79,46 +79,74 @@ public sealed class StandaloneJobDispatcherService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _heartbeat.Started(HeartbeatName, DateTimeOffset.UtcNow);
-        if (!_options.Enabled)
+
+        // Barreira de último recurso: ExecuteAsync NUNCA deve deixar uma exceção
+        // escapar. O default do host é StopHost — um escape aqui derrubaria a
+        // aplicação inteira. Mesmo com HostOptions.BackgroundServiceExceptionBehavior=
+        // Ignore no composition root, mantemos o guard (defense-in-depth) pra que um
+        // escape inesperado encerre só o dispatcher, de forma logada/observável.
+        try
         {
+            if (!_options.Enabled)
+            {
+                _logger.LogInformation(
+                    "[StandaloneDispatcher] Desligado (StandalonePools:Enabled=false). HostedService idle.");
+                return;
+            }
+
             _logger.LogInformation(
-                "[StandaloneDispatcher] Desligado (StandalonePools:Enabled=false). HostedService idle.");
-            return;
+                "[StandaloneDispatcher] Ativo pod={Pod} globalCap={Global} perWorkflow={PerWf} leaseTtl={Lease}s heartbeat={Hb}s slotTtl={SlotTtl}m handlers={Handlers}",
+                _podId, _options.GlobalConcurrency, _options.DefaultMaxConcurrentPerWorkflow,
+                _options.LeaseTtlSeconds, _options.HeartbeatSeconds, (int)_slotTtl.TotalMinutes,
+                string.Join(",", _handlers.Select(h => h.GetType().Name)));
+
+            var idle = TimeSpan.FromSeconds(Math.Max(1, _options.PollIdleSeconds));
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    var leased = await PollOnceAsync(stoppingToken).ConfigureAwait(false);
+                    _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
+                    if (leased == 0)
+                        await Task.Delay(idle, stoppingToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
+                    // O log NÃO pode derrubar o loop: um provider/exporter que lance
+                    // aqui (dentro do catch) escaparia do ExecuteAsync. Protegido.
+                    try { _logger.LogError(ex, "[StandaloneDispatcher] Falha no loop. Aplicando backoff."); }
+                    catch { /* logging não pode matar o dispatcher */ }
+                    try { await Task.Delay(idle, stoppingToken).ConfigureAwait(false); } catch { /* shutdown */ }
+                }
+            }
+
+            _logger.LogInformation("[StandaloneDispatcher] Encerrando — aguardando jobs em andamento drenarem.");
+            // Aguarda o ProcessJobAsync de cada job ativo limpar via finally — não
+            // bloqueia indefinidamente. Slots restantes liberam por TTL Redis.
+            for (var i = 0; i < 30 && Volatile.Read(ref _localActive) > 0; i++)
+                await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
         }
-
-        _logger.LogInformation(
-            "[StandaloneDispatcher] Ativo pod={Pod} globalCap={Global} perWorkflow={PerWf} leaseTtl={Lease}s heartbeat={Hb}s slotTtl={SlotTtl}m handlers={Handlers}",
-            _podId, _options.GlobalConcurrency, _options.DefaultMaxConcurrentPerWorkflow,
-            _options.LeaseTtlSeconds, _options.HeartbeatSeconds, (int)_slotTtl.TotalMinutes,
-            string.Join(",", _handlers.Select(h => h.GetType().Name)));
-
-        var idle = TimeSpan.FromSeconds(Math.Max(1, _options.PollIdleSeconds));
-        while (!stoppingToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
+            // Shutdown cooperativo — encerramento normal.
+        }
+        catch (Exception fatal)
+        {
+            // Última linha de defesa: encerra o dispatcher de forma controlada em vez
+            // de propagar (o que, no default StopHost, derrubaria a aplicação inteira).
+            _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, fatal);
             try
             {
-                var leased = await PollOnceAsync(stoppingToken).ConfigureAwait(false);
-                _heartbeat.RecordSuccess(HeartbeatName, DateTimeOffset.UtcNow);
-                if (leased == 0)
-                    await Task.Delay(idle, stoppingToken).ConfigureAwait(false);
+                _logger.LogCritical(fatal,
+                    "[StandaloneDispatcher] Falha fatal não-tratada no loop principal — dispatcher encerrando SEM derrubar o host.");
             }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _heartbeat.RecordError(HeartbeatName, DateTimeOffset.UtcNow, ex);
-                _logger.LogError(ex, "[StandaloneDispatcher] Falha no loop. Aplicando backoff.");
-                try { await Task.Delay(idle, stoppingToken).ConfigureAwait(false); } catch { /* shutdown */ }
-            }
+            catch { /* nem o log da falha fatal pode propagar */ }
         }
-
-        _logger.LogInformation("[StandaloneDispatcher] Encerrando — aguardando jobs em andamento drenarem.");
-        // Aguarda o ProcessJobAsync de cada job ativo limpar via finally — não
-        // bloqueia indefinidamente. Slots restantes liberam por TTL Redis.
-        for (var i = 0; i < 30 && Volatile.Read(ref _localActive) > 0; i++)
-            await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
     }
 
     /// <summary>Uma iteração: calcula folga, lease, dispara processamento fire-and-forget.</summary>
