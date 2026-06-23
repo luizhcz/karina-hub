@@ -24,23 +24,28 @@ namespace EfsAiHub.Host.Worker.Services.Handlers;
 /// crash do pod em qualquer ponto retoma de onde parou na próxima vez que o
 /// reaper devolve o job pra Queued.
 ///
-/// Política de storage: só a representação em TEXTO vai pro S3, na pasta do workflow
-/// (<c>{workflowId}/{sha256}.{ext}</c>). PDF → grava só o <c>.txt</c> da extração (o
-/// cru NÃO é guardado; seus bytes seguem em memória pra extração). TXT/MD → grava o
-/// cru (que já é texto) + decodifica em <c>ExtractedContent</c>. Escrita best-effort:
-/// S3 fora do ar não derruba a ingestão (só o ponteiro vai pro IngestionContext JSONB).
+/// Política de storage: o texto extraído NÃO é persistido no JSONB do job — vive no
+/// S3 (fonte canônica) e, pra PDF, também no cache do Document Intelligence (rede de
+/// segurança). O JSONB guarda só o PONTEIRO do objeto, na pasta do workflow
+/// (<c>{workflowId}/{sha256}.{ext}</c>): <c>RawObjectKey</c> (cru de TXT/MD) e
+/// <c>ExtractedObjectKey</c> (.txt extraído de PDF). O ponteiro só é gravado quando o
+/// PUT confirma (best-effort + anti-órfão). O texto chega ao workflow hidratado em
+/// memória: no caminho contíguo segue do download/extração; numa retomada pós-extração
+/// é lido do S3 pelo ponteiro, com fallback de re-download/re-extração (cache do DI =
+/// hit barato). PDF cru nunca é gravado.
 ///
 /// Steps:
 /// <list type="bullet">
 ///   <item><c>null</c>/<c>"Queued"</c> → baixa o arquivo via <see cref="IngestionDownloader"/>.</item>
 ///   <item><c>"Downloading"</c>/<c>"Validating"</c> → detecta tipo (PDF/TXT/MD);
-///         TXT/MD → grava o cru no S3 + <c>ExtractedContent</c>; PDF → não grava o
+///         TXT/MD → grava o cru no S3 (ponteiro <c>RawObjectKey</c>); PDF → não grava o
 ///         cru (bytes seguem em memória pra extração).</item>
-///   <item><c>"Extracting"</c> (só PDF) → chama Document Intelligence
-///         (<c>prebuilt-layout</c>, texto) e grava SÓ a saída <c>.txt</c> no S3.
+///   <item><c>"Extracting"</c> (só PDF) → chama Document Intelligence (texto) e grava
+///         SÓ a saída <c>.txt</c> no S3 (ponteiro <c>ExtractedObjectKey</c>).
 ///         TXT/MD pulam direto pra <c>"ContentPersisted"</c>.</item>
-///   <item><c>"ContentPersisted"</c> → dispara workflow via <see cref="IWorkflowDispatcher"/>
-///         com input contendo o conteúdo extraído + metadata do cliente.</item>
+///   <item><c>"ContentPersisted"</c> → hidrata o texto (memória/S3/re-extração) e
+///         dispara workflow via <see cref="IWorkflowDispatcher"/> com o conteúdo +
+///         metadata do cliente.</item>
 ///   <item><c>"WorkflowRunning"</c> → polla <c>workflow_executions</c> até terminal.</item>
 /// </list>
 ///
@@ -56,7 +61,7 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
 
     private static readonly JsonSerializerOptions JsonOpts = IngestionJsonDefaults.Options;
 
-    private readonly IngestionDownloader _downloader;
+    private readonly IIngestionDownloader _downloader;
     private readonly IObjectStore _objectStore;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IDocumentIntelligenceExtractor _extractor;
@@ -68,7 +73,7 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
     private readonly ILogger<IngestionJobHandler> _logger;
 
     public IngestionJobHandler(
-        IngestionDownloader downloader,
+        IIngestionDownloader downloader,
         IObjectStore objectStore,
         IServiceScopeFactory scopeFactory,
         IDocumentIntelligenceExtractor extractor,
@@ -146,36 +151,54 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
 
         // Retomada baseada no Step. Em fluxo "feliz" (sem crash) cada caso cai
         // pro próximo via labels; em retomada, salta pro step persistido.
-        // Bytes do PDF recebido fluem em memória do download (detecção) até a
-        // extração no caminho contíguo (sem crash) — o PDF cru NÃO vai pro S3. Em
-        // retomada (entra direto em validating/extracting) preDownloaded é null e o
-        // ResolveContentAsync re-baixa da origem.
+        //
+        // O texto extraído NÃO vive no JSONB: flui em memória pelo caminho contíguo.
+        //  - preDownloaded: bytes do PDF do download (detecção) até a extração — o PDF
+        //    cru NÃO vai pro S3. Em retomada (entra em validating/extracting) é null e
+        //    o ResolveContentAsync re-baixa da origem.
+        //  - resolvedContent: o texto já resolvido neste tick (TXT/MD decodificado ou
+        //    saída da extração) — entregue ao DispatchWorkflowAsync sem re-ler o S3. Em
+        //    retomada que entra direto em contentpersisted é null e o dispatch hidrata
+        //    do S3 (ponteiro) com fallback de re-download/re-extração.
         byte[]? preDownloaded = null;
+        string? resolvedContent = null;
         switch (step.ToLowerInvariant())
         {
             case "":
             case "queued":
             case "downloading":
-                var (detected, downloadedBytes) = await DownloadAndDetectAsync(job, state, ctx, ct).ConfigureAwait(false);
+                var (detected, downloadedBytes, downloadedText) =
+                    await DownloadAndDetectAsync(job, state, ctx, ct).ConfigureAwait(false);
                 if (detected is null) return;
                 state = detected;
                 preDownloaded = downloadedBytes;
+                resolvedContent = downloadedText;
                 goto case "validating";
 
             case "validating":
-                state = await ResolveContentAsync(job, state, ctx, ct, preDownloaded).ConfigureAwait(false);
-                if (state is null) return;
+            {
+                var (resolved, content) =
+                    await ResolveContentAsync(job, state, ctx, ct, preDownloaded, resolvedContent).ConfigureAwait(false);
+                if (resolved is null) return;
+                state = resolved;
+                resolvedContent = content;
                 goto case "contentpersisted";
+            }
 
             case "extracting":
+            {
                 // Retomada durante extração — re-resolve o conteúdo: re-baixa o PDF da
                 // origem (não há cópia do cru no S3) e extrai.
-                state = await ResolveContentAsync(job, state, ctx, ct, preDownloaded).ConfigureAwait(false);
-                if (state is null) return;
+                var (resolved, content) =
+                    await ResolveContentAsync(job, state, ctx, ct, preDownloaded, resolvedContent).ConfigureAwait(false);
+                if (resolved is null) return;
+                state = resolved;
+                resolvedContent = content;
                 goto case "contentpersisted";
+            }
 
             case "contentpersisted":
-                await DispatchWorkflowAsync(job, state, ctx, ct).ConfigureAwait(false);
+                if (!await DispatchWorkflowAsync(job, state, ctx, ct, resolvedContent).ConfigureAwait(false)) return;
                 goto case "workflowrunning";
 
             case "workflowrunning":
@@ -189,9 +212,10 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
     }
 
     // ── Etapa 1: download + detecta tipo ────────────────────────────────────
-    // Retorna o estado atualizado + (só pra PDF) os bytes em memória, pra extração
-    // no caminho contíguo sem re-baixar (o PDF cru não é guardado no S3).
-    private async Task<(IngestionState? State, byte[]? PdfBytes)> DownloadAndDetectAsync(
+    // Retorna o estado atualizado + o conteúdo que segue em memória pelo caminho
+    // contíguo (sem re-ler o S3): PDF → os bytes crus pra extração (o PDF cru não vai
+    // pro S3); TXT/MD → o texto decodificado pra montar o input do workflow.
+    private async Task<(IngestionState? State, byte[]? PdfBytes, string? TextContent)> DownloadAndDetectAsync(
         BackgroundResponseJob job, IngestionState state, IStandaloneJobContext ctx, CancellationToken ct)
     {
         await ctx.UpdateStepAsync(StepDownloading, ct).ConfigureAwait(false);
@@ -205,7 +229,7 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         {
             _logger.LogWarning("[Ingestion] download rejeitado job={JobId}: {Reason}", job.JobId, ex.Message);
             await ctx.FailAsync(ex.Message, null, permanent: true, ct).ConfigureAwait(false);
-            return (null, null);
+            return (null, null, null);
         }
 
         await ctx.UpdateStepAsync(StepValidating, ct).ConfigureAwait(false);
@@ -217,7 +241,7 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
             await ctx.FailAsync(
                 "Tipo de arquivo não suportado. Apenas PDF, TXT e MD são aceitos.",
                 null, permanent: true, ct).ConfigureAwait(false);
-            return (null, null);
+            return (null, null, null);
         }
 
         var updated = state with
@@ -229,23 +253,23 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
             DownloadedAt = DateTime.UtcNow,
         };
 
-        // Política de storage: só a representação em TEXTO vai pro S3.
+        // Política de storage: só a representação em TEXTO vai pro S3, e o JSONB guarda
+        // só o PONTEIRO (nunca o texto).
         //  - PDF: o cru NÃO é gravado; os bytes seguem em memória pra extração e só
         //    o .txt extraído vai pro bucket (ver ResolveContentAsync).
-        //  - TXT/MD: o cru JÁ É o texto → grava no S3 (best-effort) + decodifica inline.
+        //  - TXT/MD: o cru JÁ É o texto → grava no S3 (best-effort) + valida UTF-8; o
+        //    texto segue em memória pro dispatch contíguo.
         // Key lógica '{workflowId}/{sha256}.{ext}'; o prefixo do bucket é aplicado no
         // store. A "pasta" do workflow é criada implicitamente pelo PUT (S3 não tem mkdir).
         byte[]? pdfBytes = null;
+        string? textContent = null;
         if (type == DetectedFileType.Pdf)
         {
             pdfBytes = download.Bytes;
         }
         else
         {
-            var sha256 = ContentHashCalculator.ComputeFromBytes(download.Bytes);
-            var rawKey = BuildObjectKey(job.WorkflowId!, sha256, ExtForType(type));
-            await _objectStore.PutAsync(rawKey, download.Bytes, download.ContentType, ct).ConfigureAwait(false);
-
+            // Decodifica ANTES do PUT: conteúdo inválido falha cedo, sem objeto inútil.
             string text;
             try { text = Encoding.UTF8.GetString(download.Bytes); }
             catch (Exception ex)
@@ -253,69 +277,103 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
                 _logger.LogWarning(ex, "[Ingestion] Decodificação UTF-8 falhou job={JobId}.", job.JobId);
                 await ctx.FailAsync("Falha ao decodificar conteúdo como UTF-8.", null, permanent: true, ct)
                     .ConfigureAwait(false);
-                return (null, null);
+                return (null, null, null);
             }
-            updated = updated with { RawObjectKey = rawKey, ExtractedContent = text, PageCount = 1 };
+
+            var sha256 = ContentHashCalculator.ComputeFromBytes(download.Bytes);
+            var rawKey = BuildObjectKey(job.WorkflowId!, sha256, ExtForType(type));
+            // Só grava o ponteiro se o PUT confirmar (anti-órfão). Se falhar, o ponteiro
+            // fica null e a retomada cai no re-download; o texto em memória ainda atende
+            // o dispatch contíguo deste tick.
+            var stored = await _objectStore.PutAsync(rawKey, download.Bytes, download.ContentType, ct)
+                .ConfigureAwait(false);
+            updated = updated with { RawObjectKey = stored ? rawKey : null, PageCount = 1 };
+            textContent = text;
         }
 
         await ctx.UpdateIngestionContextAsync(SerializeContext(updated), ct).ConfigureAwait(false);
-        return (updated, pdfBytes);
+        return (updated, pdfBytes, textContent);
     }
 
     // ── Etapa 2: extrai (PDF via DI) ou aceita o que já existe (TXT/MD) ────
-    private async Task<IngestionState?> ResolveContentAsync(
+    // Retorna o estado atualizado + o texto resolvido NESTE tick (pra o dispatch
+    // contíguo não re-ler o S3). Devolve Content=null quando o conteúdo já está
+    // durável no S3 mas não foi materializado aqui (retomada) — o dispatch hidrata
+    // pelo ponteiro. preText/preDownloaded carregam o conteúdo do tick anterior do
+    // caminho contíguo (download → resolve).
+    private async Task<(IngestionState? State, string? Content)> ResolveContentAsync(
         BackgroundResponseJob job, IngestionState state, IStandaloneJobContext ctx, CancellationToken ct,
-        byte[]? preDownloaded = null)
+        byte[]? preDownloaded, string? preText)
     {
         if (!Enum.TryParse<DetectedFileType>(state.DetectedType, ignoreCase: true, out var type)
             || type == DetectedFileType.Unsupported)
         {
             await ctx.FailAsync("DetectedType ausente/inválido no IngestionContext.", null, permanent: true, ct)
                 .ConfigureAwait(false);
-            return null;
+            return (null, null);
         }
 
-        // TXT/MD: ExtractedContent já foi populado em DownloadAndDetectAsync.
-        // Em caso de retomada com ExtractedContent vazio (estado inconsistente),
-        // re-baixa e decodifica.
+        // TXT/MD: o cru JÁ é o texto. A durabilidade é o RawObjectKey no S3.
         if (type is DetectedFileType.Text or DetectedFileType.Markdown)
         {
-            if (string.IsNullOrEmpty(state.ExtractedContent))
+            // Caminho contíguo: o texto veio em memória do DownloadAndDetectAsync e o
+            // cru já foi gravado (RawObjectKey). Segue sem re-ler nada.
+            if (!string.IsNullOrEmpty(preText))
             {
-                try
-                {
-                    var download = await _downloader.DownloadAsync(new Uri(state.Url!), state.Headers, ct)
-                        .ConfigureAwait(false);
-                    var text = Encoding.UTF8.GetString(download.Bytes);
-                    state = state with { ExtractedContent = text, PageCount = 1 };
-                    await ctx.UpdateIngestionContextAsync(SerializeContext(state), ct).ConfigureAwait(false);
-                }
-                catch (IngestionRejectedException ex)
-                {
-                    var permanent = job.Attempt >= _poolOptions.MaxAttempts;
-                    DateTime? next = permanent ? null : DateTime.UtcNow.AddSeconds(CalcBackoffSeconds(job.Attempt));
-                    await ctx.FailAsync($"Re-download falhou: {ex.Message}", next, permanent, ct).ConfigureAwait(false);
-                    return null;
-                }
+                await ctx.UpdateStepAsync(StepContentPersisted, ct).ConfigureAwait(false);
+                return (state, preText);
             }
-            await ctx.UpdateStepAsync(StepContentPersisted, ct).ConfigureAwait(false);
-            return state;
+
+            // Retomada com o cru durável no S3 → o dispatch hidrata pelo ponteiro.
+            if (!string.IsNullOrEmpty(state.RawObjectKey))
+            {
+                await ctx.UpdateStepAsync(StepContentPersisted, ct).ConfigureAwait(false);
+                return (state, null);
+            }
+
+            // Retomada sem ponteiro (o PUT original falhou): re-baixa, re-grava e segue.
+            try
+            {
+                var download = await _downloader.DownloadAsync(new Uri(state.Url!), state.Headers, ct)
+                    .ConfigureAwait(false);
+                var text = Encoding.UTF8.GetString(download.Bytes);
+                var sha256 = ContentHashCalculator.ComputeFromBytes(download.Bytes);
+                var rawKey = BuildObjectKey(job.WorkflowId!, sha256, ExtForType(type));
+                var stored = await _objectStore.PutAsync(rawKey, download.Bytes, download.ContentType, ct)
+                    .ConfigureAwait(false);
+                var refreshed = state with { RawObjectKey = stored ? rawKey : null, PageCount = 1 };
+                await ctx.UpdateIngestionContextAsync(SerializeContext(refreshed), ct).ConfigureAwait(false);
+                await ctx.UpdateStepAsync(StepContentPersisted, ct).ConfigureAwait(false);
+                return (refreshed, text);
+            }
+            catch (IngestionRejectedException ex)
+            {
+                var permanent = job.Attempt >= _poolOptions.MaxAttempts;
+                DateTime? next = permanent ? null : DateTime.UtcNow.AddSeconds(CalcBackoffSeconds(job.Attempt));
+                await ctx.FailAsync($"Re-download falhou: {ex.Message}", next, permanent, ct).ConfigureAwait(false);
+                return (null, null);
+            }
         }
 
-        // PDF — já extraído em ciclo anterior?
-        if (!string.IsNullOrEmpty(state.ExtractedContent))
+        // PDF — já extraído em ciclo anterior? O sinal de "já extraído" é o ponteiro
+        // do .txt no S3 (ExtractedObjectKey), não o texto. O dispatch hidrata pelo
+        // ponteiro; não re-chama o Document Intelligence.
+        if (!string.IsNullOrEmpty(state.ExtractedObjectKey))
         {
             await ctx.UpdateStepAsync(StepContentPersisted, ct).ConfigureAwait(false);
-            return state;
+            return (state, null);
         }
 
         // Peek de capacidade ANTES de buscar/extrair o PDF: se o gate do Document
-        // Intelligence já está cheio, não adianta puxar dezenas de MB do S3 só pra
+        // Intelligence já está cheio, não adianta puxar dezenas de MB da origem só pra
         // bater no gate e voltar pra fila. Advisory: o teto real é atômico dentro do
         // ExtractAsync, que ainda devolve GATE_TIMEOUT (mesmo caminho de espera) se
         // a vaga sumir entre o peek e a aquisição.
         if (!await _extractor.HasCapacityAsync(ct).ConfigureAwait(false))
-            return await DeferForCapacityAsync(state, ctx, ExtractionErrorCode.GateTimeout, ct).ConfigureAwait(false);
+        {
+            await DeferForCapacityAsync(state, ctx, ExtractionErrorCode.GateTimeout, ct).ConfigureAwait(false);
+            return (null, null);
+        }
 
         await ctx.UpdateStepAsync(StepExtracting, ct).ConfigureAwait(false);
 
@@ -337,7 +395,7 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
                 var permanent = job.Attempt >= _poolOptions.MaxAttempts;
                 DateTime? next = permanent ? null : DateTime.UtcNow.AddSeconds(CalcBackoffSeconds(job.Attempt));
                 await ctx.FailAsync($"Re-download do PDF falhou: {ex.Message}", next, permanent, ct).ConfigureAwait(false);
-                return null;
+                return (null, null);
             }
         }
 
@@ -380,7 +438,7 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
                 : DateTime.UtcNow.AddSeconds(CalcBackoffSeconds(job.Attempt));
             await ctx.FailAsync($"Document Intelligence falhou: {ex.Message}", nextDi, permanentDi, ct)
                 .ConfigureAwait(false);
-            return null;
+            return (null, null);
         }
 
         if (result.Status == "failed")
@@ -393,7 +451,10 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
             // chega pela ordem FIFO do TryLeaseAsync. DeferCount é só telemetria de
             // há quanto tempo está esperando; não decide mais vida/morte.
             if (ExtractionErrorCode.IsCapacityBackpressure(result.ErrorCode))
-                return await DeferForCapacityAsync(state, ctx, result.ErrorCode!, ct).ConfigureAwait(false);
+            {
+                await DeferForCapacityAsync(state, ctx, result.ErrorCode!, ct).ConfigureAwait(false);
+                return (null, null);
+            }
 
             // Falha REAL do processamento (PDF quebrado, source 404, Azure 4xx/5xx).
             // Heurística de retry centralizada no domínio: ExtractionErrorCode.IsPermanent
@@ -408,24 +469,26 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
             await ctx.FailAsync(
                 $"Document Intelligence falhou ({result.ErrorCode}): {result.ErrorMessage}",
                 nextRetry, permanent, ct).ConfigureAwait(false);
-            return null;
+            return (null, null);
         }
 
         // Saída do DI (texto) → S3 durável: pasta do workflow + sha256 do PDF + .txt.
-        // O PDF cru NÃO é gravado (só o texto). Best-effort — S3 fora do ar não
-        // derruba o job (o conteúdo segue no envelope do workflow + IngestionContext).
+        // O PDF cru NÃO é gravado (só o texto). Best-effort: só grava o ponteiro se o
+        // PUT confirmar (anti-órfão). Se falhar, ExtractedObjectKey fica null e a
+        // retomada re-extrai (cache do DI = hit barato); o texto em memória ainda
+        // atende o dispatch contíguo deste tick.
         string? extractedKey = null;
         if (!string.IsNullOrEmpty(result.Content))
         {
             var sha256 = ContentHashCalculator.ComputeFromBytes(pdfBytes);
-            extractedKey = BuildObjectKey(job.WorkflowId!, sha256, "txt");
-            await _objectStore.PutAsync(extractedKey, Encoding.UTF8.GetBytes(result.Content),
+            var key = BuildObjectKey(job.WorkflowId!, sha256, "txt");
+            var stored = await _objectStore.PutAsync(key, Encoding.UTF8.GetBytes(result.Content),
                 "text/plain; charset=utf-8", ct).ConfigureAwait(false);
+            extractedKey = stored ? key : null;
         }
 
         var updated = state with
         {
-            ExtractedContent = result.Content,
             ExtractionId = result.OperationId,
             PageCount = result.PageCount,
             ExtractedObjectKey = extractedKey,
@@ -433,23 +496,63 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
 
         await ctx.UpdateIngestionContextAsync(SerializeContext(updated), ct).ConfigureAwait(false);
         await ctx.UpdateStepAsync(StepContentPersisted, ct).ConfigureAwait(false);
-        return updated;
+        return (updated, result.Content);
     }
 
     // ── Etapa 3: dispatch workflow com envelope contendo o conteúdo ─────────
-    private async Task DispatchWorkflowAsync(
-        BackgroundResponseJob job, IngestionState state, IStandaloneJobContext ctx, CancellationToken ct)
+    // Retorna true se o workflow foi (ou já estava) disparado → segue pro polling;
+    // false se o tick terminou em espera (defer de capacidade) ou falha → para aqui.
+    private async Task<bool> DispatchWorkflowAsync(
+        BackgroundResponseJob job, IngestionState state, IStandaloneJobContext ctx, CancellationToken ct,
+        string? freshContent)
     {
         if (!string.IsNullOrEmpty(job.ExecutionId))
         {
-            // Retomada pós-dispatch — workflow já foi disparado, só falta pollar.
+            // Retomada pós-dispatch — workflow já foi disparado, só falta pollar. Não
+            // hidrata conteúdo à toa.
             await ctx.UpdateStepAsync(StepWorkflowRunning, ct).ConfigureAwait(false);
-            return;
+            return true;
+        }
+
+        // O texto não vive no JSONB: no caminho contíguo chega em memória (freshContent);
+        // numa retomada pós-extração é hidratado do S3 (ponteiro) com fallback de
+        // re-download/re-extração (cache do DI = hit barato).
+        HydrationResult hydration;
+        if (freshContent is not null)
+        {
+            MetricsRegistry.IngestionContentHydrations.Add(1, new KeyValuePair<string, object?>("source", "memory"));
+            hydration = new HydrationResult(freshContent, CapacityWait: false);
+        }
+        else
+        {
+            hydration = await HydrateContentAsync(job, state, ct).ConfigureAwait(false);
+        }
+
+        if (hydration.CapacityWait)
+        {
+            // Sem vaga no gate pra re-extrair AGORA → espera, não erro. Volta pra fila
+            // no Step ContentPersisted; ao reentrar, tenta hidratar de novo.
+            await DeferForCapacityAsync(state, ctx, ExtractionErrorCode.GateTimeout, ct).ConfigureAwait(false);
+            return false;
+        }
+
+        var content = hydration.Content;
+        if (string.IsNullOrEmpty(content))
+        {
+            // Hidratação degenerada (S3 indisponível + cache expirado + origem
+            // inacessível). NUNCA dispara o workflow com conteúdo vazio: falha com
+            // retry (backoff) até MaxAttempts, depois permanente.
+            var permanent = job.Attempt >= _poolOptions.MaxAttempts;
+            DateTime? next = permanent ? null : DateTime.UtcNow.AddSeconds(CalcBackoffSeconds(job.Attempt));
+            await ctx.FailAsync(
+                "Não foi possível recuperar o conteúdo extraído (S3, cache e origem indisponíveis).",
+                next, permanent, ct).ConfigureAwait(false);
+            return false;
         }
 
         var envelope = new IngestionWorkflowEnvelope
         {
-            Content = state.ExtractedContent ?? string.Empty,
+            Content = content,
             ContentType = state.DetectedType ?? "Unknown",
             SourceUrl = state.FinalUrl ?? state.Url,
             ContentLength = state.ContentLength,
@@ -486,6 +589,106 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         // mesmo tick via goto) enxergue o executionId recém-gravado.
         job.ExecutionId = executionId;
         await ctx.UpdateStepAsync(StepWorkflowRunning, ct).ConfigureAwait(false);
+        return true;
+    }
+
+    // ── Hidratação do texto extraído pro input do workflow ──────────────────
+    // Usada só quando o texto NÃO está em memória (retomada que entra direto no
+    // dispatch). Cadeia: (1) S3 pelo ponteiro persistido; (2) miss → re-download da
+    // origem e, pra PDF, re-extração via cache do DI (hit = custo 0); re-popula o S3
+    // best-effort. CapacityWait=true quando o gate está cheio pra re-extrair agora
+    // (espera, não erro). Content=null quando nada recuperou (S3 + cache + origem).
+    private async Task<HydrationResult> HydrateContentAsync(
+        BackgroundResponseJob job, IngestionState state, CancellationToken ct)
+    {
+        Enum.TryParse<DetectedFileType>(state.DetectedType, ignoreCase: true, out var type);
+        var isPdf = type == DetectedFileType.Pdf;
+        var key = isPdf ? state.ExtractedObjectKey : state.RawObjectKey;
+
+        // 1) S3 pelo ponteiro persistido — caminho normal de retomada.
+        if (!string.IsNullOrEmpty(key))
+        {
+            var bytes = await _objectStore.GetAsync(key, ct).ConfigureAwait(false);
+            if (bytes is not null)
+            {
+                MetricsRegistry.IngestionContentHydrations.Add(1, new KeyValuePair<string, object?>("source", "s3"));
+                return new HydrationResult(Encoding.UTF8.GetString(bytes), CapacityWait: false);
+            }
+        }
+
+        // 2) Fallback: objeto ausente no S3 (PUT falhou na época, ou sumiu). Re-baixa
+        //    da origem (idempotente). TXT/MD já é texto; PDF precisa re-extrair.
+        byte[] pdfBytes;
+        try
+        {
+            var download = await _downloader.DownloadAsync(new Uri(state.Url!), state.Headers, ct)
+                .ConfigureAwait(false);
+            if (!isPdf)
+            {
+                var text = Encoding.UTF8.GetString(download.Bytes);
+                var sha = ContentHashCalculator.ComputeFromBytes(download.Bytes);
+                await _objectStore.PutAsync(BuildObjectKey(job.WorkflowId!, sha, ExtForType(type)),
+                    download.Bytes, download.ContentType, ct).ConfigureAwait(false);
+                MetricsRegistry.IngestionContentHydrations.Add(1, new KeyValuePair<string, object?>("source", "reextract"));
+                return new HydrationResult(text, CapacityWait: false);
+            }
+            pdfBytes = download.Bytes;
+        }
+        catch (IngestionRejectedException ex)
+        {
+            _logger.LogWarning(ex, "[Ingestion] Hidratação: re-download falhou job={JobId}.", job.JobId);
+            MetricsRegistry.IngestionContentHydrations.Add(1, new KeyValuePair<string, object?>("source", "failed"));
+            return new HydrationResult(null, CapacityWait: false);
+        }
+
+        // PDF: re-extrai via cache do DI (hit por sha256 = custo 0, sem slot). Peek de
+        // capacidade antes — gate cheio é espera, não erro.
+        if (!await _extractor.HasCapacityAsync(ct).ConfigureAwait(false))
+        {
+            MetricsRegistry.IngestionContentHydrations.Add(1, new KeyValuePair<string, object?>("source", "capacity_wait"));
+            return new HydrationResult(null, CapacityWait: true);
+        }
+
+        ExtractionResult result;
+        try
+        {
+            result = await _extractor.ExtractAsync(new ExtractionInput(
+                Source: new ExtractionSource.Bytes(pdfBytes),
+                ConversationId: $"ingestion:{job.JobId}",
+                UserId: string.IsNullOrEmpty(job.AgentId) ? "ingestion" : job.AgentId,
+                Model: _diOptions.DefaultModel,
+                OutputFormat: "text",
+                Features: null,
+                CacheEnabled: true), ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Ingestion] Hidratação: re-extração falhou job={JobId}.", job.JobId);
+            MetricsRegistry.IngestionContentHydrations.Add(1, new KeyValuePair<string, object?>("source", "failed"));
+            return new HydrationResult(null, CapacityWait: false);
+        }
+
+        if (result.Status == "failed")
+        {
+            var capacityWait = ExtractionErrorCode.IsCapacityBackpressure(result.ErrorCode);
+            MetricsRegistry.IngestionContentHydrations.Add(1,
+                new KeyValuePair<string, object?>("source", capacityWait ? "capacity_wait" : "failed"));
+            return new HydrationResult(null, CapacityWait: capacityWait);
+        }
+
+        // Re-popula o S3 best-effort pra próximas retomadas não re-extraírem.
+        if (!string.IsNullOrEmpty(result.Content))
+        {
+            var sha = ContentHashCalculator.ComputeFromBytes(pdfBytes);
+            await _objectStore.PutAsync(BuildObjectKey(job.WorkflowId!, sha, "txt"),
+                Encoding.UTF8.GetBytes(result.Content), "text/plain; charset=utf-8", ct).ConfigureAwait(false);
+        }
+        MetricsRegistry.IngestionContentHydrations.Add(1, new KeyValuePair<string, object?>("source", "reextract"));
+        return new HydrationResult(result.Content, CapacityWait: false);
     }
 
     // ── Etapa 4: polla execução até terminal ────────────────────────────────
@@ -619,9 +822,13 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
 
     /// <summary>
     /// Persistido em <c>background_response_jobs.IngestionContext</c> entre steps.
-    /// Bytes não vão aqui (vão pro S3); ponteiros lógicos: <c>RawObjectKey</c> (cru de
-    /// TXT/MD) e <c>ExtractedObjectKey</c> (.txt extraído de PDF). Campos null são
-    /// omitidos na serialização — JSONB enxuto.
+    /// Nem bytes nem TEXTO vão aqui — o conteúdo extraído vive no S3 (e, pra PDF, no
+    /// cache do Document Intelligence). O JSONB guarda só os PONTEIROS lógicos:
+    /// <c>RawObjectKey</c> (cru de TXT/MD) e <c>ExtractedObjectKey</c> (.txt extraído
+    /// de PDF), preenchidos só quando o PUT confirma. Campos null são omitidos na
+    /// serialização — JSONB enxuto e de tamanho ~constante. Linhas legadas que ainda
+    /// tenham um <c>extractedContent</c> inline são desserializadas sem erro (o membro
+    /// desconhecido é ignorado) e o campo some na próxima reescrita.
     /// </summary>
     internal sealed record IngestionState(
         [property: JsonPropertyName("url")] string? Url = null,
@@ -634,7 +841,6 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         [property: JsonPropertyName("downloadedAt")] DateTime? DownloadedAt = null,
         [property: JsonPropertyName("rawObjectKey")] string? RawObjectKey = null,
         [property: JsonPropertyName("extractedObjectKey")] string? ExtractedObjectKey = null,
-        [property: JsonPropertyName("extractedContent")] string? ExtractedContent = null,
         [property: JsonPropertyName("extractionId")] string? ExtractionId = null,
         [property: JsonPropertyName("pageCount")] int PageCount = 0,
         // Quantas vezes o job foi re-enfileirado esperando capacidade do Document
@@ -642,6 +848,13 @@ public sealed class IngestionJobHandler : IStandaloneJobHandler
         // backpressure não consome Attempt e não tem teto; o job aguarda até abrir
         // vaga. Cresce sem limite em saturação prolongada (apenas um int no JSONB).
         [property: JsonPropertyName("deferCount")] int DeferCount = 0);
+
+    /// <summary>
+    /// Resultado da hidratação do texto pro input do workflow. <c>Content</c> null +
+    /// <c>CapacityWait</c> false = falha real (S3 + cache + origem indisponíveis);
+    /// <c>CapacityWait</c> true = sem vaga no gate pra re-extrair agora (espera, não erro).
+    /// </summary>
+    private readonly record struct HydrationResult(string? Content, bool CapacityWait);
 
     /// <summary>Shape do input passado ao workflow após a extração.</summary>
     private sealed class IngestionWorkflowEnvelope

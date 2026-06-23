@@ -49,7 +49,7 @@ public sealed class S3ObjectStore : IObjectStore
 
     private string BuildKey(string key) => _keyPrefix + key;
 
-    public async Task PutAsync(string key, byte[] content, string? contentType, CancellationToken ct = default)
+    public async Task<bool> PutAsync(string key, byte[] content, string? contentType, CancellationToken ct = default)
     {
         try
         {
@@ -77,15 +77,18 @@ public sealed class S3ObjectStore : IObjectStore
             }
 
             await _s3.PutObjectAsync(req, ct).ConfigureAwait(false);
+            return true;
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             // Best-effort: perde-se durabilidade deste objeto, mas o fluxo segue
-            // (caller tem fallback). NUNCA propaga falha de INFRA. O guard deixa
-            // o cancelamento cooperativo (ct cancelado pelo worker/lease) propagar —
-            // engolir cancelamento mascararia o sinal de "lease perdido". Timeout
-            // do SDK (ct NÃO cancelado) cai aqui e é engolido como infra.
+            // (caller tem fallback) — devolve false pra que o caller NÃO persista um
+            // ponteiro pra objeto inexistente. NUNCA propaga falha de INFRA. O guard
+            // deixa o cancelamento cooperativo (ct cancelado pelo worker/lease)
+            // propagar — engolir cancelamento mascararia o sinal de "lease perdido".
+            // Timeout do SDK (ct NÃO cancelado) cai aqui e é engolido como infra.
             _logger.LogWarning(ex, "[S3ObjectStore] PUT falhou key='{Key}' bucket='{Bucket}'.", key, _bucket);
+            return false;
         }
     }
 

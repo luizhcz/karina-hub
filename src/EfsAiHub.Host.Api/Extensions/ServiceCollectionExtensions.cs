@@ -537,7 +537,8 @@ public static class ServiceCollectionExtensions
             PgWebhookDeliveryRepository>();
 
         // Ingestion pipeline (URL → PDF/TXT/MD → DI → workflow).
-        services.AddSingleton<EfsAiHub.Platform.Runtime.Ingestion.IngestionDownloader>();
+        services.AddSingleton<EfsAiHub.Platform.Runtime.Ingestion.IIngestionDownloader,
+            EfsAiHub.Platform.Runtime.Ingestion.IngestionDownloader>();
 
         // Handlers de jobs standalone. Ordem importa: IngestionJobHandler antes
         // do default — primeiro que CanHandle ganha. WorkflowStandaloneJobHandler

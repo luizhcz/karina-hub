@@ -666,6 +666,20 @@ public static class MetricsRegistry
         _meter.CreateCounter<long>("ingestion.capacity_waits_total",
             description: "Re-enfileiramentos de ingestão por falta de capacidade do Document Intelligence (espera, não erro). Tags: error_code.");
 
+    /// <summary>
+    /// De onde o texto extraído foi recuperado ao montar o input do workflow. O
+    /// texto NÃO vive mais no JSONB do job: no caminho feliz vem em memória
+    /// (<c>memory</c>); numa retomada pós-extração é hidratado do S3 pelo ponteiro
+    /// (<c>s3</c>) ou, em miss, re-baixado/re-extraído via cache do DI
+    /// (<c>reextract</c>). <c>capacity_wait</c> = sem vaga no gate pra re-extrair
+    /// agora (espera, não erro); <c>failed</c> = não foi possível recuperar (S3 +
+    /// cache + origem indisponíveis). Taxa alta de <c>reextract</c>/<c>failed</c>
+    /// sinaliza S3/Redis degradados. Tags: source.
+    /// </summary>
+    public static readonly Counter<long> IngestionContentHydrations =
+        _meter.CreateCounter<long>("ingestion.content_hydrations_total",
+            description: "Origem do texto extraído ao montar o input do workflow. Tags: source (memory|s3|reextract|capacity_wait|failed).");
+
     // ── Webhook deliveries ──────────────────────────────────────────────────
 
     /// <summary>

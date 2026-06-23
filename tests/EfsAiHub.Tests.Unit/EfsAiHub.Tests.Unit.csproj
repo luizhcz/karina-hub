@@ -30,6 +30,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\EfsAiHub.Host.Api\EfsAiHub.Host.Api.csproj" />
+    <ProjectReference Include="..\..\src\EfsAiHub.Host.Worker\EfsAiHub.Host.Worker.csproj" />
     <ProjectReference Include="..\..\src\EfsAiHub.Platform.Runtime\EfsAiHub.Platform.Runtime.csproj" />
   </ItemGroup>
 

@@ -31,7 +31,17 @@ public sealed record DownloadedFile(
 /// (ex.: links assinados de uso único, endpoints transacionais) não são
 /// suportadas — preferir blob storage estável.
 /// </summary>
-public sealed class IngestionDownloader
+public interface IIngestionDownloader
+{
+    /// <summary>Baixa o recurso da URL (com redirects manuais e size cap). GET idempotente.</summary>
+    Task<DownloadedFile> DownloadAsync(
+        Uri url,
+        IReadOnlyDictionary<string, string>? extraHeaders = null,
+        CancellationToken ct = default);
+}
+
+/// <inheritdoc cref="IIngestionDownloader"/>
+public sealed class IngestionDownloader : IIngestionDownloader
 {
     public const string HttpClientName = "ingestion-downloader";
 

@@ -7,9 +7,9 @@ namespace EfsAiHub.Core.Abstractions.Storage;
 ///
 /// Contrato de tolerância a falha (load-bearing): implementações NÃO propagam
 /// erros de infraestrutura. Escrita é best-effort (<see cref="PutAsync"/> engole e
-/// loga); leitura devolve <c>null</c> em miss/erro. O caller decide o fallback
-/// (ex.: re-download da origem). Alinha com a filosofia do projeto de que infra
-/// indisponível é degradação graciosa, nunca erro do job.
+/// loga, devolvendo <c>false</c>); leitura devolve <c>null</c> em miss/erro. O
+/// caller decide o fallback (ex.: re-download da origem). Alinha com a filosofia do
+/// projeto de que infra indisponível é degradação graciosa, nunca erro do job.
 ///
 /// A <c>key</c> é a chave LÓGICA (sem o prefixo do bucket) — a implementação
 /// aplica o <c>KeyPrefix</c> configurado, igual ao <c>BuildKey</c> do Redis. A
@@ -18,8 +18,14 @@ namespace EfsAiHub.Core.Abstractions.Storage;
 /// </summary>
 public interface IObjectStore
 {
-    /// <summary>Grava (overwrite) o objeto. Best-effort — não propaga erro de infra.</summary>
-    Task PutAsync(string key, byte[] content, string? contentType, CancellationToken ct = default);
+    /// <summary>
+    /// Grava (overwrite) o objeto. Best-effort — não propaga erro de infra.
+    /// Retorna <c>true</c> se o objeto foi gravado com sucesso, <c>false</c> se a
+    /// gravação falhou (engolida e logada). O caller só deve persistir um ponteiro
+    /// pro objeto quando o retorno é <c>true</c> — assim o ponteiro nunca aponta pra
+    /// um objeto inexistente (anti-órfão).
+    /// </summary>
+    Task<bool> PutAsync(string key, byte[] content, string? contentType, CancellationToken ct = default);
 
     /// <summary>Lê o objeto. Retorna <c>null</c> em miss ou erro (sem propagar).</summary>
     Task<byte[]?> GetAsync(string key, CancellationToken ct = default);
