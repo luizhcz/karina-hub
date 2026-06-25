@@ -321,6 +321,14 @@ public class WorkflowService : IWorkflowService, IWorkflowDispatcher
             Metadata = metadata != null ? new System.Collections.Concurrent.ConcurrentDictionary<string, string>(metadata) : new()
         };
 
+        // projectId SEMPRE no metadata da execução, espelhando a coluna ProjectId.
+        // A tela de Execuções (analytics) filtra client-side por metadata.projectId;
+        // sem isto, execuções standalone/ingestão — cujos handlers não populam o
+        // dicionário — ficavam invisíveis na tela. TryAdd preserva um projectId já
+        // enviado pelo caller (chat/router mandam o mesmo valor da coluna).
+        if (!string.IsNullOrEmpty(execution.ProjectId))
+            execution.Metadata.TryAdd("projectId", execution.ProjectId);
+
         try
         {
             await _executionRepo.CreateAsync(execution, ct);
