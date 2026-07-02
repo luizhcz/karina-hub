@@ -682,7 +682,7 @@ public class WorkflowRunnerService
                 }
             }
 
-            await HandleEventAsync(execution, run, evt, outputParts, nodeTracker, agentNames, token);
+            await HandleEventAsync(execution, run, orchestrationMode, evt, outputParts, nodeTracker, agentNames, token);
 
             if (execution.Status is WorkflowStatus.Completed or WorkflowStatus.Failed or WorkflowStatus.Cancelled)
                 break;
@@ -767,9 +767,29 @@ public class WorkflowRunnerService
         }
     }
 
+    /// <summary>
+    /// Decide o output final a partir das mensagens do evento de saída. Só o modo
+    /// Concurrent combina as respostas (execução paralela — cada agente é uma saída
+    /// independente); nos demais modos (Handoff/GroupChat) o resultado é a ÚLTIMA
+    /// mensagem do assistente, ou seja, a resposta do agente final.
+    /// </summary>
+    internal static string SelectAgentOutput(
+        OrchestrationMode orchestrationMode,
+        IEnumerable<Microsoft.Extensions.AI.ChatMessage> messages)
+    {
+        var assistantMessages = messages
+            .Where(m => m.Role == ChatRole.Assistant && !string.IsNullOrWhiteSpace(m.Text))
+            .ToList();
+
+        return orchestrationMode == OrchestrationMode.Concurrent && assistantMessages.Count > 1
+            ? string.Join("\n\n---\n\n", assistantMessages.Select(m => m.Text))
+            : assistantMessages.LastOrDefault()?.Text ?? string.Empty;
+    }
+
     private async Task HandleEventAsync(
         WorkflowExecution execution,
         StreamingRun run,
+        OrchestrationMode orchestrationMode,
         WorkflowEvent evt,
         List<string> outputParts,
         NodeStateTracker nodeTracker,
@@ -783,40 +803,24 @@ public class WorkflowRunnerService
                 break;
 
             case WorkflowOutputEvent outputEvt:
-                // Modo Handoff/GroupChat: Data é List<ChatMessage> — extrai o texto da última mensagem do assistente.
-                // Modo Concurrent: Data é List<ChatMessage> com uma resposta por agente — coleta todas.
-                // Modo Sequential/Graph: Data já é uma string.
+                // Modo Concurrent: Data é List<ChatMessage>, uma resposta por agente — combina todas.
+                // Modo Handoff/GroupChat: Data é List<ChatMessage> (a conversa) — usa só a última mensagem
+                //   do assistente, ou seja, o output do agente final.
+                // Modo Sequential/Graph: Data já é uma string (output do nó final).
 
                 // Gravar último agente ativo antes de notificar (para otimização de entry point)
                 if (nodeTracker.CurrentAgentId is not null)
                     execution.Metadata["lastActiveAgentId"] = nodeTracker.CurrentAgentId;
 
-                string output;
-                if (outputEvt.Data is IEnumerable<Microsoft.Extensions.AI.ChatMessage> outputMsgs)
-                {
-                    var assistantMessages = outputMsgs
-                        .Where(m => m.Role == ChatRole.Assistant && !string.IsNullOrWhiteSpace(m.Text))
-                        .ToList();
+                var output = outputEvt.Data is IEnumerable<Microsoft.Extensions.AI.ChatMessage> outputMsgs
+                    ? SelectAgentOutput(orchestrationMode, outputMsgs)
+                    : outputEvt.Data?.ToString() ?? string.Empty;
 
-                    // Concurrent: combina todas as respostas dos agentes; outros modos: usa apenas a última mensagem do assistente
-                    output = assistantMessages.Count > 1
-                        ? string.Join("\n\n---\n\n", assistantMessages.Select(m => m.Text))
-                        : assistantMessages.LastOrDefault()?.Text ?? string.Empty;
-
-                    if (!string.IsNullOrEmpty(output))
-                    {
-                        outputParts.Add(output);
-                        await _failureWriter.MarkCompletedAsync(execution, output, ct);
-                    }
-                }
-                else
+                if (!string.IsNullOrEmpty(output))
                 {
-                    output = outputEvt.Data?.ToString() ?? string.Empty;
-                    if (!string.IsNullOrEmpty(output))
-                    {
-                        outputParts.Add(output);
-                        await _failureWriter.MarkCompletedAsync(execution, string.Join("\n", outputParts), ct);
-                    }
+                    outputParts.Add(output);
+                    // Só o output final vira o resultado — não concatena eventos anteriores.
+                    await _failureWriter.MarkCompletedAsync(execution, output, ct);
                 }
                 break;
 
